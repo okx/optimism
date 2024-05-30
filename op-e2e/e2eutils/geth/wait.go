@@ -10,7 +10,6 @@ import (
 
 	"github.com/ethereum-optimism/optimism/op-node/rollup"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/derive"
-	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -116,6 +115,10 @@ func WaitForBlockToBeSafe(number *big.Int, client *ethclient.Client, timeout tim
 	return waitForBlockTag(number, client, timeout, rpc.SafeBlockNumber)
 }
 
+type RPCError interface {
+	ErrorCode() int
+}
+
 // waitForBlockTag polls for a block number to reach the specified tag & then returns that block at the number.
 func waitForBlockTag(number *big.Int, client *ethclient.Client, timeout time.Duration, tag rpc.BlockNumber) (*types.Block, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -132,6 +135,11 @@ func waitForBlockTag(number *big.Int, client *ethclient.Client, timeout time.Dur
 		case <-ticker.C:
 			block, err := client.BlockByNumber(ctx, tagBigInt)
 			if err != nil {
+				// If block is not found (e.g. upon startup of chain, when there is no "finalized block" yet)
+				// then it may be found later. Keep wait loop running.
+				if rpcErr, ok := err.(RPCError); ok && rpcErr.ErrorCode() == -32000 {
+					continue
+				}
 				return nil, err
 			}
 			if block != nil && block.NumberU64() >= number.Uint64() {
