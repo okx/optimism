@@ -222,9 +222,9 @@ func (s *Driver) eventLoop() {
 	planSequencerAction := func() {
 		delay := s.sequencer.PlanNextSequencerAction()
 		sequencerCh = sequencerTimer.C
-		if len(sequencerCh) > 0 { // empty if not already drained before resetting
-			<-sequencerCh
-		}
+		//if len(sequencerCh) > 0 { // empty if not already drained before resetting
+		//	<-sequencerCh
+		//}
 		sequencerTimer.Reset(delay)
 	}
 
