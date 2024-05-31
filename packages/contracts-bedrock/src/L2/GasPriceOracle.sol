@@ -54,13 +54,13 @@ contract GasPriceOracle is ISemver {
     /// @notice Retrieves the current gas price (base fee).
     /// @return Current L2 gas price (base fee).
     function gasPrice() public view returns (uint256) {
-        return block.basefee;
+        return 0;
     }
 
     /// @notice Retrieves the current base fee.
     /// @return Current L2 base fee.
     function baseFee() public view returns (uint256) {
-        return block.basefee;
+        return 0;
     }
 
     /// @custom:legacy
