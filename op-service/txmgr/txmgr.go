@@ -250,70 +250,76 @@ func (m *SimpleTxManager) craftTx(ctx context.Context, candidate TxCandidate) (*
 	//	m.metr.RPCError()
 	//	return nil, fmt.Errorf("failed to get gas price info: %w", err)
 	//}
-	var err error
-	gasTipCap := new(big.Int).SetUint64(2000000)
-	baseFee := new(big.Int).SetUint64(0)
-	blobBaseFee := new(big.Int).SetUint64(0)
-	gasFeeCap := calcGasFeeCap(baseFee, gasTipCap)
+	//gasFeeCap := calcGasFeeCap(baseFee, gasTipCap)
 
 	gasLimit := candidate.GasLimit
 
-	// If the gas limit is set, we can use that as the gas
+	//If the gas limit is set, we can use that as the gas
 	if gasLimit == 0 {
 		// Calculate the intrinsic gas for the transaction
-		gas, err := m.backend.EstimateGas(ctx, ethereum.CallMsg{
-			From:      m.cfg.From,
-			To:        candidate.To,
-			GasTipCap: gasTipCap,
-			GasFeeCap: gasFeeCap,
-			Data:      candidate.TxData,
-			Value:     candidate.Value,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to estimate gas: %w", err)
-		}
-		gasLimit = gas
+		//gas, err := m.backend.EstimateGas(ctx, ethereum.CallMsg{
+		//	From:      m.cfg.From,
+		//	To:        candidate.To,
+		//	GasTipCap: new(big.Int).SetUint64(200000000000),
+		//	GasFeeCap: new(big.Int).SetUint64(0),
+		//	Data:      candidate.TxData,
+		//	Value:     candidate.Value,
+		//})
+		//if err != nil {
+		//	return nil, fmt.Errorf("failed to estimate gas: %w", err)
+		//}
+		//todo: EstimateGas does not work, temporarily 10000000
+		gasLimit = 10000000
 	}
 
-	var sidecar *types.BlobTxSidecar
-	var blobHashes []common.Hash
-	if len(candidate.Blobs) > 0 {
-		if candidate.To == nil {
-			return nil, errors.New("blob txs cannot deploy contracts")
-		}
-		if sidecar, blobHashes, err = makeSidecar(candidate.Blobs); err != nil {
-			return nil, fmt.Errorf("failed to make sidecar: %w", err)
-		}
-	}
+	//var sidecar *types.BlobTxSidecar
+	//var blobHashes []common.Hash
+	//if len(candidate.Blobs) > 0 {
+	//	if candidate.To == nil {
+	//		return nil, errors.New("blob txs cannot deploy contracts")
+	//	}
+	//	if sidecar, blobHashes, err = makeSidecar(candidate.Blobs); err != nil {
+	//		return nil, fmt.Errorf("failed to make sidecar: %w", err)
+	//	}
+	//}
 
 	var txMessage types.TxData
-	if sidecar != nil {
-		if blobBaseFee == nil {
-			return nil, fmt.Errorf("expected non-nil blobBaseFee")
-		}
-		blobFeeCap := calcBlobFeeCap(blobBaseFee)
-		message := &types.BlobTx{
-			To:         *candidate.To,
-			Data:       candidate.TxData,
-			Gas:        gasLimit,
-			BlobHashes: blobHashes,
-			Sidecar:    sidecar,
-		}
-		if err := finishBlobTx(message, m.chainID, gasTipCap, gasFeeCap, blobFeeCap, candidate.Value); err != nil {
-			return nil, fmt.Errorf("failed to create blob transaction: %w", err)
-		}
-		txMessage = message
-	} else {
-		txMessage = &types.DynamicFeeTx{
-			ChainID:   m.chainID,
-			To:        candidate.To,
-			GasTipCap: gasTipCap,
-			GasFeeCap: gasFeeCap,
-			Value:     candidate.Value,
-			Data:      candidate.TxData,
-			Gas:       gasLimit,
-		}
+	//if sidecar != nil {
+	//	if blobBaseFee == nil {
+	//		return nil, fmt.Errorf("expected non-nil blobBaseFee")
+	//	}
+	//	blobFeeCap := calcBlobFeeCap(blobBaseFee)
+	//	message := &types.BlobTx{
+	//		To:         *candidate.To,
+	//		Data:       candidate.TxData,
+	//		Gas:        gasLimit,
+	//		BlobHashes: blobHashes,
+	//		Sidecar:    sidecar,
+	//	}
+	//	if err := finishBlobTx(message, m.chainID, gasTipCap, gasFeeCap, blobFeeCap, candidate.Value); err != nil {
+	//		return nil, fmt.Errorf("failed to create blob transaction: %w", err)
+	//	}
+	//	txMessage = message
+	//} else {
+	//txMessage = &types.DynamicFeeTx{
+	//	ChainID:   m.chainID,
+	//	To:        candidate.To,
+	//	GasTipCap: gasTipCap,
+	//	GasFeeCap: gasFeeCap,
+	//	Value:     candidate.Value,
+	//	Data:      candidate.TxData,
+	//	Gas:       gasLimit,
+	//}
+
+	txMessage = &types.LegacyTx{
+		//todo: use suggest gas price, temporarily 200GWei
+		GasPrice: new(big.Int).SetUint64(200000000000),
+		Gas:      gasLimit,
+		To:       candidate.To,
+		Value:    candidate.Value,
+		Data:     candidate.TxData,
 	}
+	//}
 	return m.signWithNextNonce(ctx, txMessage) // signer sets the nonce field of the tx
 
 }
@@ -366,6 +372,8 @@ func (m *SimpleTxManager) signWithNextNonce(ctx context.Context, txMessage types
 
 	switch x := txMessage.(type) {
 	case *types.DynamicFeeTx:
+		x.Nonce = *m.nonce
+	case *types.LegacyTx:
 		x.Nonce = *m.nonce
 	case *types.BlobTx:
 		x.Nonce = *m.nonce
