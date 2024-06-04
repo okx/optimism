@@ -222,6 +222,7 @@ func (s *Driver) eventLoop() {
 	planSequencerAction := func() {
 		delay := s.sequencer.PlanNextSequencerAction()
 		sequencerCh = sequencerTimer.C
+		//todo: If this code is not commented, the sequencer will be extremely slow in generating blocks during block derivation.
 		//if len(sequencerCh) > 0 { // empty if not already drained before resetting
 		//	<-sequencerCh
 		//}
