@@ -245,11 +245,15 @@ func (m *SimpleTxManager) send(ctx context.Context, candidate TxCandidate) (*typ
 // NOTE: If the [TxCandidate.GasLimit] is non-zero, it will be used as the transaction's gas.
 // NOTE: Otherwise, the [SimpleTxManager] will query the specified backend for an estimate.
 func (m *SimpleTxManager) craftTx(ctx context.Context, candidate TxCandidate) (*types.Transaction, error) {
-	gasTipCap, baseFee, blobBaseFee, err := m.suggestGasPriceCaps(ctx)
-	if err != nil {
-		m.metr.RPCError()
-		return nil, fmt.Errorf("failed to get gas price info: %w", err)
-	}
+	//gasTipCap, baseFee, blobBaseFee, err := m.suggestGasPriceCaps(ctx)
+	//if err != nil {
+	//	m.metr.RPCError()
+	//	return nil, fmt.Errorf("failed to get gas price info: %w", err)
+	//}
+	var err error
+	gasTipCap := new(big.Int).SetUint64(2000000)
+	baseFee := new(big.Int).SetUint64(0)
+	blobBaseFee := new(big.Int).SetUint64(0)
 	gasFeeCap := calcGasFeeCap(baseFee, gasTipCap)
 
 	gasLimit := candidate.GasLimit
@@ -463,18 +467,18 @@ func (m *SimpleTxManager) publishTx(ctx context.Context, tx *types.Transaction, 
 			l.Warn("TxManager closed, aborting transaction submission")
 			return tx, false
 		}
-		if bumpFeesImmediately {
-			newTx, err := m.increaseGasPrice(ctx, tx)
-			if err != nil {
-				l.Error("unable to increase gas", "err", err)
-				m.metr.TxPublished("bump_failed")
-				return tx, false
-			}
-			tx = newTx
-			sendState.bumpCount++
-			l = m.txLogger(tx, true)
-		}
-		bumpFeesImmediately = true // bump fees next loop
+		//if bumpFeesImmediately {
+		//	newTx, err := m.increaseGasPrice(ctx, tx)
+		//	if err != nil {
+		//		l.Error("unable to increase gas", "err", err)
+		//		m.metr.TxPublished("bump_failed")
+		//		return tx, false
+		//	}
+		//	tx = newTx
+		//	sendState.bumpCount++
+		//	l = m.txLogger(tx, true)
+		//}
+		bumpFeesImmediately = false // bump fees next loop
 
 		if sendState.IsWaitingForConfirmation() {
 			// there is a chance the previous tx goes into "waiting for confirmation" state
