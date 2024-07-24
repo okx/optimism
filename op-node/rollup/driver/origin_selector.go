@@ -65,7 +65,8 @@ func (los *L1OriginSelector) FindL1Origin(ctx context.Context, l2Head eth.L2Bloc
 		} else {
 			log.Error("Failed to get next origin. Falling back to current origin", "err", err)
 		}
-		return currentOrigin, nil
+		// okx: fix reorg: transaction 0 does not match
+		return eth.L1BlockRef{}, err
 	}
 
 	// If the next L2 block time is greater than the next origin block's time, we can choose to
