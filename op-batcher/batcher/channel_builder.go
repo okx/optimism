@@ -125,7 +125,9 @@ type channelBuilder struct {
 	// current channel
 	co derive.ChannelOut
 	// list of blocks in the channel. Saved in case the channel must be rebuilt
-	blocks []*types.Block
+	blocks   []*types.Block
+	totalTxs int
+
 	// frames data queue, to be send as txs
 	frames []frameData
 	// total frames counter
@@ -220,11 +222,17 @@ func (c *channelBuilder) AddBlock(block *types.Block) (*derive.L1BlockInfo, erro
 		return l1info, fmt.Errorf("adding block to channel out: %w", err)
 	}
 	c.blocks = append(c.blocks, block)
+	c.totalTxs += len(block.Transactions())
+
 	c.updateSwTimeout(batch)
 
 	if err = c.co.FullErr(); err != nil {
 		c.setFullErr(err)
 		// Adding this block still worked, so don't return error, just mark as full
+	}
+
+	if len(c.blocks) > 100 || c.totalTxs > 100 {
+		c.setFullErr(errors.New(fmt.Sprintf("too many blocks or txs in this channel, blocks: %d, txs: %d", len(c.blocks), c.totalTxs)))
 	}
 
 	return l1info, nil
