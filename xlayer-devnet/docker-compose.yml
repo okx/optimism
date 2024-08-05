@@ -62,13 +62,8 @@ services:
       --rollup.config=/rollup.json
       --rpc.addr=0.0.0.0
       --rpc.port=8545
-      --p2p.listen.ip=0.0.0.0
-      --p2p.listen.tcp=9003
-      --p2p.listen.udp=9003
-      --p2p.scoring.peers=light
-      --p2p.ban.peers=true
+      --p2p.disable
       --snapshotlog.file=/op_log/snapshot.log
-      --p2p.priv.path=/config/p2p-node-key.txt
       --metrics.enabled
       --metrics.addr=0.0.0.0
       --metrics.port=7300
@@ -80,8 +75,6 @@ services:
       - "7300:7300"
       - "6060:6060"
     volumes:
-      - "${PWD}/p2p-sequencer-key.txt:/config/p2p-sequencer-key.txt"
-      - "${PWD}/p2p-node-key.txt:/config/p2p-node-key.txt"
       - "${PWD}/test-jwt-secret.txt:/config/test-jwt-secret.txt"
       - "${PWD}/../.devnet/rollup.json:/rollup.json"
       - op_log:/op_log
@@ -146,28 +139,3 @@ services:
       OP_BATCHER_RPC_ENABLE_ADMIN: "true"
       OP_BATCHER_BATCH_TYPE: 0
       OP_BATCHER_MAX_L1_TX_SIZE_BYTES: 100000
-
-#  artifact-server:
-#    depends_on:
-#      - l1
-#    image: nginx:1.25-alpine
-#    ports:
-#      - "8080:80"
-#    volumes:
-#      - "${PWD}/../.devnet/:/usr/share/nginx/html/:ro"
-#    security_opt:
-#      - "no-new-privileges:true"
-
-#  stateviz:
-#    build:
-#      context: ../
-#      dockerfile: ./ops-bedrock/Dockerfile.stateviz
-#    command:
-#      - stateviz
-#      - -addr=0.0.0.0:8080
-#      - -snapshot=/op_log/snapshot.log
-#      - -refresh=10s
-#    ports:
-#      - "9090:8080"
-#    volumes:
-#      - op_log:/op_log:ro
