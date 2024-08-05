@@ -49,4 +49,6 @@ exec geth \
 	--metrics \
 	--metrics.addr=0.0.0.0 \
 	--metrics.port=6060 \
+	--rollup.disabletxpoolgossip=true \
+	--miner.effectivegaslimit=7000000 \
 	"$@"

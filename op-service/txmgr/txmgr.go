@@ -599,8 +599,8 @@ func (m *SimpleTxManager) queryReceipt(ctx context.Context, txHash common.Hash, 
 		m.l.Error("Unable to fetch tip", "err", err)
 		return nil
 	}
-
-	m.metr.RecordBaseFee(tip.BaseFee)
+	//hardcode X Layer BaseFee to 0
+	m.metr.RecordBaseFee(big.NewInt(0))
 	m.l.Debug("Transaction mined, checking confirmations", "tx", txHash,
 		"block", eth.ReceiptBlockID(receipt), "tip", eth.HeaderBlockID(tip),
 		"numConfirmations", m.cfg.NumConfirmations)

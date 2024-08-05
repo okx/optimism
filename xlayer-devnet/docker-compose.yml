@@ -42,6 +42,8 @@ services:
     depends_on:
       - op_stack_go_builder
       - l2
+    env_file:
+      - .env
     build:
       context: ../
       dockerfile: ./op-node/Dockerfile
@@ -50,13 +52,13 @@ services:
     image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-node:devnet
     command: >
       op-node
-      --l1=https://testrpc.xlayer.tech/unlimited/3a81f62988e12a738722fd82e8c117cb
+      --l1=${L1_URL}
       --l2=http://l2:8551
       --l2.jwt-secret=/config/test-jwt-secret.txt
       --sequencer.enabled
       --sequencer.l1-confs=0
       --verifier.l1-confs=0
-      --p2p.sequencer.key=0xf9254ba4bf9b4916049f800eda115443542bc6e964efce79f3d4995331dac402
+      --p2p.sequencer.key=${GS_SEQUENCER_PRIVATE_KEY}
       --rollup.config=/rollup.json
       --rpc.addr=0.0.0.0
       --rpc.port=8545
@@ -89,6 +91,8 @@ services:
       - op_stack_go_builder
       - l2
       - op-node
+    env_file:
+      - .env
     build:
       context: ../
       dockerfile: ./op-proposer/Dockerfile
@@ -100,13 +104,12 @@ services:
       - "7302:7300"
       - "6546:8545"
     environment:
-      OP_PROPOSER_L1_ETH_RPC: https://testrpc.xlayer.tech/unlimited/3a81f62988e12a738722fd82e8c117cb
+      OP_PROPOSER_L1_ETH_RPC: ${L1_URL}
       OP_PROPOSER_ROLLUP_RPC: http://op-node:8545
       OP_PROPOSER_POLL_INTERVAL: 1s
       OP_PROPOSER_NUM_CONFIRMATIONS: 1
-      OP_PROPOSER_MNEMONIC: test test test test test test test test test test test junk
-      OP_PROPOSER_L2_OUTPUT_HD_PATH: "m/44'/60'/0'/0/1"
-      OP_PROPOSER_L2OO_ADDRESS: "0x3887cE4FCF21FBA3E31e449DBbaE4B748712dbAf"
+      OP_PROPOSER_PRIVATE_KEY: ${GS_PROPOSER_PRIVATE_KEY}
+      OP_PROPOSER_L2OO_ADDRESS: ${L2OO_ADDRESS}
       OP_PROPOSER_PPROF_ENABLED: "true"
       OP_PROPOSER_METRICS_ENABLED: "true"
       OP_PROPOSER_ALLOW_NON_FINALIZED: "true"
@@ -117,6 +120,8 @@ services:
       - op_stack_go_builder
       - l2
       - op-node
+    env_file:
+      - .env
     build:
       context: ../
       dockerfile: ./op-batcher/Dockerfile
@@ -128,19 +133,19 @@ services:
       - "7301:7300"
       - "6545:8545"
     environment:
-      OP_BATCHER_L1_ETH_RPC: https://testrpc.xlayer.tech/unlimited/3a81f62988e12a738722fd82e8c117cb
+      OP_BATCHER_L1_ETH_RPC: ${L1_URL}
       OP_BATCHER_L2_ETH_RPC: http://l2:8545
       OP_BATCHER_ROLLUP_RPC: http://op-node:8545
       OP_BATCHER_MAX_CHANNEL_DURATION: 1
       OP_BATCHER_SUB_SAFETY_MARGIN: 4 # SWS is 15, ChannelTimeout is 40
       OP_BATCHER_POLL_INTERVAL: 1s
       OP_BATCHER_NUM_CONFIRMATIONS: 1
-      OP_BATCHER_MNEMONIC: test test test test test test test test test test test junk
-      OP_BATCHER_SEQUENCER_HD_PATH: "m/44'/60'/0'/0/2"
+      OP_BATCHER_PRIVATE_KEY: ${GS_BATCHER_PRIVATE_KEY}
       OP_BATCHER_PPROF_ENABLED: "true"
       OP_BATCHER_METRICS_ENABLED: "true"
       OP_BATCHER_RPC_ENABLE_ADMIN: "true"
       OP_BATCHER_BATCH_TYPE: 0
+      OP_BATCHER_MAX_L1_TX_SIZE_BYTES: 100000
 
 #  artifact-server:
 #    depends_on:
