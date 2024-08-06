@@ -93,6 +93,7 @@ type ETHBackend interface {
 	// TODO(CLI-3318): Maybe need a generic interface to support different RPC providers
 	HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error)
 	SuggestGasTipCap(ctx context.Context) (*big.Int, error)
+	SuggestGasPrice(ctx context.Context) (*big.Int, error)
 	// NonceAt returns the account nonce of the given account.
 	// The block number can be nil, in which case the nonce is taken from the latest known block.
 	NonceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (uint64, error)
@@ -251,7 +252,11 @@ func (m *SimpleTxManager) craftTx(ctx context.Context, candidate TxCandidate) (*
 	//	return nil, fmt.Errorf("failed to get gas price info: %w", err)
 	//}
 	//gasFeeCap := calcGasFeeCap(baseFee, gasTipCap)
-
+	gp, err := m.backend.SuggestGasPrice(ctx)
+	if err != nil {
+		m.metr.RPCError()
+		return nil, fmt.Errorf("failed to get gas price info: %w", err)
+	}
 	gasLimit := candidate.GasLimit
 
 	//If the gas limit is set, we can use that as the gas
@@ -312,8 +317,7 @@ func (m *SimpleTxManager) craftTx(ctx context.Context, candidate TxCandidate) (*
 	//}
 
 	txMessage = &types.LegacyTx{
-		//todo: use suggest gas price, temporarily 200GWei
-		GasPrice: new(big.Int).SetUint64(200000000000),
+		GasPrice: gp,
 		Gas:      gasLimit,
 		To:       candidate.To,
 		Value:    candidate.Value,

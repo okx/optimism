@@ -283,6 +283,11 @@ func (b *mockBackend) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
 	return tip, nil
 }
 
+func (b *mockBackend) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
+	tip, _, _ := b.g.sample()
+	return tip, nil
+}
+
 func (b *mockBackend) SendTransaction(ctx context.Context, tx *types.Transaction) error {
 	if b.send == nil {
 		panic("set sender function was not set")
@@ -900,6 +905,10 @@ func (b *failingBackend) SendTransaction(_ context.Context, _ *types.Transaction
 }
 
 func (b *failingBackend) SuggestGasTipCap(_ context.Context) (*big.Int, error) {
+	return b.gasTip, nil
+}
+
+func (b *failingBackend) SuggestGasPrice(_ context.Context) (*big.Int, error) {
 	return b.gasTip, nil
 }
 
