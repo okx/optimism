@@ -80,10 +80,18 @@ func validateReceipts(block eth.BlockID, receiptHash common.Hash, txHashes []com
 		// And Optimism L1 fee meta-data in the receipt is ignored as well
 	}
 
+	// X Layer
+	// ignore the bloom at this point due to a bug in zknode where the bloom is not included in the block during execution
+	auxReceipts := make([]*types.Receipt, 0)
+	for _, r := range receipts {
+		r.Bloom = [256]byte{}
+		auxReceipts = append(auxReceipts, r)
+	}
+
 	// Sanity-check: external L1-RPC sources are notorious for not returning all receipts,
 	// or returning them out-of-order. Verify the receipts against the expected receipt-hash.
 	hasher := trie.NewStackTrie(nil)
-	computed := types.DeriveSha(types.Receipts(receipts), hasher)
+	computed := types.DeriveSha(types.Receipts(auxReceipts), hasher)
 	if receiptHash != computed {
 		return fmt.Errorf("failed to fetch list of receipts: expected receipt root %s but computed %s from retrieved receipts", receiptHash, computed)
 	}
