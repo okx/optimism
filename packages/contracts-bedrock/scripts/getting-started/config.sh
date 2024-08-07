@@ -97,6 +97,7 @@ config=$(cat << EOL
   "faultGameGenesisOutputRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
   "faultGameSplitDepth": 14,
   "faultGameWithdrawalDelay": 300,
+  "fundDevAccounts": false,
 
   "preimageOracleMinProposalSize": 126000,
   "preimageOracleChallengePeriod": 360,
