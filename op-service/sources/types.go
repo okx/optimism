@@ -278,7 +278,8 @@ func (block *RPCBlock) ExecutionPayloadEnvelope(trustCache bool) (*eth.Execution
 		}
 	}
 	var baseFee uint256.Int
-	baseFee.SetFromBig((*big.Int)(block.BaseFee))
+	// X layer
+	baseFee.SetFromBig((*big.Int)(new(big.Int).SetUint64(0)))
 
 	// Unfortunately eth_getBlockByNumber either returns full transactions, or only tx-hashes.
 	// There is no option for encoded transactions.
