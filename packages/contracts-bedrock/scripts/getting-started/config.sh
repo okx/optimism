@@ -27,19 +27,20 @@ blockhash=$(echo "$block" | awk '/hash/ { print $2 }')
 # Generate the config file
 config=$(cat << EOL
 {
+  "finalSystemOwner": "$GS_ADMIN_ADDRESS",
   "l1StartingBlockTag": "$blockhash",
 
-  "l1ChainID": 11155111,
-  "l2ChainID": 42069,
-  "l2BlockTime": 2,
-  "l1BlockTime": 12,
+  "l1ChainID": 195,
+  "l2ChainID": 19535,
+  "l2BlockTime": 1,
+  "l1BlockTime": 3,
 
   "maxSequencerDrift": 600,
   "sequencerWindowSize": 3600,
   "channelTimeout": 300,
 
   "p2pSequencerAddress": "$GS_SEQUENCER_ADDRESS",
-  "batchInboxAddress": "0xff00000000000000000000000000000000042069",
+  "batchInboxAddress": "0xff00000000000000000000000000000000019535",
   "batchSenderAddress": "$GS_BATCHER_ADDRESS",
 
   "l2OutputOracleSubmissionInterval": 120,
@@ -69,8 +70,8 @@ config=$(cat << EOL
   "gasPriceOracleScalar": 1000000,
 
   "enableGovernance": true,
-  "governanceTokenSymbol": "OP",
-  "governanceTokenName": "Optimism",
+  "governanceTokenSymbol": "opOKB",
+  "governanceTokenName": "OKOptimism",
   "governanceTokenOwner": "$GS_ADMIN_ADDRESS",
 
   "l2GenesisBlockGasLimit": "0x1c9c380",
@@ -91,13 +92,18 @@ config=$(cat << EOL
 
   "faultGameAbsolutePrestate": "0x03c7ae758795765c6664a5d39bf63841c71ff191e9189522bad8ebff5d4eca98",
   "faultGameMaxDepth": 44,
-  "faultGameMaxDuration": 1200,
+  "faultGameMaxDuration": 300,
   "faultGameGenesisBlock": 0,
   "faultGameGenesisOutputRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
   "faultGameSplitDepth": 14,
+  "faultGameWithdrawalDelay": 300,
 
-  "preimageOracleMinProposalSize": 1800000,
-  "preimageOracleChallengePeriod": 86400,
+  "preimageOracleMinProposalSize": 126000,
+  "preimageOracleChallengePeriod": 360,
+  "proofMaturityDelaySeconds": 300,
+  "disputeGameFinalityDelaySeconds": 150,
+  "respectedGameType": 0,
+  "useFaultProofs": true
 }
 EOL
 )
