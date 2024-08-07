@@ -65,7 +65,8 @@ type ChannelBuilder struct {
 	// current channel
 	co derive.ChannelOut
 	// list of blocks in the channel. Saved in case the channel must be rebuilt
-	blocks []*types.Block
+	blocks   []*types.Block
+	totalTxs int
 	// latestL1Origin is the latest L1 origin of all the L2 blocks that have been added to the channel
 	latestL1Origin eth.BlockID
 	// frames data queue, to be send as txs
@@ -162,6 +163,7 @@ func (c *ChannelBuilder) AddBlock(block *types.Block) (*derive.L1BlockInfo, erro
 	}
 
 	c.blocks = append(c.blocks, block)
+	c.totalTxs += len(block.Transactions())
 	c.updateSwTimeout(batch)
 
 	if l1info.Number > c.latestL1Origin.Number {
@@ -176,6 +178,11 @@ func (c *ChannelBuilder) AddBlock(block *types.Block) (*derive.L1BlockInfo, erro
 		// Adding this block still worked, so don't return error, just mark as full
 	}
 
+	// X Layer
+	// todo: config blocks cap, default 100
+	if len(c.blocks) > 100 || c.totalTxs > 100 {
+		c.setFullErr(errors.New(fmt.Sprintf("too many blocks or txs in this channel, blocks: %d, txs: %d", len(c.blocks), c.totalTxs)))
+	}
 	return l1info, nil
 }
 
