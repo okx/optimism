@@ -98,6 +98,7 @@ type ETHBackend interface {
 	// TODO(CLI-3318): Maybe need a generic interface to support different RPC providers
 	HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error)
 	SuggestGasTipCap(ctx context.Context) (*big.Int, error)
+	SuggestGasPrice(ctx context.Context) (*big.Int, error)
 	// NonceAt returns the account nonce of the given account.
 	// The block number can be nil, in which case the nonce is taken from the latest known block.
 	NonceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (uint64, error)
@@ -251,70 +252,77 @@ func (m *SimpleTxManager) send(ctx context.Context, candidate TxCandidate) (*typ
 // NOTE: Otherwise, the [SimpleTxManager] will query the specified backend for an estimate.
 func (m *SimpleTxManager) craftTx(ctx context.Context, candidate TxCandidate) (*types.Transaction, error) {
 	m.l.Debug("crafting Transaction", "blobs", len(candidate.Blobs), "calldata_size", len(candidate.TxData))
-	gasTipCap, baseFee, blobBaseFee, err := m.suggestGasPriceCaps(ctx)
+	gp, err := m.backend.SuggestGasPrice(ctx)
 	if err != nil {
 		m.metr.RPCError()
 		return nil, fmt.Errorf("failed to get gas price info: %w", err)
 	}
-	gasFeeCap := calcGasFeeCap(baseFee, gasTipCap)
-
 	gasLimit := candidate.GasLimit
 
 	// If the gas limit is set, we can use that as the gas
 	if gasLimit == 0 {
-		// Calculate the intrinsic gas for the transaction
-		gas, err := m.backend.EstimateGas(ctx, ethereum.CallMsg{
-			From:      m.cfg.From,
-			To:        candidate.To,
-			GasTipCap: gasTipCap,
-			GasFeeCap: gasFeeCap,
-			Data:      candidate.TxData,
-			Value:     candidate.Value,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to estimate gas: %w", err)
-		}
-		gasLimit = gas
+		//// Calculate the intrinsic gas for the transaction
+		//gas, err := m.backend.EstimateGas(ctx, ethereum.CallMsg{
+		//	From:      m.cfg.From,
+		//	To:        candidate.To,
+		//	GasTipCap: gasTipCap,
+		//	GasFeeCap: gasFeeCap,
+		//	Data:      candidate.TxData,
+		//	Value:     candidate.Value,
+		//})
+		//if err != nil {
+		//	return nil, fmt.Errorf("failed to estimate gas: %w", err)
+		//}
+		// X Layer
+		//todo: EstimateGas does not work, temporarily 10000000
+		gasLimit = 10000000
 	}
 
-	var sidecar *types.BlobTxSidecar
-	var blobHashes []common.Hash
-	if len(candidate.Blobs) > 0 {
-		if candidate.To == nil {
-			return nil, errors.New("blob txs cannot deploy contracts")
-		}
-		if sidecar, blobHashes, err = MakeSidecar(candidate.Blobs); err != nil {
-			return nil, fmt.Errorf("failed to make sidecar: %w", err)
-		}
-	}
+	//var sidecar *types.BlobTxSidecar
+	//var blobHashes []common.Hash
+	//if len(candidate.Blobs) > 0 {
+	//	if candidate.To == nil {
+	//		return nil, errors.New("blob txs cannot deploy contracts")
+	//	}
+	//	if sidecar, blobHashes, err = MakeSidecar(candidate.Blobs); err != nil {
+	//		return nil, fmt.Errorf("failed to make sidecar: %w", err)
+	//	}
+	//}
 
 	var txMessage types.TxData
-	if sidecar != nil {
-		if blobBaseFee == nil {
-			return nil, fmt.Errorf("expected non-nil blobBaseFee")
-		}
-		blobFeeCap := calcBlobFeeCap(blobBaseFee)
-		message := &types.BlobTx{
-			To:         *candidate.To,
-			Data:       candidate.TxData,
-			Gas:        gasLimit,
-			BlobHashes: blobHashes,
-			Sidecar:    sidecar,
-		}
-		if err := finishBlobTx(message, m.chainID, gasTipCap, gasFeeCap, blobFeeCap, candidate.Value); err != nil {
-			return nil, fmt.Errorf("failed to create blob transaction: %w", err)
-		}
-		txMessage = message
-	} else {
-		txMessage = &types.DynamicFeeTx{
-			ChainID:   m.chainID,
-			To:        candidate.To,
-			GasTipCap: gasTipCap,
-			GasFeeCap: gasFeeCap,
-			Value:     candidate.Value,
-			Data:      candidate.TxData,
-			Gas:       gasLimit,
-		}
+	//if sidecar != nil {
+	//	if blobBaseFee == nil {
+	//		return nil, fmt.Errorf("expected non-nil blobBaseFee")
+	//	}
+	//	blobFeeCap := calcBlobFeeCap(blobBaseFee)
+	//	message := &types.BlobTx{
+	//		To:         *candidate.To,
+	//		Data:       candidate.TxData,
+	//		Gas:        gasLimit,
+	//		BlobHashes: blobHashes,
+	//		Sidecar:    sidecar,
+	//	}
+	//	if err := finishBlobTx(message, m.chainID, gasTipCap, gasFeeCap, blobFeeCap, candidate.Value); err != nil {
+	//		return nil, fmt.Errorf("failed to create blob transaction: %w", err)
+	//	}
+	//	txMessage = message
+	//} else {
+	//	txMessage = &types.DynamicFeeTx{
+	//		ChainID:   m.chainID,
+	//		To:        candidate.To,
+	//		GasTipCap: gasTipCap,
+	//		GasFeeCap: gasFeeCap,
+	//		Value:     candidate.Value,
+	//		Data:      candidate.TxData,
+	//		Gas:       gasLimit,
+	//	}
+	//}
+	txMessage = &types.LegacyTx{
+		GasPrice: gp,
+		Gas:      gasLimit,
+		To:       candidate.To,
+		Value:    candidate.Value,
+		Data:     candidate.TxData,
 	}
 	return m.signWithNextNonce(ctx, txMessage) // signer sets the nonce field of the tx
 
@@ -368,6 +376,8 @@ func (m *SimpleTxManager) signWithNextNonce(ctx context.Context, txMessage types
 
 	switch x := txMessage.(type) {
 	case *types.DynamicFeeTx:
+		x.Nonce = *m.nonce
+	case *types.LegacyTx:
 		x.Nonce = *m.nonce
 	case *types.BlobTx:
 		x.Nonce = *m.nonce
@@ -468,18 +478,19 @@ func (m *SimpleTxManager) publishTx(ctx context.Context, tx *types.Transaction, 
 			l.Warn("TxManager closed, aborting transaction submission")
 			return tx, false
 		}
-		if bumpFeesImmediately {
-			newTx, err := m.increaseGasPrice(ctx, tx)
-			if err != nil {
-				l.Error("unable to increase gas", "err", err)
-				m.metr.TxPublished("bump_failed")
-				return tx, false
-			}
-			tx = newTx
-			sendState.bumpCount++
-			l = m.txLogger(tx, true)
-		}
-		bumpFeesImmediately = true // bump fees next loop
+		// X Layer
+		//if bumpFeesImmediately {
+		//	newTx, err := m.increaseGasPrice(ctx, tx)
+		//	if err != nil {
+		//		l.Error("unable to increase gas", "err", err)
+		//		m.metr.TxPublished("bump_failed")
+		//		return tx, false
+		//	}
+		//	tx = newTx
+		//	sendState.bumpCount++
+		//	l = m.txLogger(tx, true)
+		//}
+		bumpFeesImmediately = false // bump fees next loop
 
 		if sendState.IsWaitingForConfirmation() {
 			// there is a chance the previous tx goes into "waiting for confirmation" state
@@ -597,8 +608,9 @@ func (m *SimpleTxManager) queryReceipt(ctx context.Context, txHash common.Hash, 
 		m.l.Error("Unable to fetch tip", "err", err)
 		return nil
 	}
-
-	m.metr.RecordBaseFee(tip.BaseFee)
+	//X Layer
+	//hardcode X Layer BaseFee to 0
+	m.metr.RecordBaseFee(big.NewInt(0))
 	m.l.Debug("Transaction mined, checking confirmations", "tx", txHash,
 		"block", eth.ReceiptBlockID(receipt), "tip", eth.HeaderBlockID(tip),
 		"numConfirmations", m.cfg.NumConfirmations)
