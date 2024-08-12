@@ -134,6 +134,7 @@ abstract contract ResourceMetering is Initializable {
         // division by zero for L1s that don't support 1559 or to avoid excessive gas burns during
         // periods of extremely low L1 demand. One-day average gas fee hasn't dipped below 1 gwei
         // during any 1 day period in the last 5 years, so should be fine.
+        // X Layer
         uint256 gasCost = resourceCost / Math.max(0, 1 gwei);
 
         // Give the user a refund based on the amount of gas they used to do all of the work up to

@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"errors"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/log"
 
@@ -60,6 +61,7 @@ func (los *L1OriginSelector) FindL1Origin(ctx context.Context, l2Head eth.L2Bloc
 		} else {
 			log.Error("Failed to get next origin. Falling back to current origin", "err", err)
 		}
+		// X Layer
 		return eth.L1BlockRef{}, err
 	}
 

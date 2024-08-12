@@ -252,6 +252,7 @@ func (m *SimpleTxManager) craftTx(ctx context.Context, candidate TxCandidate) (*
 	//	return nil, fmt.Errorf("failed to get gas price info: %w", err)
 	//}
 	//gasFeeCap := calcGasFeeCap(baseFee, gasTipCap)
+	// X Layer
 	gp, err := m.backend.SuggestGasPrice(ctx)
 	if err != nil {
 		m.metr.RPCError()
@@ -490,6 +491,7 @@ func (m *SimpleTxManager) publishTx(ctx context.Context, tx *types.Transaction, 
 		//	sendState.bumpCount++
 		//	l = m.txLogger(tx, true)
 		//}
+		// X Layer
 		bumpFeesImmediately = false // bump fees next loop
 
 		if sendState.IsWaitingForConfirmation() {
@@ -603,7 +605,8 @@ func (m *SimpleTxManager) queryReceipt(ctx context.Context, txHash common.Hash, 
 		m.l.Error("Unable to fetch tip", "err", err)
 		return nil
 	}
-	//hardcode X Layer BaseFee to 0
+	// X Layer
+	// hardcode BaseFee to 0
 	m.metr.RecordBaseFee(big.NewInt(0))
 	m.l.Debug("Transaction mined, checking confirmations", "tx", txHash,
 		"block", eth.ReceiptBlockID(receipt), "tip", eth.HeaderBlockID(tip),

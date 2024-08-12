@@ -82,7 +82,8 @@ func (info *L1BlockInfo) marshalBinaryBedrock() ([]byte, error) {
 	if err := solabi.WriteUint64(w, info.Time); err != nil {
 		return nil, err
 	}
-	// [xlayer] hardcode basefee to 0
+	// X Layer
+	// hardcode BaseFee to 0
 	if err := solabi.WriteUint256(w, new(big.Int).SetUint64(0)); err != nil {
 		return nil, err
 	}

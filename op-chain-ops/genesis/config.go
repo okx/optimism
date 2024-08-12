@@ -845,7 +845,8 @@ func NewL2StorageConfig(config *DeployConfig, block *types.Block) (state.Storage
 	if block.Number() == nil {
 		return storage, errors.New("block number not set")
 	}
-	// [XLayer] does not have block base fee
+	// X Layer
+	// does not have block base fee
 	//if block.BaseFee() == nil {
 	//	return storage, errors.New("block base fee not set")
 	//}
@@ -868,8 +869,9 @@ func NewL2StorageConfig(config *DeployConfig, block *types.Block) (state.Storage
 		"_initializing": false,
 	}
 	storage["L1Block"] = state.StorageValues{
-		"number":         block.Number(),
-		"timestamp":      block.Time(),
+		"number":    block.Number(),
+		"timestamp": block.Time(),
+		//X Layer
 		"basefee":        new(big.Int).SetUint64(0),
 		"hash":           block.Hash(),
 		"sequenceNumber": 0,

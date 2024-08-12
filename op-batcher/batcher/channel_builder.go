@@ -231,6 +231,7 @@ func (c *channelBuilder) AddBlock(block *types.Block) (*derive.L1BlockInfo, erro
 		// Adding this block still worked, so don't return error, just mark as full
 	}
 
+	// X Layer
 	if len(c.blocks) > 100 || c.totalTxs > 100 {
 		c.setFullErr(errors.New(fmt.Sprintf("too many blocks or txs in this channel, blocks: %d, txs: %d", len(c.blocks), c.totalTxs)))
 	}

@@ -98,6 +98,7 @@ func (r *RuntimeConfig) RecommendedProtocolVersion() params.ProtocolVersion {
 // Load is safe to call concurrently, but will lock the runtime configuration modifications only,
 // and will thus not block other Load calls with possibly alternative L1 block views.
 func (r *RuntimeConfig) Load(ctx context.Context, l1Ref eth.L1BlockRef) error {
+	// X Layer
 	//todo: ReadStorageAt is still unavailable in XL
 	//p2pSignerVal, err := r.l1Client.ReadStorageAt(ctx, r.rollupCfg.L1SystemConfigAddress, UnsafeBlockSignerAddressSystemConfigStorageSlot, l1Ref.Hash)
 	//if err != nil {
@@ -120,8 +121,10 @@ func (r *RuntimeConfig) Load(ctx context.Context, l1Ref eth.L1BlockRef) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.l1Ref = l1Ref
+	// X Layer
 	//todo: temporarily hardcode sequencer addr
-	r.p2pBlockSignerAddr = common.BytesToAddress([]byte("0x76cfd34E2715c162Ee1a302aCA07219B5edD093d"))
+	// test test test test test test test test test test test junk
+	r.p2pBlockSignerAddr = common.BytesToAddress([]byte("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"))
 	r.required = requiredProtVersion
 	r.recommended = recommendedProtoVersion
 	r.log.Info("loaded new runtime config values!", "p2p_seq_address", r.p2pBlockSignerAddr)
