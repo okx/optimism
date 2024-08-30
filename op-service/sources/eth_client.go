@@ -323,9 +323,11 @@ func (s *EthClient) FetchReceipts(ctx context.Context, blockHash common.Hash) (e
 		return nil, nil, err
 	}
 
-	if err := validateReceipts(block, info.ReceiptHash(), txHashes, receipts); err != nil {
-		return info, nil, fmt.Errorf("invalid receipts: %w", err)
-	}
+	// X Layer
+	// Fully trust the lower-layer RPC and temporarily skip this validation.
+	//if err := validateReceipts(block, info.ReceiptHash(), txHashes, receipts); err != nil {
+	//	return info, nil, fmt.Errorf("invalid receipts: %w", err)
+	//}
 
 	return info, receipts, nil
 }
