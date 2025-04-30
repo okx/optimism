@@ -116,7 +116,7 @@ func (ds *StaticConfigDependencySet) CanExecuteAt(chainID eth.ChainID, execTimes
 	if !ok {
 		return false, nil
 	}
-	return execTimestamp >= dep.ActivationTime, nil
+	return execTimestamp > dep.ActivationTime, nil
 }
 
 func (ds *StaticConfigDependencySet) CanInitiateAt(chainID eth.ChainID, initTimestamp uint64) (bool, error) {
@@ -124,7 +124,7 @@ func (ds *StaticConfigDependencySet) CanInitiateAt(chainID eth.ChainID, initTime
 	if !ok {
 		return false, nil
 	}
-	return initTimestamp >= dep.HistoryMinTime, nil
+	return initTimestamp > dep.HistoryMinTime, nil
 }
 
 func (ds *StaticConfigDependencySet) Chains() []eth.ChainID {
