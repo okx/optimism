@@ -124,7 +124,7 @@ func (ds *StaticConfigDependencySet) CanInitiateAt(chainID eth.ChainID, initTime
 	if !ok {
 		return false, nil
 	}
-	return initTimestamp >= dep.HistoryMinTime, nil
+	return initTimestamp > dep.HistoryMinTime, nil
 }
 
 func (ds *StaticConfigDependencySet) Chains() []eth.ChainID {
