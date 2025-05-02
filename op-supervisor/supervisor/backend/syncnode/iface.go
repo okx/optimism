@@ -31,6 +31,7 @@ type SyncSource interface {
 	OutputV0AtTimestamp(ctx context.Context, timestamp uint64) (*eth.OutputV0, error)
 	PendingOutputV0AtTimestamp(ctx context.Context, timestamp uint64) (*eth.OutputV0, error)
 	L2BlockRefByTimestamp(ctx context.Context, timestamp uint64) (eth.L2BlockRef, error)
+	AnchorPoint(ctx context.Context) (types.DerivedBlockRefPair, error)
 	// String identifies the sync source
 	String() string
 }

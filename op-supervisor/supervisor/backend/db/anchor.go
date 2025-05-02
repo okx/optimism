@@ -19,6 +19,11 @@ func (db *ChainsDB) isInitialized(id eth.ChainID) bool {
 	return ok
 }
 
+// IsInitialized returns true if the database for the given chain has been initialized
+func (db *ChainsDB) IsInitialized(id eth.ChainID) bool {
+	return db.isInitialized(id)
+}
+
 func (db *ChainsDB) initFromAnchor(id eth.ChainID, anchor types.DerivedBlockRefPair) {
 	// Check if the chain database is already initialized
 	if db.isInitialized(id) {
@@ -80,10 +85,17 @@ func (db *ChainsDB) maybeInitEventsDB(id eth.ChainID, anchor types.DerivedBlockR
 	seal, _, _, err := db.OpenBlock(id, 0)
 	if errors.Is(err, types.ErrFuture) {
 		logger.Debug("initializing events database")
-		err := db.initializedSealBlock(id, anchor.Derived)
-		if err != nil {
-			return err
+
+		// Seal the anchor block directly
+		logDB, ok := db.logDBs.Get(id)
+		if !ok {
+			return fmt.Errorf("cannot SealBlock: %w: %v", types.ErrUnknownChain, id)
 		}
+		err := logDB.SealBlock(anchor.Derived.ParentHash, anchor.Derived.ID(), anchor.Derived.Time)
+		if err != nil {
+			return fmt.Errorf("failed to seal anchor block %v: %w", anchor.Derived, err)
+		}
+
 		logger.Info("Initialized events database")
 	} else if err != nil {
 		return fmt.Errorf("failed to check if logDB is initialized: %w", err)
@@ -98,3 +110,5 @@ func (db *ChainsDB) maybeInitEventsDB(id eth.ChainID, anchor types.DerivedBlockR
 	}
 	return nil
 }
+
+// We have an OnEvent method already in db.go, so this is removed from anchor.go

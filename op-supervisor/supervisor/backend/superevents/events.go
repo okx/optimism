@@ -120,8 +120,9 @@ func (ev LocalDerivedOriginUpdateEvent) String() string {
 }
 
 type AnchorEvent struct {
-	ChainID eth.ChainID
-	Anchor  types.DerivedBlockRefPair
+	ChainID    eth.ChainID
+	Anchor     types.DerivedBlockRefPair
+	PreInterop bool
 }
 
 func (ev AnchorEvent) String() string {
@@ -170,4 +171,14 @@ type UpdateLocalSafeFailedEvent struct {
 
 func (ev UpdateLocalSafeFailedEvent) String() string {
 	return "update-local-safe-failed"
+}
+
+type InteropActivatedEvent struct {
+	ChainID eth.ChainID
+	Anchor  types.DerivedBlockRefPair
+	Block   eth.BlockRef
+}
+
+func (ev InteropActivatedEvent) String() string {
+	return "interop-activated"
 }

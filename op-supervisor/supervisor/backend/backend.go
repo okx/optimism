@@ -19,6 +19,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-service/locks"
 	"github.com/ethereum-optimism/optimism/op-service/sources"
 	"github.com/ethereum-optimism/optimism/op-supervisor/config"
+	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/activation"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/cross"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/db"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/db/sync"
@@ -46,6 +47,9 @@ type SupervisorBackend struct {
 
 	// depSet is the dependency set that the backend uses to know about the chains it is indexing
 	depSet depset.DependencySet
+
+	// activationMgr handles interop activation logic and event filtering
+	activationMgr *activation.ActivationManager
 
 	// chainDBs is the primary interface to the databases, including logs, derived-from information and L1 finalization
 	chainDBs *db.ChainsDB
@@ -109,6 +113,8 @@ func NewSupervisorBackend(ctx context.Context, logger log.Logger,
 		return nil, fmt.Errorf("failed to load dependency set: %w", err)
 	}
 
+	activationMgr := activation.NewActivationManager(depSet, logger)
+
 	// Sync the databases from the remote server if configured
 	// We only attempt to sync a database if it doesn't exist; we don't update existing databases
 	if cfg.DatadirSyncEndpoint != "" {
@@ -136,12 +142,13 @@ func NewSupervisorBackend(ctx context.Context, logger log.Logger,
 
 	// create the supervisor backend
 	super := &SupervisorBackend{
-		logger:     logger,
-		m:          m,
-		dataDir:    cfg.Datadir,
-		depSet:     depSet,
-		chainDBs:   chainsDBs,
-		l1Accessor: l1Accessor,
+		logger:        logger,
+		m:             m,
+		dataDir:       cfg.Datadir,
+		depSet:        depSet,
+		activationMgr: activationMgr,
+		chainDBs:      chainsDBs,
+		l1Accessor:    l1Accessor,
 		// For testing we can avoid running the processors.
 		synchronousProcessors: cfg.SynchronousProcessors,
 		eventSys:              eventSys,
@@ -176,6 +183,38 @@ func NewSupervisorBackend(ctx context.Context, logger log.Logger,
 func (su *SupervisorBackend) OnEvent(ev event.Event) bool {
 	switch x := ev.(type) {
 	case superevents.LocalUnsafeReceivedEvent:
+		if !su.activationMgr.ShouldProcessEvent(x.ChainID, x.NewLocalUnsafe) {
+			su.logger.Debug("Skipping pre-interop block", "chain", x.ChainID, "block", x.NewLocalUnsafe)
+			return true
+		}
+
+		// Check for interop activation
+		if !su.isInteropActive() && su.activationMgr.IsActiveForChain(x.ChainID, x.NewLocalUnsafe.Time) {
+			su.logger.Info("Interop activation detected", "chain", x.ChainID, "block", x.NewLocalUnsafe)
+
+			getAnchorPoint := func(ctx context.Context) (types.DerivedBlockRefPair, error) {
+				syncSrc, ok := su.syncSources.Get(x.ChainID)
+				if !ok {
+					return types.DerivedBlockRefPair{}, fmt.Errorf("no sync source for chain %s", x.ChainID)
+				}
+				return syncSrc.AnchorPoint(ctx)
+			}
+
+			// Handle interop activation by passing appropriate functions to set up initialization
+			err := su.activationMgr.DetectAndActivateInterop(
+				context.Background(),
+				x.ChainID,
+				x.NewLocalUnsafe,
+				getAnchorPoint,
+				su.chainDBs.IsInitialized,
+				su.chainDBs.InitializeWithAnchor)
+
+			if err != nil {
+				su.logger.Error("Failed to activate interop", "chain", x.ChainID, "block", x.NewLocalUnsafe, "err", err)
+			}
+		}
+
+		// Process the block normally
 		su.emitter.Emit(superevents.ChainProcessEvent{
 			ChainID: x.ChainID,
 			Target:  x.NewLocalUnsafe.Number,
@@ -204,6 +243,7 @@ func (su *SupervisorBackend) OnEvent(ev event.Event) bool {
 
 func (su *SupervisorBackend) AttachEmitter(em event.Emitter) {
 	su.emitter = em
+	su.activationMgr.AttachEmitter(em)
 }
 
 // initResources initializes all the resources, such as DBs and processors for chains.
@@ -307,35 +347,59 @@ func (su *SupervisorBackend) AttachSyncNode(ctx context.Context, src syncnode.Sy
 	if err != nil {
 		return nil, fmt.Errorf("failed to identify chain ID of sync source: %w", err)
 	}
+
 	if !su.depSet.HasChain(chainID) {
 		return nil, fmt.Errorf("chain %s is not part of the interop dependency set: %w", chainID, types.ErrUnknownChain)
 	}
-	// before attaching the sync source to the backend at all,
-	// query the anchor point to initialize the database
+
+	// Before attaching the sync source to the backend, query the anchor point to initialize the database
 	if err := su.QueryAnchorpoint(chainID, src); err != nil {
 		return nil, fmt.Errorf("failed to query anchor point: %w", err)
 	}
-	err = su.AttachProcessorSource(chainID, src)
-	if err != nil {
+
+	if err = su.AttachProcessorSource(chainID, src); err != nil {
 		return nil, fmt.Errorf("failed to attach sync source to processor: %w", err)
 	}
-	err = su.AttachSyncSource(chainID, src)
-	if err != nil {
-		return nil, fmt.Errorf("failed to attach sync source to node: %w", err)
+
+	if err = su.AttachSyncSource(chainID, src); err != nil {
+		return nil, fmt.Errorf("failed to attach sync source to sync controller: %w", err)
 	}
+
 	return su.syncNodesController.AttachNodeController(chainID, src, noSubscribe)
 }
 
 func (su *SupervisorBackend) QueryAnchorpoint(chainID eth.ChainID, src syncnode.SyncNode) error {
+	isInteropActive := su.isInteropActive()
+
 	anchor, err := src.AnchorPoint(context.Background())
 	if err != nil {
+		if !isInteropActive {
+			su.logger.Info("Skipping anchor point initialization in pre-interop mode", "chain", chainID)
+			su.emitter.Emit(superevents.AnchorEvent{
+				ChainID:    chainID,
+				Anchor:     types.DerivedBlockRefPair{},
+				PreInterop: true,
+			})
+			return nil
+		}
 		return fmt.Errorf("failed to get anchor point: %w", err)
 	}
 	su.emitter.Emit(superevents.AnchorEvent{
-		ChainID: chainID,
-		Anchor:  anchor,
+		ChainID:    chainID,
+		Anchor:     anchor,
+		PreInterop: !isInteropActive,
 	})
 	return nil
+}
+
+func (su *SupervisorBackend) isInteropActive() bool {
+	return su.activationMgr.IsActive()
+}
+
+// IsInteropActive returns true if interop is currently active
+// This is a public accessor for the same functionality
+func (su *SupervisorBackend) IsInteropActive() bool {
+	return su.activationMgr.IsActive()
 }
 
 func (su *SupervisorBackend) AttachProcessorSource(chainID eth.ChainID, src processors.Source) error {

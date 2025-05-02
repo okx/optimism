@@ -331,6 +331,10 @@ func (f *fakeSyncSource) FetchReceipts(_ context.Context, _ common.Hash) (types2
 	panic("should not be called")
 }
 
+func (f *fakeSyncSource) AnchorPoint(_ context.Context) (types.DerivedBlockRefPair, error) {
+	panic("should not be called")
+}
+
 func (f *fakeSyncSource) OutputV0AtTimestamp(_ context.Context, _ uint64) (*eth.OutputV0, error) {
 	panic("should not be called")
 }

@@ -24,24 +24,41 @@ func (db *ChainsDB) AddLog(
 	return logDB.AddLog(logHash, parentBlock, logIdx, execMsg)
 }
 
-// SealBlock seals the block in the logDB.
-// it wraps an inner function, blocking the call if the database is not initialized.
 func (db *ChainsDB) SealBlock(chain eth.ChainID, block eth.BlockRef) error {
 	if !db.isInitialized(chain) {
-		return fmt.Errorf("cannot SealBlock on uninitialized database: %w", types.ErrUninitialized)
+		// Check activation using the activation manager if it's available
+		isActive := db.activationMgr != nil && db.activationMgr.IsActiveForChain(chain, block.Time)
+		if isActive {
+			return fmt.Errorf("cannot SealBlock on uninitialized database: %w", types.ErrUninitialized)
+		}
+		db.logger.Debug("Ignoring SealBlock in pre-interop mode", "chain", chain, "block", block)
+		return nil
 	}
-	return db.initializedSealBlock(chain, block)
-}
 
-func (db *ChainsDB) initializedSealBlock(chain eth.ChainID, block eth.BlockRef) error {
+	// Check activation using the activation manager if it's available
+	isActive := db.activationMgr != nil && db.activationMgr.IsActiveForChain(chain, block.Time)
+	if !isActive {
+		db.logger.Debug("Filtering pre-interop SealBlock", "chain", chain, "block", block)
+		return nil
+	}
+
+	// Check DB boundaries using the activation manager if available
+	if db.activationMgr != nil {
+		if err := db.activationMgr.CheckDBBoundaries(chain, block, db.GetAnchorL2Block); err != nil {
+			return err
+		}
+	}
+
 	logDB, ok := db.logDBs.Get(chain)
 	if !ok {
 		return fmt.Errorf("cannot SealBlock: %w: %v", types.ErrUnknownChain, chain)
 	}
+
 	err := logDB.SealBlock(block.ParentHash, block.ID(), block.Time)
 	if err != nil {
 		return fmt.Errorf("failed to seal block %v: %w", block, err)
 	}
+
 	db.logger.Info("Updated local unsafe", "chain", chain, "block", block)
 	db.emitter.Emit(superevents.LocalUnsafeUpdateEvent{
 		ChainID:        chain,
@@ -49,6 +66,7 @@ func (db *ChainsDB) initializedSealBlock(chain eth.ChainID, block eth.BlockRef) 
 	})
 	return nil
 }
+
 
 func (db *ChainsDB) Rewind(chain eth.ChainID, headBlock eth.BlockID) error {
 	// Rewind the logDB
@@ -89,13 +107,35 @@ func (db *ChainsDB) Rewind(chain eth.ChainID, headBlock eth.BlockID) error {
 }
 
 // UpdateLocalSafe updates the local-safe database with the given source and lastDerived blocks.
-// It wraps an inner function, blocking the call if the database is not initialized.
 func (db *ChainsDB) UpdateLocalSafe(chain eth.ChainID, source eth.BlockRef, lastDerived eth.BlockRef, nodeId string) {
 	logger := db.logger.New("chain", chain, "source", source, "lastDerived", lastDerived)
+
 	if !db.isInitialized(chain) {
-		logger.Error("cannot UpdateLocalSafe on uninitialized database", "chain", chain)
+		// Check activation using the activation manager if it's available
+		isActive := db.activationMgr != nil && db.activationMgr.IsActiveForChain(chain, lastDerived.Time)
+		if isActive {
+			logger.Error("cannot UpdateLocalSafe on uninitialized database", "chain", chain)
+			return
+		}
+		logger.Debug("Ignoring UpdateLocalSafe in pre-interop mode", "chain", chain)
 		return
 	}
+
+	// Check activation using the activation manager if it's available
+	isActive := db.activationMgr != nil && db.activationMgr.IsActiveForChain(chain, lastDerived.Time)
+	if !isActive {
+		logger.Debug("Filtering pre-interop UpdateLocalSafe", "chain", chain)
+		return
+	}
+
+	// Check DB boundaries using the activation manager if available
+	if db.activationMgr != nil {
+		if err := db.activationMgr.CheckDBBoundaries(chain, lastDerived, db.GetAnchorL2Block); err != nil {
+			logger.Error("Failed DB boundary check", "err", err)
+			return
+		}
+	}
+
 	db.initializedUpdateLocalSafe(chain, source, lastDerived, nodeId)
 }
 
@@ -139,27 +179,72 @@ func (db *ChainsDB) UpdateCrossUnsafe(chain eth.ChainID, crossUnsafe types.Block
 	if !ok {
 		return fmt.Errorf("cannot UpdateCrossUnsafe: %w: %s", types.ErrUnknownChain, chain)
 	}
+
 	if !db.isInitialized(chain) {
-		return fmt.Errorf("cannot UpdateCrossUnsafe on uninitialized database: %w", types.ErrUninitialized)
+		// Check activation using the activation manager if it's available
+		isActive := db.activationMgr != nil && db.activationMgr.IsActiveForChain(chain, crossUnsafe.Timestamp)
+		if isActive {
+			return fmt.Errorf("cannot UpdateCrossUnsafe on uninitialized database: %w", types.ErrUninitialized)
+		}
+		db.logger.Debug("Ignoring UpdateCrossUnsafe in pre-interop mode", "chain", chain)
+		return nil
 	}
+
+	// Check activation using the activation manager if it's available
+	isActive := db.activationMgr != nil && db.activationMgr.IsActiveForChain(chain, crossUnsafe.Timestamp)
+	if !isActive {
+		db.logger.Debug("Filtering pre-interop UpdateCrossUnsafe", "chain", chain)
+		return nil
+	}
+
+	blockRef := eth.BlockRef{
+		Number: crossUnsafe.Number,
+		Time:   crossUnsafe.Timestamp,
+		Hash:   crossUnsafe.Hash,
+	}
+
+	// Check DB boundaries using the activation manager if available
+	if db.activationMgr != nil {
+		if err := db.activationMgr.CheckDBBoundaries(chain, blockRef, db.GetAnchorL2Block); err != nil {
+			return fmt.Errorf("failed DB boundary check: %w", err)
+		}
+	}
+
 	v.Set(crossUnsafe)
 	db.logger.Info("Updated cross-unsafe", "chain", chain, "crossUnsafe", crossUnsafe)
 	db.emitter.Emit(superevents.CrossUnsafeUpdateEvent{
 		ChainID:        chain,
 		NewCrossUnsafe: crossUnsafe,
 	})
-	db.m.RecordCrossUnsafeRef(chain, eth.BlockRef{
-		Number: crossUnsafe.Number,
-		Time:   crossUnsafe.Timestamp,
-		Hash:   crossUnsafe.Hash,
-	})
+	db.m.RecordCrossUnsafeRef(chain, blockRef)
 	return nil
 }
 
 func (db *ChainsDB) UpdateCrossSafe(chain eth.ChainID, l1View eth.BlockRef, lastCrossDerived eth.BlockRef) error {
 	if !db.isInitialized(chain) {
-		return fmt.Errorf("cannot UpdateCrossSafe on uninitialized database: %w", types.ErrUninitialized)
+		// Check activation using the activation manager if it's available
+		isActive := db.activationMgr != nil && db.activationMgr.IsActiveForChain(chain, lastCrossDerived.Time)
+		if isActive {
+			return fmt.Errorf("cannot UpdateCrossSafe on uninitialized database: %w", types.ErrUninitialized)
+		}
+		db.logger.Debug("Ignoring UpdateCrossSafe in pre-interop mode", "chain", chain)
+		return nil
 	}
+
+	// Check activation using the activation manager if it's available
+	isActive := db.activationMgr != nil && db.activationMgr.IsActiveForChain(chain, lastCrossDerived.Time)
+	if !isActive {
+		db.logger.Debug("Filtering pre-interop UpdateCrossSafe", "chain", chain)
+		return nil
+	}
+
+	// Check DB boundaries using the activation manager if available
+	if db.activationMgr != nil {
+		if err := db.activationMgr.CheckDBBoundaries(chain, lastCrossDerived, db.GetAnchorL2Block); err != nil {
+			return fmt.Errorf("failed DB boundary check: %w", err)
+		}
+	}
+
 	return db.initializedUpdateCrossSafe(chain, l1View, lastCrossDerived)
 }
 

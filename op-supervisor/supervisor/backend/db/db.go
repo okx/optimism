@@ -131,6 +131,13 @@ type ChainsDB struct {
 	// depSet is the dependency set, used to determine what may be tracked,
 	// what is missing, and to provide it to DB users.
 	depSet depset.DependencySet
+	
+	// activationMgr handles the interop activation logic
+	activationMgr interface {
+		IsActiveForChain(chain eth.ChainID, timestamp uint64) bool
+		CheckDBBoundaries(chain eth.ChainID, block eth.BlockRef, getAnchorBlock func(eth.ChainID) (eth.BlockRef, error)) error
+		CheckAnchorPointExpiry(anchor types.DerivedBlockRefPair) error
+	}
 
 	logger log.Logger
 
@@ -154,6 +161,15 @@ func NewChainsDB(l log.Logger, depSet depset.DependencySet, m Metrics) *ChainsDB
 	}
 }
 
+// SetActivationManager sets the activation manager for the ChainsDB
+func (db *ChainsDB) SetActivationManager(mgr interface {
+	IsActiveForChain(chain eth.ChainID, timestamp uint64) bool
+	CheckDBBoundaries(chain eth.ChainID, block eth.BlockRef, getAnchorBlock func(eth.ChainID) (eth.BlockRef, error)) error
+	CheckAnchorPointExpiry(anchor types.DerivedBlockRefPair) error
+}) {
+	db.activationMgr = mgr
+}
+
 func (db *ChainsDB) AttachEmitter(em event.Emitter) {
 	db.emitter = em
 }
@@ -162,8 +178,13 @@ func (db *ChainsDB) OnEvent(ev event.Event) bool {
 	switch x := ev.(type) {
 	case superevents.AnchorEvent:
 		db.logger.Info("Received chain anchor information",
-			"chain", x.ChainID, "derived", x.Anchor.Derived, "source", x.Anchor.Source)
-		db.initFromAnchor(x.ChainID, x.Anchor)
+			"chain", x.ChainID, "derived", x.Anchor.Derived, "source", x.Anchor.Source, "preInterop", x.PreInterop)
+		if x.PreInterop {
+			db.logger.Info("Marking database as initialized in pre-interop mode without anchor point", "chain", x.ChainID)
+			db.initialized.Set(x.ChainID, struct{}{})
+		} else {
+			db.initFromAnchor(x.ChainID, x.Anchor)
+		}
 	case superevents.LocalDerivedEvent:
 		db.UpdateLocalSafe(x.ChainID, x.Derived.Source, x.Derived.Derived, x.NodeID)
 	case superevents.FinalizedL1RequestEvent:
