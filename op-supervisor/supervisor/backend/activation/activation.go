@@ -27,13 +27,13 @@ type ChainInitializer interface {
 }
 
 type AnchorBlockProvider interface {
-	GetAnchorBlock(chainID eth.ChainID) (eth.BlockRef, error) 
+	GetAnchorBlock(chainID eth.ChainID) (eth.BlockRef, error)
 }
 
 type ActivationManager struct {
-	depSet         depset.DependencySet
-	logger         log.Logger
-	emitter        event.Emitter
+	depSet  depset.DependencySet
+	logger  log.Logger
+	emitter event.Emitter
 }
 
 func NewActivationManager(depSet depset.DependencySet, logger log.Logger) *ActivationManager {

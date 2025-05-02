@@ -110,7 +110,7 @@ type ChainsDB struct {
 	// initLocks: used to prevent certain database calls until initialization is signaled
 	// uninitialized chains won't have values in the map
 	initialized locks.RWMap[eth.ChainID, struct{}]
-	
+
 	// anchorBlocks: stores the anchor blocks used for initializing each chain
 	// chains with anchor blocks are in interop mode, those without are pre-interop
 	anchorBlocks locks.RWMap[eth.ChainID, types.DerivedBlockRefPair]
@@ -135,7 +135,7 @@ type ChainsDB struct {
 	// depSet is the dependency set, used to determine what may be tracked,
 	// what is missing, and to provide it to DB users.
 	depSet depset.DependencySet
-	
+
 	// activationMgr handles the interop activation logic
 	activationMgr interface {
 		IsActiveForChain(chain eth.ChainID, timestamp uint64) bool

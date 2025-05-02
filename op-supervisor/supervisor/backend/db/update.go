@@ -80,7 +80,6 @@ func (db *ChainsDB) SealBlock(chain eth.ChainID, block eth.BlockRef) error {
 	return nil
 }
 
-
 func (db *ChainsDB) Rewind(chain eth.ChainID, headBlock eth.BlockID) error {
 	// Rewind the logDB
 	logDB, ok := db.logDBs.Get(chain)

@@ -200,7 +200,7 @@ func (t *resetTracker) resetHeadsFromTarget(target eth.BlockID) {
 		if resetter, ok := t.managed.Node.(ResetRequester); ok {
 			nodeCtx, nCancel := context.WithTimeout(t.managed.ctx, nodeTimeout)
 			defer nCancel()
-			
+
 			t.managed.log.Info("attempting reset via RequestReset", "l1_block_number", l1BlockNum)
 			if err := resetter.RequestReset(nodeCtx, l1BlockNum); err == nil {
 				t.managed.log.Info("successfully reset node using RequestReset", "l1_block_number", l1BlockNum)
