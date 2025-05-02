@@ -104,7 +104,6 @@ func (n *adminAPI) SetRecoverMode(ctx context.Context, mode bool) error {
 // RequestReset requests a reset of the derivation pipeline to start from a specific L1 block
 // This is used to handle reset scenarios, including resetting to pre-interop state
 func (n *adminAPI) RequestReset(ctx context.Context, l1BlockNumber uint64) error {
-	n.CommonAdminAPI.Log.Info("Received reset request", "l1_block", l1BlockNumber)
 	return n.dr.ResetToL1(ctx, l1BlockNumber)
 }
 
