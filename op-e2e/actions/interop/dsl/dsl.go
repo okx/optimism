@@ -118,6 +118,7 @@ type AddL2BlockOpts struct {
 	BlockIsNotCrossUnsafe bool
 	TransactionCreators   []TransactionCreator
 	UntilTimestamp        uint64
+	ForcePreActivationBlock bool // If true, forces a block to be created even in pre-activation
 }
 
 func WithL2BlockTransactions(mkTxs ...TransactionCreator) func(*AddL2BlockOpts) {
@@ -129,6 +130,15 @@ func WithL2BlockTransactions(mkTxs ...TransactionCreator) func(*AddL2BlockOpts) 
 func WithL1BlockCrossUnsafe() func(*AddL2BlockOpts) {
 	return func(o *AddL2BlockOpts) {
 		o.BlockIsNotCrossUnsafe = true
+	}
+}
+
+// WithForcePreActivationBlock forces a block to be created in pre-activation mode
+// by skipping the activation checks in the DSL. This is necessary for tests
+// that verify behavior before activation with the new filtering architecture.
+func WithForcePreActivationBlock() func(*AddL2BlockOpts) {
+	return func(o *AddL2BlockOpts) {
+		o.ForcePreActivationBlock = true
 	}
 }
 
@@ -146,11 +156,35 @@ func (d *InteropDSL) AddL2Block(chain *Chain, optionalArgs ...func(*AddL2BlockOp
 	}
 	for opts.UntilTimestamp == 0 || chain.Sequencer.L2Unsafe().Time <= opts.UntilTimestamp {
 		priorSyncStatus := chain.Sequencer.SyncStatus()
+		
+		// Build and end the block
 		chain.Sequencer.ActL2StartBlock(d.t)
 		for _, creator := range opts.TransactionCreators {
 			creator(chain).Include()
 		}
 		chain.Sequencer.ActL2EndBlock(d.t)
+		
+		// With the new filtering architecture, blocks in pre-activation might not advance
+		// If ForcePreActivationBlock is true, we bypass the normal supervisor event handling
+		if opts.ForcePreActivationBlock {
+			// In this case, just verify that cross-unsafe doesn't advance
+			newStatus := chain.Sequencer.SyncStatus()
+			require.Equal(d.t, priorSyncStatus.CrossUnsafeL2.Number, newStatus.CrossUnsafeL2.Number, 
+				"CrossUnsafe head should not advance in pre-activation")
+			
+			// Normally, pre-activation blocks would be filtered out by the SupervisorBackend
+			// But for testing purposes, we want to verify they still exist but don't advance cross-unsafe
+			if newStatus.UnsafeL2.Number > priorSyncStatus.UnsafeL2.Number {
+				d.t.Log("Block was created successfully in pre-activation phase")
+			}
+			
+			if opts.UntilTimestamp == 0 {
+				break
+			}
+			continue // Skip the normal synchronization and verification
+		}
+		
+		// Standard flow - synchronize with supervisor and process events
 		chain.Sequencer.SyncSupervisor(d.t)
 		d.Actors.Supervisor.ProcessFull(d.t)
 		chain.Sequencer.ActL2PipelineFull(d.t)

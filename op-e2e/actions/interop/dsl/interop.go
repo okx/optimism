@@ -233,11 +233,19 @@ func (sa *SupervisorActor) Rewind(chain eth.ChainID, block eth.BlockID) error {
 // RecipeToDepSet converts a recipe into a dependency-set for the supervisor.
 func RecipeToDepSet(t helpers.Testing, recipe *interopgen.InteropDevRecipe) *depset.StaticConfigDependencySet {
 	depSetCfg := make(map[eth.ChainID]*depset.StaticConfigDependency)
+	
+	// Get the timestamp of the L1 block corresponding to the activation offset
+	l1BlockTime := recipe.GenesisTimestamp
+	if testInteropActivationOffset > 0 {
+		// Add blocks at 12-second intervals to determine the timestamp
+		l1BlockTime = recipe.GenesisTimestamp + (testInteropActivationOffset * 12)
+	}
+	
 	for _, out := range recipe.L2s {
 		depSetCfg[eth.ChainIDFromUInt64(out.ChainID)] = &depset.StaticConfigDependency{
 			ChainIndex:     types.ChainIndex(out.ChainID),
-			ActivationTime: 0,
-			HistoryMinTime: 0,
+			ActivationTime: l1BlockTime, // Use L1 block timestamp based on offset
+			HistoryMinTime: l1BlockTime - 1, // Set HistoryMinTime to just before activation time
 		}
 	}
 	depSet, err := depset.NewStaticConfigDependencySetWithMessageExpiryOverride(depSetCfg, recipe.ExpiryTime)

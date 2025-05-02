@@ -261,6 +261,10 @@ func (s *l2VerifierBackend) SyncStatus(ctx context.Context) (*eth.SyncStatus, er
 	return s.verifier.SyncStatus(), nil
 }
 
+func (s *l2VerifierBackend) ResetToL1(ctx context.Context, l1BlockNumber uint64) error {
+	return fmt.Errorf("ResetToL1 not implemented in l2VerifierBackend")
+}
+
 func (s *l2VerifierBackend) ResetDerivationPipeline(ctx context.Context) error {
 	s.verifier.derivation.Reset()
 	return nil
