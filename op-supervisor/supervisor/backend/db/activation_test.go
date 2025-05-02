@@ -464,6 +464,61 @@ func TestActivationBoundaryCheckAndActivateInterop(t *testing.T) {
 	assert.False(t, db.isInitialized(chain))
 }
 
+func TestActivationAnchorBlockTracking(t *testing.T) {
+	logger := log.New()
+	chainID := eth.ChainID{1}
+
+	// Create test chains DB
+	chainsDB := NewChainsDB(logger, nil, nil)
+
+	// Verify chain is not initialized and has no anchor block initially
+	require.False(t, chainsDB.IsInitialized(chainID))
+	_, hasAnchor := chainsDB.GetAnchorBlock(chainID)
+	require.False(t, hasAnchor)
+	require.False(t, chainsDB.IsInInteropMode(chainID))
+
+	// Create a test anchor block pair
+	source := eth.L1BlockRef{
+		Number: 100,
+		Hash:   common.Hash{0x01},
+		Time:   1000,
+	}
+	derived := eth.BlockRef{
+		Number: 200,
+		Hash:   common.Hash{0x02},
+		Time:   2000,
+	}
+	anchorPair := types.DerivedBlockRefPair{
+		Source:  source,
+		Derived: derived,
+	}
+
+	// Initialize with anchor block
+	chainsDB.anchorBlocks.Set(chainID, anchorPair)
+	chainsDB.initialized.Set(chainID, struct{}{})
+
+	// Verify state after initialization with anchor block
+	require.True(t, chainsDB.IsInitialized(chainID))
+	_, hasAnchor = chainsDB.GetAnchorBlock(chainID)
+	require.True(t, hasAnchor)
+	require.True(t, chainsDB.IsInInteropMode(chainID))
+
+	// Get the anchor block and verify it matches what we set
+	retrievedAnchor, ok := chainsDB.GetAnchorBlock(chainID)
+	require.True(t, ok)
+	require.Equal(t, anchorPair, retrievedAnchor)
+
+	// Initialize another chain in pre-interop mode (initialized but no anchor block)
+	preInteropChainID := eth.ChainID{2}
+	chainsDB.initialized.Set(preInteropChainID, struct{}{})
+
+	// Verify pre-interop state
+	require.True(t, chainsDB.IsInitialized(preInteropChainID))
+	_, hasAnchor = chainsDB.GetAnchorBlock(preInteropChainID)
+	require.False(t, hasAnchor)
+	require.False(t, chainsDB.IsInInteropMode(preInteropChainID))
+}
+
 type mockDerivationDBWithFirstEntry struct {
 	mockDerivationDB
 	FirstEntry types.DerivedBlockSealPair

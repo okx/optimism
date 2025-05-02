@@ -7,23 +7,14 @@ import (
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/types"
 )
 
-// GetAnchorL2Block returns the first block used as an anchor point for the chain
+// GetAnchorL2Block returns the anchor block for the specified chain
+// Used by the activation manager for boundary checks
 func (db *ChainsDB) GetAnchorL2Block(chain eth.ChainID) (eth.BlockRef, error) {
-	crossDB, ok := db.crossDBs.Get(chain)
+	anchor, ok := db.GetAnchorBlock(chain)
 	if !ok {
-		return eth.BlockRef{}, fmt.Errorf("no cross-safe DB for chain %s", chain)
+		return eth.BlockRef{}, fmt.Errorf("no anchor block for chain %s", chain)
 	}
-
-	firstPair, err := crossDB.First()
-	if err != nil {
-		return eth.BlockRef{}, fmt.Errorf("failed to get first entry from cross-safe DB: %w", err)
-	}
-
-	return eth.BlockRef{
-		Hash:   firstPair.Derived.Hash,
-		Number: firstPair.Derived.Number,
-		Time:   firstPair.Derived.Timestamp,
-	}, nil
+	return anchor.Derived, nil
 }
 
 // InitializeWithAnchor initializes the database with the given anchor point

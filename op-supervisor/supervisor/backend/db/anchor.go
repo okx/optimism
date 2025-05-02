@@ -24,10 +24,24 @@ func (db *ChainsDB) IsInitialized(id eth.ChainID) bool {
 	return db.isInitialized(id)
 }
 
+// GetAnchorBlock returns the anchor block for the chain
+// Returns an empty pair and false if the chain doesn't have an anchor block
+func (db *ChainsDB) GetAnchorBlock(id eth.ChainID) (types.DerivedBlockRefPair, bool) {
+	anchor, ok := db.anchorBlocks.Get(id)
+	return anchor, ok
+}
+
+// IsInInteropMode returns true if the chain has an anchor block and is in interop mode
+// This differs from IsInitialized which can be true even in pre-interop mode
+func (db *ChainsDB) IsInInteropMode(id eth.ChainID) bool {
+	_, ok := db.anchorBlocks.Get(id)
+	return ok
+}
+
 func (db *ChainsDB) initFromAnchor(id eth.ChainID, anchor types.DerivedBlockRefPair) {
 	// Check if the chain database is already initialized
-	if db.isInitialized(id) {
-		db.logger.Debug("chain database already initialized")
+	if db.isInitialized(id) && db.IsInInteropMode(id) {
+		db.logger.Debug("chain database already initialized with anchor block")
 		return
 	}
 	db.logger.Debug("initializing chain database from anchor point")
@@ -44,8 +58,16 @@ func (db *ChainsDB) initFromAnchor(id eth.ChainID, anchor types.DerivedBlockRefP
 		return
 	}
 
+	// Store the anchor block
+	db.anchorBlocks.Set(id, anchor)
+
 	// Mark the chain database as initialized
 	db.initialized.Set(id, struct{}{})
+
+	db.logger.Info("Chain initialized with anchor block for interop",
+		"chain", id,
+		"anchorSource", anchor.Source,
+		"anchorDerived", anchor.Derived)
 }
 
 // maybeInitSafeDB initializes the chain database if it is not already initialized
@@ -110,5 +132,3 @@ func (db *ChainsDB) maybeInitEventsDB(id eth.ChainID, anchor types.DerivedBlockR
 	}
 	return nil
 }
-
-// We have an OnEvent method already in db.go, so this is removed from anchor.go

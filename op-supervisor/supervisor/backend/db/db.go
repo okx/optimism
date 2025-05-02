@@ -110,6 +110,10 @@ type ChainsDB struct {
 	// initLocks: used to prevent certain database calls until initialization is signaled
 	// uninitialized chains won't have values in the map
 	initialized locks.RWMap[eth.ChainID, struct{}]
+	
+	// anchorBlocks: stores the anchor blocks used for initializing each chain
+	// chains with anchor blocks are in interop mode, those without are pre-interop
+	anchorBlocks locks.RWMap[eth.ChainID, types.DerivedBlockRefPair]
 
 	// cross-unsafe: how far we have processed the unsafe data.
 	// If present but set to a zeroed value the cross-unsafe will fallback to cross-safe.
@@ -181,8 +185,10 @@ func (db *ChainsDB) OnEvent(ev event.Event) bool {
 			"chain", x.ChainID, "derived", x.Anchor.Derived, "source", x.Anchor.Source, "preInterop", x.PreInterop)
 		if x.PreInterop {
 			db.logger.Info("Marking database as initialized in pre-interop mode without anchor point", "chain", x.ChainID)
+			// Only set initialized flag, do not set anchor block for pre-interop mode
 			db.initialized.Set(x.ChainID, struct{}{})
 		} else {
+			// Initialize with anchor point for interop mode
 			db.initFromAnchor(x.ChainID, x.Anchor)
 		}
 	case superevents.LocalDerivedEvent:

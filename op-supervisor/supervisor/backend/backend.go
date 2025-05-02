@@ -183,14 +183,19 @@ func NewSupervisorBackend(ctx context.Context, logger log.Logger,
 func (su *SupervisorBackend) OnEvent(ev event.Event) bool {
 	switch x := ev.(type) {
 	case superevents.LocalUnsafeReceivedEvent:
-		if !su.activationMgr.ShouldProcessEvent(x.ChainID, x.NewLocalUnsafe) {
+		// Check if the block is in an interop active period for this chain
+		isBlockInInteropPeriod := su.activationMgr.IsActiveForChain(x.ChainID, x.NewLocalUnsafe.Time)
+		if !isBlockInInteropPeriod {
 			su.logger.Debug("Skipping pre-interop block", "chain", x.ChainID, "block", x.NewLocalUnsafe)
 			return true
 		}
 
-		// Check for interop activation
-		if !su.isInteropActive() && su.activationMgr.IsActiveForChain(x.ChainID, x.NewLocalUnsafe.Time) {
-			su.logger.Info("Interop activation detected", "chain", x.ChainID, "block", x.NewLocalUnsafe)
+		// If this is a block in an interop period but we we don't have an initialized database,
+		// we need to get an anchor block and initialize
+		isInitialized := su.chainDBs.IsInitialized(x.ChainID)
+		if !isInitialized && isBlockInInteropPeriod {
+			su.logger.Info("Interop activation detected, need to get anchor point",
+				"chain", x.ChainID, "block", x.NewLocalUnsafe)
 
 			getAnchorPoint := func(ctx context.Context) (types.DerivedBlockRefPair, error) {
 				syncSrc, ok := su.syncSources.Get(x.ChainID)
@@ -200,7 +205,7 @@ func (su *SupervisorBackend) OnEvent(ev event.Event) bool {
 				return syncSrc.AnchorPoint(ctx)
 			}
 
-			// Handle interop activation by passing appropriate functions to set up initialization
+			// Handle interop activation by getting the anchor point and initializing
 			err := su.activationMgr.DetectAndActivateInterop(
 				context.Background(),
 				x.ChainID,
@@ -211,14 +216,15 @@ func (su *SupervisorBackend) OnEvent(ev event.Event) bool {
 
 			if err != nil {
 				su.logger.Error("Failed to activate interop", "chain", x.ChainID, "block", x.NewLocalUnsafe, "err", err)
+				return false
 			}
 		}
 
-		// Process the block normally
 		su.emitter.Emit(superevents.ChainProcessEvent{
 			ChainID: x.ChainID,
 			Target:  x.NewLocalUnsafe.Number,
 		})
+
 	case superevents.LocalUnsafeUpdateEvent:
 		su.emitter.Emit(superevents.UpdateCrossUnsafeRequestEvent{
 			ChainID: x.ChainID,
@@ -369,7 +375,7 @@ func (su *SupervisorBackend) AttachSyncNode(ctx context.Context, src syncnode.Sy
 }
 
 func (su *SupervisorBackend) QueryAnchorpoint(chainID eth.ChainID, src syncnode.SyncNode) error {
-	isInteropActive := su.isInteropActive()
+	isInteropActive := su.IsInteropActive()
 
 	anchor, err := src.AnchorPoint(context.Background())
 	if err != nil {
@@ -392,12 +398,6 @@ func (su *SupervisorBackend) QueryAnchorpoint(chainID eth.ChainID, src syncnode.
 	return nil
 }
 
-func (su *SupervisorBackend) isInteropActive() bool {
-	return su.activationMgr.IsActive()
-}
-
-// IsInteropActive returns true if interop is currently active
-// This is a public accessor for the same functionality
 func (su *SupervisorBackend) IsInteropActive() bool {
 	return su.activationMgr.IsActive()
 }
