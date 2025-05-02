@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ethereum-optimism/optimism/op-node/rollup/event"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/locks"
 	"github.com/ethereum-optimism/optimism/op-service/testlog"
@@ -77,37 +78,73 @@ func TestActivationEventFiltering(t *testing.T) {
 	db := setupTestDB(t)
 	chain := eth.ChainID{1}
 
+	// Create a mock anchor for the tests to pass boundary checks
+	mockAnchor := types.DerivedBlockRefPair{
+		Source: eth.BlockRef{
+			Hash:   common.HexToHash("0x1234"),
+			Number: 1,
+			Time:   100,
+		},
+		Derived: eth.BlockRef{
+			Hash:   common.HexToHash("0x5678"),
+			Number: 1, // Use a smaller number than the test block
+			Time:   1000,
+		},
+	}
+	db.anchorBlocks.Set(chain, mockAnchor)
+
 	// Create an activation manager that considers blocks inactive
 	logger := testlog.Logger(t, log.LvlInfo)
 	mock := &depset.MockDependencySet{
 		CanInitiateAtFn: func(chainID eth.ChainID, timestamp uint64) (bool, error) {
 			return false, nil // All blocks are inactive
 		},
+		MessageExpiryWindowFn: func() uint64 {
+			return 14 * 24 * 60 * 60 // 14 days in seconds
+		},
 	}
 	activationMgr := activation.NewActivationManager(mock, logger)
 	db.SetActivationManager(activationMgr)
 
+	// Add a mock emitter to prevent nil pointer panic
+	db.emitter = &mockEmitter{}
+
+	// Initialize the database
 	db.initialized.Set(chain, struct{}{})
+
+	// Since we've moved the activation checks to the event level, the database methods
+	// now only perform boundary checks. We're testing that they don't error when
+	// given a block that passes the boundary check.
 
 	block := eth.BlockRef{
 		Hash:   common.HexToHash("0xabcd"),
-		Number: 100,
+		Number: 100, // Higher than anchor block number
 		Time:   1000,
 	}
 
+	// All of these should pass the boundary check
 	err := db.SealBlock(chain, block)
-	assert.NoError(t, err, "SealBlock should be no-op in pre-interop mode")
+	assert.NoError(t, err, "SealBlock should pass boundary check")
 
 	db.UpdateLocalSafe(chain, block, block, "test")
 
 	err = db.UpdateCrossSafe(chain, block, block)
-	assert.NoError(t, err, "UpdateCrossSafe should be no-op in pre-interop mode")
+	assert.NoError(t, err, "UpdateCrossSafe should pass boundary check")
 
 	db.crossUnsafe.Set(chain, &locks.RWValue[types.BlockSeal]{})
 
 	seal := types.BlockSealFromRef(block)
 	err = db.UpdateCrossUnsafe(chain, seal)
-	assert.NoError(t, err, "UpdateCrossUnsafe should be no-op in pre-interop mode")
+	assert.NoError(t, err, "UpdateCrossUnsafe should pass boundary check")
+}
+
+// Mock emitter that just records events
+type mockEmitter struct {
+	events []event.Event
+}
+
+func (m *mockEmitter) Emit(ev event.Event) {
+	m.events = append(m.events, ev)
 }
 
 func TestActivationAnchorEventHandling(t *testing.T) {
