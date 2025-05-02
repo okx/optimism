@@ -112,10 +112,6 @@ func (am *ActivationManager) DetectAndActivateInterop(
 		return fmt.Errorf("failed to get anchor point at interop activation: %w", err)
 	}
 
-	if err := am.CheckAnchorPointExpiry(anchor); err != nil {
-		return err
-	}
-
 	am.logger.Info("Initializing with anchor point at interop activation",
 		"chain", chain, "derived", anchor.Derived, "source", anchor.Source)
 	initialize(chain, anchor)
