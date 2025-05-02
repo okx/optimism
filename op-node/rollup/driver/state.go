@@ -507,6 +507,40 @@ func (s *Driver) SetRecoverMode(ctx context.Context, mode bool) error {
 	return nil
 }
 
+// ResetToL1 resets the derivation pipeline to start from a specific L1 block
+// This is used to handle reset scenarios, including resetting to pre-interop state
+func (s *Driver) ResetToL1(ctx context.Context, l1BlockNumber uint64) error {
+	s.log.Info("Resetting derivation pipeline to specific L1 block", "l1_block", l1BlockNumber)
+
+	// Get the L1 block reference
+	l1Block, err := s.L1.L1BlockRefByNumber(ctx, l1BlockNumber)
+	if err != nil {
+		return fmt.Errorf("failed to get L1 block reference for reset: %w", err)
+	}
+
+	// Force a reset of the derivation pipeline
+	respCh := make(chan struct{}, 1)
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case s.forceReset <- respCh:
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-respCh:
+			// Reset completed
+		}
+	}
+
+	// Emit event to reset the engine, send a block event, and trigger processing
+	s.emitter.Emit(engine.ResetEngineRequestEvent{})
+	s.emitter.Emit(status.L1UnsafeEvent{L1Unsafe: l1Block})
+	s.emitter.Emit(StepReqEvent{ResetBackoff: true})
+
+	s.log.Info("Reset to L1 block completed", "l1_block", l1BlockNumber, "hash", l1Block.Hash)
+	return nil
+}
+
 // SyncStatus blocks the driver event loop and captures the syncing status.
 func (s *Driver) SyncStatus(ctx context.Context) (*eth.SyncStatus, error) {
 	return s.statusTracker.SyncStatus(), nil

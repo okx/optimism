@@ -34,6 +34,19 @@ import (
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/types"
 )
 
+type syncNodeAnchorProvider struct {
+	chainID     eth.ChainID
+	syncSources *locks.RWMap[eth.ChainID, syncnode.SyncSource]
+}
+
+func (p *syncNodeAnchorProvider) GetAnchorPoint(ctx context.Context, chainID eth.ChainID) (types.DerivedBlockRefPair, error) {
+	syncSrc, ok := p.syncSources.Get(p.chainID)
+	if !ok {
+		return types.DerivedBlockRefPair{}, fmt.Errorf("no sync source for chain %s", p.chainID)
+	}
+	return syncSrc.AnchorPoint(ctx)
+}
+
 type SupervisorBackend struct {
 	started atomic.Bool
 	logger  log.Logger
@@ -197,12 +210,10 @@ func (su *SupervisorBackend) OnEvent(ev event.Event) bool {
 			su.logger.Info("Interop activation detected, need to get anchor point",
 				"chain", x.ChainID, "block", x.NewLocalUnsafe)
 
-			getAnchorPoint := func(ctx context.Context) (types.DerivedBlockRefPair, error) {
-				syncSrc, ok := su.syncSources.Get(x.ChainID)
-				if !ok {
-					return types.DerivedBlockRefPair{}, fmt.Errorf("no sync source for chain %s", x.ChainID)
-				}
-				return syncSrc.AnchorPoint(ctx)
+			// Create a chain-specific anchor provider 
+			anchorProvider := &syncNodeAnchorProvider{
+				chainID:     x.ChainID,
+				syncSources: &su.syncSources,
 			}
 
 			// Handle interop activation by getting the anchor point and initializing
@@ -210,9 +221,15 @@ func (su *SupervisorBackend) OnEvent(ev event.Event) bool {
 				context.Background(),
 				x.ChainID,
 				x.NewLocalUnsafe,
-				getAnchorPoint,
-				su.chainDBs.IsInitialized,
-				su.chainDBs.InitializeWithAnchor)
+				func(ctx context.Context) (types.DerivedBlockRefPair, error) {
+					return anchorProvider.GetAnchorPoint(ctx, x.ChainID)
+				},
+				func(id eth.ChainID) bool {
+					return su.chainDBs.IsInitialized(id)
+				},
+				func(id eth.ChainID, anchor types.DerivedBlockRefPair) {
+					su.chainDBs.InitializeWithAnchor(id, anchor)
+				})
 
 			if err != nil {
 				su.logger.Error("Failed to activate interop", "chain", x.ChainID, "block", x.NewLocalUnsafe, "err", err)

@@ -161,6 +161,16 @@ func (rs *RPCSyncNode) AnchorPoint(ctx context.Context) (types.DerivedBlockRefPa
 	return out, err
 }
 
+// RequestReset requests a reset of the derivation pipeline to start from a specific L1 block
+// It uses the RPC endpoint in op-node to reset to a specific L1 block
+func (rs *RPCSyncNode) RequestReset(ctx context.Context, l1BlockNumber uint64) error {
+	err := rs.cl.CallContext(ctx, nil, "admin_requestReset", l1BlockNumber)
+	if err != nil {
+		rs.logger.Debug("RequestReset RPC call failed", "err", err)
+	}
+	return err
+}
+
 // Contains returns no error iff the specified logHash is recorded in the specified blockNum and logIdx.
 // If the log is out of reach and the block is complete, an ErrConflict is returned.
 // If the log is out of reach and the block is not complete, an ErrFuture is returned.

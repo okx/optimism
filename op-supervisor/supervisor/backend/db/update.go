@@ -11,6 +11,18 @@ import (
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/types"
 )
 
+type anchorBlockProviderAdapter struct {
+	db *ChainsDB
+}
+
+func (a anchorBlockProviderAdapter) GetAnchorBlock(id eth.ChainID) (eth.BlockRef, error) {
+	anchor, ok := a.db.GetAnchorBlock(id)
+	if !ok {
+		return eth.BlockRef{}, fmt.Errorf("no anchor block for chain %s", id)
+	}
+	return anchor.Derived, nil
+}
+
 func (db *ChainsDB) AddLog(
 	chain eth.ChainID,
 	logHash common.Hash,
@@ -44,7 +56,8 @@ func (db *ChainsDB) SealBlock(chain eth.ChainID, block eth.BlockRef) error {
 
 	// Check DB boundaries using the activation manager if available
 	if db.activationMgr != nil {
-		if err := db.activationMgr.CheckDBBoundaries(chain, block, db.GetAnchorL2Block); err != nil {
+		anchorProvider := anchorBlockProviderAdapter{db}
+		if err := db.activationMgr.CheckDBBoundaries(chain, block, anchorProvider.GetAnchorBlock); err != nil {
 			return err
 		}
 	}
@@ -106,7 +119,6 @@ func (db *ChainsDB) Rewind(chain eth.ChainID, headBlock eth.BlockID) error {
 	return nil
 }
 
-// UpdateLocalSafe updates the local-safe database with the given source and lastDerived blocks.
 func (db *ChainsDB) UpdateLocalSafe(chain eth.ChainID, source eth.BlockRef, lastDerived eth.BlockRef, nodeId string) {
 	logger := db.logger.New("chain", chain, "source", source, "lastDerived", lastDerived)
 
@@ -130,7 +142,8 @@ func (db *ChainsDB) UpdateLocalSafe(chain eth.ChainID, source eth.BlockRef, last
 
 	// Check DB boundaries using the activation manager if available
 	if db.activationMgr != nil {
-		if err := db.activationMgr.CheckDBBoundaries(chain, lastDerived, db.GetAnchorL2Block); err != nil {
+		anchorProvider := anchorBlockProviderAdapter{db}
+		if err := db.activationMgr.CheckDBBoundaries(chain, lastDerived, anchorProvider.GetAnchorBlock); err != nil {
 			logger.Error("Failed DB boundary check", "err", err)
 			return
 		}
@@ -205,7 +218,8 @@ func (db *ChainsDB) UpdateCrossUnsafe(chain eth.ChainID, crossUnsafe types.Block
 
 	// Check DB boundaries using the activation manager if available
 	if db.activationMgr != nil {
-		if err := db.activationMgr.CheckDBBoundaries(chain, blockRef, db.GetAnchorL2Block); err != nil {
+		anchorProvider := anchorBlockProviderAdapter{db}
+		if err := db.activationMgr.CheckDBBoundaries(chain, blockRef, anchorProvider.GetAnchorBlock); err != nil {
 			return fmt.Errorf("failed DB boundary check: %w", err)
 		}
 	}
@@ -240,7 +254,8 @@ func (db *ChainsDB) UpdateCrossSafe(chain eth.ChainID, l1View eth.BlockRef, last
 
 	// Check DB boundaries using the activation manager if available
 	if db.activationMgr != nil {
-		if err := db.activationMgr.CheckDBBoundaries(chain, lastCrossDerived, db.GetAnchorL2Block); err != nil {
+		anchorProvider := anchorBlockProviderAdapter{db}
+		if err := db.activationMgr.CheckDBBoundaries(chain, lastCrossDerived, anchorProvider.GetAnchorBlock); err != nil {
 			return fmt.Errorf("failed DB boundary check: %w", err)
 		}
 	}

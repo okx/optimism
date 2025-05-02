@@ -17,11 +17,23 @@ import (
 
 var ErrInteropBoundary = errors.New("interop boundary error")
 
-// ActivationManager handles the interop activation logic
+type AnchorProvider interface {
+	GetAnchorPoint(ctx context.Context, chainID eth.ChainID) (types.DerivedBlockRefPair, error)
+}
+
+type ChainInitializer interface {
+	IsInitialized(chainID eth.ChainID) bool
+	InitializeWithAnchor(chainID eth.ChainID, anchor types.DerivedBlockRefPair)
+}
+
+type AnchorBlockProvider interface {
+	GetAnchorBlock(chainID eth.ChainID) (eth.BlockRef, error) 
+}
+
 type ActivationManager struct {
-	depSet  depset.DependencySet
-	logger  log.Logger
-	emitter event.Emitter
+	depSet         depset.DependencySet
+	logger         log.Logger
+	emitter        event.Emitter
 }
 
 func NewActivationManager(depSet depset.DependencySet, logger log.Logger) *ActivationManager {
@@ -31,17 +43,14 @@ func NewActivationManager(depSet depset.DependencySet, logger log.Logger) *Activ
 	}
 }
 
-// AttachEmitter sets the event emitter for the activation manager
 func (am *ActivationManager) AttachEmitter(emitter event.Emitter) {
 	am.emitter = emitter
 }
 
-// IsActive returns true if interop is currently active
 func (am *ActivationManager) IsActive() bool {
 	return am.IsActiveAt(uint64(time.Now().Unix()))
 }
 
-// IsActiveAt returns true if interop should be active at the given timestamp
 func (am *ActivationManager) IsActiveAt(timestamp uint64) bool {
 	if timestamp == 0 || am.depSet == nil {
 		return false
@@ -57,7 +66,6 @@ func (am *ActivationManager) IsActiveAt(timestamp uint64) bool {
 	return false
 }
 
-// IsActiveForChain returns true if interop is active for the given chain at the specific timestamp
 func (am *ActivationManager) IsActiveForChain(chain eth.ChainID, timestamp uint64) bool {
 	if timestamp == 0 || am.depSet == nil {
 		return false
@@ -71,36 +79,29 @@ func (am *ActivationManager) IsActiveForChain(chain eth.ChainID, timestamp uint6
 	return canInitiate
 }
 
-// ShouldProcessEvent determines if a block event should be processed based on interop status
-// Returns true if the event should be processed, false otherwise
 func (am *ActivationManager) ShouldProcessEvent(chain eth.ChainID, block eth.BlockRef) bool {
-	// If this is an activation block, we need to process it to trigger initialization
 	isActive := am.IsActiveForChain(chain, block.Time)
 	if isActive {
 		am.logger.Info("Potential interop activation detected", "chain", chain, "block", block)
 		return true
 	}
 
-	// In pre-interop mode, events are filtered out
 	am.logger.Debug("Filtering pre-interop event", "chain", chain, "block", block)
 	return false
 }
 
-// DetectAndActivateInterop handles interop activation detection and processing
 func (am *ActivationManager) DetectAndActivateInterop(
 	ctx context.Context,
 	chain eth.ChainID,
 	block eth.BlockRef,
-	getAnchorPoint func(context.Context) (types.DerivedBlockRefPair, error),
-	isInitialized func(eth.ChainID) bool,
-	initialize func(eth.ChainID, types.DerivedBlockRefPair),
+	getAnchorPoint func(ctx context.Context) (types.DerivedBlockRefPair, error),
+	isInitialized func(id eth.ChainID) bool,
+	initialize func(id eth.ChainID, anchor types.DerivedBlockRefPair),
 ) error {
-	// Skip activation if this chain is already initialized
 	if isInitialized(chain) {
 		return nil
 	}
 
-	// Check if this block timestamp activates interop
 	if !am.IsActiveForChain(chain, block.Time) {
 		return nil
 	}
@@ -115,12 +116,10 @@ func (am *ActivationManager) DetectAndActivateInterop(
 		return err
 	}
 
-	// Initialize with the anchor point
 	am.logger.Info("Initializing with anchor point at interop activation",
 		"chain", chain, "derived", anchor.Derived, "source", anchor.Source)
 	initialize(chain, anchor)
 
-	// Emit activation event
 	if am.emitter != nil {
 		am.emitter.Emit(superevents.InteropActivatedEvent{
 			ChainID: chain,
@@ -132,7 +131,6 @@ func (am *ActivationManager) DetectAndActivateInterop(
 	return nil
 }
 
-// CheckAnchorPointExpiry verifies that an anchor point is not too old based on the message expiry window
 func (am *ActivationManager) CheckAnchorPointExpiry(anchor types.DerivedBlockRefPair) error {
 	anchorTime := time.Unix(int64(anchor.Derived.Time), 0)
 	window := time.Duration(am.depSet.MessageExpiryWindow()) * time.Second
@@ -145,8 +143,6 @@ func (am *ActivationManager) CheckAnchorPointExpiry(anchor types.DerivedBlockRef
 	return nil
 }
 
-// CheckDBBoundaries verifies that a block is not before the anchor point
-// This is used to ensure that we don't process events that predate the anchoring of a chain
 func (am *ActivationManager) CheckDBBoundaries(
 	chain eth.ChainID,
 	block eth.BlockRef,
@@ -154,8 +150,6 @@ func (am *ActivationManager) CheckDBBoundaries(
 ) error {
 	anchorBlock, err := getAnchorBlock(chain)
 	if err != nil {
-		// If we can't get the anchor block, this might be a test context
-		// where initialization was done manually
 		am.logger.Debug("Failed to get anchor block, assuming test context", "chain", chain, "err", err)
 		return nil
 	}
@@ -168,12 +162,47 @@ func (am *ActivationManager) CheckDBBoundaries(
 	return nil
 }
 
-// MessageExpiryWindow returns the message expiry window from the dependency set
 func (am *ActivationManager) MessageExpiryWindow() time.Duration {
 	return time.Duration(am.depSet.MessageExpiryWindow()) * time.Second
 }
 
-// DependencySet returns the dependency set used by the activation manager
 func (am *ActivationManager) DependencySet() depset.DependencySet {
 	return am.depSet
+}
+
+func (am *ActivationManager) DetectAndActivateInteropWithInterfaces(
+	ctx context.Context,
+	chain eth.ChainID,
+	block eth.BlockRef,
+	anchorProvider AnchorProvider,
+	initializer ChainInitializer,
+) error {
+	return am.DetectAndActivateInterop(
+		ctx,
+		chain,
+		block,
+		func(ctx context.Context) (types.DerivedBlockRefPair, error) {
+			return anchorProvider.GetAnchorPoint(ctx, chain)
+		},
+		func(id eth.ChainID) bool {
+			return initializer.IsInitialized(id)
+		},
+		func(id eth.ChainID, anchor types.DerivedBlockRefPair) {
+			initializer.InitializeWithAnchor(id, anchor)
+		},
+	)
+}
+
+func (am *ActivationManager) CheckDBBoundariesWithProvider(
+	chain eth.ChainID,
+	block eth.BlockRef,
+	anchorBlockProvider AnchorBlockProvider,
+) error {
+	return am.CheckDBBoundaries(
+		chain,
+		block,
+		func(id eth.ChainID) (eth.BlockRef, error) {
+			return anchorBlockProvider.GetAnchorBlock(id)
+		},
+	)
 }

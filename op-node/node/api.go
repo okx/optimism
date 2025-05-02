@@ -38,6 +38,7 @@ type driverClient interface {
 	OverrideLeader(ctx context.Context) error
 	ConductorEnabled(ctx context.Context) (bool, error)
 	SetRecoverMode(ctx context.Context, mode bool) error
+	ResetToL1(ctx context.Context, l1BlockNumber uint64) error
 }
 
 type SafeDBReader interface {
@@ -98,6 +99,13 @@ func (n *adminAPI) ConductorEnabled(ctx context.Context) (bool, error) {
 
 func (n *adminAPI) SetRecoverMode(ctx context.Context, mode bool) error {
 	return n.dr.SetRecoverMode(ctx, mode)
+}
+
+// RequestReset requests a reset of the derivation pipeline to start from a specific L1 block
+// This is used to handle reset scenarios, including resetting to pre-interop state
+func (n *adminAPI) RequestReset(ctx context.Context, l1BlockNumber uint64) error {
+	n.CommonAdminAPI.Log.Info("Received reset request", "l1_block", l1BlockNumber)
+	return n.dr.ResetToL1(ctx, l1BlockNumber)
 }
 
 type nodeAPI struct {

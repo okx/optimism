@@ -303,8 +303,11 @@ func (m *ManagedNode) OnResetReady(lUnsafe, xUnsafe, lSafe, xSafe, finalized eth
 		"finalized", finalized)
 	ctx, cancel := context.WithTimeout(m.ctx, nodeTimeout)
 	defer cancel()
+
 	// whether the reset passes or fails, this ongoing reset is done
 	m.resetTracker.endReset()
+
+	// Execute the full reset using the traditional method
 	if err := m.Node.Reset(ctx,
 		lUnsafe, xUnsafe,
 		lSafe, xSafe,

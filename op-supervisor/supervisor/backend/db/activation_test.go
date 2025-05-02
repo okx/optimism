@@ -331,6 +331,9 @@ func TestActivationBoundaryCheckDBBoundaries(t *testing.T) {
 	// Mark the database as initialized and set up the mock DB with our anchor point
 	db.initialized.Set(chain, struct{}{})
 
+	// Set the anchor block in the anchorBlocks map
+	db.anchorBlocks.Set(chain, anchorPoint)
+
 	// Create a mock derivation DB that returns our anchor point
 	mockCrossDB := &mockDerivationDBWithFirstEntry{
 		FirstEntry: types.DerivedBlockSealPair{

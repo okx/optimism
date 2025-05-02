@@ -36,6 +36,10 @@ type SyncSource interface {
 	String() string
 }
 
+type ResetRequester interface {
+	RequestReset(ctx context.Context, l1BlockNumber uint64) error
+}
+
 type SyncControl interface {
 	SubscribeEvents(ctx context.Context, c chan *types.ManagedEvent) (ethereum.Subscription, error)
 	PullEvent(ctx context.Context) (*types.ManagedEvent, error)
@@ -59,6 +63,7 @@ type SyncControl interface {
 type SyncNode interface {
 	SyncSource
 	SyncControl
+	ResetRequester
 }
 
 type Node interface {

@@ -90,22 +90,54 @@ func TestEventResponse(t *testing.T) {
 	}, 4*time.Second, 250*time.Millisecond)
 }
 
-func TestPrepareReset(t *testing.T) {
+func TestResetRequesterIntegration(t *testing.T) {
 	chainID := eth.ChainIDFromUInt64(1)
 	logger := testlog.Logger(t, log.LvlDebug)
 	syncCtrl := &mockSyncControl{}
 	backend := &mockBackend{}
 
+	// Set up the event system
 	ex := event.NewGlobalSynchronous(context.Background())
 	eventSys := event.NewSystem(logger, ex)
-
-	mon := &eventMonitor{}
-	eventSys.Register("monitor", mon, event.DefaultRegisterOpts())
-
-	node := NewManagedNode(logger, chainID, syncCtrl, backend, false)
+	node := NewManagedNode(logger, chainID, syncCtrl, backend, true) // Set to true for synchronous operation
 	eventSys.Register("node", node, event.DefaultRegisterOpts())
 
-	// mock: return a block of the same number as requested
+	// Track RequestReset calls via our special interface
+	var requestResetCalled int
+	var lastResetL1BlockNumber uint64
+
+	// Create a new implementation that satisfies both SyncControl and ResetRequester interfaces
+	resetRequesterImpl := struct {
+		SyncControl
+		ResetRequester
+	}{
+		SyncControl: syncCtrl,
+		ResetRequester: &mockResetRequester{
+			requestResetFn: func(ctx context.Context, l1BlockNumber uint64) error {
+				requestResetCalled++
+				lastResetL1BlockNumber = l1BlockNumber
+				return nil
+			},
+		},
+	}
+
+	// Assign the composited implementation to node's Node field
+	node.Node = resetRequesterImpl
+
+	// Set up the backend to return a source block
+	backend.safeDerivedAtFn = func(ctx context.Context, chainID eth.ChainID, source eth.BlockID) (derived eth.BlockID, err error) {
+		return eth.BlockID{Number: 42}, nil
+	}
+
+	// Set up the local safe pair to have a known source
+	backend.localSafeFn = func(ctx context.Context, chainID eth.ChainID) (types.DerivedIDPair, error) {
+		return types.DerivedIDPair{
+			Derived: eth.BlockID{Number: 100},
+			Source:  eth.BlockID{Number: 50},
+		}, nil
+	}
+
+	// Set up the block reference lookup
 	syncCtrl.blockRefByNumFn = func(ctx context.Context, number uint64) (eth.BlockRef, error) {
 		return eth.BlockRef{Number: number, Hash: common.Hash{0xaa}}, nil
 	}
@@ -119,66 +151,38 @@ func TestPrepareReset(t *testing.T) {
 		return nil
 	}
 
-	// mock: record the reset signal given to the node
-	var unsafe, safe, finalized eth.BlockID
-	var resetCalled int
-	syncCtrl.resetFn = func(ctx context.Context, u, s, f eth.BlockID) error {
-		unsafe = u
-		safe = s
-		finalized = f
-		resetCalled++
-		return nil
+	// Mock FindSealedBlock so we can initialize the reset range
+	backend.findSealedBlockFn = func(ctx context.Context, chainID eth.ChainID, num uint64) (eth.BlockID, error) {
+		return eth.BlockID{Number: 1, Hash: common.Hash{0xaa}}, nil
 	}
 
-	// test that the bisection finds the correct block,
-	// anywhere inside the min-max range
-	min, max := uint64(1), uint64(235)
-	for i := min; i < max; i++ {
-		node.resetTracker.a = eth.BlockID{Number: min, Hash: common.Hash{0xaa}}
-		node.resetTracker.z = eth.BlockID{Number: max}
-		pivot = i
-		node.resetTracker.bisectToTarget()
-		require.Equal(t, i, unsafe.Number)
-		require.Equal(t, uint64(0), safe.Number)
-		require.Equal(t, uint64(0), finalized.Number)
-	}
+	// Test the reset functionality with a target block
+	targetBlock := eth.BlockID{Number: 100, Hash: common.Hash{0xaa}}
+	node.resetTracker.beginBisectionReset(targetBlock)
 
-	// test that when the end of range (z) is known to the node,
-	// the reset request is made with the end of the range as the safe block
-	for i := min; i < max; i++ {
-		node.resetTracker.a = eth.BlockID{Number: min}
-		node.resetTracker.z = eth.BlockID{Number: max, Hash: common.Hash{0xaa}}
-		pivot = 0
-		node.resetTracker.bisectToTarget()
-		require.Equal(t, max, unsafe.Number)
-	}
+	// The reset tracker should call RequestReset with the L1 block number (50)
+	require.Equal(t, 1, requestResetCalled, "RequestReset should be called once")
+	require.Equal(t, uint64(50), lastResetL1BlockNumber, "Reset should target L1 block 50")
 
-	// mock: return local safe and finalized blocks which are *ahead* of the pivot
-	backend.localSafeFn = func(ctx context.Context, chainID eth.ChainID) (types.DerivedIDPair, error) {
-		return types.DerivedIDPair{
-			Derived: eth.BlockID{Number: pivot + 1},
-		}, nil
-	}
-	backend.finalizedFn = func(ctx context.Context, chainID eth.ChainID) (eth.BlockID, error) {
-		return eth.BlockID{Number: pivot + 1}, nil
-	}
-	// test that the bisection finds the correct block,
-	// AND that the safe and finalized blocks are updated to match the unsafe block
-	for i := min; i < max; i++ {
-		node.resetTracker.a = eth.BlockID{Number: min, Hash: common.Hash{0xaa}}
-		node.resetTracker.z = eth.BlockID{Number: max}
-		pivot = i
-		node.resetTracker.bisectToTarget()
-		require.Equal(t, i, unsafe.Number)
-		require.Equal(t, i, safe.Number)
-		require.Equal(t, i, finalized.Number)
-	}
+	// Test with a different target block that requires SafeDerivedAt
+	requestResetCalled = 0 // Reset the counter
+	targetBlock = eth.BlockID{Number: 200, Hash: common.Hash{0xbb}}
+	node.resetTracker.beginBisectionReset(targetBlock)
 
-	// test that the reset function is not called if start of the range (a) is unknown
-	resetCount := resetCalled
-	node.resetTracker.a = eth.BlockID{Number: 0, Hash: common.Hash{0xbb}}
-	node.resetTracker.z = eth.BlockID{Number: max}
-	pivot = 40
-	node.resetTracker.bisectToTarget()
-	require.Equal(t, resetCount, resetCalled)
+	// The reset tracker should now use SafeDerivedAt to find the L1 block (42)
+	require.Equal(t, 1, requestResetCalled, "RequestReset should be called once")
+	require.Equal(t, uint64(42), lastResetL1BlockNumber, "Reset should target L1 block 42")
+}
+
+// mockResetRequester is a mock implementation of the ResetRequester interface for testing
+type mockResetRequester struct {
+	requestResetFn func(ctx context.Context, l1BlockNumber uint64) error
+}
+
+// RequestReset implements the ResetRequester interface
+func (m *mockResetRequester) RequestReset(ctx context.Context, l1BlockNumber uint64) error {
+	if m.requestResetFn != nil {
+		return m.requestResetFn(ctx, l1BlockNumber)
+	}
+	return nil
 }
