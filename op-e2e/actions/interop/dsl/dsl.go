@@ -2,8 +2,6 @@ package dsl
 
 import (
 	"github.com/ethereum-optimism/optimism/op-e2e/actions/helpers"
-	"github.com/ethereum-optimism/optimism/op-node/rollup/derive"
-	"github.com/ethereum-optimism/optimism/op-node/rollup/event"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/depset"
 	"github.com/stretchr/testify/require"
@@ -303,25 +301,52 @@ func (d *InteropDSL) AdvanceL1(optionalArgs ...func(*AdvanceL1Opts)) {
 	for _, arg := range optionalArgs {
 		arg(&opts)
 	}
+	
+	// Mine a new L1 block
 	expectedL1BlockNum := d.Actors.L1Miner.L1Chain().CurrentBlock().Number.Uint64() + 1
 	d.Actors.L1Miner.ActL1StartBlock(opts.L1BlockTimeSeconds)(d.t)
 	for _, txInclusion := range opts.TxInclusion {
 		txInclusion(d.t)
 	}
 	d.Actors.L1Miner.ActL1EndBlock(d.t)
+	
+	// Get the new block reference
 	newBlock := eth.InfoToL1BlockRef(eth.HeaderBlockInfo(d.Actors.L1Miner.L1Chain().CurrentBlock()))
 	require.Equal(d.t, expectedL1BlockNum, newBlock.Number, "L1 head did not advance")
+	
+	// Signal the supervisor about the new L1 block
 	d.Actors.Supervisor.SignalLatestL1(d.t)
-
-	// The node will exhaust L1 data, it needs the supervisor to see the L1 block first, and provide it to the node.
+	
+	// Process supervisor events to handle the new L1 block
+	d.Actors.Supervisor.ProcessFull(d.t)
+	
+	// Ensure each chain processes the new L1 block
 	for _, chain := range opts.Chains {
-		chain.Sequencer.ActL2EventsUntil(d.t, event.Is[derive.ExhaustedL1Event], 100, false)
+		// First, sync with supervisor to get the latest information
 		chain.Sequencer.SyncSupervisor(d.t)
+		
+		// Process the pipeline to handle new data
 		chain.Sequencer.ActL2PipelineFull(d.t)
+		
+		// Signal the L1 head update to make sure it's reflected in the status
 		chain.Sequencer.ActL1HeadSignal(d.t)
+		
+		// Process the pipeline again to handle any further steps
+		chain.Sequencer.ActL2PipelineFull(d.t)
+		
+		// Sync with supervisor one more time to ensure all events are processed
+		chain.Sequencer.SyncSupervisor(d.t)
+		
+		// Verify the new L1 block was processed
+		status := chain.Sequencer.SyncStatus()
+		d.t.Logf("Chain %v L1 head: %v, expected: %v", chain.ChainID, status.HeadL1, newBlock)
+		require.Equalf(d.t, newBlock, status.HeadL1, "Chain %v did not detect new L1 head", chain.ChainID)
 	}
-
-	// Verify that the new L1 block was processed everywhere
+	
+	// Process supervisor events one more time
+	d.Actors.Supervisor.ProcessFull(d.t)
+	
+	// Final check that all chains processed the L1 block properly
 	for _, chain := range opts.Chains {
 		status := chain.Sequencer.SyncStatus()
 		require.Equalf(d.t, newBlock, status.HeadL1, "Chain %v did not detect new L1 head", chain.ChainID)
