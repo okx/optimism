@@ -91,6 +91,10 @@ func (r *RollupClient) SetRecoverMode(ctx context.Context, mode bool) error {
 	return r.rpc.CallContext(ctx, nil, "admin_setRecoverMode", mode)
 }
 
+func (r *RollupClient) RequestReset(ctx context.Context, l1BlockNumber uint64) error {
+	return r.rpc.CallContext(ctx, nil, "admin_requestReset", l1BlockNumber)
+}
+
 func (r *RollupClient) Close() {
 	r.rpc.Close()
 }

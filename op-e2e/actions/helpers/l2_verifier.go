@@ -294,6 +294,10 @@ func (s *l2VerifierBackend) SetRecoverMode(ctx context.Context, mode bool) error
 	return errors.New("recover mode unsupported")
 }
 
+func (s *l2VerifierBackend) ResetToL1(ctx context.Context, l1BlockNumber uint64) error {
+	return nil
+}
+
 func (s *L2Verifier) DerivationMetricsTracer() *testutils.TestDerivationMetrics {
 	return s.derivationMetrics
 }

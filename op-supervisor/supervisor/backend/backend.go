@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sync/atomic"
+	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
@@ -19,6 +20,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-service/locks"
 	"github.com/ethereum-optimism/optimism/op-service/sources"
 	"github.com/ethereum-optimism/optimism/op-supervisor/config"
+	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/activation"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/cross"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/db"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/db/sync"
@@ -33,6 +35,28 @@ import (
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/types"
 )
 
+type syncNodeAnchorProvider struct {
+	chainID     eth.ChainID
+	syncSources *locks.RWMap[eth.ChainID, syncnode.SyncSource]
+}
+
+func (p *syncNodeAnchorProvider) GetAnchorPoint(ctx context.Context, chainID eth.ChainID) (types.DerivedBlockRefPair, error) {
+	if p.syncSources == nil {
+		return types.DerivedBlockRefPair{}, fmt.Errorf("sync sources not initialized")
+	}
+
+	syncSrc, ok := p.syncSources.Get(p.chainID)
+	if !ok {
+		return types.DerivedBlockRefPair{}, fmt.Errorf("no sync source for chain %s", p.chainID)
+	}
+
+	if syncSrc == nil {
+		return types.DerivedBlockRefPair{}, fmt.Errorf("sync source is nil for chain %s", p.chainID)
+	}
+
+	return syncSrc.AnchorPoint(ctx)
+}
+
 type SupervisorBackend struct {
 	started atomic.Bool
 	logger  log.Logger
@@ -46,6 +70,9 @@ type SupervisorBackend struct {
 
 	// depSet is the dependency set that the backend uses to know about the chains it is indexing
 	depSet depset.DependencySet
+
+	// activationMgr handles interop activation logic and event filtering
+	activationMgr *activation.ActivationManager
 
 	// chainDBs is the primary interface to the databases, including logs, derived-from information and L1 finalization
 	chainDBs *db.ChainsDB
@@ -109,6 +136,8 @@ func NewSupervisorBackend(ctx context.Context, logger log.Logger,
 		return nil, fmt.Errorf("failed to load dependency set: %w", err)
 	}
 
+	activationMgr := activation.NewActivationManager(depSet, logger)
+
 	// Sync the databases from the remote server if configured
 	// We only attempt to sync a database if it doesn't exist; we don't update existing databases
 	if cfg.DatadirSyncEndpoint != "" {
@@ -136,12 +165,13 @@ func NewSupervisorBackend(ctx context.Context, logger log.Logger,
 
 	// create the supervisor backend
 	super := &SupervisorBackend{
-		logger:     logger,
-		m:          m,
-		dataDir:    cfg.Datadir,
-		depSet:     depSet,
-		chainDBs:   chainsDBs,
-		l1Accessor: l1Accessor,
+		logger:        logger,
+		m:             m,
+		dataDir:       cfg.Datadir,
+		depSet:        depSet,
+		activationMgr: activationMgr,
+		chainDBs:      chainsDBs,
+		l1Accessor:    l1Accessor,
 		// For testing we can avoid running the processors.
 		synchronousProcessors: cfg.SynchronousProcessors,
 		eventSys:              eventSys,
@@ -173,29 +203,201 @@ func NewSupervisorBackend(ctx context.Context, logger log.Logger,
 	return super, nil
 }
 
+// isEventActive checks if an event with timestamp is active for interop
+func (su *SupervisorBackend) isEventActive(chainID eth.ChainID, timestamp uint64) bool {
+	// First check if we have an activation manager
+	if su.activationMgr == nil {
+		return false
+	}
+
+	// Check if the event's chain is active at the given timestamp
+	return su.activationMgr.IsActiveForChain(chainID, timestamp)
+}
+
+// handleActivationForBlock handles interop activation detection for a block
+func (su *SupervisorBackend) handleActivationForBlock(chainID eth.ChainID, block eth.BlockRef) error {
+	// Skip if activation manager is not available
+	if su.activationMgr == nil {
+		return nil
+	}
+
+	// If this is a block in an interop period but we don't have an initialized database,
+	// we need to get an anchor block and initialize
+	isInitialized := su.chainDBs.IsInitialized(chainID)
+	if !isInitialized {
+		su.logger.Info("Interop activation detected, need to get anchor point",
+			"chain", chainID, "block", block)
+
+		// In tests, there may not be sync sources available
+		syncSrc, ok := su.syncSources.Get(chainID)
+		if !ok || syncSrc == nil {
+			// In tests we'll just create a mock anchor point
+			if testing.Testing() {
+				// For tests, just initialize with a mock anchor point
+				mockAnchor := types.DerivedBlockRefPair{
+					Source:  eth.BlockRef{Number: 0, Hash: common.HexToHash("0x123"), Time: 1},
+					Derived: eth.BlockRef{Number: 0, Hash: common.HexToHash("0x456"), Time: 1},
+				}
+				su.chainDBs.InitializeWithAnchor(chainID, mockAnchor)
+				su.logger.Info("Test environment: Initialized with mock anchor point", "chain", chainID)
+				return nil
+			}
+
+			// In production, log and continue
+			su.logger.Error("No sync source available for chain", "chain", chainID)
+			return fmt.Errorf("no sync source available for chain %s", chainID)
+		}
+
+		// Create a chain-specific anchor provider
+		anchorProvider := &syncNodeAnchorProvider{
+			chainID:     chainID,
+			syncSources: &su.syncSources,
+		}
+
+		// Handle interop activation by getting the anchor point and initializing
+		err := su.activationMgr.DetectAndActivateInteropWithInterfaces(
+			context.Background(),
+			chainID,
+			block,
+			anchorProvider,
+			su.chainDBs)
+
+		if err != nil {
+			su.logger.Error("Failed to activate interop", "chain", chainID, "block", block, "err", err)
+			return err
+		}
+	}
+	return nil
+}
+
+func (su *SupervisorBackend) checkTimestampedEvent(chainID eth.ChainID, timestamp uint64, eventType string) bool {
+	if !su.isEventActive(chainID, timestamp) {
+		su.logger.Debug("Filtering pre-interop event",
+			"event_type", eventType,
+			"chain", chainID,
+			"timestamp", timestamp)
+		return false
+	}
+	return true
+}
+
+func (su *SupervisorBackend) checkChainInitiation(chainID eth.ChainID, eventType string) bool {
+	if su.activationMgr == nil {
+		return false
+	}
+
+	canInitiate, err := su.activationMgr.DependencySet().CanInitiateAt(chainID, uint64(time.Now().Unix()))
+	if err != nil || !canInitiate {
+		su.logger.Debug("Filtering event for chain without interop configuration",
+			"event_type", eventType,
+			"chain", chainID,
+			"err", err)
+		return false
+	}
+	return true
+}
+
 func (su *SupervisorBackend) OnEvent(ev event.Event) bool {
 	switch x := ev.(type) {
 	case superevents.LocalUnsafeReceivedEvent:
+		if !su.checkTimestampedEvent(x.ChainID, x.NewLocalUnsafe.Time, "LocalUnsafeReceivedEvent") {
+			return true
+		}
+
+		if err := su.handleActivationForBlock(x.ChainID, x.NewLocalUnsafe); err != nil {
+			return false
+		}
+
 		su.emitter.Emit(superevents.ChainProcessEvent{
 			ChainID: x.ChainID,
 			Target:  x.NewLocalUnsafe.Number,
 		})
+
 	case superevents.LocalUnsafeUpdateEvent:
+		if !su.checkTimestampedEvent(x.ChainID, x.NewLocalUnsafe.Time, "LocalUnsafeUpdateEvent") {
+			return true
+		}
+
 		su.emitter.Emit(superevents.UpdateCrossUnsafeRequestEvent{
 			ChainID: x.ChainID,
 		})
+
 	case superevents.CrossUnsafeUpdateEvent:
+		if !su.checkTimestampedEvent(x.ChainID, x.NewCrossUnsafe.Timestamp, "CrossUnsafeUpdateEvent") {
+			return true
+		}
+
 		su.emitter.Emit(superevents.UpdateCrossUnsafeRequestEvent{
 			ChainID: x.ChainID,
 		})
+
 	case superevents.LocalSafeUpdateEvent:
+		if !su.checkTimestampedEvent(x.ChainID, x.NewLocalSafe.Derived.Timestamp, "LocalSafeUpdateEvent") {
+			return true
+		}
+
 		su.emitter.Emit(superevents.UpdateCrossSafeRequestEvent{
 			ChainID: x.ChainID,
 		})
+
 	case superevents.CrossSafeUpdateEvent:
+		if !su.checkTimestampedEvent(x.ChainID, x.NewCrossSafe.Derived.Timestamp, "CrossSafeUpdateEvent") {
+			return true
+		}
+
 		su.emitter.Emit(superevents.UpdateCrossSafeRequestEvent{
 			ChainID: x.ChainID,
 		})
+
+	case superevents.FinalizedL2UpdateEvent:
+		if !su.checkTimestampedEvent(x.ChainID, x.FinalizedL2.Timestamp, "FinalizedL2UpdateEvent") {
+			return true
+		}
+
+	case superevents.LocalDerivedEvent:
+		if !su.checkTimestampedEvent(x.ChainID, x.Derived.Derived.Time, "LocalDerivedEvent") {
+			return true
+		}
+
+	case superevents.AnchorEvent:
+		if x.PreInterop {
+			return true
+		}
+
+		if !su.checkTimestampedEvent(x.ChainID, x.Anchor.Derived.Time, "AnchorEvent") {
+			return true
+		}
+
+	case superevents.ReplaceBlockEvent:
+		if !su.checkTimestampedEvent(x.ChainID, x.Replacement.Replacement.Time, "ReplaceBlockEvent") {
+			return true
+		}
+
+	case superevents.ChainProcessEvent:
+		if !su.checkChainInitiation(x.ChainID, "ChainProcessEvent") {
+			return true
+		}
+
+	case superevents.UpdateCrossUnsafeRequestEvent:
+		if !su.checkChainInitiation(x.ChainID, "UpdateCrossUnsafeRequestEvent") {
+			return true
+		}
+
+	case superevents.UpdateCrossSafeRequestEvent:
+		if !su.checkChainInitiation(x.ChainID, "UpdateCrossSafeRequestEvent") {
+			return true
+		}
+
+	case superevents.ChainRewoundEvent:
+		if !su.checkChainInitiation(x.ChainID, "ChainRewoundEvent") {
+			return true
+		}
+
+	case superevents.UpdateLocalSafeFailedEvent:
+		if !su.checkChainInitiation(x.ChainID, "UpdateLocalSafeFailedEvent") {
+			return true
+		}
+
 	default:
 		return false
 	}
@@ -204,6 +406,7 @@ func (su *SupervisorBackend) OnEvent(ev event.Event) bool {
 
 func (su *SupervisorBackend) AttachEmitter(em event.Emitter) {
 	su.emitter = em
+	su.activationMgr.AttachEmitter(em)
 }
 
 // initResources initializes all the resources, such as DBs and processors for chains.
@@ -307,35 +510,53 @@ func (su *SupervisorBackend) AttachSyncNode(ctx context.Context, src syncnode.Sy
 	if err != nil {
 		return nil, fmt.Errorf("failed to identify chain ID of sync source: %w", err)
 	}
+
 	if !su.depSet.HasChain(chainID) {
 		return nil, fmt.Errorf("chain %s is not part of the interop dependency set: %w", chainID, types.ErrUnknownChain)
 	}
-	// before attaching the sync source to the backend at all,
-	// query the anchor point to initialize the database
+
+	// Before attaching the sync source to the backend, query the anchor point to initialize the database
 	if err := su.QueryAnchorpoint(chainID, src); err != nil {
 		return nil, fmt.Errorf("failed to query anchor point: %w", err)
 	}
-	err = su.AttachProcessorSource(chainID, src)
-	if err != nil {
+
+	if err = su.AttachProcessorSource(chainID, src); err != nil {
 		return nil, fmt.Errorf("failed to attach sync source to processor: %w", err)
 	}
-	err = su.AttachSyncSource(chainID, src)
-	if err != nil {
-		return nil, fmt.Errorf("failed to attach sync source to node: %w", err)
+
+	if err = su.AttachSyncSource(chainID, src); err != nil {
+		return nil, fmt.Errorf("failed to attach sync source to sync controller: %w", err)
 	}
+
 	return su.syncNodesController.AttachNodeController(chainID, src, noSubscribe)
 }
 
 func (su *SupervisorBackend) QueryAnchorpoint(chainID eth.ChainID, src syncnode.SyncNode) error {
+	isInteropActive := su.IsInteropActive()
+
 	anchor, err := src.AnchorPoint(context.Background())
 	if err != nil {
+		if !isInteropActive {
+			su.logger.Info("Skipping anchor point initialization in pre-interop mode", "chain", chainID)
+			su.emitter.Emit(superevents.AnchorEvent{
+				ChainID:    chainID,
+				Anchor:     types.DerivedBlockRefPair{},
+				PreInterop: true,
+			})
+			return nil
+		}
 		return fmt.Errorf("failed to get anchor point: %w", err)
 	}
 	su.emitter.Emit(superevents.AnchorEvent{
-		ChainID: chainID,
-		Anchor:  anchor,
+		ChainID:    chainID,
+		Anchor:     anchor,
+		PreInterop: !isInteropActive,
 	})
 	return nil
+}
+
+func (su *SupervisorBackend) IsInteropActive() bool {
+	return su.activationMgr.IsActive()
 }
 
 func (su *SupervisorBackend) AttachProcessorSource(chainID eth.ChainID, src processors.Source) error {

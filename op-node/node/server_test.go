@@ -295,6 +295,11 @@ func (c *mockDriverClient) SetRecoverMode(ctx context.Context, mode bool) error 
 	return nil
 }
 
+func (c *mockDriverClient) ResetToL1(ctx context.Context, l1BlockNumber uint64) error {
+	c.Mock.MethodCalled("ResetToL1")
+	return nil
+}
+
 type mockSafeDBReader struct {
 	mock.Mock
 }

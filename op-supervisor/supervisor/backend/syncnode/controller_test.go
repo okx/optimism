@@ -22,6 +22,7 @@ type mockSyncControl struct {
 	anchorPointFn       func(ctx context.Context) (types.DerivedBlockRefPair, error)
 	provideL1Fn         func(ctx context.Context, ref eth.BlockRef) error
 	resetFn             func(ctx context.Context, unsafe, safe, finalized eth.BlockID) error
+	requestResetFn      func(ctx context.Context, l1BlockNumber uint64) error
 	updateCrossSafeFn   func(ctx context.Context, derived, source eth.BlockID) error
 	updateCrossUnsafeFn func(ctx context.Context, derived eth.BlockID) error
 	updateFinalizedFn   func(ctx context.Context, id eth.BlockID) error
@@ -100,6 +101,13 @@ func (m *mockSyncControl) String() string {
 }
 
 func (m *mockSyncControl) ReconnectRPC(ctx context.Context) error {
+	return nil
+}
+
+func (m *mockSyncControl) RequestReset(ctx context.Context, l1BlockNumber uint64) error {
+	if m.requestResetFn != nil {
+		return m.requestResetFn(ctx, l1BlockNumber)
+	}
 	return nil
 }
 

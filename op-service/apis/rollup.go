@@ -59,6 +59,11 @@ type RollupAdminClient interface {
 	UnsignedPayloadPoster
 	RollupConductor
 	RecoverMode
+	ResetRequester
+}
+
+type ResetRequester interface {
+	RequestReset(ctx context.Context, l1BlockNumber uint64) error
 }
 
 type RollupAdminServer interface {
@@ -67,6 +72,7 @@ type RollupAdminServer interface {
 	UnsignedPayloadPoster
 	RollupConductor
 	RecoverMode
+	ResetRequester
 }
 
 type RollupNodeClient interface {

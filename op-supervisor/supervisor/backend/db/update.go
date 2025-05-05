@@ -11,6 +11,18 @@ import (
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/types"
 )
 
+type anchorBlockProviderAdapter struct {
+	db *ChainsDB
+}
+
+func (a anchorBlockProviderAdapter) GetAnchorBlock(id eth.ChainID) (eth.BlockRef, error) {
+	anchor, ok := a.db.GetAnchorBlock(id)
+	if !ok {
+		return eth.BlockRef{}, fmt.Errorf("no anchor block for chain %s", id)
+	}
+	return anchor.Derived, nil
+}
+
 func (db *ChainsDB) AddLog(
 	chain eth.ChainID,
 	logHash common.Hash,
@@ -30,18 +42,24 @@ func (db *ChainsDB) SealBlock(chain eth.ChainID, block eth.BlockRef) error {
 	if !db.isInitialized(chain) {
 		return fmt.Errorf("cannot SealBlock on uninitialized database: %w", types.ErrUninitialized)
 	}
-	return db.initializedSealBlock(chain, block)
-}
 
-func (db *ChainsDB) initializedSealBlock(chain eth.ChainID, block eth.BlockRef) error {
+	if db.activationMgr != nil {
+		anchorProvider := anchorBlockProviderAdapter{db}
+		if err := db.activationMgr.CheckDBBoundaries(chain, block, anchorProvider.GetAnchorBlock); err != nil {
+			return err
+		}
+	}
+
 	logDB, ok := db.logDBs.Get(chain)
 	if !ok {
 		return fmt.Errorf("cannot SealBlock: %w: %v", types.ErrUnknownChain, chain)
 	}
+
 	err := logDB.SealBlock(block.ParentHash, block.ID(), block.Time)
 	if err != nil {
 		return fmt.Errorf("failed to seal block %v: %w", block, err)
 	}
+
 	db.logger.Info("Updated local unsafe", "chain", chain, "block", block)
 	db.emitter.Emit(superevents.LocalUnsafeUpdateEvent{
 		ChainID:        chain,
@@ -92,10 +110,20 @@ func (db *ChainsDB) Rewind(chain eth.ChainID, headBlock eth.BlockID) error {
 // It wraps an inner function, blocking the call if the database is not initialized.
 func (db *ChainsDB) UpdateLocalSafe(chain eth.ChainID, source eth.BlockRef, lastDerived eth.BlockRef, nodeId string) {
 	logger := db.logger.New("chain", chain, "source", source, "lastDerived", lastDerived)
+
 	if !db.isInitialized(chain) {
 		logger.Error("cannot UpdateLocalSafe on uninitialized database", "chain", chain)
 		return
 	}
+
+	if db.activationMgr != nil {
+		anchorProvider := anchorBlockProviderAdapter{db}
+		if err := db.activationMgr.CheckDBBoundaries(chain, lastDerived, anchorProvider.GetAnchorBlock); err != nil {
+			logger.Error("Failed DB boundary check", "err", err)
+			return
+		}
+	}
+
 	db.initializedUpdateLocalSafe(chain, source, lastDerived, nodeId)
 }
 
@@ -139,20 +167,31 @@ func (db *ChainsDB) UpdateCrossUnsafe(chain eth.ChainID, crossUnsafe types.Block
 	if !ok {
 		return fmt.Errorf("cannot UpdateCrossUnsafe: %w: %s", types.ErrUnknownChain, chain)
 	}
+
 	if !db.isInitialized(chain) {
 		return fmt.Errorf("cannot UpdateCrossUnsafe on uninitialized database: %w", types.ErrUninitialized)
 	}
+
+	blockRef := eth.BlockRef{
+		Number: crossUnsafe.Number,
+		Time:   crossUnsafe.Timestamp,
+		Hash:   crossUnsafe.Hash,
+	}
+
+	if db.activationMgr != nil {
+		anchorProvider := anchorBlockProviderAdapter{db}
+		if err := db.activationMgr.CheckDBBoundaries(chain, blockRef, anchorProvider.GetAnchorBlock); err != nil {
+			return fmt.Errorf("failed DB boundary check: %w", err)
+		}
+	}
+
 	v.Set(crossUnsafe)
 	db.logger.Info("Updated cross-unsafe", "chain", chain, "crossUnsafe", crossUnsafe)
 	db.emitter.Emit(superevents.CrossUnsafeUpdateEvent{
 		ChainID:        chain,
 		NewCrossUnsafe: crossUnsafe,
 	})
-	db.m.RecordCrossUnsafeRef(chain, eth.BlockRef{
-		Number: crossUnsafe.Number,
-		Time:   crossUnsafe.Timestamp,
-		Hash:   crossUnsafe.Hash,
-	})
+	db.m.RecordCrossUnsafeRef(chain, blockRef)
 	return nil
 }
 
@@ -160,6 +199,14 @@ func (db *ChainsDB) UpdateCrossSafe(chain eth.ChainID, l1View eth.BlockRef, last
 	if !db.isInitialized(chain) {
 		return fmt.Errorf("cannot UpdateCrossSafe on uninitialized database: %w", types.ErrUninitialized)
 	}
+
+	if db.activationMgr != nil {
+		anchorProvider := anchorBlockProviderAdapter{db}
+		if err := db.activationMgr.CheckDBBoundaries(chain, lastCrossDerived, anchorProvider.GetAnchorBlock); err != nil {
+			return fmt.Errorf("failed DB boundary check: %w", err)
+		}
+	}
+
 	return db.initializedUpdateCrossSafe(chain, l1View, lastCrossDerived)
 }
 

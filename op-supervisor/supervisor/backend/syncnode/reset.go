@@ -10,10 +10,6 @@ import (
 	"github.com/ethereum/go-ethereum"
 )
 
-// resetTracker manages a bisection
-// between consistent and inconsistent blocks
-// and is used to prepare a reset request
-// which is sent to the managed node
 type resetTracker struct {
 	a eth.BlockID
 	z eth.BlockID
@@ -25,8 +21,6 @@ type resetTracker struct {
 	managed *ManagedNode
 }
 
-// init initializes the reset tracker with
-// empty start and end of range, and no reset in progress
 func (t *resetTracker) init() {
 	t.resetting.Store(true)
 	t.cancelling.Store(false)
@@ -34,9 +28,6 @@ func (t *resetTracker) init() {
 	t.z = eth.BlockID{}
 }
 
-// beginBisectionReset initializes the reset tracker
-// and starts the bisection process at the given block
-// which will lead to a reset request
 func (t *resetTracker) beginBisectionReset(z eth.BlockID) {
 	t.managed.log.Info("beginning reset", "endOfRange", z)
 	// only one reset can be in progress at a time
@@ -54,25 +45,19 @@ func (t *resetTracker) beginBisectionReset(z eth.BlockID) {
 	}
 }
 
-// endReset signals that the reset is over
 func (t *resetTracker) endReset() {
 	t.resetting.Store(false)
 	t.cancelling.Store(false)
 }
 
-// isResetting returns true if a reset is in progress
 func (t *resetTracker) isResetting() bool {
 	return t.resetting.Load()
 }
 
-// cancelReset signals that the ongoing reset should be cancelled
-// it is not guaranteed that the reset will be cancelled immediately
 func (t *resetTracker) cancelReset() {
 	t.cancelling.Store(true)
 }
 
-// bisectToTarget prepares the reset by bisecting the search range until the last consistent block is found.
-// it then calls resetHeadsFromTarget to trigger the reset on the node.
 func (t *resetTracker) bisectToTarget() {
 	nodeCtx, nCancel := context.WithTimeout(t.managed.ctx, nodeTimeout)
 	defer nCancel()
@@ -143,10 +128,6 @@ func (t *resetTracker) bisectToTarget() {
 	t.resetHeadsFromTarget(t.a)
 }
 
-// bisect halves the search range of the ongoing reset to narrow down
-// where the reset will target. It bisects the range and constrains either
-// the start or the end of the range, based on the consistency of the midpoint
-// with the logs db.
 func (t *resetTracker) bisect() error {
 	internalCtx, iCancel := context.WithTimeout(t.managed.ctx, internalTimeout)
 	defer iCancel()
@@ -186,9 +167,6 @@ func (t *resetTracker) bisect() error {
 	return nil
 }
 
-// resetHeadsFromTarget takes a target block and identifies the correct
-// unsafe, safe, and finalized blocks to target for the reset.
-// It then triggers the reset on the node.
 func (t *resetTracker) resetHeadsFromTarget(target eth.BlockID) {
 	internalCtx, iCancel := context.WithTimeout(t.managed.ctx, internalTimeout)
 	defer iCancel()
@@ -201,6 +179,42 @@ func (t *resetTracker) resetHeadsFromTarget(target eth.BlockID) {
 	}
 
 	t.managed.log.Info("reset target identified", "target", target)
+
+	// Try to find corresponding L1 block number for direct reset
+	// This is an optimization to use the simpler RequestReset RPC if available
+	var l1BlockNum uint64
+	found := false
+
+	// Check if this target matches our current safe head
+	safePair, err := t.managed.backend.LocalSafe(internalCtx, t.managed.chainID)
+	if err == nil && safePair.Derived.Number == target.Number {
+		l1BlockNum = safePair.Source.Number
+		found = true
+	}
+
+	// If we found an L1 block and the node supports RequestReset, try that first
+	if found {
+		if resetter, ok := t.managed.Node.(ResetRequester); ok {
+			nodeCtx, nCancel := context.WithTimeout(t.managed.ctx, nodeTimeout)
+			defer nCancel()
+
+			t.managed.log.Info("attempting reset via RequestReset", "l1_block_number", l1BlockNum)
+			if err := resetter.RequestReset(nodeCtx, l1BlockNum); err == nil {
+				t.managed.log.Info("successfully reset node using RequestReset", "l1_block_number", l1BlockNum)
+				t.endReset()
+				return
+			} else {
+				t.managed.log.Warn("RequestReset failed, falling back to traditional reset", "err", err)
+			}
+		}
+	}
+
+	// Setting up for a traditional full reset
+	defer t.endReset()
+	t.fullReset(internalCtx, target)
+}
+
+func (t *resetTracker) fullReset(ctx context.Context, target eth.BlockID) {
 	var lUnsafe, xUnsafe, lSafe, xSafe, finalized eth.BlockID
 
 	// the unsafe block is always the last block we found to be consistent
@@ -208,10 +222,9 @@ func (t *resetTracker) resetHeadsFromTarget(target eth.BlockID) {
 
 	// all other blocks are either the last consistent block, or the last block in the db, whichever is earlier
 	// cross unsafe
-	lastXUnsafe, err := t.managed.backend.CrossUnsafe(internalCtx, t.managed.chainID)
+	lastXUnsafe, err := t.managed.backend.CrossUnsafe(ctx, t.managed.chainID)
 	if err != nil {
 		t.managed.log.Error("failed to get last cross unsafe block. cancelling reset", "err", err)
-		t.endReset()
 		return
 	}
 	if lastXUnsafe.Number < target.Number {
@@ -220,10 +233,9 @@ func (t *resetTracker) resetHeadsFromTarget(target eth.BlockID) {
 		xUnsafe = target
 	}
 	// local safe
-	lastLSafe, err := t.managed.backend.LocalSafe(internalCtx, t.managed.chainID)
+	lastLSafe, err := t.managed.backend.LocalSafe(ctx, t.managed.chainID)
 	if err != nil {
 		t.managed.log.Error("failed to get last safe block. cancelling reset", "err", err)
-		t.endReset()
 		return
 	}
 	if lastLSafe.Derived.Number < target.Number {
@@ -232,10 +244,9 @@ func (t *resetTracker) resetHeadsFromTarget(target eth.BlockID) {
 		lSafe = target
 	}
 	// cross safe
-	lastXSafe, err := t.managed.backend.CrossSafe(internalCtx, t.managed.chainID)
+	lastXSafe, err := t.managed.backend.CrossSafe(ctx, t.managed.chainID)
 	if err != nil {
 		t.managed.log.Error("failed to get last cross safe block. cancelling reset", "err", err)
-		t.endReset()
 		return
 	}
 	if lastXSafe.Derived.Number < target.Number {
@@ -244,13 +255,12 @@ func (t *resetTracker) resetHeadsFromTarget(target eth.BlockID) {
 		xSafe = target
 	}
 	// finalized
-	lastFinalized, err := t.managed.backend.Finalized(internalCtx, t.managed.chainID)
+	lastFinalized, err := t.managed.backend.Finalized(ctx, t.managed.chainID)
 	if errors.Is(err, types.ErrFuture) {
 		t.managed.log.Warn("finalized block is not yet known", "err", err)
 		lastFinalized = eth.BlockID{}
 	} else if err != nil {
 		t.managed.log.Error("failed to get last finalized block. cancelling reset", "err", err)
-		t.endReset()
 		return
 	}
 	if lastFinalized.Number < target.Number {
@@ -260,7 +270,7 @@ func (t *resetTracker) resetHeadsFromTarget(target eth.BlockID) {
 	}
 
 	// trigger the reset
-	t.managed.log.Info("triggering reset on node",
+	t.managed.log.Info("triggering traditional reset on node",
 		"localUnsafe", lUnsafe,
 		"crossUnsafe", xUnsafe,
 		"localSafe", lSafe,

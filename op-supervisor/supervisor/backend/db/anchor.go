@@ -8,8 +8,6 @@ import (
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/types"
 )
 
-// ForceInitialized marks the chain database as initialized, even if it is not.
-// This function is for testing purposes only and should not be used in production code.
 func (db *ChainsDB) ForceInitialized(id eth.ChainID) {
 	db.initialized.Set(id, struct{}{})
 }
@@ -19,10 +17,36 @@ func (db *ChainsDB) isInitialized(id eth.ChainID) bool {
 	return ok
 }
 
+func (db *ChainsDB) IsInitialized(id eth.ChainID) bool {
+	return db.isInitialized(id)
+}
+
+func (db *ChainsDB) GetAnchorBlock(id eth.ChainID) (types.DerivedBlockRefPair, bool) {
+	anchor, ok := db.anchorBlocks.Get(id)
+	return anchor, ok
+}
+
+func (db *ChainsDB) GetAnchorL2Block(id eth.ChainID) (eth.BlockRef, error) {
+	anchor, ok := db.anchorBlocks.Get(id)
+	if !ok {
+		return eth.BlockRef{}, fmt.Errorf("no anchor block for chain %s", id)
+	}
+	return anchor.Derived, nil
+}
+
+func (db *ChainsDB) IsInInteropMode(id eth.ChainID) bool {
+	_, ok := db.anchorBlocks.Get(id)
+	return ok
+}
+
+func (db *ChainsDB) InitializeWithAnchor(id eth.ChainID, anchor types.DerivedBlockRefPair) {
+	db.initFromAnchor(id, anchor)
+}
+
 func (db *ChainsDB) initFromAnchor(id eth.ChainID, anchor types.DerivedBlockRefPair) {
 	// Check if the chain database is already initialized
-	if db.isInitialized(id) {
-		db.logger.Debug("chain database already initialized")
+	if db.isInitialized(id) && db.IsInInteropMode(id) {
+		db.logger.Debug("chain database already initialized with anchor block")
 		return
 	}
 	db.logger.Debug("initializing chain database from anchor point")
@@ -39,13 +63,18 @@ func (db *ChainsDB) initFromAnchor(id eth.ChainID, anchor types.DerivedBlockRefP
 		return
 	}
 
+	// Store the anchor block
+	db.anchorBlocks.Set(id, anchor)
+
 	// Mark the chain database as initialized
 	db.initialized.Set(id, struct{}{})
+
+	db.logger.Info("Chain initialized with anchor block for interop",
+		"chain", id,
+		"anchorSource", anchor.Source,
+		"anchorDerived", anchor.Derived)
 }
 
-// maybeInitSafeDB initializes the chain database if it is not already initialized
-// it checks if the Local Safe database is empty, and loads both the Local and Cross Safe databases
-// with the anchor point if they are empty.
 func (db *ChainsDB) maybeInitSafeDB(id eth.ChainID, anchor types.DerivedBlockRefPair) error {
 	logger := db.logger.New("chain", id, "derived", anchor.Derived, "source", anchor.Source)
 	localDB, ok := db.localDBs.Get(id)
@@ -80,10 +109,17 @@ func (db *ChainsDB) maybeInitEventsDB(id eth.ChainID, anchor types.DerivedBlockR
 	seal, _, _, err := db.OpenBlock(id, 0)
 	if errors.Is(err, types.ErrFuture) {
 		logger.Debug("initializing events database")
-		err := db.initializedSealBlock(id, anchor.Derived)
-		if err != nil {
-			return err
+
+		// Seal the anchor block directly
+		logDB, ok := db.logDBs.Get(id)
+		if !ok {
+			return fmt.Errorf("cannot SealBlock: %w: %v", types.ErrUnknownChain, id)
 		}
+		err := logDB.SealBlock(anchor.Derived.ParentHash, anchor.Derived.ID(), anchor.Derived.Time)
+		if err != nil {
+			return fmt.Errorf("failed to seal anchor block %v: %w", anchor.Derived, err)
+		}
+
 		logger.Info("Initialized events database")
 	} else if err != nil {
 		return fmt.Errorf("failed to check if logDB is initialized: %w", err)
