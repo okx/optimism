@@ -194,21 +194,29 @@ func MakeCommon[O Orchestrator](opt Option[O]) CommonOption {
 		BeforeDeployFn: func(orch Orchestrator) {
 			if o, ok := orch.(O); ok {
 				opt.BeforeDeploy(o)
+			} else {
+				orch.P().Logger().Debug("BeforeDeploy option does not apply to this orchestrator type")
 			}
 		},
 		DeployFn: func(orch Orchestrator) {
 			if o, ok := orch.(O); ok {
 				opt.Deploy(o)
+			} else {
+				orch.P().Logger().Debug("Deploy option does not apply to this orchestrator type")
 			}
 		},
 		AfterDeployFn: func(orch Orchestrator) {
 			if o, ok := orch.(O); ok {
 				opt.AfterDeploy(o)
+			} else {
+				orch.P().Logger().Debug("AfterDeploy option does not apply to this orchestrator type")
 			}
 		},
 		FinallyFn: func(orch Orchestrator, hook SystemHook) {
 			if o, ok := orch.(O); ok {
 				opt.Finally(o, hook)
+			} else {
+				orch.P().Logger().Debug("Finally option does not apply to this orchestrator type")
 			}
 		},
 		PostHydrateFn: func(sys System) {
