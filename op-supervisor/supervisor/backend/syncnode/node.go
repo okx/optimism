@@ -9,17 +9,20 @@ import (
 	"time"
 
 	"github.com/ethereum-optimism/optimism/op-service/rpc"
+	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/activation"
+
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/gorilla/websocket"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/log"
 
+	gethevent "github.com/ethereum/go-ethereum/event"
+
 	"github.com/ethereum-optimism/optimism/op-node/rollup/event"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/superevents"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/types"
-	gethevent "github.com/ethereum/go-ethereum/event"
 )
 
 type backend interface {
@@ -39,10 +42,6 @@ type backend interface {
 	L1BlockRefByNumber(ctx context.Context, number uint64) (eth.L1BlockRef, error)
 }
 
-type activationManager interface {
-	IsActiveForChain(chain eth.ChainID, timestamp uint64) bool
-}
-
 const (
 	internalTimeout            = time.Second * 30
 	nodeTimeout                = time.Second * 10
@@ -52,10 +51,10 @@ const (
 )
 
 type ManagedNode struct {
-	log           log.Logger
-	Node          SyncControl
-	chainID       eth.ChainID
-	activationMgr activationManager
+	log               log.Logger
+	Node              SyncControl
+	chainID           eth.ChainID
+	activationCheckFn activation.CheckFn
 
 	backend backend
 
@@ -80,16 +79,16 @@ type ManagedNode struct {
 var _ event.AttachEmitter = (*ManagedNode)(nil)
 var _ event.Deriver = (*ManagedNode)(nil)
 
-func NewManagedNode(log log.Logger, id eth.ChainID, node SyncControl, backend backend, activationMgr activationManager, noSubscribe bool) *ManagedNode {
+func NewManagedNode(log log.Logger, id eth.ChainID, node SyncControl, backend backend, activationCheckFn activation.CheckFn, noSubscribe bool) *ManagedNode {
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &ManagedNode{
-		log:           log.New("chain", id),
-		backend:       backend,
-		Node:          node,
-		chainID:       id,
-		activationMgr: activationMgr,
-		ctx:           ctx,
-		cancel:        cancel,
+		log:               log.New("chain", id),
+		backend:           backend,
+		Node:              node,
+		chainID:           id,
+		activationCheckFn: activationCheckFn,
+		ctx:               ctx,
+		cancel:            cancel,
 	}
 	m.resetTracker = &resetTracker{
 		managed:     m,

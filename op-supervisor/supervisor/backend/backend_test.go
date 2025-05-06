@@ -31,47 +31,6 @@ import (
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/types"
 )
 
-// mockSyncSource implements the syncnode.SyncSource interface for testing
-type mockSyncSource struct {
-	anchorPoint types.DerivedBlockRefPair
-}
-
-func (m *mockSyncSource) AnchorPoint(ctx context.Context) (types.DerivedBlockRefPair, error) {
-	return m.anchorPoint, nil
-}
-
-func (m *mockSyncSource) ChainID(ctx context.Context) (eth.ChainID, error) {
-	return eth.ChainID{1}, nil
-}
-
-func (m *mockSyncSource) Contains(ctx context.Context, query types.ContainsQuery) (types.BlockSeal, error) {
-	return types.BlockSeal{}, nil
-}
-
-func (m *mockSyncSource) L2BlockRefByTimestamp(ctx context.Context, timestamp uint64) (eth.L2BlockRef, error) {
-	return eth.L2BlockRef{}, nil
-}
-
-func (m *mockSyncSource) BlockRefByNumber(ctx context.Context, num uint64) (eth.BlockRef, error) {
-	return eth.BlockRef{Number: num}, nil
-}
-
-func (m *mockSyncSource) FetchReceipts(ctx context.Context, blockHash common.Hash) (types2.Receipts, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (m *mockSyncSource) OutputV0AtTimestamp(ctx context.Context, timestamp uint64) (*eth.OutputV0, error) {
-	return &eth.OutputV0{}, nil
-}
-
-func (m *mockSyncSource) PendingOutputV0AtTimestamp(ctx context.Context, timestamp uint64) (*eth.OutputV0, error) {
-	return &eth.OutputV0{}, nil
-}
-
-func (m *mockSyncSource) String() string {
-	return "MockSyncSource"
-}
-
 func TestBackendLifetime(t *testing.T) {
 	logger := testlog.Logger(t, log.LvlInfo)
 	m := metrics.NoopMetrics
@@ -186,16 +145,16 @@ func TestBackendLifetime(t *testing.T) {
 		Source:  eth.BlockRef{Number: 0, Hash: common.HexToHash("0x123"), Time: 1},
 		Derived: eth.BlockRef{Number: 0, Hash: common.HexToHash("0x456"), Time: 1},
 	}
-	mockSrc := &mockSyncSource{
+	fakeSrc := &fakeSyncSource{
+		chainID:     chainA,
 		anchorPoint: anchorPair,
 	}
-	b.syncSources.Set(chainA, mockSrc)
+	b.syncSources.Set(chainA, fakeSrc)
 
 	// Set up the mock event for initialization
 	b.emitter.Emit(superevents.AnchorEvent{
-		ChainID:    chainA,
-		Anchor:     anchorPair,
-		PreInterop: false,
+		ChainID: chainA,
+		Anchor:  anchorPair,
 	})
 	require.NoError(t, ex.Drain())
 
@@ -371,6 +330,8 @@ type fakeSyncSource struct {
 	chainID eth.ChainID
 	seal    types.BlockSeal
 	err     error
+
+	anchorPoint types.DerivedBlockRefPair
 }
 
 func (f *fakeSyncSource) Contains(_ context.Context, _ types.ContainsQuery) (types.BlockSeal, error) {
@@ -390,7 +351,7 @@ func (f *fakeSyncSource) FetchReceipts(_ context.Context, _ common.Hash) (types2
 }
 
 func (f *fakeSyncSource) AnchorPoint(_ context.Context) (types.DerivedBlockRefPair, error) {
-	panic("should not be called")
+	return f.anchorPoint, nil
 }
 
 func (f *fakeSyncSource) OutputV0AtTimestamp(_ context.Context, _ uint64) (*eth.OutputV0, error) {
@@ -501,4 +462,119 @@ func TestAsyncVerifyAccessWithRPC(t *testing.T) {
 	runScenario("OtherErr_mismatch", sealA, types.ErrFuture, idB)
 	// No error + match         => 0 failures
 	runScenario("NoErr_match", sealA, nil, idA)
+}
+
+func TestDetectAndActivateInterop(t *testing.T) {
+	logger := testlog.Logger(t, log.LvlInfo)
+	m := metrics.NoopMetrics
+	dataDir := t.TempDir()
+	chain := eth.ChainIDFromUInt64(900)
+
+	// Create a dependency set that allows activation at timestamp 2000
+	depSet, err := depset.NewStaticConfigDependencySet(
+		map[eth.ChainID]*depset.StaticConfigDependency{
+			chain: {
+				ChainIndex:     900,
+				ActivationTime: 2000,
+				HistoryMinTime: 2000,
+			},
+		})
+	require.NoError(t, err)
+
+	cfg := &config.Config{
+		Version:               "test",
+		LogConfig:             oplog.CLIConfig{},
+		MetricsConfig:         opmetrics.CLIConfig{},
+		PprofConfig:           oppprof.CLIConfig{},
+		RPC:                   oprpc.CLIConfig{},
+		DependencySetSource:   depSet,
+		SynchronousProcessors: true,
+		MockRun:               false,
+		SyncSources:           &syncnode.CLISyncNodes{},
+		Datadir:               dataDir,
+	}
+
+	ex := event.NewGlobalSynchronous(context.Background())
+	b, err := NewSupervisorBackend(context.Background(), logger, m, cfg, ex)
+	require.NoError(t, err)
+
+	// Create test blocks with hashes consistent with our mock anchor point
+	anchorBlock := eth.BlockRef{
+		Hash:       common.HexToHash("0x456"), // Match the hash in our mock anchor
+		Number:     0,
+		ParentHash: common.Hash{}, // genesis has no parent hash
+		Time:       1,             // Match the time in our mock anchor
+	}
+	blockX := eth.BlockRef{
+		Hash:       common.Hash{0x01},
+		Number:     1,
+		ParentHash: anchorBlock.Hash,
+		Time:       10000,
+	}
+	blockY := eth.BlockRef{
+		Hash:       common.Hash{0x02},
+		Number:     blockX.Number + 1,
+		ParentHash: blockX.Hash,
+		Time:       blockX.Time + 2,
+	}
+
+	l1Src := &testutils.MockL1Source{}
+	src := &MockProcessorSource{}
+
+	// Set up expectations for the mock processor source
+	src.ExpectBlockRefByNumber(0, anchorBlock, nil)
+	src.ExpectBlockRefByNumber(1, blockX, nil)
+	src.ExpectBlockRefByNumber(2, blockY, nil)
+
+	// Set up expectations for FetchReceipts
+	src.ExpectFetchReceipts(blockX.Hash, types2.Receipts{}, nil)
+	src.ExpectFetchReceipts(blockY.Hash, types2.Receipts{}, nil)
+
+	b.AttachL1Source(l1Src)
+	require.NoError(t, b.AttachProcessorSource(chain, src))
+
+	err = b.Start(context.Background())
+	require.NoError(t, err)
+
+	_, err = b.LocalUnsafe(context.Background(), chain)
+	require.ErrorIs(t, err, types.ErrFuture, "no data yet, need local-unsafe")
+
+	src.ExpectBlockRefByNumber(0, anchorBlock, nil)
+	src.ExpectFetchReceipts(blockX.Hash, nil, nil)
+
+	src.ExpectBlockRefByNumber(1, blockX, nil)
+	src.ExpectFetchReceipts(blockX.Hash, nil, nil)
+
+	src.ExpectBlockRefByNumber(2, blockY, nil)
+	src.ExpectFetchReceipts(blockY.Hash, nil, nil)
+
+	src.ExpectBlockRefByNumber(3, eth.L1BlockRef{}, ethereum.NotFound)
+
+	// The first time a Local Unsafe is received, we expect it to be processed since the
+	// activation is now checked at the event level.
+	// In this test, we've configured activation to work for blockY's timestamp (10002)
+	b.emitter.Emit(superevents.LocalUnsafeReceivedEvent{
+		ChainID:        chain,
+		NewLocalUnsafe: blockY,
+	})
+	require.NoError(t, ex.Drain())
+
+	// After the anchor event, the database is initialized, and the call to update
+	// from the LocalUnsafe event will succeed.
+	// Set up the fake sync source to return a proper anchor that matches our mock initialization
+	anchorPair := types.DerivedBlockRefPair{
+		Source:  eth.BlockRef{Number: 0, Hash: common.HexToHash("0x123"), Time: 1},
+		Derived: eth.BlockRef{Number: 0, Hash: common.HexToHash("0x456"), Time: 1},
+	}
+	fakeSrc := &fakeSyncSource{
+		chainID: chain,
+	}
+	b.syncSources.Set(chain, fakeSrc)
+
+	// Set up the mock event for initialization
+	b.emitter.Emit(superevents.AnchorEvent{
+		ChainID: chain,
+		Anchor:  anchorPair,
+	})
+	require.NoError(t, ex.Drain())
 }

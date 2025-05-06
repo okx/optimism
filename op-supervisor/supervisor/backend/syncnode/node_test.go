@@ -27,7 +27,7 @@ func TestEventResponse(t *testing.T) {
 	mon := &eventMonitor{}
 	eventSys.Register("monitor", mon, event.DefaultRegisterOpts())
 
-	node := NewManagedNode(logger, chainID, syncCtrl, backend, false)
+	node := NewManagedNode(logger, chainID, syncCtrl, backend, nil, false)
 	eventSys.Register("node", node, event.DefaultRegisterOpts())
 
 	emitter := eventSys.Register("test", nil, event.DefaultRegisterOpts())
@@ -102,7 +102,7 @@ func TestPrepareReset(t *testing.T) {
 	mon := &eventMonitor{}
 	eventSys.Register("monitor", mon, event.DefaultRegisterOpts())
 
-	node := NewManagedNode(logger, chainID, syncCtrl, backend, false)
+	node := NewManagedNode(logger, chainID, syncCtrl, backend, nil, false)
 	eventSys.Register("node", node, event.DefaultRegisterOpts())
 
 	// mock: return a block of the same number as requested
