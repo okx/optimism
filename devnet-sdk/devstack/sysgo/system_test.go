@@ -27,7 +27,7 @@ func TestSystem(gt *testing.T) {
 	gt.Cleanup(p.Close)
 
 	orch := NewOrchestrator(p)
-	opt(orch)
+	stack.ApplyOptionLifecycle(opt, orch)
 
 	// Run two tests in parallel: see if we can share the same orchestrator
 	// between two test scopes, with two different hydrated system frontends.

@@ -31,62 +31,76 @@ const funderMnemonicIndex = 10_000
 
 type DeployerOption func(p devtest.P, keys devkeys.Keys, builder intentbuilder.Builder)
 
-func WithDeployer(opts ...DeployerOption) stack.Option {
-	return func(o stack.Orchestrator) {
-		orch := o.(*Orchestrator)
-		require := o.P().Require()
-
-		wb := &worldBuilder{
-			p:       o.P(),
-			logger:  o.P().Logger(),
-			require: o.P().Require(),
-			keys:    orch.keys,
-			builder: intentbuilder.New(),
-		}
+func WithDeployerOptions(opts ...DeployerOption) stack.Option[*Orchestrator] {
+	return stack.BeforeDeploy(func(o *Orchestrator) {
+		o.P().Require().NotNil(o.wb, "must have a world builder")
 		for _, opt := range opts {
-			opt(o.P(), orch.keys, wb.builder)
+			opt(o.P(), o.keys, o.wb.builder)
 		}
-		wb.Build()
+	})
+}
 
-		l1ID := stack.L1NetworkID(eth.ChainIDFromUInt64(wb.output.AppliedIntent.L1ChainID))
-		superchainID := stack.SuperchainID("main")
-		clusterID := stack.ClusterID("main")
-
-		l1Net := &L1Network{
-			id:        l1ID,
-			genesis:   wb.outL1Genesis,
-			blockTime: 6,
-		}
-		orch.l1Nets.Set(l1ID.ChainID(), l1Net)
-
-		orch.superchains.Set(superchainID, &Superchain{
-			id:         superchainID,
-			deployment: wb.outSuperchainDeployment,
-		})
-		orch.clusters.Set(clusterID, &Cluster{
-			id:     clusterID,
-			depset: wb.outDepset,
-		})
-
-		for _, chainID := range wb.l2Chains {
-			l2Genesis, ok := wb.outL2Genesis[chainID]
-			require.True(ok, "L2 genesis must exist")
-			l2RollupCfg, ok := wb.outL2RollupCfg[chainID]
-			require.True(ok, "L2 rollup config must exist")
-			l2Dep, ok := wb.outL2Deployment[chainID]
-			require.True(ok, "L2 deployment must exist")
-
-			l2ID := stack.L2NetworkID(chainID)
-			l2Net := &L2Network{
-				id:         l2ID,
-				l1ChainID:  l1ID.ChainID(),
-				genesis:    l2Genesis,
-				rollupCfg:  l2RollupCfg,
-				deployment: l2Dep,
-				keys:       orch.keys,
+func WithDeployer() stack.Option[*Orchestrator] {
+	return stack.FnOption[*Orchestrator]{
+		BeforeDeployFn: func(o *Orchestrator) {
+			o.P().Require().Nil(o.wb, "must not already have a world builder")
+			o.wb = &worldBuilder{
+				p:       o.P(),
+				logger:  o.P().Logger(),
+				require: o.P().Require(),
+				keys:    o.keys,
+				builder: intentbuilder.New(),
 			}
-			orch.l2Nets.Set(l2ID.ChainID(), l2Net)
-		}
+		},
+		DeployFn: func(o *Orchestrator) {
+			o.P().Require().NotNil(o.wb, "must have a world builder")
+			o.wb.Build()
+		},
+		AfterDeployFn: func(o *Orchestrator) {
+			wb := o.wb
+			require := o.P().Require()
+			require.NotNil(o.wb, "must have a world builder")
+
+			l1ID := stack.L1NetworkID(eth.ChainIDFromUInt64(wb.output.AppliedIntent.L1ChainID))
+			superchainID := stack.SuperchainID("main")
+			clusterID := stack.ClusterID("main")
+
+			l1Net := &L1Network{
+				id:        l1ID,
+				genesis:   wb.outL1Genesis,
+				blockTime: 6,
+			}
+			o.l1Nets.Set(l1ID.ChainID(), l1Net)
+
+			o.superchains.Set(superchainID, &Superchain{
+				id:         superchainID,
+				deployment: wb.outSuperchainDeployment,
+			})
+			o.clusters.Set(clusterID, &Cluster{
+				id:     clusterID,
+				depset: wb.outDepset,
+			})
+
+			for _, chainID := range wb.l2Chains {
+				l2Genesis, ok := wb.outL2Genesis[chainID]
+				require.True(ok, "L2 genesis must exist")
+				l2RollupCfg, ok := wb.outL2RollupCfg[chainID]
+				require.True(ok, "L2 rollup config must exist")
+				l2Dep, ok := wb.outL2Deployment[chainID]
+				require.True(ok, "L2 deployment must exist")
+
+				l2ID := stack.L2NetworkID(chainID)
+				l2Net := &L2Network{
+					id:         l2ID,
+					l1ChainID:  l1ID.ChainID(),
+					genesis:    l2Genesis,
+					rollupCfg:  l2RollupCfg,
+					deployment: l2Dep,
+					keys:       o.keys,
+				}
+				o.l2Nets.Set(l2ID.ChainID(), l2Net)
+			}
+		},
 	}
 }
 

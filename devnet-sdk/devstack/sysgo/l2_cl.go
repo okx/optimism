@@ -116,10 +116,9 @@ func (n *L2CLNode) Stop() {
 	n.opNode = nil
 }
 
-func WithL2CLNode(l2CLID stack.L2CLNodeID, isSequencer bool, l1CLID stack.L1CLNodeID, l1ELID stack.L1ELNodeID, l2ELID stack.L2ELNodeID) stack.Option {
-	return func(o stack.Orchestrator) {
-		orch := o.(*Orchestrator)
-		require := o.P().Require()
+func WithL2CLNode(l2CLID stack.L2CLNodeID, isSequencer bool, l1CLID stack.L1CLNodeID, l1ELID stack.L1ELNodeID, l2ELID stack.L2ELNodeID) stack.Option[*Orchestrator] {
+	return stack.AfterDeploy(func(orch *Orchestrator) {
+		require := orch.P().Require()
 
 		l2Net, ok := orch.l2Nets.Get(l2CLID.ChainID)
 		require.True(ok, "l2 network required")
@@ -135,7 +134,7 @@ func WithL2CLNode(l2CLID stack.L2CLNodeID, isSequencer bool, l1CLID stack.L1CLNo
 
 		jwtPath, jwtSecret := orch.writeDefaultJWT()
 
-		logger := o.P().Logger().New("service", "op-node", "id", l2CLID)
+		logger := orch.P().Logger().New("service", "op-node", "id", l2CLID)
 
 		var p2pSignerSetup p2p.SignerSetup
 		var p2pConfig *p2p.Config
@@ -240,13 +239,13 @@ func WithL2CLNode(l2CLID stack.L2CLNodeID, isSequencer bool, l1CLID stack.L1CLNo
 			id:     l2CLID,
 			cfg:    nodeCfg,
 			logger: logger,
-			p:      o.P(),
+			p:      orch.P(),
 			el:     l2ELID,
 		}
 		require.True(orch.l2CLs.SetIfMissing(l2CLID, l2CLNode), "must not already exist")
 		l2CLNode.Start()
 		orch.p.Cleanup(l2CLNode.Stop)
-	}
+	})
 }
 
 func GetP2PClient(ctx context.Context, logger log.Logger, l2CLNode *L2CLNode) (*sources.P2PClient, error) {
@@ -306,10 +305,9 @@ func getP2PClientsAndPeers(ctx context.Context, logger log.Logger, require *requ
 }
 
 // WithL2CLP2PConnection connects P2P between two L2CLs
-func WithL2CLP2PConnection(l2CL1ID, l2CL2ID stack.L2CLNodeID) stack.Option {
-	return func(o stack.Orchestrator) {
-		orch := o.(*Orchestrator)
-		require := o.P().Require()
+func WithL2CLP2PConnection(l2CL1ID, l2CL2ID stack.L2CLNodeID) stack.Option[*Orchestrator] {
+	return stack.AfterDeploy(func(orch *Orchestrator) {
+		require := orch.P().Require()
 
 		l2CL1, ok := orch.l2CLs.Get(l2CL1ID)
 		require.True(ok, "looking for L2 CL node 1 to connect p2p")
@@ -317,8 +315,8 @@ func WithL2CLP2PConnection(l2CL1ID, l2CL2ID stack.L2CLNodeID) stack.Option {
 		require.True(ok, "looking for L2 CL node 2 to connect p2p")
 		require.Equal(l2CL1.cfg.Rollup.L2ChainID, l2CL2.cfg.Rollup.L2ChainID, "must be same l2 chain")
 
-		ctx := o.P().Ctx()
-		logger := o.P().Logger()
+		ctx := orch.P().Ctx()
+		logger := orch.P().Logger()
 
 		p := getP2PClientsAndPeers(ctx, logger, require, l2CL1, l2CL2)
 
@@ -345,14 +343,13 @@ func WithL2CLP2PConnection(l2CL1ID, l2CL2ID stack.L2CLNodeID) stack.Option {
 
 		check(peerDump1, p.peerInfo2)
 		check(peerDump2, p.peerInfo1)
-	}
+	})
 }
 
 // DisconnectL2CLP2P disconnects P2P between two L2CLs
-func DisconnectL2CLP2P(l2CL1ID, l2CL2ID stack.L2CLNodeID) stack.Option {
-	return func(o stack.Orchestrator) {
-		orch := o.(*Orchestrator)
-		require := o.P().Require()
+func DisconnectL2CLP2P(l2CL1ID, l2CL2ID stack.L2CLNodeID) stack.Option[*Orchestrator] {
+	return stack.AfterDeploy(func(orch *Orchestrator) {
+		require := orch.P().Require()
 
 		l2CL1, ok := orch.l2CLs.Get(l2CL1ID)
 		require.True(ok, "looking for L2 CL node 1 to disconnect p2p")
@@ -360,8 +357,8 @@ func DisconnectL2CLP2P(l2CL1ID, l2CL2ID stack.L2CLNodeID) stack.Option {
 		require.True(ok, "looking for L2 CL node 2 to disconnect p2p")
 		require.Equal(l2CL1.cfg.Rollup.L2ChainID, l2CL2.cfg.Rollup.L2ChainID, "must be same l2 chain")
 
-		ctx := o.P().Ctx()
-		logger := o.P().Logger()
+		ctx := orch.P().Ctx()
+		logger := orch.P().Logger()
 
 		p := getP2PClientsAndPeers(ctx, logger, require, l2CL1, l2CL2)
 
@@ -388,5 +385,5 @@ func DisconnectL2CLP2P(l2CL1ID, l2CL2ID stack.L2CLNodeID) stack.Option {
 
 		check(peerDump1, p.peerInfo2)
 		check(peerDump2, p.peerInfo1)
-	}
+	})
 }

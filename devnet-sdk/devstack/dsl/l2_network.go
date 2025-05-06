@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/ethereum-optimism/optimism/devnet-sdk/devstack/devtest"
 	"github.com/ethereum-optimism/optimism/devnet-sdk/devstack/stack"
 	"github.com/ethereum-optimism/optimism/devnet-sdk/devstack/stack/match"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/wait"
@@ -100,4 +101,72 @@ func (n *L2Network) UnsafeHeadRef() eth.BlockRef {
 	n.require.NoError(err, "Expected to get block ref by hash")
 
 	return unsafeHeadRef
+}
+
+// LatestPreActivation finds the latest block before fork activation
+func (n *L2Network) LatestPreActivation(t devtest.T, forkTimestamp *uint64) eth.BlockRef {
+	require := t.Require()
+
+	t.Gate().NotNil(forkTimestamp, "Must have fork configured")
+	t.Gate().Greater(*forkTimestamp, uint64(0), "Must not start fork at genesis")
+
+	activationBlockNum, err := n.Escape().RollupConfig().TargetBlockNumber(*forkTimestamp)
+	require.NoError(err)
+
+	el := n.Escape().L2ELNode(match.FirstL2EL)
+	head, err := el.EthClient().BlockRefByLabel(t.Ctx(), eth.Unsafe)
+	require.NoError(err)
+
+	t.Logger().Info("Preparing",
+		"head", head, "head_time", head.Time,
+		"activationNum", activationBlockNum, "activationTime", *forkTimestamp)
+
+	if head.Number < activationBlockNum {
+		t.Logger().Info("No activation yet, checking head block instead")
+		return head
+	} else {
+		t.Logger().Info("Reached activation block already, proceeding with last block before activation")
+		v, err := el.EthClient().BlockRefByNumber(t.Ctx(), activationBlockNum-1)
+		require.NoError(err)
+		return v
+	}
+}
+
+// AwaitActivation awaits the fork activation time, and returns the activation block
+func (n *L2Network) AwaitActivation(t devtest.T, forkTimestamp *uint64) eth.BlockRef {
+	require := t.Require()
+
+	t.Gate().NotNil(forkTimestamp, "Must have fork configured")
+	t.Gate().Greater(*forkTimestamp, uint64(0), "Must not start frok at genesis")
+
+	upgradeTime := time.Unix(int64(*forkTimestamp), 0)
+
+	if deadline, hasDeadline := t.Deadline(); hasDeadline {
+		t.Gate().True(upgradeTime.Before(deadline), "test must not time out before upgrade happens")
+	}
+
+	activationBlockNum, err := n.Escape().RollupConfig().TargetBlockNumber(*forkTimestamp)
+	require.NoError(err)
+
+	now := time.Now()
+	fromNow := upgradeTime.Sub(now)
+	if fromNow > 0 {
+		t.Logger().Info("Awaiting upgrade", "fromNow", fromNow,
+			"upgradeTime", upgradeTime,
+			"timestamp", *forkTimestamp,
+			"activationBlock", activationBlockNum)
+
+		select {
+		case <-time.After(fromNow):
+		case <-t.Ctx().Done():
+			t.Require().FailNow("failed to await fork within test time")
+		}
+	}
+
+	el := n.Escape().L2ELNode(match.FirstL2EL)
+	activationBlock, err := el.EthClient().BlockRefByNumber(t.Ctx(), activationBlockNum)
+	require.NoError(err)
+
+	t.Logger().Info("Activation block", "block", activationBlock)
+	return activationBlock
 }

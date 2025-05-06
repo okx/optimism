@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
@@ -51,6 +52,12 @@ type T interface {
 
 	// Gate provides everything that Require does, but skips instead of fails the test upon error.
 	Gate() *require.Assertions
+
+	// Deadline reports the time at which the test binary will have
+	// exceeded the timeout specified by the -timeout flag.
+	//
+	// The ok result is false if the -timeout flag indicates “no timeout” (0).
+	Deadline() (deadline time.Time, ok bool)
 
 	// This distinguishes the interface from other testing interfaces,
 	// such as the one used at package-level for shared system construction.
@@ -195,6 +202,14 @@ func (t *testingT) SkipNow() {
 
 func (t *testingT) Gate() *require.Assertions {
 	return t.gate
+}
+
+// Deadline reports the time at which the test binary will have
+// exceeded the timeout specified by the -timeout flag.
+//
+// The ok result is false if the -timeout flag indicates “no timeout” (0).
+func (t *testingT) Deadline() (deadline time.Time, ok bool) {
+	return t.t.Deadline()
 }
 
 func (t *testingT) _TestOnly() {
