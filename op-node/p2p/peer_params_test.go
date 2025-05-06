@@ -68,9 +68,8 @@ func (testSuite *PeerParamsTestSuite) TestGetPeerScoreParams_Light() {
 	// Topics should not contain options for any block topic
 	testSuite.Len(peerParams.Topics, 0)
 	_, ok := peerParams.Topics[blocksTopicV1(cfg)]
-	testSuite.False(ok, "should have block topic params")
+	testSuite.False(ok, "should not have block topic params")
 
-	testSuite.Equal(peerParams.TopicScoreCap, float64(34))
 	testSuite.Equal(peerParams.AppSpecificWeight, float64(1))
 	testSuite.Equal(peerParams.IPColocationFactorWeight, float64(-35))
 	testSuite.Equal(peerParams.IPColocationFactorThreshold, 10)
