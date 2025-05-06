@@ -48,8 +48,7 @@ func LightPeerScoreParams(cfg *rollup.Config) pubsub.PeerScoreParams {
 		// from older topics to newer ones over time and we don't
 		// want to penalize peers for not participating in the old topics.
 		// Therefore the Topics map is nil:
-		Topics:        nil,
-		TopicScoreCap: 34,
+		Topics: nil,
 		AppSpecificScore: func(p peer.ID) float64 {
 			return 0
 		},
