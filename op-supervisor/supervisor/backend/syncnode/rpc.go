@@ -161,6 +161,10 @@ func (rs *RPCSyncNode) AnchorPoint(ctx context.Context) (types.DerivedBlockRefPa
 	return out, err
 }
 
+func (rs *RPCSyncNode) RequestReset(ctx context.Context) error {
+	return rs.cl.CallContext(ctx, nil, "interop_requestReset")
+}
+
 // Contains returns no error iff the specified logHash is recorded in the specified blockNum and logIdx.
 // If the log is out of reach and the block is complete, an ErrConflict is returned.
 // If the log is out of reach and the block is not complete, an ErrFuture is returned.

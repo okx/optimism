@@ -9,17 +9,13 @@ const (
 	DBCrossSafe Database = "cross_safe"
 )
 
-// Databases maps a database alias to its actual name on disk
+// Databases maps each database type to its filename
 var Databases = map[Database]string{
 	DBLocalSafe: "local_safe.db",
 	DBCrossSafe: "cross_safe.db",
 }
 
 type Database string
-
-func (d Database) String() string {
-	return string(d)
-}
 
 func (d Database) File() string {
 	return Databases[d]

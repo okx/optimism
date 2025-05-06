@@ -39,6 +39,10 @@ type backend interface {
 	L1BlockRefByNumber(ctx context.Context, number uint64) (eth.L1BlockRef, error)
 }
 
+type activationManager interface {
+	IsActiveForChain(chain eth.ChainID, timestamp uint64) bool
+}
+
 const (
 	internalTimeout            = time.Second * 30
 	nodeTimeout                = time.Second * 10
@@ -48,9 +52,10 @@ const (
 )
 
 type ManagedNode struct {
-	log     log.Logger
-	Node    SyncControl
-	chainID eth.ChainID
+	log           log.Logger
+	Node          SyncControl
+	chainID       eth.ChainID
+	activationMgr activationManager
 
 	backend backend
 
@@ -75,15 +80,16 @@ type ManagedNode struct {
 var _ event.AttachEmitter = (*ManagedNode)(nil)
 var _ event.Deriver = (*ManagedNode)(nil)
 
-func NewManagedNode(log log.Logger, id eth.ChainID, node SyncControl, backend backend, noSubscribe bool) *ManagedNode {
+func NewManagedNode(log log.Logger, id eth.ChainID, node SyncControl, backend backend, activationMgr activationManager, noSubscribe bool) *ManagedNode {
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &ManagedNode{
-		log:     log.New("chain", id),
-		backend: backend,
-		Node:    node,
-		chainID: id,
-		ctx:     ctx,
-		cancel:  cancel,
+		log:           log.New("chain", id),
+		backend:       backend,
+		Node:          node,
+		chainID:       id,
+		activationMgr: activationMgr,
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 	m.resetTracker = &resetTracker{
 		managed:     m,
@@ -303,8 +309,11 @@ func (m *ManagedNode) OnResetReady(lUnsafe, xUnsafe, lSafe, xSafe, finalized eth
 		"finalized", finalized)
 	ctx, cancel := context.WithTimeout(m.ctx, nodeTimeout)
 	defer cancel()
+
 	// whether the reset passes or fails, this ongoing reset is done
 	m.resetTracker.endReset()
+
+	// Execute the full reset using the traditional method
 	if err := m.Node.Reset(ctx,
 		lUnsafe, xUnsafe,
 		lSafe, xSafe,
