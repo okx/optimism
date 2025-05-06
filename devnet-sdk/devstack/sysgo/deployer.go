@@ -1,6 +1,7 @@
 package sysgo
 
 import (
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -113,13 +114,16 @@ type worldBuilder struct {
 
 	builder intentbuilder.Builder
 
-	output                  *state.State
-	outL1Genesis            *core.Genesis
-	l2Chains                []eth.ChainID
-	outL2Genesis            map[eth.ChainID]*core.Genesis
-	outL2RollupCfg          map[eth.ChainID]*rollup.Config
-	outL2Deployment         map[eth.ChainID]*L2Deployment
-	outDepset               *depset.StaticConfigDependencySet
+	output          *state.State
+	outL1Genesis    *core.Genesis
+	l2Chains        []eth.ChainID
+	outL2Genesis    map[eth.ChainID]*core.Genesis
+	outL2RollupCfg  map[eth.ChainID]*rollup.Config
+	outL2Deployment map[eth.ChainID]*L2Deployment
+
+	// outDepset is nil if none of the chains has a scheduled interop activation time
+	outDepset *depset.StaticConfigDependencySet
+
 	outSuperchainDeployment *SuperchainDeployment
 }
 
@@ -216,20 +220,25 @@ func (wb *worldBuilder) buildL2Genesis() {
 }
 
 func (wb *worldBuilder) buildDepSet() {
-	if wb.output.InteropDepSet == nil {
-		return
-	}
+	// Note: deployer has a dep set of itself, but it only supports the at-genesis case
+	// So we work around it, and build our own here for now.
+
 	// Deployer uses a different type than the dependency-set itself, so we have to convert
 	depSetContents := make(map[eth.ChainID]*depset.StaticConfigDependency)
-	for _, ch := range wb.output.Chains {
+	for chainIndex, ch := range wb.output.Chains {
 		id := eth.ChainIDFromBytes32(ch.ID)
-		deployerDep, ok := wb.output.InteropDepSet.Dependencies[id.String()]
-		wb.require.True(ok, "expecting deployer to use stringified chain IDs")
-		depSetContents[id] = &depset.StaticConfigDependency{
-			ChainIndex:     supervisortypes.ChainIndex(deployerDep.ChainIndex),
-			ActivationTime: deployerDep.ActivationTime,
-			HistoryMinTime: deployerDep.HistoryMinTime,
+		interopTime := wb.outL2Genesis[id].Config.InteropTime
+		if interopTime == nil {
+			continue
 		}
+		depSetContents[id] = &depset.StaticConfigDependency{
+			ChainIndex:     supervisortypes.ChainIndex(chainIndex),
+			ActivationTime: *interopTime,
+			HistoryMinTime: *interopTime,
+		}
+	}
+	if len(depSetContents) == 0 {
+		return // no dependency set output if no chain had interop active
 	}
 	staticDepSet, err := depset.NewStaticConfigDependencySet(depSetContents)
 	wb.require.NoError(err)
@@ -264,9 +273,24 @@ func (wb *worldBuilder) Build() {
 	intent, err := wb.builder.Build()
 	wb.require.NoError(err)
 
-	if len(intent.Chains) > 1 { // multiple L2s implies interop
-		intent.UseInterop = true
+	inDepSetAtGenesis := false
+	for _, ch := range intent.Chains {
+		v, ok := ch.DeployOverrides["l2GenesisInteropTimeOffset"]
+		if !ok {
+			continue
+		}
+		offset, ok := v.(*hexutil.Uint64)
+		if !ok {
+			continue
+		}
+		if *offset == 0 {
+			inDepSetAtGenesis = true
+		}
 	}
+	wb.logger.Info("Dependency set setting", "atGenesis", inDepSetAtGenesis)
+
+	// If any chains are activating interop at genesis, then set useInterop to true
+	intent.UseInterop = inDepSetAtGenesis
 
 	pipelineOpts := deployer.ApplyPipelineOpts{
 		DeploymentTarget:   deployer.DeploymentTargetGenesis,

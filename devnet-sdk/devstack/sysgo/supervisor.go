@@ -102,6 +102,7 @@ func WithSupervisor(supervisorID stack.SupervisorID, clusterID stack.ClusterID, 
 		cluster, ok := orch.clusters.Get(clusterID)
 		require.True(ok, "need cluster to determine dependency set")
 
+		require.NotNil(cluster.depset, "need a dependency set")
 		cfg := &supervisorConfig.Config{
 			MetricsConfig: metrics.CLIConfig{
 				Enabled: false,
