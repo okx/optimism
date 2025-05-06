@@ -17,8 +17,8 @@ type Message struct {
 	inbox   *InboxContract
 	l1Miner *helpers.L1Miner
 
-	initTx *GeneratedTransaction
-	execTx *GeneratedTransaction
+	InitTx *GeneratedTransaction // Export for access in tests
+	ExecTx *GeneratedTransaction // Export for access in tests
 }
 
 func NewMessage(dsl *InteropDSL, chain *Chain, emitter *EmitterContract, message string) *Message {
@@ -35,17 +35,17 @@ func NewMessage(dsl *InteropDSL, chain *Chain, emitter *EmitterContract, message
 
 func (m *Message) Emit() *Message {
 	emitAction := m.emitter.EmitMessage(m.user, m.message)
-	m.initTx = emitAction(m.chain)
-	m.initTx.IncludeOK()
+	m.InitTx = emitAction(m.chain)
+	m.InitTx.IncludeOK()
 	return m
 }
 
 // EmitDeposit emits a message via a user deposit transaction.
 func (m *Message) EmitDeposit(l1User *DSLUser) *Message {
 	emitAction := m.emitter.EmitMessage(m.user, m.message)
-	m.initTx = emitAction(m.chain)
+	m.InitTx = emitAction(m.chain)
 	opts, _ := m.user.TransactOpts(m.chain.ChainID.ToBig())
-	m.initTx.IncludeDepositOK(l1User, opts, m.l1Miner)
+	m.InitTx.IncludeDepositOK(l1User, opts, m.l1Miner)
 	return m
 }
 
@@ -68,11 +68,11 @@ func sanityCheckAccessList(t helpers.Testing, li types.AccessList) {
 }
 
 func (m *Message) ExecuteOn(target *Chain, execOpts ...func(*ExecuteOpts)) *Message {
-	require.NotNil(m.t, m.initTx, "message must be emitted before it can be executed")
-	execAction := m.inbox.Execute(m.user, m.initTx, execOpts...)
-	m.execTx = execAction(target)
-	sanityCheckAccessList(m.t, m.execTx.tx.AccessList())
-	m.execTx.IncludeOK()
+	require.NotNil(m.t, m.InitTx, "message must be emitted before it can be executed")
+	execAction := m.inbox.Execute(m.user, m.InitTx, execOpts...)
+	m.ExecTx = execAction(target)
+	sanityCheckAccessList(m.t, m.ExecTx.tx.AccessList())
+	m.ExecTx.IncludeOK()
 	return m
 }
 
@@ -82,36 +82,36 @@ func (m *Message) ExecutePendingOn(target *Chain, pendingMessageBlockNumber uint
 	opts = append(opts, WithPendingMessage(m.emitter, m.chain, pendingMessageBlockNumber, 0, m.message))
 	opts = append(opts, execOpts...)
 	execAction := m.inbox.Execute(m.user, nil, opts...)
-	m.execTx = execAction(target)
-	sanityCheckAccessList(m.t, m.execTx.tx.AccessList())
-	m.execTx.IncludeOK()
+	m.ExecTx = execAction(target)
+	sanityCheckAccessList(m.t, m.ExecTx.tx.AccessList())
+	m.ExecTx.IncludeOK()
 	return m
 }
 
 func (m *Message) CheckEmitted() {
-	require.NotNil(m.t, m.initTx, "message must be emitted before it can be checked")
-	m.initTx.CheckIncluded()
+	require.NotNil(m.t, m.InitTx, "message must be emitted before it can be checked")
+	m.InitTx.CheckIncluded()
 }
 
 func (m *Message) CheckNotEmitted() {
-	require.NotNil(m.t, m.initTx, "message must be emitted before it can be checked")
-	m.initTx.CheckNotIncluded()
+	require.NotNil(m.t, m.InitTx, "message must be emitted before it can be checked")
+	m.InitTx.CheckNotIncluded()
 }
 
 func (m *Message) CheckNotExecuted() {
-	require.NotNil(m.t, m.execTx, "message must be executed before it can be checked")
-	m.execTx.CheckNotIncluded()
+	require.NotNil(m.t, m.ExecTx, "message must be executed before it can be checked")
+	m.ExecTx.CheckNotIncluded()
 }
 
 func (m *Message) CheckExecuted() {
-	require.NotNil(m.t, m.execTx, "message must be executed before it can be checked")
-	m.execTx.CheckIncluded()
+	require.NotNil(m.t, m.ExecTx, "message must be executed before it can be checked")
+	m.ExecTx.CheckIncluded()
 }
 
 func (m *Message) ExecutePayload() []byte {
-	return m.execTx.MessagePayload()
+	return m.ExecTx.MessagePayload()
 }
 
 func (m *Message) ExecuteIdentifier() inbox.Identifier {
-	return m.execTx.Identifier()
+	return m.ExecTx.Identifier()
 }
