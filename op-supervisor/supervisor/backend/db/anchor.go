@@ -19,6 +19,14 @@ func (db *ChainsDB) isInitialized(id eth.ChainID) bool {
 	return ok
 }
 
+func (db *ChainsDB) IsInitialized(id eth.ChainID) bool {
+	return db.isInitialized(id)
+}
+
+func (db *ChainsDB) InitializeWithAnchor(id eth.ChainID, anchor types.DerivedBlockRefPair) {
+	db.initFromAnchor(id, anchor)
+}
+
 func (db *ChainsDB) initFromAnchor(id eth.ChainID, anchor types.DerivedBlockRefPair) {
 	// Check if the chain database is already initialized
 	if db.isInitialized(id) {
@@ -41,6 +49,7 @@ func (db *ChainsDB) initFromAnchor(id eth.ChainID, anchor types.DerivedBlockRefP
 
 	// Mark the chain database as initialized
 	db.initialized.Set(id, struct{}{})
+	db.anchorBlocks.Set(id, anchor)
 }
 
 // maybeInitSafeDB initializes the chain database if it is not already initialized

@@ -63,27 +63,33 @@ type EntryDB[T EntryType, E Entry[T], B Binary[T, E]] struct {
 // Returns ErrRecoveryRequired if the existing file is not a valid entry db. A EntryDB is still returned but all
 // operations will return ErrRecoveryRequired until the Recover method is called.
 func NewEntryDB[T EntryType, E Entry[T], B Binary[T, E]](logger log.Logger, path string) (*EntryDB[T, E, B], error) {
-	logger.Info("Opening entry database", "path", path)
+	logger.Debug("Opening entry database", "path", path)
+
 	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database at %v: %w", path, err)
+		return nil, fmt.Errorf("failed to open db: %w", err)
 	}
+
 	info, err := file.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("failed to stat database at %v: %w", path, err)
+		return nil, fmt.Errorf("failed to stat db: %w", err)
 	}
+
 	var b B
 	size := info.Size() / int64(b.EntrySize())
 	db := &EntryDB[T, E, B]{
 		data:         file,
 		lastEntryIdx: EntryIdx(size - 1),
+		b:            b,
 	}
+
 	if size*int64(b.EntrySize()) != info.Size() {
-		logger.Warn("File size is not a multiple of entry size. Truncating to last complete entry", "fileSize", size, "entrySize", b.EntrySize())
+		logger.Warn("File size not a multiple of entry size, truncating", "size", info.Size(), "entrySize", b.EntrySize())
 		if err := db.recover(); err != nil {
-			return nil, fmt.Errorf("failed to recover database at %v: %w", path, err)
+			return nil, fmt.Errorf("failed to recover db: %w", err)
 		}
 	}
+
 	return db, nil
 }
 
@@ -116,32 +122,52 @@ func (e *EntryDB[T, E, B]) Read(idx EntryIdx) (E, error) {
 // If the write fails, it will attempt to truncate any partially written data.
 // Subsequent writes to this instance will fail until partially written data is truncated.
 func (e *EntryDB[T, E, B]) Append(entries ...E) error {
-	if e.cleanupFailedWrite {
-		// Try to rollback partially written data from a previous Append
-		if truncateErr := e.Truncate(e.lastEntryIdx); truncateErr != nil {
-			return fmt.Errorf("failed to recover from previous write error: %w", truncateErr)
-		}
+	if err := e.handleCleanup(); err != nil {
+		return err
 	}
+
 	data := make([]byte, 0, len(entries)*e.b.EntrySize())
 	for i := range entries {
 		data = e.b.Append(data, &entries[i])
 	}
-	if n, err := e.data.Write(data); err != nil {
-		if n == 0 {
-			// Didn't write any data, so no recovery required
-			return err
-		}
-		// Try to rollback the partially written data
-		if truncateErr := e.Truncate(e.lastEntryIdx); truncateErr != nil {
-			// Failed to rollback, set a flag to attempt the clean up on the next write
-			e.cleanupFailedWrite = true
-			return errors.Join(err, fmt.Errorf("failed to remove partially written data: %w", truncateErr))
-		}
-		// Successfully rolled back the changes, still report the failed write
+
+	if err := e.writeWithRollback(data); err != nil {
 		return err
 	}
+
 	e.lastEntryIdx += EntryIdx(len(entries))
 	return nil
+}
+
+func (e *EntryDB[T, E, B]) handleCleanup() error {
+	if !e.cleanupFailedWrite {
+		return nil
+	}
+
+	if err := e.Truncate(e.lastEntryIdx); err != nil {
+		return fmt.Errorf("failed to recover from previous write error: %w", err)
+	}
+	return nil
+}
+
+func (e *EntryDB[T, E, B]) writeWithRollback(data []byte) error {
+	n, err := e.data.Write(data)
+	if err == nil {
+		return nil
+	}
+
+	// No data written, return error directly
+	if n == 0 {
+		return err
+	}
+
+	// Try to rollback partial write
+	if truncateErr := e.Truncate(e.lastEntryIdx); truncateErr != nil {
+		e.cleanupFailedWrite = true
+		return errors.Join(err, fmt.Errorf("failed to remove partial write: %w", truncateErr))
+	}
+
+	return err
 }
 
 // Truncate the database so that the last retained entry is idx. Any entries after idx are deleted.

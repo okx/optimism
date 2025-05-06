@@ -22,6 +22,7 @@ type mockSyncControl struct {
 	anchorPointFn       func(ctx context.Context) (types.DerivedBlockRefPair, error)
 	provideL1Fn         func(ctx context.Context, ref eth.BlockRef) error
 	resetFn             func(ctx context.Context, unsafe, safe, finalized eth.BlockID) error
+	requestResetFn      func(ctx context.Context) error
 	updateCrossSafeFn   func(ctx context.Context, derived, source eth.BlockID) error
 	updateCrossUnsafeFn func(ctx context.Context, derived eth.BlockID) error
 	updateFinalizedFn   func(ctx context.Context, id eth.BlockID) error
@@ -100,6 +101,13 @@ func (m *mockSyncControl) String() string {
 }
 
 func (m *mockSyncControl) ReconnectRPC(ctx context.Context) error {
+	return nil
+}
+
+func (m *mockSyncControl) RequestReset(ctx context.Context) error {
+	if m.requestResetFn != nil {
+		return m.requestResetFn(ctx)
+	}
 	return nil
 }
 
@@ -238,7 +246,7 @@ func TestAttachNodeController(t *testing.T) {
 	depSet := sampleDepSet(t)
 	ex := event.NewGlobalSynchronous(context.Background())
 	eventSys := event.NewSystem(logger, ex)
-	controller := NewSyncNodesController(logger, depSet, eventSys, &mockBackend{})
+	controller := NewSyncNodesController(logger, depSet, eventSys, &mockBackend{}, nil)
 	eventSys.Register("controller", controller, event.DefaultRegisterOpts())
 	require.Zero(t, controller.controllers.Len(), "controllers should be empty to start")
 
