@@ -44,7 +44,7 @@ func LightPeerScoreParams(cfg *rollup.Config) pubsub.PeerScoreParams {
 	oneHundredEpochs := 100 * epoch
 	return pubsub.PeerScoreParams{
 		// We inentionally do not use any per-topic scoring,
-		// since it is expected for the netowrk to migrate
+		// since it is expected for the network to migrate
 		// from older topics to newer ones over time and we don't
 		// want to penalize peers for not participating in the old topics.
 		// Therefore the Topics map is nil:
@@ -64,11 +64,6 @@ func LightPeerScoreParams(cfg *rollup.Config) pubsub.PeerScoreParams {
 		DecayToZero:                 DecayToZero,
 		RetainScore:                 oneHundredEpochs,
 	}
-}
-
-// the cap for `inMesh` time scoring.
-func inMeshCap(slot time.Duration) float64 {
-	return float64((3600 * time.Second) / slot)
 }
 
 func GetScoringParams(name string, cfg *rollup.Config) (*ScoringParams, error) {
