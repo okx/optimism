@@ -137,7 +137,7 @@ func (n *L2Network) AwaitActivation(t devtest.T, forkTimestamp *uint64) eth.Bloc
 	require := t.Require()
 
 	t.Gate().NotNil(forkTimestamp, "Must have fork configured")
-	t.Gate().Greater(*forkTimestamp, uint64(0), "Must not start frok at genesis")
+	t.Gate().Greater(*forkTimestamp, uint64(0), "Must not start fork at genesis")
 
 	upgradeTime := time.Unix(int64(*forkTimestamp), 0)
 
