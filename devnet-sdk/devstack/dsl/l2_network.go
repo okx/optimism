@@ -103,14 +103,13 @@ func (n *L2Network) UnsafeHeadRef() eth.BlockRef {
 	return unsafeHeadRef
 }
 
-// LatestPreActivation finds the latest block before fork activation
-func (n *L2Network) LatestPreActivation(t devtest.T, forkTimestamp *uint64) eth.BlockRef {
+// LatestBlockBeforeTimestamp finds the latest block before fork activation
+func (n *L2Network) LatestBlockBeforeTimestamp(t devtest.T, timestamp uint64) eth.BlockRef {
 	require := t.Require()
 
-	t.Gate().NotNil(forkTimestamp, "Must have fork configured")
-	t.Gate().Greater(*forkTimestamp, uint64(0), "Must not start fork at genesis")
+	t.Gate().Greater(timestamp, uint64(0), "Must not start fork at genesis")
 
-	activationBlockNum, err := n.Escape().RollupConfig().TargetBlockNumber(*forkTimestamp)
+	blockNum, err := n.Escape().RollupConfig().TargetBlockNumber(timestamp)
 	require.NoError(err)
 
 	el := n.Escape().L2ELNode(match.FirstL2EL)
@@ -119,14 +118,14 @@ func (n *L2Network) LatestPreActivation(t devtest.T, forkTimestamp *uint64) eth.
 
 	t.Logger().Info("Preparing",
 		"head", head, "head_time", head.Time,
-		"activationNum", activationBlockNum, "activationTime", *forkTimestamp)
+		"target_num", blockNum, "target_time", timestamp)
 
-	if head.Number < activationBlockNum {
-		t.Logger().Info("No activation yet, checking head block instead")
+	if head.Number < blockNum {
+		t.Logger().Info("No block with given timestamp yet, checking head block instead")
 		return head
 	} else {
-		t.Logger().Info("Reached activation block already, proceeding with last block before activation")
-		v, err := el.EthClient().BlockRefByNumber(t.Ctx(), activationBlockNum-1)
+		t.Logger().Info("Reached block already, proceeding with last block before timestamp")
+		v, err := el.EthClient().BlockRefByNumber(t.Ctx(), blockNum-1)
 		require.NoError(err)
 		return v
 	}

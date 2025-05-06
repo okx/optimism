@@ -20,7 +20,9 @@ func TestPreNoInbox(gt *testing.T) {
 	t.Logger().Info("Starting")
 
 	devtest.RunParallel(t, sys.L2Networks(), func(t devtest.T, net *dsl.L2Network) {
-		pre := net.LatestPreActivation(t, net.Escape().ChainConfig().InteropTime)
+		interopTime := net.Escape().ChainConfig().InteropTime
+		t.Require().NotNil(interopTime)
+		pre := net.LatestBlockBeforeTimestamp(t, *interopTime)
 		el := net.Escape().L2ELNode(match.FirstL2EL)
 		codeAddr := common.HexToAddress("0xC0D3C0d3C0D3C0d3c0d3c0D3c0D3C0d3C0D30022")
 		implCode, err := el.EthClient().CodeAtHash(t.Ctx(), codeAddr, pre.Hash)
