@@ -5,6 +5,8 @@ import (
 	"sync/atomic"
 
 	"github.com/ethereum-optimism/optimism/op-service/eth"
+	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/activation"
+
 	"github.com/ethereum/go-ethereum/log"
 
 	"github.com/ethereum-optimism/optimism/op-node/rollup/event"
@@ -30,19 +32,19 @@ type SyncNodesController struct {
 
 	depSet depset.DependencySet
 
-	activationMgr activationManager
+	activationCheckFn activation.CheckFn
 }
 
 var _ event.AttachEmitter = (*SyncNodesController)(nil)
 
 // NewSyncNodesController creates a new SyncNodeController
-func NewSyncNodesController(l log.Logger, depset depset.DependencySet, eventSys event.System, backend backend, activationMgr activationManager) *SyncNodesController {
+func NewSyncNodesController(l log.Logger, depset depset.DependencySet, eventSys event.System, backend backend, activationCheckFn activation.CheckFn) *SyncNodesController {
 	return &SyncNodesController{
-		logger:        l,
-		depSet:        depset,
-		eventSys:      eventSys,
-		backend:       backend,
-		activationMgr: activationMgr,
+		logger:            l,
+		depSet:            depset,
+		eventSys:          eventSys,
+		backend:           backend,
+		activationCheckFn: activationCheckFn,
 	}
 }
 
@@ -84,7 +86,7 @@ func (snc *SyncNodesController) AttachNodeController(chainID eth.ChainID, ctrl S
 	logger.Info("Attaching node", "chain", chainID, "passive", noSubscribe)
 
 	// create the managed node, register and return
-	node := NewManagedNode(logger, chainID, ctrl, snc.backend, snc.activationMgr, noSubscribe)
+	node := NewManagedNode(logger, chainID, ctrl, snc.backend, snc.activationCheckFn, noSubscribe)
 	snc.eventSys.Register(name, node, event.DefaultRegisterOpts())
 	controllersForChain.Set(node, struct{}{})
 	node.Start()

@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/locks"
 	"github.com/ethereum-optimism/optimism/op-supervisor/metrics"
+	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/activation"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/db/fromda"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/db/logs"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/depset"
@@ -136,12 +137,7 @@ type ChainsDB struct {
 	// what is missing, and to provide it to DB users.
 	depSet depset.DependencySet
 
-	// activationMgr handles the interop activation logic
-	activationMgr interface {
-		IsActiveForChain(chain eth.ChainID, timestamp uint64) bool
-		CheckDBBoundaries(chain eth.ChainID, block eth.BlockRef, getAnchorBlock func(eth.ChainID) (eth.BlockRef, error)) error
-		CheckAnchorPointExpiry(anchor types.DerivedBlockRefPair) error
-	}
+	activationCheckFn activation.CheckFn
 
 	logger log.Logger
 
@@ -159,19 +155,11 @@ func NewChainsDB(l log.Logger, depSet depset.DependencySet, m Metrics) *ChainsDB
 	}
 
 	return &ChainsDB{
-		logger: l,
-		depSet: depSet,
-		m:      m,
+		logger:            l,
+		depSet:            depSet,
+		m:                 m,
+		activationCheckFn: activation.NewCheckFn(depSet, l),
 	}
-}
-
-// SetActivationManager sets the activation manager for the ChainsDB
-func (db *ChainsDB) SetActivationManager(mgr interface {
-	IsActiveForChain(chain eth.ChainID, timestamp uint64) bool
-	CheckDBBoundaries(chain eth.ChainID, block eth.BlockRef, getAnchorBlock func(eth.ChainID) (eth.BlockRef, error)) error
-	CheckAnchorPointExpiry(anchor types.DerivedBlockRefPair) error
-}) {
-	db.activationMgr = mgr
 }
 
 func (db *ChainsDB) AttachEmitter(em event.Emitter) {
@@ -181,21 +169,21 @@ func (db *ChainsDB) AttachEmitter(em event.Emitter) {
 func (db *ChainsDB) OnEvent(ev event.Event) bool {
 	switch x := ev.(type) {
 	case superevents.AnchorEvent:
-		db.logger.Info("Received chain anchor information",
-			"chain", x.ChainID, "derived", x.Anchor.Derived, "source", x.Anchor.Source, "preInterop", x.PreInterop)
-		if x.PreInterop {
-			db.logger.Info("Marking database as initialized in pre-interop mode without anchor point", "chain", x.ChainID)
-			// Only set initialized flag, do not set anchor block for pre-interop mode
-			db.initialized.Set(x.ChainID, struct{}{})
-		} else {
-			// Initialize with anchor point for interop mode
-			db.initFromAnchor(x.ChainID, x.Anchor)
+		if !db.activationCheckFn(x.ChainID, x.Anchor.Derived.Time) {
+			return true
 		}
+		db.initFromAnchor(x.ChainID, x.Anchor)
 	case superevents.LocalDerivedEvent:
+		if !db.activationCheckFn(x.ChainID, x.Derived.Source.Time) {
+			return true
+		}
 		db.UpdateLocalSafe(x.ChainID, x.Derived.Source, x.Derived.Derived, x.NodeID)
 	case superevents.FinalizedL1RequestEvent:
 		db.onFinalizedL1(x.FinalizedL1)
 	case superevents.ReplaceBlockEvent:
+		if !db.activationCheckFn(x.ChainID, x.Replacement.Replacement.Time) {
+			return true
+		}
 		db.onReplaceBlock(x.ChainID, x.Replacement.Replacement, x.Replacement.Invalidated)
 	default:
 		return false
