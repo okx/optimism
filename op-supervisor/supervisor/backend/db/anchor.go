@@ -27,6 +27,26 @@ func (db *ChainsDB) InitializeWithAnchor(id eth.ChainID, anchor types.DerivedBlo
 	db.initFromAnchor(id, anchor)
 }
 
+// InitializePreActivation initializes the chain database in pre-activation mode
+// by using the given block as both the source and derived block in a synthetic anchor
+func (db *ChainsDB) InitializePreActivation(id eth.ChainID, block eth.BlockRef) {
+	if db.isInitialized(id) {
+		db.logger.Debug("chain already initialized, skipping pre-activation init")
+		return
+	}
+
+	db.logger.Info("initializing chain database in pre-activation mode", "chain", id, "block", block)
+
+	// Create a synthetic "self-derived" anchor point
+	anchor := types.DerivedBlockRefPair{
+		Source:  block,
+		Derived: block,
+	}
+
+	// Initialize using the synthetic anchor
+	db.initFromAnchor(id, anchor)
+}
+
 func (db *ChainsDB) initFromAnchor(id eth.ChainID, anchor types.DerivedBlockRefPair) {
 	// Check if the chain database is already initialized
 	if db.isInitialized(id) {

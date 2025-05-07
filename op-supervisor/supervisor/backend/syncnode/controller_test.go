@@ -114,14 +114,15 @@ func (m *mockSyncControl) RequestReset(ctx context.Context) error {
 var _ SyncControl = (*mockSyncControl)(nil)
 
 type mockBackend struct {
-	anchorPointFn     func(ctx context.Context, chainID eth.ChainID) (types.DerivedBlockSealPair, error)
-	localSafeFn       func(ctx context.Context, chainID eth.ChainID) (pair types.DerivedIDPair, err error)
-	finalizedFn       func(ctx context.Context, chainID eth.ChainID) (eth.BlockID, error)
-	safeDerivedAtFn   func(ctx context.Context, chainID eth.ChainID, source eth.BlockID) (eth.BlockID, error)
-	findSealedBlockFn func(ctx context.Context, chainID eth.ChainID, num uint64) (eth.BlockID, error)
-	isLocalSafeFn     func(ctx context.Context, chainID eth.ChainID, blockID eth.BlockID) error
-	isCrossSafeFn     func(ctx context.Context, chainID eth.ChainID, blockID eth.BlockID) error
-	isLocalUnsafeFn   func(ctx context.Context, chainID eth.ChainID, blockID eth.BlockID) error
+	anchorPointFn           func(ctx context.Context, chainID eth.ChainID) (types.DerivedBlockSealPair, error)
+	localSafeFn             func(ctx context.Context, chainID eth.ChainID) (pair types.DerivedIDPair, err error)
+	finalizedFn             func(ctx context.Context, chainID eth.ChainID) (eth.BlockID, error)
+	safeDerivedAtFn         func(ctx context.Context, chainID eth.ChainID, source eth.BlockID) (eth.BlockID, error)
+	findSealedBlockFn       func(ctx context.Context, chainID eth.ChainID, num uint64) (eth.BlockID, error)
+	isLocalSafeFn           func(ctx context.Context, chainID eth.ChainID, blockID eth.BlockID) error
+	isCrossSafeFn           func(ctx context.Context, chainID eth.ChainID, blockID eth.BlockID) error
+	isLocalUnsafeFn         func(ctx context.Context, chainID eth.ChainID, blockID eth.BlockID) error
+	initializePreActivation func(chainID eth.ChainID, block eth.BlockRef) error
 }
 
 func (m *mockBackend) AnchorPoint(ctx context.Context, chainID eth.ChainID) (types.DerivedBlockSealPair, error) {
@@ -269,4 +270,11 @@ func TestAttachNodeController(t *testing.T) {
 	_, err = controller.AttachNodeController(eth.ChainIDFromUInt64(902), &ctrl3, false)
 	require.Error(t, err)
 	require.Equal(t, 2, controller.controllers.Len(), "controllers should still have 2 entries")
+}
+
+func (m *mockBackend) InitializePreActivation(chainID eth.ChainID, block eth.BlockRef) error {
+	if m.initializePreActivation != nil {
+		return m.initializePreActivation(chainID, block)
+	}
+	return nil
 }

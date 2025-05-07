@@ -687,6 +687,17 @@ func (su *SupervisorBackend) AnchorPoint(ctx context.Context, chainID eth.ChainI
 	return su.chainDBs.AnchorPoint(chainID)
 }
 
+// InitializePreActivation initializes the chain database in pre-activation mode
+func (su *SupervisorBackend) InitializePreActivation(chainID eth.ChainID, block eth.BlockRef) error {
+	if su.chainDBs == nil {
+		return errors.New("chainDBs is nil")
+	}
+
+	su.logger.Info("Pre-activation init requested", "chain", chainID, "block", block)
+	su.chainDBs.InitializePreActivation(chainID, block)
+	return nil
+}
+
 func (su *SupervisorBackend) IsLocalUnsafe(ctx context.Context, chainID eth.ChainID, block eth.BlockID) error {
 	return su.chainDBs.IsLocalUnsafe(chainID, block)
 }
