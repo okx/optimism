@@ -422,7 +422,7 @@ func checkFork(a, b *uint64, aName, bName ForkName) error {
 }
 
 func (c *Config) L1Signer() types.Signer {
-	return types.NewCancunSigner(c.L1ChainID)
+	return types.LatestSignerForChainID(c.L1ChainID)
 }
 
 // IsRegolith returns true if the Regolith hardfork is active at or past the given timestamp.
