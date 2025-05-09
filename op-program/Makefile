@@ -133,7 +133,7 @@ verify-compat: verify-mainnet-genesis verify-sepolia-delta verify-sepolia-ecoton
 analyze-op-program-client: analyze-op-program-client-cannon-multithreaded-64
 
 analyze-op-program-client-cannon-multithreaded-64:
-	./scripts/run-static-analysis.sh cannon-multithreaded-64 ./compatibility-test/baseline-cannon-multithreaded-64.json
+	./scripts/run-static-analysis.sh ./vm-profiles/cannon-multithreaded-64.yaml ./compatibility-test/baseline-cannon-multithreaded-64.json
 
 .PHONY: \
 	op-program \
