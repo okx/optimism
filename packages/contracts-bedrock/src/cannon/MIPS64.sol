@@ -66,8 +66,8 @@ contract MIPS64 is ISemver {
     }
 
     /// @notice The semantic version of the MIPS64 contract.
-    /// @custom:semver 1.3.1
-    string public constant version = "1.3.1";
+    /// @custom:semver 1.3.0-patch.1
+    string public constant version = "1.3.0-patch.1";
 
     /// @notice The preimage oracle contract.
     IPreimageOracle internal immutable ORACLE;
