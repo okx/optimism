@@ -271,7 +271,7 @@ contract Specification_Test is CommonTest {
         _addSpec({ _name: "OptimismPortal2", _sel: _getSel("respectedGameTypeUpdatedAt()") });
         _addSpec({ _name: "OptimismPortal2", _sel: _getSel("proofSubmitters(bytes32,uint256)") });
         _addSpec({ _name: "OptimismPortal2", _sel: _getSel("numProofSubmitters(bytes32)") });
-        _addSpec({ _name: "OptimismPortal2", _sel: _getSel("upgrade(address,address,address)") });
+        _addSpec({ _name: "OptimismPortal2", _sel: _getSel("upgrade(address,address)") });
         _addSpec({ _name: "OptimismPortal2", _sel: _getSel("ethLockbox()") });
         _addSpec({ _name: "OptimismPortal2", _sel: _getSel("migrateLiquidity()") });
         _addSpec({ _name: "OptimismPortal2", _sel: _getSel("proxyAdminOwner()") });
@@ -330,6 +330,7 @@ contract Specification_Test is CommonTest {
         _addSpec({ _name: "SuperchainConfig", _sel: _getSel("upgrade()") });
         _addSpec({ _name: "SuperchainConfig", _sel: _getSel("pause(address)"), _auth: Role.GUARDIAN });
         _addSpec({ _name: "SuperchainConfig", _sel: _getSel("paused(address)") });
+        _addSpec({ _name: "SuperchainConfig", _sel: _getSel("paused()") });
         _addSpec({ _name: "SuperchainConfig", _sel: _getSel("unpause(address)"), _auth: Role.GUARDIAN });
         _addSpec({ _name: "SuperchainConfig", _sel: _getSel("version()") });
         _addSpec({ _name: "SuperchainConfig", _sel: _getSel("pausable(address)") });
@@ -908,6 +909,7 @@ contract Specification_Test is CommonTest {
         _addSpec({ _name: "StandardValidator", _sel: _getSel("challenger()") });
         _addSpec({ _name: "StandardValidator", _sel: _getSel("l1ERC721BridgeImpl()") });
         _addSpec({ _name: "StandardValidator", _sel: _getSel("optimismPortalImpl()") });
+        _addSpec({ _name: "StandardValidator", _sel: _getSel("ethLockboxImpl()") });
         _addSpec({ _name: "StandardValidator", _sel: _getSel("systemConfigImpl()") });
         _addSpec({ _name: "StandardValidator", _sel: _getSel("optimismMintableERC20FactoryImpl()") });
         _addSpec({ _name: "StandardValidator", _sel: _getSel("l1CrossDomainMessengerImpl()") });
@@ -920,6 +922,7 @@ contract Specification_Test is CommonTest {
         _addSpec({ _name: "StandardValidator", _sel: _getSel("permissionedDisputeGameVersion()") });
         _addSpec({ _name: "StandardValidator", _sel: _getSel("mipsVersion()") });
         _addSpec({ _name: "StandardValidator", _sel: _getSel("optimismPortalVersion()") });
+        _addSpec({ _name: "StandardValidator", _sel: _getSel("ethLockboxVersion()") });
         _addSpec({ _name: "StandardValidator", _sel: _getSel("anchorStateRegistryVersion()") });
         _addSpec({ _name: "StandardValidator", _sel: _getSel("delayedWETHVersion()") });
         _addSpec({ _name: "StandardValidator", _sel: _getSel("disputeGameFactoryVersion()") });
@@ -930,6 +933,10 @@ contract Specification_Test is CommonTest {
         _addSpec({ _name: "StandardValidator", _sel: _getSel("preimageOracleVersion()") });
         _addSpec({ _name: "StandardValidator", _sel: _getSel("withdrawalDelaySeconds()") });
         _addSpec({ _name: "StandardValidator", _sel: _getSel("validate((address,address,bytes32,uint256),bool)") });
+        _addSpec({
+            _name: "StandardValidator",
+            _sel: _getSel("validate((address,address,bytes32,uint256),bool,(address,address))")
+        });
     }
 
     /// @dev Computes the selector from a function signature.

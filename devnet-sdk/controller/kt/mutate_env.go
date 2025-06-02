@@ -55,9 +55,11 @@ func findSvcInEnv(env *descriptors.DevnetEnvironment, serviceName string) redund
 }
 
 func findSvcInChain(chain *descriptors.Chain, serviceName string) *descriptors.Service {
-	for _, svc := range chain.Services {
-		if svc.Name == serviceName {
-			return svc
+	for _, instances := range chain.Services {
+		for _, svc := range instances {
+			if svc.Name == serviceName {
+				return svc
+			}
 		}
 	}
 

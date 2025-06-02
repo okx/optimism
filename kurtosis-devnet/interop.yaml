@@ -20,25 +20,13 @@ optimism_package:
   faucet:
     enabled: true
     image: {{ $local_images.op_faucet }}
-  interop:
-    enabled: true
-    supervisor_params:
+  superchains:
+    superchain:
+      enabled: true
+  supervisors:
+    supervisor:
+      superchain: superchain
       image: {{ $local_images.op_supervisor }}
-      dependency_set: |
-        {
-          "dependencies": {
-            "2151908": {
-              "chainIndex": "2151908",
-              "activationTime": 0,
-              "historyMinTime": 0
-            },
-            "2151909": {
-              "chainIndex": "2151909",
-              "activationTime": 0,
-              "historyMinTime": 0
-            }
-          }
-        }
       extra_params:
       - {{ $flags.log_level }}
   chains:
@@ -162,7 +150,7 @@ optimism_package:
     image: {{ $local_images.op_deployer }}
     l1_artifacts_locator: {{ $urls.l1_artifacts }}
     l2_artifacts_locator: {{ $urls.l2_artifacts }}
-    global_deploy_overrides:
+    overrides:
       faultGameAbsolutePrestate: {{ localPrestate.Hashes.prestate_interop }}
   global_log_level: "info"
   global_node_selectors: {}

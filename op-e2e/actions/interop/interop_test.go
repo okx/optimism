@@ -10,7 +10,7 @@ import (
 
 	"github.com/ethereum-optimism/optimism/op-e2e/actions/helpers"
 	"github.com/ethereum-optimism/optimism/op-e2e/actions/interop/dsl"
-	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/interop/contracts/bindings/emit"
+	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/contracts/bindings/emit"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/derive"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/event"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/interop/managed"
@@ -330,6 +330,17 @@ func TestInteropLocalSafeInvalidation(gt *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, originalOutput.OutputRoot, eth.OutputRoot(out))
 
+	// supervisor should have the new chain indexed now
+	actors.ChainB.Sequencer.SyncSupervisor(t)
+	actors.Supervisor.ProcessFull(t)
+	localUnsafe, err = actors.Supervisor.LocalUnsafe(t.Ctx(), actors.ChainB.ChainID)
+	require.NoError(t, err)
+	require.Equal(t, crossSafe.Derived, localUnsafe)
+	actors.ChainB.Sequencer.ActL2PipelineFull(t)
+	status = actors.ChainB.Sequencer.SyncStatus()
+	require.Equal(t, status.LocalSafeL2, status.UnsafeL2, "block follows on replacement block, derived to deconflict from previous empty block on L1")
+	require.Equal(t, crossSafe.Derived, status.UnsafeL2.ParentID(), "builds on the new post-replacement chain")
+
 	// Now check if we can continue to build L2 blocks on top of the new chain.
 	// Build a new L2 block
 	actors.ChainB.Sequencer.ActL2StartBlock(t)
@@ -340,14 +351,22 @@ func TestInteropLocalSafeInvalidation(gt *testing.T) {
 	actors.L1Miner.ActL1StartBlock(12)(t)
 	actors.L1Miner.ActL1IncludeTx(actors.ChainB.BatcherAddr)(t)
 	actors.L1Miner.ActL1EndBlock(t)
-	// Sync the sequencer / supervisor, so the indexing, local-safe, cross-safe changes all propagate.
+
+	// Takes a while to become local safe
+	actors.Supervisor.SignalLatestL1(t)
 	actors.ChainB.Sequencer.ActL2PipelineFull(t)
 	actors.ChainB.Sequencer.SyncSupervisor(t)
-	actors.Supervisor.SignalLatestL1(t)
 	actors.Supervisor.ProcessFull(t)
 	actors.ChainB.Sequencer.ActL2PipelineFull(t)
 	status = actors.ChainB.Sequencer.SyncStatus()
-	require.Equal(t, uint64(2), status.SafeL2.Number)
+	require.Equal(t, uint64(3), status.LocalSafeL2.Number)
+
+	// And now cross-safe
+	actors.ChainB.Sequencer.SyncSupervisor(t)
+	actors.Supervisor.ProcessFull(t)
+	actors.ChainB.Sequencer.ActL2PipelineFull(t)
+	status = actors.ChainB.Sequencer.SyncStatus()
+	require.Equal(t, uint64(3), status.SafeL2.Number)
 }
 
 func TestInteropCrossSafeDependencyDelay(gt *testing.T) {
@@ -427,7 +446,7 @@ func TestInteropCrossSafeDependencyDelay(gt *testing.T) {
 
 	// Assert that the executing message in chain A only
 	// became cross-safe when the dependency of chain B became cross safe later.
-	source, err := actors.Supervisor.CrossDerivedFrom(t.Ctx(), actors.ChainA.ChainID, execTxIncludedIn.ID())
+	source, err := actors.Supervisor.CrossDerivedToSource(t.Ctx(), actors.ChainA.ChainID, execTxIncludedIn.ID())
 	require.NoError(t, err)
 	require.Equal(t, chainBSubmittedIn.NumberU64(), source.Number)
 }

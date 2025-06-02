@@ -1,6 +1,7 @@
 package depset
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"slices"
 	"sort"
 
+	"github.com/BurntSushi/toml"
 	"github.com/ethereum-optimism/optimism/op-node/params"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/types"
@@ -17,16 +19,16 @@ var errDuplicateChainIndex = errors.New("duplicate chain index")
 
 type StaticConfigDependency struct {
 	// ChainIndex is the unique short identifier of this chain.
-	ChainIndex types.ChainIndex `json:"chainIndex"`
+	ChainIndex types.ChainIndex `json:"chainIndex" toml:"chain_index"`
 
 	// ActivationTime is when the chain becomes part of the dependency set.
 	// This is the minimum timestamp of the inclusion of an executing message.
-	ActivationTime uint64 `json:"activationTime"`
+	ActivationTime uint64 `json:"activationTime" toml:"activation_time"`
 
 	// HistoryMinTime is what the lower bound of data is to store.
 	// This is the minimum timestamp of an initiating message to be accessible to others.
 	// This is set to 0 when all data since genesis is executable.
-	HistoryMinTime uint64 `json:"historyMinTime"`
+	HistoryMinTime uint64 `json:"historyMinTime" toml:"history_min_time"`
 }
 
 // StaticConfigDependencySet statically declares a DependencySet.
@@ -60,29 +62,90 @@ func NewStaticConfigDependencySetWithMessageExpiryOverride(dependencies map[eth.
 	return out, nil
 }
 
-// jsonStaticConfigDependencySet is a util for JSON encoding/decoding,
-// to encode/decode just the attributes that matter,
+// minStaticConfigDependencySet is a util for JSON/TOML encoding/decoding,
+// for just the minimal set of attributes that matter,
 // while wrapping the decoding functionality with additional hydration step.
-type jsonStaticConfigDependencySet struct {
-	Dependencies                map[eth.ChainID]*StaticConfigDependency `json:"dependencies"`
-	OverrideMessageExpiryWindow uint64                                  `json:"overrideMessageExpiryWindow,omitempty"`
+type minStaticConfigDependencySet struct {
+	Dependencies                map[string]*StaticConfigDependency `json:"dependencies" toml:"dependencies"`
+	OverrideMessageExpiryWindow uint64                             `json:"overrideMessageExpiryWindow,omitempty" toml:"override_message_expiry_window,omitempty"`
 }
 
 func (ds *StaticConfigDependencySet) MarshalJSON() ([]byte, error) {
-	out := &jsonStaticConfigDependencySet{
-		Dependencies:                ds.dependencies,
+	// Convert map keys to strings
+	stringMap := make(map[string]*StaticConfigDependency)
+	for id, dep := range ds.dependencies {
+		stringMap[id.String()] = dep
+	}
+
+	out := &minStaticConfigDependencySet{
+		Dependencies:                stringMap,
 		OverrideMessageExpiryWindow: ds.overrideMessageExpiryWindow,
 	}
 	return json.Marshal(out)
 }
 
 func (ds *StaticConfigDependencySet) UnmarshalJSON(data []byte) error {
-	var v jsonStaticConfigDependencySet
+	var v minStaticConfigDependencySet
 	if err := json.Unmarshal(data, &v); err != nil {
 		return err
 	}
-	ds.dependencies = v.Dependencies
+
+	// Convert string keys back to ChainID
+	ds.dependencies = make(map[eth.ChainID]*StaticConfigDependency)
+	for idStr, dep := range v.Dependencies {
+		id, err := eth.ParseDecimalChainID(idStr)
+		if err != nil {
+			return fmt.Errorf("invalid chain ID in JSON: %w", err)
+		}
+		ds.dependencies[id] = dep
+	}
+
 	ds.overrideMessageExpiryWindow = v.OverrideMessageExpiryWindow
+	return ds.hydrate()
+}
+
+func (ds *StaticConfigDependencySet) MarshalTOML() ([]byte, error) {
+	// Convert map keys (ChainID) to strings so TOML can encode the map.
+	stringMap := make(map[string]*StaticConfigDependency, len(ds.dependencies))
+	for id, dep := range ds.dependencies {
+		stringMap[id.String()] = dep
+	}
+
+	payload := &minStaticConfigDependencySet{
+		Dependencies:                stringMap,
+		OverrideMessageExpiryWindow: ds.overrideMessageExpiryWindow,
+	}
+
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(payload); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func (ds *StaticConfigDependencySet) UnmarshalTOML(v interface{}) error {
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(v); err != nil {
+		return fmt.Errorf("re-encoding TOML: %w", err)
+	}
+
+	// Decode into the minimal helper struct that has the right tags.
+	var tmp minStaticConfigDependencySet
+	if _, err := toml.Decode(buf.String(), &tmp); err != nil {
+		return fmt.Errorf("decoding into helper struct: %w", err)
+	}
+
+	// Convert string keys back to ChainID and copy the data.
+	ds.dependencies = make(map[eth.ChainID]*StaticConfigDependency, len(tmp.Dependencies))
+	for idStr, dep := range tmp.Dependencies {
+		id, err := eth.ParseDecimalChainID(idStr)
+		if err != nil {
+			return fmt.Errorf("invalid chain ID %q: %w", idStr, err)
+		}
+		ds.dependencies[id] = dep
+	}
+
+	ds.overrideMessageExpiryWindow = tmp.OverrideMessageExpiryWindow
 	return ds.hydrate()
 }
 
@@ -157,4 +220,17 @@ func (ds *StaticConfigDependencySet) MessageExpiryWindow() uint64 {
 		return params.MessageExpiryTimeSecondsInterop
 	}
 	return ds.overrideMessageExpiryWindow
+}
+
+// Dependencies returns a deep copy of the dependencies map
+func (ds *StaticConfigDependencySet) Dependencies() map[eth.ChainID]*StaticConfigDependency {
+	copied := make(map[eth.ChainID]*StaticConfigDependency, len(ds.dependencies))
+	for chainId, dep := range ds.dependencies {
+		copied[chainId] = &StaticConfigDependency{
+			ChainIndex:     dep.ChainIndex,
+			ActivationTime: dep.ActivationTime,
+			HistoryMinTime: dep.HistoryMinTime,
+		}
+	}
+	return copied
 }

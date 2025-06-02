@@ -22,13 +22,15 @@ func TestKurtosisControllerSurface(t *testing.T) {
 	env := &descriptors.DevnetEnvironment{
 		Name: "test-env",
 		L1: &descriptors.Chain{
-			Services: descriptors.ServiceMap{
-				"test-service": &descriptors.Service{
-					Name: "test-service",
-					Endpoints: descriptors.EndpointMap{
-						"http": {
-							Port:        0,
-							PrivatePort: 0,
+			Services: descriptors.RedundantServiceMap{
+				"test-service": []*descriptors.Service{
+					&descriptors.Service{
+						Name: "test-service",
+						Endpoints: descriptors.EndpointMap{
+							"http": {
+								Port:        0,
+								PrivatePort: 0,
+							},
 						},
 					},
 				},

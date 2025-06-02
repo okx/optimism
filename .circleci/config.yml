@@ -59,6 +59,9 @@ parameters:
   github-event-base64:
     type: string
     default: "__not_set__"
+  devnet-metrics-collect:
+    type: boolean
+    default: false
 
 orbs:
   go: circleci/go@1.8.0
@@ -1177,6 +1180,10 @@ jobs:
             - discord-notification-failures-on-develop:
                 mentions: "<@&1346448413172170807>" # Protocol DevX Pod
                 message: "Devnet <<parameters.devnet>>-devnet failed to start"
+      - run:
+          name: Stop the job if the devnet failed to start
+          command: circleci-agent step halt
+          when: on_fail
       # Restore cached Go modules
       - restore_cache:
           keys:
@@ -1191,11 +1198,7 @@ jobs:
       - run:
           name: Prepare test environment (compile tests and cache results)
           working_directory: op-acceptance-tests
-          command: go test -v ./... || true # ignore failures; we're just compiling the tests
-      - run:
-          name: Stop the job if the devnet failed to start
-          command: circleci-agent step halt
-          when: on_fail
+          command: go test -run=^$ ./tests/...
       # Run the acceptance tests (if the devnet is running)
       - run:
           name: Run acceptance tests (gate=<<parameters.gate>>)
@@ -1204,6 +1207,7 @@ jobs:
           environment:
             GOFLAGS: "-mod=mod"
             GO111MODULE: "on"
+            GOGC: "0"
           command: |
             # Check if the devnet is running before attempting to run tests
             if ! kurtosis enclave ls | grep -q "<<parameters.devnet>>-devnet"; then
@@ -1235,6 +1239,7 @@ jobs:
       - run:
           name: Generate JUnit XML test report for CircleCI
           working_directory: op-acceptance-tests
+          when: always
           command: |
             LOG_DIR=$(ls -td -- logs/* | head -1)
             gotestsum --junitfile results/results.xml --raw-command cat $LOG_DIR/raw_go_events.log || true
@@ -1254,11 +1259,33 @@ jobs:
           steps:
             - store_artifacts:
                 path: ./op-acceptance-tests/logs
+      # Before we have a more sturdy log dump solution, we'll simply use the kurtosis-specific dump command
+      # to store all service logs as job artifacts
+      - run:
+          name: Dump kurtosis logs
+          when: on_fail
+          command: |
+            # Dump logs & specs
+            kurtosis dump ./.kurtosis-dump
+
+            # Remove spec.json files
+            rm -rf ./.kurtosis-dump/enclaves/**/*.json
+
+            # Remove all unnecessary logs
+            rm -rf ./.kurtosis-dump/enclaves/*/kurtosis-api--*
+            rm -rf ./.kurtosis-dump/enclaves/*/kurtosis-logs-collector--*
+            rm -rf ./.kurtosis-dump/enclaves/*/task-*
+      - when:
+          condition: always
+          steps:
+            - store_artifacts:
+                path: ./.kurtosis-dump/enclaves
+                destination: op-acceptance-tests/kurtosis-logs
       - when:
           condition: on_fail
           steps:
             - discord-notification-failures-on-develop:
-                mentions: "<@&1346448413172170807>" # Protocol DevX Pod
+                mentions: "Platforms (<@225161927351992320>) & Protocol (<@590878816004603924>)" # stefano, changwan
                 message: "Acceptance tests failed for gate <<parameters.gate>> on devnet <<parameters.devnet>>"
 
   sanitize-op-program:
@@ -1282,7 +1309,6 @@ jobs:
           name: Sanitize op-program client
           command: make sanitize-program GUEST_PROGRAM=../op-program/bin/op-program-client64.elf
           working_directory: cannon
-
 
   cannon-prestate-quick:
     machine: true
@@ -1661,6 +1687,39 @@ jobs:
             MESSAGE: << parameters.message >>
             LABEL_NAME: << parameters.label_name >>
 
+  devnet-metrics-collect-authorship:
+    docker:
+      - image: <<pipeline.parameters.default_docker_image>>
+    steps:
+      - utils/checkout-with-mise
+      - run:
+          name: Collect devnet metrics for op-acceptance-tests
+          command: ./devnet-sdk/scripts/metrics-collect-authorship.sh op-acceptance-tests/tests > .metrics--authorship--op-acceptance-tests
+      - gcp-cli/install
+      - gcp-oidc-authenticate:
+          gcp_cred_config_file_path: /tmp/gcp_cred_config.json
+          oidc_token_file_path: /tmp/oidc_token.json
+      - run:
+          name: Store artifact in Bucket
+          command: |
+            gsutil cp .metrics--authorship--op-acceptance-tests gs://oplabs-tools-data-public-metrics/metrics-authorship/metrics
+            gsutil cp .metrics--authorship--op-acceptance-tests gs://oplabs-tools-data-public-metrics/metrics-authorship/metrics-$CIRCLE_SHA1
+
+  # Helper job to check if we're running on a PR
+  run-on-pr-only:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - run:
+          name: Check if running on a PR
+          command: |
+            if [ -z "$CIRCLE_PULL_REQUEST" ]; then
+              echo "This is not a pull request. Exiting with error."
+              exit 1
+            else
+              echo "Running on pull request: $CIRCLE_PULL_REQUEST"
+            fi
+
 workflows:
   main:
     when:
@@ -1824,11 +1883,11 @@ workflows:
             op-e2e/actions
             op-e2e/faultproofs
             packages/contracts-bedrock/scripts/checks
-            packages/contracts-bedrock/scripts/verify
             op-dripper
             devnet-sdk
             op-acceptance-tests
             kurtosis-devnet
+            op-devstack
           requires:
             - contracts-bedrock-build
             - cannon-prestate-quick
@@ -2211,6 +2270,7 @@ workflows:
           context:
             - circleci-repo-optimism
 
+  # Acceptance tests (post-merge to develop)
   acceptance-tests:
     when:
       or:
@@ -2227,7 +2287,6 @@ workflows:
           name: kurtosis-simple
           devnet: simple
           gate: base
-
           # CircleCI params
           no_output_timeout: 60m
           context:
@@ -2239,7 +2298,6 @@ workflows:
           name: kurtosis-isthmus
           devnet: isthmus
           gate: isthmus
-
           # CircleCI params
           no_output_timeout: 60m
           context:
@@ -2251,12 +2309,35 @@ workflows:
           name: kurtosis-interop
           devnet: interop
           gate: interop
-
           # CircleCI params
           no_output_timeout: 60m
           context:
             - circleci-repo-readonly-authenticated-github-token
             - discord
+
+  # Acceptance tests (pre-merge to develop)
+  acceptance-tests-pr:
+    when:
+      not:
+        equal: [<< pipeline.git.branch >>, "develop"]
+    jobs:
+      - run-on-pr-only:
+          name: check-for-pr
+          context:
+            - circleci-repo-readonly-authenticated-github-token
+      - op-acceptance-tests:
+          # Acceptance Testing params
+          name: kurtosis-interop
+          devnet: interop
+          gate: interop
+          # CircleCI params
+          no_output_timeout: 10m
+          requires:
+            - check-for-pr
+          context:
+            - circleci-repo-readonly-authenticated-github-token
+            - discord
+
   close-issue-workflow:
     when:
       and:
@@ -2272,3 +2353,16 @@ workflows:
                 This issue will be closed now."
          context:
           - circleci-repo-optimism
+
+  devnet-metrics-collect:
+    when:
+      or:
+        - equal: [<< pipeline.trigger_source >>, "webhook"]
+        - and:
+          - equal: [true, << pipeline.parameters.devnet-metrics-collect >>]
+          - equal: [<< pipeline.trigger_source >>, "api"]
+    jobs:
+      - devnet-metrics-collect-authorship:
+          context:
+            - circleci-repo-readonly-authenticated-github-token
+            - oplabs-tools-data-public-metrics-bucket
