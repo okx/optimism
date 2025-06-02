@@ -16,8 +16,7 @@ type DependencySetSource interface {
 // DependencySet is an initialized dependency set, ready to answer queries
 // of what is and what is not part of the dependency set.
 type DependencySet interface {
-	// Chains returns the list of chains that are part of the dependency set.
-	Chains() []eth.ChainID
+	ChainsLister
 
 	// HasChain determines if a chain is being tracked for interop purposes.
 	// See CanExecuteAt and CanInitiateAt to check if a chain may message at a given time.
@@ -25,6 +24,11 @@ type DependencySet interface {
 
 	// MessageExpiryWindow returns the message expiry window to use for this dependency set.
 	MessageExpiryWindow() uint64
+}
+
+type ChainsLister interface {
+	// Chains returns the list of chains in the rollup config set.
+	Chains() []eth.ChainID
 }
 
 // FromRegistry loads a dependency set from the superchain-registry.
