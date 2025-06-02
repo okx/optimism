@@ -20,7 +20,7 @@ type l1Node interface {
 }
 
 type rewinderDB interface {
-	DependencySet() depset.DependencySet
+	depset.ChainsLister
 
 	CrossSourceToLastDerived(chainID eth.ChainID, source eth.BlockID) (derived types.BlockSeal, err error)
 	PreviousSource(chain eth.ChainID, source eth.BlockID) (prevSource types.BlockSeal, err error)
@@ -64,20 +64,19 @@ func (r *Rewinder) OnEvent(ev event.Event) bool {
 	switch x := ev.(type) {
 	case superevents.RewindL1Event:
 		r.handleRewindL1Event(x)
-		return true
 	case superevents.LocalSafeUpdateEvent:
 		r.handleLocalDerivedEvent(x)
-		return true
 	default:
 		return false
 	}
+	return true
 }
 
 // handleRewindL1Event iterates known chains and checks each one for a reorg
 // If a reorg is detected, it will rewind the chain to the latest common ancestor
 // between the local-safe head and the finalized head.
 func (r *Rewinder) handleRewindL1Event(ev superevents.RewindL1Event) {
-	for _, chainID := range r.db.DependencySet().Chains() {
+	for _, chainID := range r.db.Chains() {
 		if err := r.rewindL1ChainIfReorged(chainID, ev.IncomingBlock); err != nil {
 			r.log.Error("failed to rewind L1 data:", "chain", chainID, "err", err)
 		}
@@ -88,6 +87,7 @@ func (r *Rewinder) handleRewindL1Event(ev superevents.RewindL1Event) {
 // If it doesn't match, we need to rewind the logs DB to the common ancestor between
 // the LocalUnsafe head and the new LocalSafe block
 func (r *Rewinder) handleLocalDerivedEvent(ev superevents.LocalSafeUpdateEvent) {
+	// TODO: handle pre-Interop case, where cross-safe DB is already being maintained but the logs DB is not.
 	// Get the block at the derived height from our unsafe chain
 	newSafeHead := ev.NewLocalSafe.Derived
 	unsafeVersion, err := r.db.FindSealedBlock(ev.ChainID, newSafeHead.Number)
