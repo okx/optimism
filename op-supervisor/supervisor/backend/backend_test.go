@@ -15,10 +15,7 @@ import (
 
 	"github.com/ethereum-optimism/optimism/op-node/rollup/event"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
-	oplog "github.com/ethereum-optimism/optimism/op-service/log"
 	opmetrics "github.com/ethereum-optimism/optimism/op-service/metrics"
-	"github.com/ethereum-optimism/optimism/op-service/oppprof"
-	oprpc "github.com/ethereum-optimism/optimism/op-service/rpc"
 	"github.com/ethereum-optimism/optimism/op-service/testlog"
 	"github.com/ethereum-optimism/optimism/op-service/testutils"
 	"github.com/ethereum-optimism/optimism/op-supervisor/config"
@@ -60,7 +57,7 @@ func TestBackendLifetime_InteropAtGenesis(t *testing.T) {
 	fullCfgSet := fullConfigSet(t, 2)
 	rollupCfgSet := fullCfgSet.RollupConfigSet.(depset.StaticRollupConfigSet)
 
-	anchor := eth.BlockRef{
+	block0 := eth.BlockRef{
 		Hash:       common.Hash{0xff},
 		Number:     0,
 		ParentHash: common.Hash{}, // genesis has no parent hash
@@ -68,7 +65,7 @@ func TestBackendLifetime_InteropAtGenesis(t *testing.T) {
 	}
 
 	rollupCfgSet[chainA].Genesis = depset.Genesis{
-		L2: types.BlockSealFromRef(anchor),
+		L2: types.BlockSealFromRef(block0),
 	}
 
 	cfg := &config.Config{
@@ -90,9 +87,9 @@ func TestBackendLifetime_InteropAtGenesis(t *testing.T) {
 
 	blockX := eth.BlockRef{
 		Hash:       common.Hash{0xaa},
-		Number:     anchor.Number + 1,
-		ParentHash: anchor.Hash,
-		Time:       anchor.Time + 2,
+		Number:     block0.Number + 1,
+		ParentHash: block0.Hash,
+		Time:       block0.Time + 2,
 	}
 	blockY := eth.BlockRef{
 		Hash:       common.Hash{0xbb},
@@ -115,17 +112,20 @@ func TestBackendLifetime_InteropAtGenesis(t *testing.T) {
 	require.NoError(t, err)
 	t.Log("started!")
 
-	_, err = b.LocalUnsafe(context.Background(), chainA)
-	require.ErrorIs(t, err, types.ErrFuture, "no data yet, need local-unsafe")
+	unsafe, err := b.LocalUnsafe(context.Background(), chainA)
+	require.NoError(t, err)
+	require.Equal(t, block0.ID(), unsafe)
 
-	require.NoError(t, ex.Drain())
 	// The database is initialized from the genesis interop block at startup.
 	xunsafe, err := b.CrossUnsafe(context.Background(), chainA)
 	require.NoError(t, err)
-	require.Equal(t, anchor.ID(), xunsafe)
+	require.Equal(t, block0.ID(), xunsafe)
 	xsafe, err := b.CrossSafe(context.Background(), chainA)
 	require.NoError(t, err)
-	require.Equal(t, anchor.ID(), xsafe.Derived)
+	require.Equal(t, block0.ID(), xsafe.Derived)
+
+	// Drain first round of events right after startup
+	require.NoError(t, ex.Drain())
 
 	// Receive unsafe block Y from node
 
@@ -145,7 +145,7 @@ func TestBackendLifetime_InteropAtGenesis(t *testing.T) {
 	// cross-safe still at anchor
 	xsafe, err = b.CrossSafe(context.Background(), chainA)
 	require.NoError(t, err)
-	require.Equal(t, anchor.ID(), xsafe.Derived)
+	require.Equal(t, block0.ID(), xsafe.Derived)
 
 	// Revert cross-unafe back to block X
 	err = b.chainDBs.UpdateCrossUnsafe(chainA, types.BlockSealFromRef(blockX))
@@ -332,17 +332,27 @@ func TestBackendCallsMetrics(t *testing.T) {
 	chainA := eth.ChainIDFromUInt64(testChainIDOffset)
 
 	// Set up mock metrics
+	mockMetrics.Mock.On("RecordDBSearchEntriesRead", chainA, mock.AnythingOfType("int64")).Return()
 	mockMetrics.Mock.On("RecordDBEntryCount", chainA, mock.AnythingOfType("string"), mock.AnythingOfType("int64")).Return()
-	mockMetrics.Mock.On("RecordCrossUnsafeRef", chainA, mock.MatchedBy(func(_ eth.BlockRef) bool { return true })).Return()
-	mockMetrics.Mock.On("RecordCrossSafeRef", chainA, mock.MatchedBy(func(_ eth.BlockRef) bool { return true })).Return()
+	mockMetrics.Mock.On("RecordCrossUnsafeRef", chainA, mock.AnythingOfType("eth.L1BlockRef")).Return()
+	mockMetrics.Mock.On("RecordCrossSafeRef", chainA, mock.AnythingOfType("eth.L1BlockRef")).Return()
 
 	fullCfgSet := fullConfigSet(t, 1)
+	rollupCfgSet := fullCfgSet.RollupConfigSet.(depset.StaticRollupConfigSet)
+
+	block0 := eth.BlockRef{
+		Hash:       common.Hash{0xff},
+		Number:     0,
+		ParentHash: common.Hash{}, // genesis has no parent hash
+		Time:       10000,
+	}
+
+	rollupCfgSet[chainA].Genesis = depset.Genesis{
+		L2: types.BlockSealFromRef(block0),
+	}
+
 	cfg := &config.Config{
 		Version:               "test",
-		LogConfig:             oplog.CLIConfig{},
-		MetricsConfig:         opmetrics.CLIConfig{},
-		PprofConfig:           oppprof.CLIConfig{},
-		RPC:                   oprpc.CLIConfig{},
 		FullConfigSetSource:   fullCfgSet,
 		SynchronousProcessors: true,
 		MockRun:               false,
@@ -358,37 +368,39 @@ func TestBackendCallsMetrics(t *testing.T) {
 	mockMetrics.Mock.AssertCalled(t, "RecordDBEntryCount", chainA, "log", int64(0))
 	mockMetrics.Mock.AssertCalled(t, "RecordDBEntryCount", chainA, "local_derived", int64(0))
 	mockMetrics.Mock.AssertCalled(t, "RecordDBEntryCount", chainA, "cross_derived", int64(0))
+	mockMetrics.Mock.AssertCalled(t, "RecordDBEntryCount", chainA, "log", int64(2))
+	mockMetrics.Mock.AssertCalled(t, "RecordCrossUnsafeRef", chainA, block0)
+	mockMetrics.Mock.AssertCalled(t, "RecordDBEntryCount", chainA, "local_derived", int64(1))
+	mockMetrics.Mock.AssertCalled(t, "RecordCrossSafeRef", chainA, block0)
+	mockMetrics.Mock.AssertCalled(t, "RecordDBEntryCount", chainA, "cross_derived", int64(1))
 
 	// Start the backend
 	err = b.Start(context.Background())
 	require.NoError(t, err)
 
-	// Create a test block
-	block := eth.BlockRef{
+	mockMetrics.Mock.AssertCalled(t, "RecordDBSearchEntriesRead", chainA, int64(2))
+
+	blockX := eth.BlockRef{
 		Hash:       common.Hash{0xaa},
-		Number:     42,
-		ParentHash: common.Hash{0xbb},
-		Time:       10000,
+		Number:     block0.Number + 1,
+		ParentHash: block0.Hash,
+		Time:       block0.Time + 2,
 	}
 
-	b.chainDBs.ForceInitialized(chainA) // force init for test
+	// TODO: remove method
+	// b.chainDBs.ForceInitialized(chainA) // force init for test
 	// Assert that metrics are called on safety level updates
-	err = b.chainDBs.UpdateCrossUnsafe(chainA, types.BlockSeal{
-		Hash:      block.Hash,
-		Number:    block.Number,
-		Timestamp: block.Time,
-	})
+	err = b.chainDBs.UpdateCrossUnsafe(chainA, types.BlockSealFromRef(blockX))
 	require.NoError(t, err)
-	mockMetrics.Mock.AssertCalled(t, "RecordCrossUnsafeRef", chainA, mock.MatchedBy(func(ref eth.BlockRef) bool {
-		return ref.Hash == block.Hash && ref.Number == block.Number && ref.Time == block.Time
-	}))
+	// TODO(#16274): Fix metrics receiver types
+	blockXZeroParent := blockX
+	blockXZeroParent.ParentHash = common.Hash{}
+	mockMetrics.Mock.AssertCalled(t, "RecordCrossUnsafeRef", chainA, blockXZeroParent)
 
-	err = b.chainDBs.UpdateCrossSafe(chainA, block, block)
+	err = b.chainDBs.UpdateCrossSafe(chainA, eth.BlockRef{}, blockX)
 	require.NoError(t, err)
 	mockMetrics.Mock.AssertCalled(t, "RecordDBEntryCount", chainA, "cross_derived", int64(1))
-	mockMetrics.Mock.AssertCalled(t, "RecordCrossSafeRef", chainA, mock.MatchedBy(func(ref eth.BlockRef) bool {
-		return ref.Hash == block.Hash && ref.Number == block.Number && ref.Time == block.Time
-	}))
+	mockMetrics.Mock.AssertCalled(t, "RecordCrossSafeRef", chainA, blockX)
 
 	// Stop the backend
 	err = b.Stop(context.Background())
@@ -512,17 +524,15 @@ func TestAsyncVerifyAccessWithRPC(t *testing.T) {
 	// Create and set up mock metrics
 	mockMetrics := &MockMetrics{}
 	// Set up the required method calls that happen during initialization
-	mockMetrics.Mock.On("RecordDBEntryCount", chainID, "log", int64(0)).Return()
-	mockMetrics.Mock.On("RecordDBEntryCount", chainID, "local_derived", int64(0)).Return()
-	mockMetrics.Mock.On("RecordDBEntryCount", chainID, "cross_derived", int64(0)).Return()
+	mockMetrics.Mock.On("RecordDBEntryCount", chainID, mock.AnythingOfType("string"), mock.AnythingOfType("int64")).Return()
+	mockMetrics.Mock.On("RecordDBEntryCount", chainID, mock.AnythingOfType("string"), mock.AnythingOfType("int64")).Return()
+	mockMetrics.Mock.On("RecordDBEntryCount", chainID, mock.AnythingOfType("string"), mock.AnythingOfType("int64")).Return()
+	mockMetrics.Mock.On("RecordCrossUnsafeRef", chainID, mock.AnythingOfType("eth.L1BlockRef")).Return()
+	mockMetrics.Mock.On("RecordCrossSafeRef", chainID, mock.AnythingOfType("eth.L1BlockRef")).Return()
 
 	// Initialize backend with mock metrics
 	cfg := &config.Config{
 		Version:               "test",
-		LogConfig:             oplog.CLIConfig{},
-		MetricsConfig:         opmetrics.CLIConfig{},
-		PprofConfig:           oppprof.CLIConfig{},
-		RPC:                   oprpc.CLIConfig{},
 		FullConfigSetSource:   fullCfgSet,
 		SynchronousProcessors: true,
 		MockRun:               false,
@@ -548,14 +558,17 @@ func TestAsyncVerifyAccessWithRPC(t *testing.T) {
 			// 3. When seal.ID() != dbBlock: Logs "DB access check result did not match" and calls RecordAccessListVerifyFailure
 
 			// Set expectations for the actual behavior observed
+			expectFailure := false
 			if errors.Is(stubErr, types.ErrConflict) {
 				// Error for checksum failure
 				mockMetrics.Mock.On("RecordAccessListVerifyFailure", chainID).Return()
+				expectFailure = true
 			}
 
 			// Block ID mismatch will always trigger a metrics call
 			if seal := stubSeal.ID(); seal != dbBlock {
 				mockMetrics.Mock.On("RecordAccessListVerifyFailure", chainID).Return()
+				expectFailure = true
 			}
 
 			// Override the sync source to return our stubbed result
@@ -565,7 +578,11 @@ func TestAsyncVerifyAccessWithRPC(t *testing.T) {
 			b.asyncVerifyAccessWithRPC(context.Background(), acc, dbBlock)
 
 			// Verify that our expectations were met
-			mockMetrics.Mock.AssertExpectations(t)
+			if expectFailure {
+				mockMetrics.Mock.AssertCalled(t, "RecordAccessListVerifyFailure", chainID)
+			} else {
+				mockMetrics.Mock.AssertNotCalled(t, "RecordAccessListVerifyFailure", chainID)
+			}
 		})
 	}
 

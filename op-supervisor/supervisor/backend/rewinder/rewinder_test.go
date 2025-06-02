@@ -24,6 +24,8 @@ import (
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/types"
 )
 
+const testGenesisTime = 1000
+
 // TestRewindL1 tests handling of L1 reorgs by checking that:
 // 1. Only safe data is rewound
 // 2. Unsafe data remains intact
@@ -1418,6 +1420,17 @@ type testChainSetup struct {
 	l1Node   *mockL1Node
 }
 
+type mockDBConfig struct{ depset.DependencySet }
+
+func (c mockDBConfig) IsInterop(_ eth.ChainID, ts uint64) bool { return ts >= testGenesisTime }
+func (c mockDBConfig) IsInteropActivationBlock(_ eth.ChainID, ts uint64) bool {
+	return ts == testGenesisTime
+}
+
+func (c mockDBConfig) IsInteropPostActivation(_ eth.ChainID, ts uint64) bool {
+	return ts > testGenesisTime
+}
+
 // setupTestChains creates multiple test chains with their own DBs and sync nodes
 func setupTestChains(t *testing.T, chainIDs ...eth.ChainID) *testSetup {
 	logger := testlog.Logger(t, log.LvlInfo)
@@ -1430,9 +1443,10 @@ func setupTestChains(t *testing.T, chainIDs ...eth.ChainID) *testSetup {
 	}
 	depSet, err := depset.NewStaticConfigDependencySet(deps)
 	require.NoError(t, err)
+	dbCfg := mockDBConfig{depSet}
 
 	// Create ChainsDB with mock emitter
-	chainsDB := db.NewChainsDB(logger, depSet, metrics.NoopMetrics)
+	chainsDB := db.NewChainsDB(logger, dbCfg, metrics.NoopMetrics)
 	chainsDB.AttachEmitter(&mockEmitter{})
 
 	setup := &testSetup{
@@ -1586,7 +1600,7 @@ func createTestBlocks() (genesis, block1, block2A, block2B eth.L2BlockRef) {
 		Hash:           common.HexToHash("0x1110"),
 		Number:         0,
 		ParentHash:     common.Hash{},
-		Time:           1000,
+		Time:           testGenesisTime,
 		L1Origin:       l1Genesis,
 		SequenceNumber: 0,
 	}
@@ -1595,7 +1609,7 @@ func createTestBlocks() (genesis, block1, block2A, block2B eth.L2BlockRef) {
 		Hash:           common.HexToHash("0x1111"),
 		Number:         1,
 		ParentHash:     genesis.Hash,
-		Time:           1001,
+		Time:           testGenesisTime + 1,
 		L1Origin:       l1Block1,
 		SequenceNumber: 1,
 	}
@@ -1604,7 +1618,7 @@ func createTestBlocks() (genesis, block1, block2A, block2B eth.L2BlockRef) {
 		Hash:           common.HexToHash("0x222a"),
 		Number:         2,
 		ParentHash:     block1.Hash,
-		Time:           1002,
+		Time:           testGenesisTime + 2,
 		L1Origin:       l1Block2A,
 		SequenceNumber: 2,
 	}
@@ -1613,7 +1627,7 @@ func createTestBlocks() (genesis, block1, block2A, block2B eth.L2BlockRef) {
 		Hash:           common.HexToHash("0x222b"),
 		Number:         2,
 		ParentHash:     block1.Hash,
-		Time:           1002,
+		Time:           testGenesisTime + 2,
 		L1Origin:       l1Block2B,
 		SequenceNumber: 2,
 	}

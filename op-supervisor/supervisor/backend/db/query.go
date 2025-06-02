@@ -116,15 +116,36 @@ func (db *ChainsDB) findRevision(chainID eth.ChainID, block eth.BlockID) (types.
 }
 
 func (db *ChainsDB) IsLocalSafe(chainID eth.ChainID, block eth.BlockID) error {
-	ldb, ok := db.localDBs.Get(chainID)
+	xdb, ok := db.crossDBs.Get(chainID)
 	if !ok {
 		return types.ErrUnknownChain
 	}
-	revision, err := db.findRevision(chainID, block)
-	if err != nil {
+	pair, rev, err := xdb.DerivedToFull(block)
+	if errors.Is(err, types.ErrFuture) {
+		ldb, ok := db.localDBs.Get(chainID)
+		if !ok {
+			return types.ErrUnknownChain
+		}
+		rev, err := ldb.LastRevision()
+		if errors.Is(err, types.ErrFuture) {
+			return types.ErrFuture
+		}
+		return ldb.ContainsDerived(block, rev)
+	} else if err != nil {
 		return err
 	}
-	return ldb.ContainsDerived(block, revision)
+
+	if db.cfg.IsInteropPostActivation(chainID, pair.Derived.Timestamp) {
+		ldb, ok := db.localDBs.Get(chainID)
+		if !ok {
+			return types.ErrUnknownChain
+		}
+		return ldb.ContainsDerived(block, rev)
+	}
+
+	// Pre-interop, DerivedToFull shows we have already found the block in the cross-safe DB,
+	// which covers the local-safe case pre-interop.
+	return nil
 }
 
 func (db *ChainsDB) IsFinalized(chainID eth.ChainID, block eth.BlockID) error {
@@ -211,7 +232,21 @@ func (db *ChainsDB) LocalSafe(chainID eth.ChainID) (pair types.DerivedBlockSealP
 	if !ok {
 		return types.DerivedBlockSealPair{}, types.ErrUnknownChain
 	}
-	return localDB.Last()
+	last, err := localDB.Last()
+	if errors.Is(err, types.ErrFuture) {
+		db.logger.Debug("no local safe, may be pre-interop", "chain", chainID)
+		lastCross, cerr := db.CrossSafe(chainID)
+		if cerr != nil {
+			return types.DerivedBlockSealPair{}, err
+		}
+		if db.cfg.IsInteropPostActivation(chainID, lastCross.Derived.Timestamp) {
+			// post-interop, we cannot fall back to cross-safe
+			return types.DerivedBlockSealPair{}, err
+		}
+		// pre-interop, we want to fall back to cross-safe
+		return lastCross, nil
+	}
+	return last, nil
 }
 
 func (db *ChainsDB) CrossSafe(chainID eth.ChainID) (pair types.DerivedBlockSealPair, err error) {
@@ -283,7 +318,7 @@ func (db *ChainsDB) CrossDerivedToSourceRef(chainID eth.ChainID, derived eth.Blo
 	// if we are working with the first item in the database, PreviousSource will return ErrPreviousToFirst
 	// in which case we can attach a zero parent to the block, as the parent block is unknown
 	if errors.Is(err, types.ErrPreviousToFirst) {
-		return res.ForceWithParent(eth.BlockID{}), nil
+		return res.WithZeroParent(), nil
 	} else if err != nil {
 		return eth.BlockRef{}, err
 	}

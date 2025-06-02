@@ -127,24 +127,6 @@ func (ev ResetPreInteropRequestEvent) String() string {
 	return "reset-pre-interop-request"
 }
 
-type UnsafeActivationBlockEvent struct {
-	Unsafe  eth.BlockRef
-	ChainID eth.ChainID
-}
-
-func (ev UnsafeActivationBlockEvent) String() string {
-	return "unsafe-activation-block-received"
-}
-
-type SafeActivationBlockEvent struct {
-	Safe    types.DerivedBlockRefPair
-	ChainID eth.ChainID
-}
-
-func (ev SafeActivationBlockEvent) String() string {
-	return "safe-activation-block-received"
-}
-
 type InvalidateLocalSafeEvent struct {
 	ChainID   eth.ChainID
 	Candidate types.DerivedBlockRefPair

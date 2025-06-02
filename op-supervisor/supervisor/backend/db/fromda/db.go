@@ -66,6 +66,12 @@ func NewFromEntryStore(logger log.Logger, m Metrics, store EntryStore) (*DB, err
 	return db, nil
 }
 
+func (db *DB) IsEmpty() bool {
+	db.rwLock.RLock()
+	defer db.rwLock.RUnlock()
+	return db.store.Size() == 0
+}
+
 // First returns the first known values, alike to Latest.
 func (db *DB) First() (pair types.DerivedBlockSealPair, err error) {
 	db.rwLock.RLock()
@@ -268,16 +274,34 @@ func (db *DB) Candidate(maxSource eth.BlockID, afterDerived eth.BlockID, revisio
 // This may be open-ended (read: match not-yet cross-safe blocks) if the block is not known yet.
 // WARNING: this is only safe to use on the cross-safe DB.
 func (db *DB) DerivedToRevision(derived eth.BlockID) (types.Revision, error) {
+	db.rwLock.RLock()
+	defer db.rwLock.RUnlock()
+	link, err := db.derivedToLink(derived)
+	return link.revision, err
+}
+
+func (db *DB) DerivedToFull(derived eth.BlockID) (types.DerivedBlockSealPair, types.Revision, error) {
+	db.rwLock.RLock()
+	defer db.rwLock.RUnlock()
+	link, err := db.derivedToLink(derived)
+	if err != nil {
+		return types.DerivedBlockSealPair{}, types.Revision(0), err
+	}
+	pair, err := link.sealOrErr()
+	return pair, link.revision, err
+}
+
+func (db *DB) derivedToLink(derived eth.BlockID) (LinkEntry, error) {
 	_, link, err := db.derivedNumToLastSource(derived.Number, types.RevisionAny)
 	if err != nil {
 		// This often happens in the cross-safe DB,
 		// when looking for the revision of a local-safe entry that is not yet in the cross-safe DB.
-		return types.Revision(0), fmt.Errorf("failed to get link entry: %w", err)
+		return LinkEntry{}, fmt.Errorf("failed to get link entry: %w", err)
 	}
 	if id := link.derived.ID(); id != derived {
-		return types.Revision(0), fmt.Errorf("cannot determine revision, db entry %s does not match query %s: %w", id, derived, types.ErrConflict)
+		return LinkEntry{}, fmt.Errorf("db entry %s does not match query %s: %w", link, derived, types.ErrConflict)
 	}
-	return link.revision, nil
+	return link, nil
 }
 
 // SourceToRevision lookups a specific source entry, and returns the corresponding revision.

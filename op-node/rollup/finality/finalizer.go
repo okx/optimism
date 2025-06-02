@@ -183,7 +183,7 @@ func (fi *Finalizer) onL1Finalized(l1Origin eth.L1BlockRef) {
 // onDerivationIdle is called when the pipeline is exhausted of new data (i.e. no more L2 blocks to derive from).
 //
 // Since finality applies to all L2 blocks fully derived from the same block,
-// it optimal to only check after the derivation from the L1 block has been exhausted.
+// it is optimal to only check after the derivation from the L1 block has been exhausted.
 //
 // This will look at what has been buffered so far,
 // sanity-check we are on the finalizing L1 chain,
