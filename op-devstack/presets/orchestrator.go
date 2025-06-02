@@ -105,7 +105,7 @@ func DoMain(m *testing.M, opts ...stack.CommonOption) {
 		// capture them in the global test logger.
 		// No other tool / test should change the global logger.
 		// TODO(#15139): set log-level filter, reduce noise
-		//log.SetDefault(t.Log.New("logger", "global"))
+		// log.SetDefault(t.Log.New("logger", "global"))
 
 		initOrchestrator(ctx, p, stack.Combine(opts...))
 

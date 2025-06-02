@@ -79,7 +79,7 @@ func (m *mockProcessor) ProcessLogs(ctx context.Context, block eth.BlockRef, rec
 type mockRewinder struct {
 }
 
-func (m *mockRewinder) Rewind(chain eth.ChainID, headBlock eth.BlockID) error {
+func (m *mockRewinder) RewindByNumber(chain eth.ChainID, number uint64) error {
 	return nil
 }
 func (m *mockRewinder) LatestBlockNum(chain eth.ChainID) (num uint64, ok bool) {

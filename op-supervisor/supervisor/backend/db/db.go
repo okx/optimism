@@ -58,6 +58,7 @@ type LogStorage interface {
 
 type DerivationStorage interface {
 	// basic info
+	IsEmpty() bool
 	First() (pair types.DerivedBlockSealPair, err error)
 	Last() (pair types.DerivedBlockSealPair, err error)
 
@@ -81,6 +82,7 @@ type DerivationStorage interface {
 
 	// DerivedToRevision is only safe to use on the cross-safe DB.
 	DerivedToRevision(derived eth.BlockID) (types.Revision, error)
+	DerivedToFull(derived eth.BlockID) (types.DerivedBlockSealPair, types.Revision, error)
 
 	LastRevision() (revision types.Revision, err error)
 	SourceToRevision(source eth.BlockID) (types.Revision, error)
@@ -115,10 +117,6 @@ type ChainsDB struct {
 	// unsafe info: the sequence of block seals and events
 	logDBs locks.RWMap[eth.ChainID, LogStorage]
 
-	// initLocks: used to prevent certain database calls until initialization is signaled
-	// uninitialized chains won't have values in the map
-	initialized locks.RWMap[eth.ChainID, struct{}]
-
 	// cross-unsafe: how far we have processed the unsafe data.
 	// If present but set to a zeroed value the cross-unsafe will fallback to cross-safe.
 	crossUnsafe locks.RWMap[eth.ChainID, *locks.RWValue[types.BlockSeal]]
@@ -138,9 +136,7 @@ type ChainsDB struct {
 	// so we can invalidate reads that are affected by rewinds/reorgs.
 	readRegistry *reads.Registry
 
-	// depSet is the dependency set, used to determine what may be tracked,
-	// what is missing, and to provide it to DB users.
-	depSet depset.DependencySet
+	cfg ChainsDBConfig
 
 	logger log.Logger
 
@@ -153,16 +149,23 @@ type ChainsDB struct {
 	rootCtxCancel context.CancelFunc
 }
 
+// ChainsDBConfig provides the necessary configuration information for the ChainsDB.
+// It can list chains and test for Interop activation.
+type ChainsDBConfig interface {
+	depset.ChainsLister
+	depset.ActivationConfig
+}
+
 var _ event.AttachEmitter = (*ChainsDB)(nil)
 
-func NewChainsDB(l log.Logger, depSet depset.DependencySet, m Metrics) *ChainsDB {
+func NewChainsDB(l log.Logger, cfg ChainsDBConfig, m Metrics) *ChainsDB {
 	if m == nil {
 		m = metrics.NoopMetrics
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &ChainsDB{
 		logger:        l,
-		depSet:        depSet,
+		cfg:           cfg,
 		m:             m,
 		readRegistry:  reads.NewRegistry(l),
 		rootCtx:       ctx,
@@ -176,48 +179,10 @@ func (db *ChainsDB) AttachEmitter(em event.Emitter) {
 
 func (db *ChainsDB) OnEvent(ctx context.Context, ev event.Event) bool {
 	switch x := ev.(type) {
-	case superevents.UnsafeActivationBlockEvent:
-		if !db.isInitialized(x.ChainID) {
-			db.logger.Info("Initializing logs DB from unsafe activation block",
-				"chain", x.ChainID, "block", x.Unsafe)
-			// Note that isInitialized is only true after full initialization,
-			// not only the logs db.
-			if err := db.maybeInitFromUnsafe(x.ChainID, x.Unsafe); err != nil {
-				db.logger.Error("Error initializing logs DB from unsafe activation block",
-					"chain", x.ChainID, "block", x.Unsafe, "err", err)
-				return false
-			}
-			return true
-		} else {
-			db.logger.Warn("Received unsafe activation block on initialized DB",
-				"chain", x.ChainID, "block", x.Unsafe)
-			// TODO(#15774): handle reorg
-		}
-		return false
-	case superevents.SafeActivationBlockEvent:
-		if !db.isInitialized(x.ChainID) {
-			db.logger.Info("Initializing full DB from safe activation block",
-				"chain", x.ChainID, "block", x.Safe)
-			// Note that isInitialized is only true after full initialization,
-			// not only the logs db.
-			db.initFromAnchor(x.ChainID, x.Safe)
-			return true
-		} else {
-			db.logger.Warn("Received safe activation block on initialized DB",
-				"chain", x.ChainID, "block", x.Safe)
-			// TODO(#15774): handle reorg
-		}
-		return false
+	case superevents.LocalUnsafeReceivedEvent:
+		return db.onLocalUnsafe(x.ChainID, x.NewLocalUnsafe)
 	case superevents.LocalDerivedEvent:
-		if !db.isInitialized(x.ChainID) {
-			// Initialization is handled by SafeActivationBlockEvent, which will probably only be
-			// received by the ChainsDB after this event here. So we need to skip processing this
-			// event here.
-			db.logger.Debug("Received derived event before DB is initialized (expected for activation block)",
-				"chain", x.ChainID, "derived", x.Derived, "node", x.NodeID)
-			return false
-		}
-		db.UpdateLocalSafe(x.ChainID, x.Derived.Source, x.Derived.Derived, x.NodeID)
+		return db.onLocalDerived(x.ChainID, x.Derived, x.NodeID)
 	case superevents.FinalizedL1RequestEvent:
 		db.onFinalizedL1(x.FinalizedL1)
 	case superevents.ReplaceBlockEvent:
@@ -279,10 +244,6 @@ func (db *ChainsDB) ResumeFromLastSealedBlock() error {
 		return true
 	})
 	return result
-}
-
-func (db *ChainsDB) DependencySet() depset.DependencySet {
-	return db.depSet
 }
 
 func (db *ChainsDB) Close() error {

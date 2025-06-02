@@ -24,6 +24,8 @@ import (
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/types"
 )
 
+const testGenesisTime = 1000
+
 // TestRewindL1 tests handling of L1 reorgs by checking that:
 // 1. Only safe data is rewound
 // 2. Unsafe data remains intact
@@ -58,22 +60,19 @@ func TestRewindL1(t *testing.T) {
 		Time:       901,
 		ParentHash: l1Block1A.Hash,
 	}
-	s.chainsDB.ForceInitialized(chainID) // force init for test
+	s.ensureInitialized(chainID, l1Block0, genesis)
 
 	// Setup the L1 node with initial chain
 	chain.l1Node.blocks[l1Block0.Number] = l1Block0
 	chain.l1Node.blocks[l1Block1A.Number] = l1Block1A
 	chain.l1Node.blocks[l1Block2A.Number] = l1Block2A
 
-	// Seal genesis and block1
-	s.sealBlocks(chainID, genesis, block1)
+	// Seal block1
+	s.sealBlocks(chainID, block1)
 
 	// Create rewinder with all dependencies
-	i := New(s.logger, s.chainsDB, chain.l1Node)
+	i := New(s.logger, s.cfg, s.chainsDB, chain.l1Node)
 	i.AttachEmitter(&mockEmitter{})
-
-	// Make genesis block derived from l1Block0 and make it safe
-	s.makeBlockSafe(chainID, genesis, l1Block0, true)
 
 	s.makeBlockSafe(chainID, genesis, l1Block1A, true) // Bump scope
 	// Make block1 local-safe and cross-safe using l1Block1A
@@ -142,13 +141,10 @@ func TestRewindL2(t *testing.T) {
 	chain.l1Node.blocks[l1Genesis.Number] = l1Genesis
 	chain.l1Node.blocks[l1Block1.Number] = l1Block1
 	chain.l1Node.blocks[l1Block2.Number] = l1Block2
-	s.chainsDB.ForceInitialized(chainID) // force init for test
+	s.ensureInitialized(chainID, l1Genesis, genesis)
 
 	// Seal genesis and block1
-	s.sealBlocks(chainID, genesis, block1)
-
-	// Make genesis safe and derived from L1 genesis
-	s.makeBlockSafe(chainID, genesis, l1Genesis, true)
+	s.sealBlocks(chainID, block1)
 
 	s.makeBlockSafe(chainID, genesis, l1Block1, true) // Bump scope
 	// Make block1 local-safe and cross-safe
@@ -163,22 +159,13 @@ func TestRewindL2(t *testing.T) {
 	s.verifyCrossSafe(chainID, block1.ID(), "block1 should be cross-safe")
 
 	// Create rewinder with all dependencies
-	i := New(s.logger, s.chainsDB, chain.l1Node)
+	i := New(s.logger, s.cfg, s.chainsDB, chain.l1Node)
 	i.AttachEmitter(&mockEmitter{})
 
 	// Simulate receiving a LocalDerivedDoneEvent for block2B
 	i.OnEvent(context.Background(), superevents.LocalSafeUpdateEvent{
-		ChainID: chainID,
-		NewLocalSafe: types.DerivedBlockSealPair{
-			Source: types.BlockSeal{
-				Hash:   l1Block1.Hash,
-				Number: l1Block1.Number,
-			},
-			Derived: types.BlockSeal{
-				Hash:   block2B.Hash,
-				Number: block2B.Number,
-			},
-		},
+		ChainID:      chainID,
+		NewLocalSafe: types.DerivedBlockSealPairFromRefs(l1Block1, block2B.BlockRef()),
 	})
 
 	// Verify we rewound to block1 since block2B doesn't match our unsafe block2A
@@ -209,6 +196,11 @@ func TestNoRewindNeeded(t *testing.T) {
 	chain.setupSyncNodeBlocks(genesis, block1, block2A)
 
 	// Setup L1 blocks
+	l1Genesis := eth.BlockRef{
+		Hash:   common.HexToHash("0xaaa0"),
+		Number: 0,
+		Time:   1000,
+	}
 	l1Block1 := eth.BlockRef{
 		Hash:       common.HexToHash("0xaaa1"),
 		Number:     1,
@@ -223,17 +215,10 @@ func TestNoRewindNeeded(t *testing.T) {
 	}
 	chain.l1Node.blocks[l1Block1.Number] = l1Block1
 	chain.l1Node.blocks[l1Block2.Number] = l1Block2
-	s.chainsDB.ForceInitialized(chainID) // force init for test
+	s.ensureInitialized(chainID, l1Genesis, genesis)
 
-	// Seal genesis and block1
-	s.sealBlocks(chainID, genesis, block1)
-
-	// Make genesis safe and derived from L1 genesis
-	s.makeBlockSafe(chainID, genesis, eth.BlockRef{
-		Hash:   common.HexToHash("0xaaa0"),
-		Number: 0,
-		Time:   1000,
-	}, true)
+	// Seal block1
+	s.sealBlocks(chainID, block1)
 
 	// Set genesis L1 block as finalized
 	s.chainsDB.OnEvent(context.Background(), superevents.FinalizedL1RequestEvent{
@@ -254,7 +239,7 @@ func TestNoRewindNeeded(t *testing.T) {
 	s.makeBlockSafe(chainID, block2A, l1Block2, true)
 
 	// Create rewinder with all dependencies
-	i := New(s.logger, s.chainsDB, chain.l1Node)
+	i := New(s.logger, s.cfg, s.chainsDB, chain.l1Node)
 	i.AttachEmitter(&mockEmitter{})
 
 	// Trigger L1 reorg check with same L1 block - should not rewind
@@ -268,17 +253,8 @@ func TestNoRewindNeeded(t *testing.T) {
 
 	// Trigger LocalDerived check with same L2 block - should not rewind
 	i.OnEvent(context.Background(), superevents.LocalSafeUpdateEvent{
-		ChainID: chainID,
-		NewLocalSafe: types.DerivedBlockSealPair{
-			Source: types.BlockSeal{
-				Hash:   l1Block2.Hash,
-				Number: l1Block2.Number,
-			},
-			Derived: types.BlockSeal{
-				Hash:   block2A.Hash,
-				Number: block2A.Number,
-			},
-		},
+		ChainID:      chainID,
+		NewLocalSafe: types.DerivedBlockSealPairFromRefs(l1Block2, block2A.BlockRef()),
 	})
 
 	// Verify no rewind occurred
@@ -293,7 +269,6 @@ func TestRewindLongChain(t *testing.T) {
 
 	chainID := eth.ChainID{1}
 	chain := s.chains[chainID]
-	s.chainsDB.ForceInitialized(chainID) // force init for test
 
 	// Create a chain with blocks 0-100
 	var blocks []eth.L2BlockRef
@@ -329,16 +304,18 @@ func TestRewindLongChain(t *testing.T) {
 		blocks = append(blocks, block)
 	}
 
+	s.ensureInitialized(chainID, l1Blocks[0], blocks[0])
+
 	// Setup sync node with all blocks
 	chain.setupSyncNodeBlocks(blocks...)
 
 	// Seal all blocks
-	for _, block := range blocks {
+	for i, block := range blocks {
+		if i == 0 {
+			continue // skip genesis
+		}
 		s.sealBlocks(chainID, block)
 	}
-
-	// Make genesis safe and derived from L1 genesis
-	s.makeBlockSafe(chainID, blocks[0], l1Blocks[0], true)
 
 	// Set genesis L1 block as finalized
 	s.chainsDB.OnEvent(context.Background(), superevents.FinalizedL1RequestEvent{
@@ -355,7 +332,7 @@ func TestRewindLongChain(t *testing.T) {
 	}
 
 	// Create rewinder with all dependencies
-	i := New(s.logger, s.chainsDB, chain.l1Node)
+	i := New(s.logger, s.cfg, s.chainsDB, chain.l1Node)
 	i.AttachEmitter(&mockEmitter{})
 
 	// Create a divergent block96B
@@ -370,17 +347,8 @@ func TestRewindLongChain(t *testing.T) {
 
 	// Trigger LocalDerived event with block96B
 	i.OnEvent(context.Background(), superevents.LocalSafeUpdateEvent{
-		ChainID: chainID,
-		NewLocalSafe: types.DerivedBlockSealPair{
-			Source: types.BlockSeal{
-				Hash:   l1Blocks[96/10].Hash,
-				Number: l1Blocks[96/10].Number,
-			},
-			Derived: types.BlockSeal{
-				Hash:   block96B.Hash,
-				Number: block96B.Number,
-			},
-		},
+		ChainID:      chainID,
+		NewLocalSafe: types.DerivedBlockSealPairFromRefs(l1Blocks[96/10], block96B.BlockRef()),
 	})
 
 	// Verify we rewound to block 95
@@ -393,9 +361,6 @@ func TestRewindMultiChain(t *testing.T) {
 	chain2ID := eth.ChainID{2}
 	s := setupTestChains(t, chain1ID, chain2ID)
 	defer s.Close()
-	s.chainsDB.ForceInitialized(chain1ID) // force init for test
-	s.chainsDB.ForceInitialized(chain2ID) // force init for test
-
 	// Create common blocks for both chains
 	genesis, block1, block2A, block2B := createTestBlocks()
 
@@ -419,11 +384,9 @@ func TestRewindMultiChain(t *testing.T) {
 		chain.l1Node.blocks[l1Genesis.Number] = l1Genesis
 		chain.l1Node.blocks[l1Block1.Number] = l1Block1
 
+		s.ensureInitialized(chainID, l1Genesis, genesis)
 		// Setup initial chain
-		s.sealBlocks(chainID, genesis, block1, block2A)
-
-		// Make genesis safe and derived from L1 genesis
-		s.makeBlockSafe(chainID, genesis, l1Genesis, true)
+		s.sealBlocks(chainID, block1, block2A)
 
 		s.makeBlockSafe(chainID, genesis, l1Block1, true) // Bump scope
 
@@ -437,23 +400,15 @@ func TestRewindMultiChain(t *testing.T) {
 	})
 
 	// Create rewinder with all dependencies
-	i := New(s.logger, s.chainsDB, s.chains[chain1ID].l1Node)
+	i := New(s.logger, s.cfg, s.chainsDB, s.chains[chain1ID].l1Node)
 	i.AttachEmitter(&mockEmitter{})
 
+	derived := types.DerivedBlockSealPairFromRefs(l1Block1, block2B.BlockRef())
 	// Trigger LocalDerived events for both chains
 	for chainID := range s.chains {
 		i.OnEvent(context.Background(), superevents.LocalSafeUpdateEvent{
-			ChainID: chainID,
-			NewLocalSafe: types.DerivedBlockSealPair{
-				Source: types.BlockSeal{
-					Hash:   l1Block1.Hash,
-					Number: l1Block1.Number,
-				},
-				Derived: types.BlockSeal{
-					Hash:   block2B.Hash,
-					Number: block2B.Number,
-				},
-			},
+			ChainID:      chainID,
+			NewLocalSafe: derived,
 		})
 	}
 
@@ -471,7 +426,6 @@ func TestRewindL2WalkBack(t *testing.T) {
 	defer s.Close()
 	chainID := eth.ChainID{1}
 	chain := s.chains[chainID]
-	s.chainsDB.ForceInitialized(chainID)
 	// Create a chain of blocks: genesis -> block1 -> block2 -> block3 -> block4A
 	genesis := eth.L2BlockRef{
 		Hash:           common.HexToHash("0x1110"),
@@ -561,11 +515,10 @@ func TestRewindL2WalkBack(t *testing.T) {
 	chain.l1Node.blocks[l1Block3.Number] = l1Block3
 	chain.l1Node.blocks[l1Block4.Number] = l1Block4
 
-	// Seal all blocks in the original chain
-	s.sealBlocks(chainID, genesis, block1, block2, block3, block4A)
+	s.ensureInitialized(chainID, l1Genesis, genesis)
 
-	// Make genesis safe and derived from L1 genesis
-	s.makeBlockSafe(chainID, genesis, l1Genesis, true)
+	// Seal all blocks in the original chain
+	s.sealBlocks(chainID, block1, block2, block3, block4A)
 
 	// Set genesis L1 block as finalized
 	s.chainsDB.OnEvent(context.Background(), superevents.FinalizedL1RequestEvent{
@@ -581,21 +534,12 @@ func TestRewindL2WalkBack(t *testing.T) {
 	s.makeBlockSafe(chainID, block3, l1Block3, true)
 
 	// Create rewinder with all dependencies
-	i := New(s.logger, s.chainsDB, chain.l1Node)
+	i := New(s.logger, s.cfg, s.chainsDB, chain.l1Node)
 	i.AttachEmitter(&mockEmitter{})
 	// Trigger LocalDerived event with block4B
 	i.OnEvent(context.Background(), superevents.LocalSafeUpdateEvent{
-		ChainID: chainID,
-		NewLocalSafe: types.DerivedBlockSealPair{
-			Source: types.BlockSeal{
-				Hash:   block4B.L1Origin.Hash,
-				Number: block4B.L1Origin.Number,
-			},
-			Derived: types.BlockSeal{
-				Hash:   block4B.Hash,
-				Number: block4B.Number,
-			},
-		},
+		ChainID:      chainID,
+		NewLocalSafe: types.DerivedBlockSealPairFromRefs(l1Block4, block4B.BlockRef()),
 	})
 	// Verify we rewound to block3 since it's the common ancestor
 	s.verifyLogsHead(chainID, block3.ID(), "should have rewound to block3 (common ancestor)")
@@ -609,7 +553,6 @@ func TestRewindL1PastCrossSafe(t *testing.T) {
 
 	chainID := eth.ChainID{1}
 	chain := s.chains[chainID]
-	s.chainsDB.ForceInitialized(chainID) // force init for test
 
 	// Create blocks: genesis -> block1 -> block2 -> block3A/3B
 	genesis := eth.L2BlockRef{
@@ -687,15 +630,14 @@ func TestRewindL1PastCrossSafe(t *testing.T) {
 	chain.l1Node.blocks[l1Block2.Number] = l1Block2
 	chain.l1Node.blocks[l1Block3A.Number] = l1Block3A
 
+	s.ensureInitialized(chainID, l1Genesis, genesis)
+
 	// Seal all blocks
-	s.sealBlocks(chainID, genesis, block1, block2, block3A)
+	s.sealBlocks(chainID, block1, block2, block3A)
 
 	// Create rewinder with all dependencies
-	i := New(s.logger, s.chainsDB, chain.l1Node)
+	i := New(s.logger, s.cfg, s.chainsDB, chain.l1Node)
 	i.AttachEmitter(&mockEmitter{})
-
-	// Make genesis block derived from l1Genesis and make it safe
-	s.makeBlockSafe(chainID, genesis, l1Genesis, true)
 
 	// Set l1Genesis as finalized
 	s.chainsDB.OnEvent(context.Background(), superevents.FinalizedL1RequestEvent{
@@ -743,7 +685,6 @@ func TestRewindL1GenesisOnlyL2(t *testing.T) {
 
 	chainID := eth.ChainID{1}
 	chain := s.chains[chainID]
-	s.chainsDB.ForceInitialized(chainID) // force init for test
 
 	// Create only genesis block
 	genesis := eth.L2BlockRef{
@@ -773,15 +714,11 @@ func TestRewindL1GenesisOnlyL2(t *testing.T) {
 
 	chain.l1Node.blocks[l1Genesis.Number] = l1Genesis
 
-	// Seal genesis block
-	s.sealBlocks(chainID, genesis)
+	s.ensureInitialized(chainID, l1Genesis, genesis)
 
 	// Create rewinder with all dependencies
-	i := New(s.logger, s.chainsDB, chain.l1Node)
+	i := New(s.logger, s.cfg, s.chainsDB, chain.l1Node)
 	i.AttachEmitter(&mockEmitter{})
-
-	// Make genesis block derived from l1Genesis and make it safe
-	s.makeBlockSafe(chainID, genesis, l1Genesis, true)
 
 	// Set genesis L1 block as finalized
 	s.chainsDB.OnEvent(context.Background(), superevents.FinalizedL1RequestEvent{
@@ -802,17 +739,8 @@ func TestRewindL1GenesisOnlyL2(t *testing.T) {
 
 	// Try LocalDerived event with same genesis block
 	i.OnEvent(context.Background(), superevents.LocalSafeUpdateEvent{
-		ChainID: chainID,
-		NewLocalSafe: types.DerivedBlockSealPair{
-			Source: types.BlockSeal{
-				Hash:   l1GenesisB.Hash,
-				Number: l1GenesisB.Number,
-			},
-			Derived: types.BlockSeal{
-				Hash:   genesis.Hash,
-				Number: genesis.Number,
-			},
-		},
+		ChainID:      chainID,
+		NewLocalSafe: types.DerivedBlockSealPairFromRefs(l1GenesisB, genesis.BlockRef()),
 	})
 
 	s.verifyHeads(chainID, genesis.ID(), "should still have genesis as head after LocalDerived event")
@@ -825,7 +753,6 @@ func TestRewindL1NoL2Impact(t *testing.T) {
 
 	chainID := eth.ChainID{1}
 	chain := s.chains[chainID]
-	s.chainsDB.ForceInitialized(chainID) // force init for test
 
 	// Create L1 blocks
 	l1Block0 := eth.BlockRef{
@@ -878,16 +805,17 @@ func TestRewindL1NoL2Impact(t *testing.T) {
 	// Setup sync node with blocks
 	chain.setupSyncNodeBlocks(genesis, block1, block2)
 
+	s.ensureInitialized(chainID, l1Block0, genesis)
+
 	// Seal all blocks
-	s.sealBlocks(chainID, genesis, block1, block2)
+	s.sealBlocks(chainID, block1, block2)
 
 	// Make all blocks safe and derived from l1Block0
-	s.makeBlockSafe(chainID, genesis, l1Block0, true)
 	s.makeBlockSafe(chainID, block1, l1Block0, true)
 	s.makeBlockSafe(chainID, block2, l1Block0, true)
 
 	// Create rewinder with all dependencies
-	i := New(s.logger, s.chainsDB, chain.l1Node)
+	i := New(s.logger, s.cfg, s.chainsDB, chain.l1Node)
 	i.AttachEmitter(&mockEmitter{})
 
 	// Verify heads are at block2
@@ -918,7 +846,6 @@ func TestRewindL1SingleBlockL2Impact(t *testing.T) {
 
 	chainID := eth.ChainID{1}
 	chain := s.chains[chainID]
-	s.chainsDB.ForceInitialized(chainID) // force init for test
 
 	// Create L1 blocks
 	l1Block0 := eth.BlockRef{
@@ -987,11 +914,12 @@ func TestRewindL1SingleBlockL2Impact(t *testing.T) {
 	// Setup sync node with blocks
 	chain.setupSyncNodeBlocks(genesis, block1, block2, block3, block4)
 
+	s.ensureInitialized(chainID, l1Block0, genesis)
+
 	// Seal all blocks
-	s.sealBlocks(chainID, genesis, block1, block2, block3, block4)
+	s.sealBlocks(chainID, block1, block2, block3, block4)
 
 	// Make all blocks safe
-	s.makeBlockSafe(chainID, genesis, l1Block0, true)
 	s.makeBlockSafe(chainID, block1, l1Block0, true)
 	s.makeBlockSafe(chainID, block1, l1Block1, true) // Bump scope
 	s.makeBlockSafe(chainID, block2, l1Block1, true)
@@ -1000,7 +928,7 @@ func TestRewindL1SingleBlockL2Impact(t *testing.T) {
 	s.makeBlockSafe(chainID, block4, l1Block2A, true)
 
 	// Create rewinder with all dependencies
-	i := New(s.logger, s.chainsDB, chain.l1Node)
+	i := New(s.logger, s.cfg, s.chainsDB, chain.l1Node)
 	i.AttachEmitter(&mockEmitter{})
 
 	// Verify heads are at block4
@@ -1031,7 +959,6 @@ func TestRewindL1DeepL2Impact(t *testing.T) {
 
 	chainID := eth.ChainID{1}
 	chain := s.chains[chainID]
-	s.chainsDB.ForceInitialized(chainID) // force init for test
 
 	// Create blocks 0-120
 	numBlocks := 120
@@ -1070,13 +997,15 @@ func TestRewindL1DeepL2Impact(t *testing.T) {
 	// Setup sync node with all blocks
 	chain.setupSyncNodeBlocks(l2Blocks...)
 
+	s.ensureInitialized(chainID, l1Blocks[0], l2Blocks[0])
+
 	// Seal all blocks
-	for _, block := range l2Blocks {
+	for i, block := range l2Blocks {
+		if i == 0 {
+			continue // skip genesis
+		}
 		s.sealBlocks(chainID, block)
 	}
-
-	// Make genesis safe and derived from L1 genesis
-	s.makeBlockSafe(chainID, l2Blocks[0], l1Blocks[0], true)
 
 	// Set genesis L1 block as finalized
 	s.chainsDB.OnEvent(context.Background(), superevents.FinalizedL1RequestEvent{
@@ -1092,7 +1021,7 @@ func TestRewindL1DeepL2Impact(t *testing.T) {
 	}
 
 	// Create rewinder with all dependencies
-	i := New(s.logger, s.chainsDB, chain.l1Node)
+	i := New(s.logger, s.cfg, s.chainsDB, chain.l1Node)
 	i.AttachEmitter(&mockEmitter{})
 
 	// Verify latest L2 block is at height 119
@@ -1124,7 +1053,6 @@ func TestRewindL2LocalDerivationUnsafeMismatch(t *testing.T) {
 
 	chainID := eth.ChainID{1}
 	chain := s.chains[chainID]
-	s.chainsDB.ForceInitialized(chainID) // force init for test
 
 	// Create L1 blocks
 	l1Block0 := eth.BlockRef{
@@ -1200,18 +1128,19 @@ func TestRewindL2LocalDerivationUnsafeMismatch(t *testing.T) {
 	// Setup sync node with all blocks
 	chain.setupSyncNodeBlocks(genesis, block1, block2, block3A, block3B)
 
+	s.ensureInitialized(chainID, l1Block0, genesis)
+
 	// Seal blocks up to block3A
-	s.sealBlocks(chainID, genesis, block1, block2, block3A)
+	s.sealBlocks(chainID, block1, block2, block3A)
 
 	// Make blocks up to block2 safe
-	s.makeBlockSafe(chainID, genesis, l1Block0, true)
 	s.makeBlockSafe(chainID, genesis, l1Block1, true) // Bump scope
 	s.makeBlockSafe(chainID, block1, l1Block1, true)
 	s.makeBlockSafe(chainID, block1, l1Block2, true) // Bump scope
 	s.makeBlockSafe(chainID, block2, l1Block2, true)
 
 	// Create rewinder with all dependencies
-	i := New(s.logger, s.chainsDB, chain.l1Node)
+	i := New(s.logger, s.cfg, s.chainsDB, chain.l1Node)
 	i.AttachEmitter(&mockEmitter{})
 
 	// Verify block3A is the latest sealed block but not safe
@@ -1221,17 +1150,8 @@ func TestRewindL2LocalDerivationUnsafeMismatch(t *testing.T) {
 
 	// Simulate receiving a LocalDerivedEvent for block3B
 	i.OnEvent(context.Background(), superevents.LocalSafeUpdateEvent{
-		ChainID: chainID,
-		NewLocalSafe: types.DerivedBlockSealPair{
-			Source: types.BlockSeal{
-				Hash:   l1Block3.Hash,
-				Number: l1Block3.Number,
-			},
-			Derived: types.BlockSeal{
-				Hash:   block3B.Hash,
-				Number: block3B.Number,
-			},
-		},
+		ChainID:      chainID,
+		NewLocalSafe: types.DerivedBlockSealPairFromRefs(l1Block3, block3B.BlockRef()),
 	})
 
 	// Verify rewound to block2 since it's the common ancestor
@@ -1253,7 +1173,6 @@ func TestRewindL2LocalDerivationSafeMismatch(t *testing.T) {
 
 	chainID := eth.ChainID{1}
 	chain := s.chains[chainID]
-	s.chainsDB.ForceInitialized(chainID) // force init for test
 
 	// Create L1 blocks
 	l1Block0 := eth.BlockRef{
@@ -1329,11 +1248,12 @@ func TestRewindL2LocalDerivationSafeMismatch(t *testing.T) {
 	// Setup sync node with all blocks
 	chain.setupSyncNodeBlocks(genesis, block1, block2, block3A, block3B)
 
+	s.ensureInitialized(chainID, l1Block0, genesis)
+
 	// Seal blocks up to block3A
-	s.sealBlocks(chainID, genesis, block1, block2, block3A)
+	s.sealBlocks(chainID, block1, block2, block3A)
 
 	// Make blocks safe up to block3A
-	s.makeBlockSafe(chainID, genesis, l1Block0, true)
 	s.makeBlockSafe(chainID, genesis, l1Block1, true) // Bump scope
 	s.makeBlockSafe(chainID, block1, l1Block1, true)
 	s.makeBlockSafe(chainID, block1, l1Block2, true) // Bump scope
@@ -1353,7 +1273,7 @@ func TestRewindL2LocalDerivationSafeMismatch(t *testing.T) {
 	})
 
 	// Create rewinder with all dependencies
-	i := New(s.logger, s.chainsDB, chain.l1Node)
+	i := New(s.logger, s.cfg, s.chainsDB, chain.l1Node)
 	i.AttachEmitter(&mockEmitter{})
 
 	// Verify block3A is the latest sealed and safe block
@@ -1379,17 +1299,8 @@ func TestRewindL2LocalDerivationSafeMismatch(t *testing.T) {
 
 	// Simulate receiving a LocalDerivedEvent for block3B
 	i.OnEvent(context.Background(), superevents.LocalSafeUpdateEvent{
-		ChainID: chainID,
-		NewLocalSafe: types.DerivedBlockSealPair{
-			Source: types.BlockSeal{
-				Hash:   l1Block3B.Hash,
-				Number: l1Block3B.Number,
-			},
-			Derived: types.BlockSeal{
-				Hash:   block3B.Hash,
-				Number: block3B.Number,
-			},
-		},
+		ChainID:      chainID,
+		NewLocalSafe: types.DerivedBlockSealPairFromRefs(l1Block3B, block3B.BlockRef()),
 	})
 
 	// Add block3B to chain
@@ -1407,6 +1318,7 @@ type testSetup struct {
 	dataDir  string
 	chainsDB *db.ChainsDB
 	chains   map[eth.ChainID]*testChainSetup
+	cfg      RewinderConfig
 }
 
 type testChainSetup struct {
@@ -1416,6 +1328,17 @@ type testChainSetup struct {
 	crossDB  *fromda.DB
 	syncNode *mockSyncNode
 	l1Node   *mockL1Node
+}
+
+type mockConfig struct{ depset.DependencySet }
+
+func (c mockConfig) IsInterop(_ eth.ChainID, ts uint64) bool { return ts >= testGenesisTime }
+func (c mockConfig) IsInteropActivationBlock(_ eth.ChainID, ts uint64) bool {
+	return ts == testGenesisTime
+}
+
+func (c mockConfig) IsInteropPostActivation(_ eth.ChainID, ts uint64) bool {
+	return ts > testGenesisTime
 }
 
 // setupTestChains creates multiple test chains with their own DBs and sync nodes
@@ -1430,9 +1353,10 @@ func setupTestChains(t *testing.T, chainIDs ...eth.ChainID) *testSetup {
 	}
 	depSet, err := depset.NewStaticConfigDependencySet(deps)
 	require.NoError(t, err)
+	cfg := mockConfig{depSet}
 
 	// Create ChainsDB with mock emitter
-	chainsDB := db.NewChainsDB(logger, depSet, metrics.NoopMetrics)
+	chainsDB := db.NewChainsDB(logger, cfg, metrics.NoopMetrics)
 	chainsDB.AttachEmitter(&mockEmitter{})
 
 	setup := &testSetup{
@@ -1441,6 +1365,7 @@ func setupTestChains(t *testing.T, chainIDs ...eth.ChainID) *testSetup {
 		dataDir:  dataDir,
 		chainsDB: chainsDB,
 		chains:   make(map[eth.ChainID]*testChainSetup),
+		cfg:      cfg,
 	}
 
 	// Setup each chain
@@ -1504,6 +1429,14 @@ func (s *testChainSetup) setupSyncNodeBlocks(blocks ...eth.L2BlockRef) {
 			ParentHash: block.ParentHash,
 		}
 	}
+}
+
+func (s *testSetup) ensureInitialized(chainID eth.ChainID, genesisL1 eth.BlockRef, genesisL2 eth.L2BlockRef) {
+	g := depset.Genesis{
+		L1: types.BlockSealFromRef(genesisL1),
+		L2: types.BlockSealFromRef(genesisL2.BlockRef()),
+	}
+	require.NoError(s.t, s.chainsDB.EnsureInitialized(chainID, g))
 }
 
 func (s *testSetup) makeBlockSafe(chainID eth.ChainID, block eth.L2BlockRef, l1Block eth.BlockRef, makeCrossSafe bool) {
@@ -1586,7 +1519,7 @@ func createTestBlocks() (genesis, block1, block2A, block2B eth.L2BlockRef) {
 		Hash:           common.HexToHash("0x1110"),
 		Number:         0,
 		ParentHash:     common.Hash{},
-		Time:           1000,
+		Time:           testGenesisTime,
 		L1Origin:       l1Genesis,
 		SequenceNumber: 0,
 	}
@@ -1595,7 +1528,7 @@ func createTestBlocks() (genesis, block1, block2A, block2B eth.L2BlockRef) {
 		Hash:           common.HexToHash("0x1111"),
 		Number:         1,
 		ParentHash:     genesis.Hash,
-		Time:           1001,
+		Time:           testGenesisTime + 1,
 		L1Origin:       l1Block1,
 		SequenceNumber: 1,
 	}
@@ -1604,7 +1537,7 @@ func createTestBlocks() (genesis, block1, block2A, block2B eth.L2BlockRef) {
 		Hash:           common.HexToHash("0x222a"),
 		Number:         2,
 		ParentHash:     block1.Hash,
-		Time:           1002,
+		Time:           testGenesisTime + 2,
 		L1Origin:       l1Block2A,
 		SequenceNumber: 2,
 	}
@@ -1613,7 +1546,7 @@ func createTestBlocks() (genesis, block1, block2A, block2B eth.L2BlockRef) {
 		Hash:           common.HexToHash("0x222b"),
 		Number:         2,
 		ParentHash:     block1.Hash,
-		Time:           1002,
+		Time:           testGenesisTime + 2,
 		L1Origin:       l1Block2B,
 		SequenceNumber: 2,
 	}

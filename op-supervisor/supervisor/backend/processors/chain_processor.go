@@ -30,7 +30,7 @@ type LogProcessor interface {
 }
 
 type DatabaseRewinder interface {
-	Rewind(chain eth.ChainID, headBlock eth.BlockID) error
+	RewindByNumber(chain eth.ChainID, number uint64) error
 	LatestBlockNum(chain eth.ChainID) (num uint64, ok bool)
 	AcceptedBlock(chainID eth.ChainID, id eth.BlockID) error
 }
@@ -334,7 +334,8 @@ func (s *ChainProcessor) process(ctx context.Context, next eth.BlockRef, receipt
 		}
 
 		// Try to rewind the database to the previous block to remove any logs from this block that were written
-		if err := s.rewinder.Rewind(s.chain, next.ParentID()); err != nil {
+		// We rewind by number because the parent block of next may also be invalid.
+		if err := s.rewinder.RewindByNumber(s.chain, next.ParentID().Number); err != nil {
 			// If any logs were written, our next attempt to write will fail and we'll retry this rewind.
 			// If no logs were written successfully then the rewind wouldn't have done anything anyway.
 			s.log.Error("Failed to rewind after error processing block", "block", next, "parent", next.ParentID(), "err", err)

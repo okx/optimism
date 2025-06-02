@@ -207,7 +207,7 @@ func (cfg *Config) TargetBlockNumber(timestamp uint64) (num uint64, err error) {
 	// unsafe head does not have this block number, then there is a gap in the queue.
 	genesisTimestamp := cfg.Genesis.L2Time
 	if timestamp < genesisTimestamp {
-		return 0, fmt.Errorf("did not reach genesis time (%d) yet", genesisTimestamp)
+		return 0, fmt.Errorf("did not reach genesis time yet (%d < %d) ", timestamp, genesisTimestamp)
 	}
 	wallClockGenesisDiff := timestamp - genesisTimestamp
 	// Note: round down, we should not request blocks into the future.

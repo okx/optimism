@@ -156,7 +156,7 @@ func NewSupervisorBackend(ctx context.Context, logger log.Logger,
 		sysCancel:             sysCancel,
 		sysContext:            sysCtx,
 
-		rewinder: rewinder.New(logger, chainsDBs, l1Accessor),
+		rewinder: rewinder.New(logger, cfgSet, chainsDBs, l1Accessor),
 
 		rpcVerificationWarnings: cfg.RPCVerificationWarnings,
 	}
@@ -182,42 +182,29 @@ func NewSupervisorBackend(ctx context.Context, logger log.Logger,
 }
 
 func (su *SupervisorBackend) OnEvent(ctx context.Context, ev event.Event) bool {
+	// Only post-activation updates trigger requests to events and cross workers.
 	switch x := ev.(type) {
-	case superevents.LocalUnsafeReceivedEvent:
-		if !su.cfgSet.IsInterop(x.ChainID, x.NewLocalUnsafe.Time) {
-			su.logger.Warn("ignoring local unsafe received event for pre-interop block", "chainID", x.ChainID, "unsafe", x.NewLocalUnsafe)
-			return false
-		} else if su.cfgSet.IsInteropActivationBlock(x.ChainID, x.NewLocalUnsafe.Time) {
-			su.emitter.Emit(ctx, superevents.UnsafeActivationBlockEvent{
-				ChainID: x.ChainID,
-				Unsafe:  x.NewLocalUnsafe,
-			})
-			// don't process events of the activation block
-			return true
-		}
-		su.emitter.Emit(ctx, superevents.ChainProcessEvent{
-			ChainID: x.ChainID,
-			Target:  x.NewLocalUnsafe.Number,
-		})
 	case superevents.LocalUnsafeUpdateEvent:
+		if !su.cfgSet.IsInterop(x.ChainID, x.NewLocalUnsafe.Time) {
+			su.logger.Debug("ignoring non-post-interop local unsafe update event", "chain", x.ChainID, "unsafe", x.NewLocalUnsafe)
+			return false
+		}
 		su.emitter.Emit(ctx, superevents.UpdateCrossUnsafeRequestEvent{
 			ChainID: x.ChainID,
 		})
 	case superevents.CrossUnsafeUpdateEvent:
+		if !su.cfgSet.IsInterop(x.ChainID, x.NewCrossUnsafe.Timestamp) {
+			su.logger.Debug("ignoring non-post-interop cross unsafe update event", "chain", x.ChainID, "unsafe", x.NewCrossUnsafe)
+			return false
+		}
 		su.emitter.Emit(ctx, superevents.UpdateCrossUnsafeRequestEvent{
 			ChainID: x.ChainID,
 		})
-	case superevents.LocalDerivedEvent:
-		if !su.cfgSet.IsInterop(x.ChainID, x.Derived.Derived.Time) {
-			su.logger.Warn("ignoring local derived event for pre-interop block", "chainID", x.ChainID, "derived", x.Derived.Derived)
-			return false
-		} else if su.cfgSet.IsInteropActivationBlock(x.ChainID, x.Derived.Derived.Time) {
-			su.emitter.Emit(ctx, superevents.SafeActivationBlockEvent{
-				ChainID: x.ChainID,
-				Safe:    x.Derived,
-			})
-		}
 	case superevents.LocalSafeUpdateEvent:
+		if !su.cfgSet.IsInterop(x.ChainID, x.NewLocalSafe.Derived.Timestamp) {
+			su.logger.Debug("ignoring non-post-interop local safe update event", "chain", x.ChainID, "safe", x.NewLocalSafe)
+			return false
+		}
 		su.emitter.Emit(ctx, superevents.ChainProcessEvent{
 			ChainID: x.ChainID,
 			Target:  x.NewLocalSafe.Derived.Number,
@@ -226,6 +213,10 @@ func (su *SupervisorBackend) OnEvent(ctx context.Context, ev event.Event) bool {
 			ChainID: x.ChainID,
 		})
 	case superevents.CrossSafeUpdateEvent:
+		if !su.cfgSet.IsInterop(x.ChainID, x.NewCrossSafe.Derived.Timestamp) {
+			su.logger.Debug("ignoring non-post-interop cross safe update event", "chain", x.ChainID, "safe", x.NewCrossSafe)
+			return false
+		}
 		su.emitter.Emit(ctx, superevents.UpdateCrossSafeRequestEvent{
 			ChainID: x.ChainID,
 		})
@@ -327,18 +318,12 @@ func (su *SupervisorBackend) openChainDBs(chainID eth.ChainID) error {
 
 	su.chainDBs.AddCrossUnsafeTracker(chainID)
 
-	// If Interop is active at genesis, emit SafeActivationBlockEvent so that the DB
-	// can initialize, if needed.
-	genesis := su.cfgSet.Genesis(chainID)
-	if su.cfgSet.IsInterop(chainID, genesis.L2.Timestamp) {
-		su.emitter.Emit(su.sysContext, superevents.SafeActivationBlockEvent{
-			ChainID: chainID,
-			Safe: types.DerivedBlockRefPair{
-				// Initialization skips parent checks, so zero parents are ok.
-				Source:  genesis.L1.WithZeroParent(),
-				Derived: genesis.L2.WithZeroParent(),
-			},
-		})
+	// If Interop is active at genesis, make sure DB is initialized.
+	// For non-Genesis Interop chains, initialization will happen from sync-node events.
+	if genesis := su.cfgSet.Genesis(chainID); su.cfgSet.IsInterop(chainID, genesis.L2.Timestamp) {
+		if err := su.chainDBs.EnsureInitialized(chainID, genesis); err != nil {
+			return fmt.Errorf("failed genesis init for chain %s: %w", chainID, err)
+		}
 	}
 
 	return nil
@@ -549,7 +534,8 @@ func (su *SupervisorBackend) checkSafety(chainID eth.ChainID, blockID eth.BlockI
 }
 
 func (su *SupervisorBackend) CheckAccessList(ctx context.Context, inboxEntries []common.Hash,
-	minSafety types.SafetyLevel, execDescr types.ExecutingDescriptor) error {
+	minSafety types.SafetyLevel, execDescr types.ExecutingDescriptor,
+) error {
 	switch minSafety {
 	case types.LocalUnsafe, types.CrossUnsafe, types.LocalSafe, types.CrossSafe, types.Finalized:
 		// valid safety level

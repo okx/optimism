@@ -188,10 +188,7 @@ func (m *IndexingMode) OnEvent(ctx context.Context, ev event.Event) bool {
 
 	case engine.LocalSafeUpdateEvent:
 		logger := m.log.New("derivedFrom", x.Source, "derived", x.Ref)
-		if !m.cfg.IsInterop(x.Ref.Time) {
-			logger.Debug("Ignoring non-Interop local safe update")
-			return false
-		} else if !m.lastSafe.Update(x.Ref.ID()) {
+		if !m.lastSafe.Update(x.Ref.ID()) {
 			logger.Warn("Skipped sending duplicate derivation update (new local safe)")
 			return true
 		}
@@ -205,10 +202,7 @@ func (m *IndexingMode) OnEvent(ctx context.Context, ev event.Event) bool {
 
 	case derive.DeriverL1StatusEvent:
 		logger := m.log.New("derivedFrom", x.Origin, "derived", x.LastL2)
-		if !m.cfg.IsInterop(x.LastL2.Time) {
-			logger.Debug("Ignoring non-Interop L1 traversal")
-			return false
-		} else if !m.lastL1Traversal.Update(x.Origin.ID()) {
+		if !m.lastL1Traversal.Update(x.Origin.ID()) {
 			logger.Warn("Skipped sending duplicate derivation update (L1 traversal)")
 			return true
 		}
@@ -333,7 +327,8 @@ func (m *IndexingMode) InvalidateBlock(ctx context.Context, seal supervisortypes
 	}
 
 	m.emitter.Emit(m.ctx, engine.InteropInvalidateBlockEvent{
-		Invalidated: ref, Attributes: annotated})
+		Invalidated: ref, Attributes: annotated,
+	})
 
 	// The node will send an event once the replacement is ready
 	return nil
@@ -370,7 +365,8 @@ const (
 	InteropInactiveRPCErrCode  = -39003
 )
 
-// TODO: add ResetPreInterop, called by supervisor if bisection went pre-Interop. Emit ResetEngineRequestEvent.
+// ResetPreInterop is called by supervisor if bisection went pre-Interop. Emits a ResetEngineRequestEvent
+// to run a local legacy reset.
 func (m *IndexingMode) ResetPreInterop(ctx context.Context) error {
 	m.log.Info("Received pre-interop reset request")
 	m.emitter.Emit(ctx, engine.ResetEngineRequestEvent{})
@@ -439,10 +435,30 @@ func (m *IndexingMode) Reset(ctx context.Context, lUnsafe, xUnsafe, lSafe, xSafe
 		logger.Error("Cannot reset, cross-safe target invalid")
 		return err
 	}
-	finalizedRef, err := verify(finalized, "finalized")
-	if err != nil {
-		logger.Error("Cannot reset, finalized block not known")
+
+	var finalizedRef eth.L2BlockRef
+
+	if finalized == (eth.BlockID{}) {
+		logger.Debug("No finalized reset target provided, using local finalized block")
+		ref, err := m.l2.L2BlockRefByLabel(ctx, eth.Finalized)
+		if err != nil {
+			logger.Error("Cannot reset, no locally valid finalized block")
+			return &gethrpc.JsonError{
+				Code:    InternalErrorRPCErrcode,
+				Message: "failed to fetch finalized reference",
+			}
+		}
+		if ref.Number > xSafe.Number {
+			logger.Warn("Finalized block is newer than cross-safe, using cross-safe as finalized reset target instead")
+			finalizedRef = xSafeRef
+		} else {
+			finalizedRef = ref
+		}
+	} else if ref, err := verify(finalized, "finalized"); err != nil {
+		logger.Error("Cannot reset, finalized target invalid", "err", err)
 		return err
+	} else {
+		finalizedRef = ref
 	}
 
 	latestLocalUnsafe, err := m.findLatestValidLocalUnsafe(ctx, lUnsafe)

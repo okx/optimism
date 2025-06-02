@@ -13,12 +13,6 @@ import (
 
 var errInvalidateMismatch = fmt.Errorf("cannot invalidate mismatching block")
 
-func (db *DB) IsEmpty() bool {
-	db.rwLock.RLock()
-	defer db.rwLock.RUnlock()
-	return db.store.Size() == 0
-}
-
 func (db *DB) AddDerived(source eth.BlockRef, derived eth.BlockRef, revision types.Revision) error {
 	db.rwLock.Lock()
 	defer db.rwLock.Unlock()
@@ -369,7 +363,7 @@ func (db *DB) addLink(source eth.BlockRef, derived eth.BlockRef, invalidated com
 				derived, derived.ParentHash, lastDerived, types.ErrConflict)
 		}
 	} else if lastDerived.Number+1 < derived.Number {
-		return fmt.Errorf("cannot add block (%s derived from %s), last block (%s derived from %s) is too far behind: (%w)",
+		return fmt.Errorf("cannot add block (%s derived from %s), last block (%s derived from %s) number is too far behind: %w",
 			derived, source,
 			lastDerived, lastSource,
 			types.ErrFuture)
@@ -403,7 +397,7 @@ func (db *DB) addLink(source eth.BlockRef, derived eth.BlockRef, invalidated com
 		}
 	} else if lastSource.Number+1 < source.Number {
 		// adding block that is derived from something too far into the future
-		return fmt.Errorf("cannot add block (%s derived from %s), last block (%s derived from %s) is too far behind: (%w)",
+		return fmt.Errorf("cannot add block (%s derived from %s), last block (%s derived from %s) source is too far behind: %w",
 			derived, source,
 			lastDerived, lastSource,
 			types.ErrFuture)

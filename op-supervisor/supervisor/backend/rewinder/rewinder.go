@@ -20,8 +20,6 @@ type l1Node interface {
 }
 
 type rewinderDB interface {
-	DependencySet() depset.DependencySet
-
 	CrossSourceToLastDerived(chainID eth.ChainID, source eth.BlockID) (derived types.BlockSeal, err error)
 	PreviousSource(chain eth.ChainID, source eth.BlockID) (prevSource types.BlockSeal, err error)
 	CrossDerivedToSourceRef(chainID eth.ChainID, derived eth.BlockID) (source eth.BlockRef, err error)
@@ -39,6 +37,13 @@ type rewinderDB interface {
 	LocalDerivedToSource(chain eth.ChainID, derived eth.BlockID) (source types.BlockSeal, err error)
 }
 
+// RewinderConfig provides the necessary configuration information for the Rewinder.
+// It can list chains and test for Interop activation.
+type RewinderConfig interface {
+	depset.ChainsLister
+	depset.ActivationConfig
+}
+
 // Rewinder is responsible for handling the rewinding of databases to the latest common ancestor between
 // the local databases and L2 node.
 type Rewinder struct {
@@ -49,16 +54,19 @@ type Rewinder struct {
 
 	rootCtx       context.Context
 	rootCtxCancel context.CancelFunc
+
+	cfg RewinderConfig
 }
 
-func New(log log.Logger, db rewinderDB, l1Node l1Node) *Rewinder {
+func New(log log.Logger, cfg RewinderConfig, db rewinderDB, l1Node l1Node) *Rewinder {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Rewinder{
 		log:           log.New("component", "rewinder"),
-		db:            db,
 		l1Node:        l1Node,
 		rootCtx:       ctx,
 		rootCtxCancel: cancel,
+		db:            db,
+		cfg:           cfg,
 	}
 }
 
@@ -70,20 +78,19 @@ func (r *Rewinder) OnEvent(ctx context.Context, ev event.Event) bool {
 	switch x := ev.(type) {
 	case superevents.RewindL1Event:
 		r.handleRewindL1Event(x)
-		return true
 	case superevents.LocalSafeUpdateEvent:
 		r.handleLocalDerivedEvent(x)
-		return true
 	default:
 		return false
 	}
+	return true
 }
 
 // handleRewindL1Event iterates known chains and checks each one for a reorg
 // If a reorg is detected, it will rewind the chain to the latest common ancestor
 // between the local-safe head and the finalized head.
 func (r *Rewinder) handleRewindL1Event(ev superevents.RewindL1Event) {
-	for _, chainID := range r.db.DependencySet().Chains() {
+	for _, chainID := range r.cfg.Chains() {
 		if err := r.rewindL1ChainIfReorged(chainID, ev.IncomingBlock); err != nil {
 			r.log.Error("failed to rewind L1 data:", "chain", chainID, "err", err)
 		}
@@ -94,7 +101,12 @@ func (r *Rewinder) handleRewindL1Event(ev superevents.RewindL1Event) {
 // If it doesn't match, we need to rewind the logs DB to the common ancestor between
 // the LocalUnsafe head and the new LocalSafe block
 func (r *Rewinder) handleLocalDerivedEvent(ev superevents.LocalSafeUpdateEvent) {
-	// Get the block at the derived height from our unsafe chain
+	if !r.cfg.IsInterop(ev.ChainID, ev.NewLocalSafe.Derived.Timestamp) {
+		// There's no logs db pre-Interop, so we cannot compare
+		r.log.Debug("Ignoring pre-Interop local-safe update", "chain", ev.ChainID, "derived", ev.NewLocalSafe.Derived)
+		return
+	}
+
 	newSafeHead := ev.NewLocalSafe.Derived
 	unsafeVersion, err := r.db.FindSealedBlock(ev.ChainID, newSafeHead.Number)
 	if err != nil {
@@ -179,6 +191,7 @@ func (r *Rewinder) rewindL1ChainIfReorged(chainID eth.ChainID, newTip eth.BlockI
 	if err != nil {
 		// If we don't have a finalized block, use the genesis block
 		if errors.Is(err, types.ErrFuture) {
+			// TODO: get first sealed block instead, for non-genesis Interop chains it may be a block after genesis.
 			finalized, err = r.db.FindSealedBlock(chainID, 0)
 			if err != nil {
 				return fmt.Errorf("failed to get index 0 block for chain %s: %w", chainID, err)

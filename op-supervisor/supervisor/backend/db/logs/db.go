@@ -438,7 +438,8 @@ func (db *DB) newIteratorAt(blockNum uint64, logIndex uint32) (*iterator, error)
 		if !ok {
 			panic("expected sealed block")
 		}
-		db.log.Trace("found sealed block", "num", num, "hash", h)
+		// db.log.Trace("found sealed block", "num", num, "hash", h)
+		_ = h
 		if num < blockNum {
 			continue
 		}
