@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/ethereum-optimism/optimism/op-e2e/actions/helpers"
-	actionhelpers "github.com/ethereum-optimism/optimism/op-e2e/actions/helpers"
 	"github.com/ethereum-optimism/optimism/op-e2e/actions/interop/dsl"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/derive"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
@@ -69,13 +68,13 @@ func TestInteropUpgrade(gt *testing.T) {
 
 		// Verify promotion of crossUnsafe, localSafe and safe
 		syncAsserter.RequireSeqSyncStatus(func() {
-			system.ActSyncSupernode(t, dsl.WithChains(c), dsl.WithLatestSignal())
-		}, dsl.WithLocalSafeAdvancesTo(1), dsl.WithSafeAdvancesTo(1)) // Assert unsafe head, crossUnsafe head does not move, but update localSafe and safe heads
+			system.ActSyncSupernode(dsl.WithChains(c), dsl.WithLatestSignal())
+		}, dsl.WithLocalSafeAdvancesTo(1), dsl.WithSafeAdvancesTo(1))
 
 		syncAsserter.RequireSeqSyncStatus(func() {
 			c.Sequencer.ActL1FinalizedSignal(t)
 			c.Sequencer.ActL2PipelineFull(t)
-		}, dsl.WithFinalizedAdvancesTo(1)) // assert unsafe head does not move, but update finalized head
+		}, dsl.WithFinalizedAdvancesTo(1))
 
 		////////////////////////////
 		// Unsafe Interop Upgrade (for the current chain in iteration)
@@ -89,8 +88,11 @@ func TestInteropUpgrade(gt *testing.T) {
 		dsl.RequireUnsafeTimeOffset(t, c, 4) // interop should be enabled
 
 		// Safe head hasn't moved yet.
-		dsl.RequireSupervisorChainHeads(t, svr, c, syncAsserter.PrevStatus.UnsafeL2.ID(), syncAsserter.PrevStatus.CrossUnsafeL2.ID(), eth.BlockID{}, eth.BlockID{}, eth.BlockID{})
+		dsl.RequireSupervisorChainHeads(t, svr, c, syncAsserter.PrevStatus.UnsafeL2.ID(), syncAsserter.PrevStatus.CrossUnsafeL2.ID(), syncAsserter.PrevStatus.LocalSafeL2.ID(), syncAsserter.PrevStatus.SafeL2.ID(), eth.BlockID{})
 	}
+
+	// Run Proofs pre-Interop
+	// assertProgramOutputMatchesDerivationForBlock(gt, system, 1)
 
 	// Settle both chains to DA again and have supervisor ingest
 	system.Actors.ActBatchAndMine(t)
@@ -103,11 +105,11 @@ func TestInteropUpgrade(gt *testing.T) {
 	// per L1 block. The node processed until an ExhaustL1Event, then needs the supervisor
 	// to give it the next L1 block.
 	superchainSyncAsserter.RequireAllSeqSyncStatuses(func() {
-		system.ActSyncSupernode(t, dsl.WithLatestSignal())
+		system.ActSyncSupernode(dsl.WithLatestSignal())
 	}, dsl.WithMapChainAssertions(dsl.WithLocalSafeAdvancesTo(2)))
 
 	superchainSyncAsserter.RequireAllSeqSyncStatuses(func() {
-		system.ActSyncSupernode(t)
+		system.ActSyncSupernode()
 	}, dsl.WithMapChainAssertions(dsl.WithSafeAdvancesTo(2)))
 
 	// TODO(15863): The initial state of the finalized head differs between supervisor
@@ -122,9 +124,10 @@ func TestInteropUpgrade(gt *testing.T) {
 		dsl.RequireSupervisorChainHeads(t, svr, c, syncAsserter.PrevStatus.UnsafeL2.ID(), syncAsserter.PrevStatus.CrossUnsafeL2.ID(), syncAsserter.PrevStatus.LocalSafeL2.ID(), syncAsserter.PrevStatus.SafeL2.ID(), eth.BlockID{})
 	}
 
+	safe := system.Actors.ChainA.Sequencer.L2Safe()
+	require.Equal(t, uint64(2), safe.Number)
 	// Verify proofs agree
-	// TODO(#16166): Fix non-genesis Interop activation proofs
-	// assertProgramOutputMatchesDerivationForBlockTimestamp(gt, system, system.Actors.ChainA.Sequencer.L2Safe().Time)
+	assertProgramOutputMatchesDerivationForBlock(gt, system, 2)
 
 	superchainSyncAsserter.RequireAllSeqSyncStatuses(func() {
 		// Advance L1 safe head and finalized head
@@ -135,7 +138,7 @@ func TestInteropUpgrade(gt *testing.T) {
 
 		dsl.RequireL1Heads(t, system, 3, 3)
 
-		system.ActSyncSupernode(t, dsl.WithLatestSignal(), dsl.WithFinalizedSignal())
+		system.ActSyncSupernode(dsl.WithLatestSignal(), dsl.WithFinalizedSignal())
 	}, dsl.WithMapChainAssertions(dsl.WithFinalizedAdvancesTo(2)))
 
 	for _, syncAsserter := range superchainSyncAsserter.ChainAsserters {
@@ -158,17 +161,17 @@ func TestInteropUpgrade(gt *testing.T) {
 		syncAsserter := superchainSyncAsserter.ChainAsserters[c.ChainID]
 		syncAsserter.RequireSeqSyncStatus(func() {
 			// Promote localSafe
-			system.ActSyncSupernode(t, dsl.WithChains(c), dsl.WithLatestSignal())
+			system.ActSyncSupernode(dsl.WithChains(c), dsl.WithLatestSignal())
 		}, dsl.WithLocalSafeAdvancesTo(3))
 
 		// Promote safe
 		syncAsserter.RequireSeqSyncStatus(func() {
-			system.ActSyncSupernode(t, dsl.WithChains(c))
+			system.ActSyncSupernode(dsl.WithChains(c))
 		}, dsl.WithSafeAdvancesTo(3))
 	}
 
 	// Verify proofs agree on prev blocks
-	assertProgramOutputMatchesDerivationForBlockTimestamp(gt, system, system.Actors.ChainA.Sequencer.L2Safe().Time)
+	assertProgramOutputMatchesDerivationForBlock(gt, system, 3)
 
 	////////////////////////////
 	// Send cross-chain message
@@ -194,7 +197,7 @@ func TestInteropUpgrade(gt *testing.T) {
 	dsl.RequireL1Heads(t, system, 6, 3)
 
 	// Verify proofs agree on prev blocks
-	assertProgramOutputMatchesDerivationForBlockTimestamp(gt, system, system.Actors.ChainA.Sequencer.L2Safe().Time)
+	assertProgramOutputMatchesDerivationForBlock(gt, system, 4)
 
 	// Send a message
 	system.AddL2Block(system.Actors.ChainA, dsl.WithL2BlockTransactions(emitter.EmitMessage(alice, "hello")))
@@ -216,7 +219,7 @@ func TestInteropUpgrade(gt *testing.T) {
 	dsl.RequireUnsafeTimeOffset(t, system.Actors.ChainB, 10)
 
 	// Verify proofs agree on prev blocks
-	assertProgramOutputMatchesDerivationForBlockTimestamp(gt, system, system.Actors.ChainA.Sequencer.L2Safe().Time)
+	assertProgramOutputMatchesDerivationForBlock(gt, system, 5)
 }
 
 func VerifyContractsDeployedCorrectly(t helpers.Testing, chain *dsl.Chain, activationBlockTxs []*types.Transaction, activationBlockID eth.BlockID) {
@@ -239,11 +242,13 @@ func VerifyContractsDeployedCorrectly(t helpers.Testing, chain *dsl.Chain, activ
 }
 
 // Runs superchain fault proofs across entire superchain pseudo-blocks
-func assertProgramOutputMatchesDerivationForBlockTimestamp(gt *testing.T, system *dsl.InteropDSL, endTimestamp uint64) {
+// The end timestamp is set to the block time of the provided block number of chain A.
+func assertProgramOutputMatchesDerivationForBlock(gt *testing.T, system *dsl.InteropDSL, blockNumA uint64) {
 	// Verify the proofs backend agrees
 	actors := system.Actors
-
+	endTimestamp := actors.ChainA.SequencerEngine.L2Chain().GetHeaderByNumber(blockNumA).Time
 	startTimestamp := endTimestamp - 1
+
 	start := system.Outputs.SuperRoot(startTimestamp)
 	end := system.Outputs.SuperRoot(endTimestamp)
 
@@ -312,7 +317,7 @@ func assertProgramOutputMatchesDerivationForBlockTimestamp(gt *testing.T, system
 
 var ProxyImplGetterFunc = w3.MustNewFunc(`implementation()`, `address`)
 
-func RequireContractDeployedAndProxyUpdated(t actionhelpers.Testing, chain *dsl.Chain, implAddr common.Address, proxyAddress common.Address, activationBlockNumber *big.Int) {
+func RequireContractDeployedAndProxyUpdated(t helpers.Testing, chain *dsl.Chain, implAddr common.Address, proxyAddress common.Address, activationBlockNumber *big.Int) {
 	code, err := chain.SequencerEngine.EthClient().CodeAt(t.Ctx(), implAddr, activationBlockNumber)
 	require.NoError(t, err)
 	require.NotEmpty(t, code, "contract should be deployed")

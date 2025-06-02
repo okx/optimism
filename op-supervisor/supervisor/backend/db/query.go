@@ -283,7 +283,7 @@ func (db *ChainsDB) CrossDerivedToSourceRef(chainID eth.ChainID, derived eth.Blo
 	// if we are working with the first item in the database, PreviousSource will return ErrPreviousToFirst
 	// in which case we can attach a zero parent to the block, as the parent block is unknown
 	if errors.Is(err, types.ErrPreviousToFirst) {
-		return res.ForceWithParent(eth.BlockID{}), nil
+		return res.WithZeroParent(), nil
 	} else if err != nil {
 		return eth.BlockRef{}, err
 	}

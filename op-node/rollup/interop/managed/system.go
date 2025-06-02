@@ -131,26 +131,21 @@ func (m *ManagedMode) OnEvent(ev event.Event) bool {
 		ref := x.Ref.BlockRef()
 		m.events.Send(&supervisortypes.ManagedEvent{UnsafeBlock: &ref})
 	case engine.LocalSafeUpdateEvent:
-		if !m.cfg.IsInterop(x.Ref.Time) {
-			m.log.Debug("Ignoring non-Interop local safe update", "derivedFrom", x.Source, "derived", x.Ref)
-			return false
-		}
-		m.log.Info("Emitting local safe update because of L2 block", "derivedFrom", x.Source, "derived", x.Ref)
-		m.events.Send(&supervisortypes.ManagedEvent{DerivationUpdate: &supervisortypes.DerivedBlockRefPair{
-			Source:  x.Source,
-			Derived: x.Ref.BlockRef(),
-		}})
+		m.log.Info("Sending local safe update to supervisor", "derivedFrom", x.Source, "derived", x.Ref)
+		m.events.Send(&supervisortypes.ManagedEvent{
+			DerivationUpdate: &supervisortypes.DerivedBlockRefPair{
+				Source:  x.Source,
+				Derived: x.Ref.BlockRef(),
+			},
+		})
 	case derive.DeriverL1StatusEvent:
-		if !m.cfg.IsInterop(x.LastL2.Time) {
-			m.log.Debug("Ignoring non-Interop L1 traversal", "origin", x.Origin, "lastL2", x.LastL2)
-			return false
-		}
 		m.log.Info("Emitting local safe update because of L1 traversal", "derivedFrom", x.Origin, "derived", x.LastL2)
 		m.events.Send(&supervisortypes.ManagedEvent{
 			DerivationUpdate: &supervisortypes.DerivedBlockRefPair{
 				Source:  x.Origin,
 				Derived: x.LastL2.BlockRef(),
 			},
+			// TODO: remove and just update status from DerivationUpdate.Source
 			DerivationOriginUpdate: &x.Origin,
 		})
 	case derive.ExhaustedL1Event:
@@ -356,10 +351,30 @@ func (m *ManagedMode) Reset(ctx context.Context, lUnsafe, xUnsafe, lSafe, xSafe,
 		logger.Error("Cannot reset, cross-safe block not known")
 		return err
 	}
-	finalizedRef, err := verify(finalized, "finalized")
-	if err != nil {
+
+	var finalizedRef eth.L2BlockRef
+
+	if finalized == (eth.BlockID{}) {
+		logger.Debug("No finalized reset target provided, using local finalized block")
+		ref, err := m.l2.L2BlockRefByLabel(ctx, eth.Finalized)
+		if err != nil {
+			logger.Error("Cannot reset, finalized block not known locally")
+			return &gethrpc.JsonError{
+				Code:    InternalErrorRPCErrcode,
+				Message: "failed to find finalized reference",
+			}
+		}
+		if ref.Number > xSafe.Number {
+			logger.Warn("Finalized block is newer than cross-safe, using cross-safe as finalized reset target instead")
+			finalizedRef = xSafeRef
+		} else {
+			finalizedRef = ref
+		}
+	} else if ref, err := verify(finalized, "finalized"); err != nil {
 		logger.Error("Cannot reset, finalized block not known")
 		return err
+	} else {
+		finalizedRef = ref
 	}
 
 	latestLocalUnsafe, err := m.scanL2ForLatestLocalUnsafe(ctx, lUnsafe)

@@ -66,6 +66,12 @@ func NewFromEntryStore(logger log.Logger, m Metrics, store EntryStore) (*DB, err
 	return db, nil
 }
 
+func (db *DB) IsEmpty() bool {
+	db.rwLock.RLock()
+	defer db.rwLock.RUnlock()
+	return db.store.Size() == 0
+}
+
 // First returns the first known values, alike to Latest.
 func (db *DB) First() (pair types.DerivedBlockSealPair, err error) {
 	db.rwLock.RLock()

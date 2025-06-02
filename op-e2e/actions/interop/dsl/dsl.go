@@ -376,7 +376,7 @@ func (d *InteropDSL) AdvanceL2ToLastBlockOfOrigin(chain *Chain, l1OriginHeight u
 	}
 }
 
-func (d *InteropDSL) ActSyncSupernode(t helpers.Testing, opts ...actSyncSupernodeOption) {
+func (d *InteropDSL) ActSyncSupernode(opts ...actSyncSupernodeOption) {
 	cfg := &actSyncSupernodeConfig{
 		ChainOpts: d.defaultChainOpts(),
 	}
@@ -386,16 +386,16 @@ func (d *InteropDSL) ActSyncSupernode(t helpers.Testing, opts ...actSyncSupernod
 
 	// Perform actions
 	if cfg.shouldSendL1LatestSignal {
-		d.Actors.Supervisor.SignalLatestL1(t)
+		d.Actors.Supervisor.SignalLatestL1(d.t)
 	}
 	if cfg.shouldSendL1FinalizedSignal {
-		d.Actors.Supervisor.SignalFinalizedL1(t)
+		d.Actors.Supervisor.SignalFinalizedL1(d.t)
 	}
 	for _, chain := range cfg.Chains {
-		chain.Sequencer.SyncSupervisor(t) // supervisor to react to exhaust-L1
+		chain.Sequencer.SyncSupervisor(d.t) // supervisor to react to exhaust-L1
 	}
-	d.Actors.Supervisor.ProcessFull(t)
+	d.Actors.Supervisor.ProcessFull(d.t)
 	for _, chain := range cfg.Chains {
-		chain.Sequencer.ActL2PipelineFull(t) // node to complete syncing to L1 head.
+		chain.Sequencer.ActL2PipelineFull(d.t) // node to complete syncing to L1 head
 	}
 }

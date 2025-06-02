@@ -79,7 +79,7 @@ var (
 func NewManagedNode(log log.Logger, id eth.ChainID, node SyncControl, backend backend, noSubscribe bool) *ManagedNode {
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &ManagedNode{
-		log:     log.New("chain", id),
+		log:     log.New("chain", id, "node", node.String()),
 		backend: backend,
 		Node:    node,
 		chainID: id,
@@ -292,13 +292,16 @@ func (m *ManagedNode) onResetEvent(errStr string) {
 }
 
 func (m *ManagedNode) onUpdateLocalSafeFailed(ev superevents.UpdateLocalSafeFailedEvent) {
+	log := m.log.New("err", ev.Err)
 	switch {
 	case errors.Is(ev.Err, types.ErrConflict):
-		m.log.Warn("DB indicated a conflict with this node, checking if node is inconsistent")
+		log.Warn("DB indicated a conflict with this node, checking if node is inconsistent")
 		m.resetIfInconsistent()
 	case errors.Is(ev.Err, types.ErrFuture):
-		m.log.Warn("DB indicated this node provided an update from the future, checking if node is ahead")
+		log.Warn("DB indicated this node provided an update from the future, checking if node is ahead")
 		m.resetIfAhead()
+	default:
+		log.Error("Unknown error on local-safe update")
 	}
 }
 
@@ -444,7 +447,7 @@ func (m *ManagedNode) Close() error {
 }
 
 // resetIfInconsistent checks if the node is consistent with the logs db
-// and initiates a bisection based reset preparation if it is
+// and initiates a bisection based reset preparation if it isn't
 func (m *ManagedNode) resetIfInconsistent() {
 	ctx, cancel := context.WithTimeout(m.ctx, internalTimeout)
 	defer cancel()
@@ -493,7 +496,7 @@ func (m *ManagedNode) resetIfAhead() {
 	// if the node is ahead of the logs db, initiate a reset
 	// with the end of the range being the last safe block in the db
 	if m.lastNodeLocalSafe.Number > lastDBLocalSafe.Derived.Number {
-		m.log.Warn("local safe block on node is ahead of logs db. Initiating reset",
+		m.log.Warn("local safe block on node is ahead of local safe db. Initiating reset",
 			"lastNodeLocalSafe", m.lastNodeLocalSafe,
 			"lastDBLocalSafe", lastDBLocalSafe.Derived)
 		m.initiateReset(lastDBLocalSafe.Derived)

@@ -19,8 +19,7 @@ type RollupConfigSet interface {
 	// HasChain returns true if the chain is part of the rollup config set.
 	HasChain(chainID eth.ChainID) bool
 
-	// Chains returns the list of chains in the rollup config set.
-	Chains() []eth.ChainID
+	ChainsLister
 
 	// Genesis returns the genesis configuration for the given chain.
 	// It panics if the chain is not part of the rollup config set.
@@ -43,6 +42,12 @@ type ActivationConfig interface {
 	// Use HasChain first to check if the chain is part of the rollup config set if
 	// guarantee of existence isn't provided by the caller context.
 	IsInteropActivationBlock(chainID eth.ChainID, ts uint64) bool
+
+	// IsInteropActivationBlock returns true if the given timestamp is past an Interop activation block.
+	// It panics if the chain is not part of the rollup config set.
+	// Use HasChain first to check if the chain is part of the rollup config set if
+	// guarantee of existence isn't provided by the caller context.
+	IsInteropPostActivation(chainID eth.ChainID, ts uint64) bool
 }
 
 type StaticRollupConfigSet map[eth.ChainID]*StaticRollupConfig
@@ -113,6 +118,10 @@ func (c *StaticRollupConfig) IsInteropActivationBlock(ts uint64) bool {
 		!c.IsInterop(ts-c.BlockTime)
 }
 
+func (c *StaticRollupConfig) IsInteropPostActivation(ts uint64) bool {
+	return ts >= c.BlockTime && c.IsInterop(ts-c.BlockTime)
+}
+
 func NewStaticRollupConfigSet(cfgs map[eth.ChainID]*StaticRollupConfig) StaticRollupConfigSet {
 	return cfgs
 }
@@ -176,4 +185,14 @@ func (s StaticRollupConfigSet) IsInteropActivationBlock(chainID eth.ChainID, ts 
 		panic("chain not found in rollup config set")
 	}
 	return cfg.IsInteropActivationBlock(ts)
+}
+
+// IsInteropPostActivation returns true if the given timestamp is past the Interop activation block.
+// Panics if the chain is not part of the rollup config set.
+func (s StaticRollupConfigSet) IsInteropPostActivation(chainID eth.ChainID, ts uint64) bool {
+	cfg, ok := s[chainID]
+	if !ok {
+		panic("chain not found in rollup config set")
+	}
+	return cfg.IsInteropPostActivation(ts)
 }

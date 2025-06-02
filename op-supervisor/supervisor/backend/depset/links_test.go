@@ -45,6 +45,14 @@ func (m *mockLinkCfg) IsInteropActivationBlock(chainID eth.ChainID, ts uint64) b
 	return ts == v
 }
 
+func (m *mockLinkCfg) IsInteropPostActivation(chainID eth.ChainID, ts uint64) bool {
+	v, ok := m.activationTimes[chainID]
+	if !ok {
+		return false
+	}
+	return ts > v
+}
+
 func (m *mockLinkCfg) MessageExpiryWindow() uint64 {
 	return m.window
 }

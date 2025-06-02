@@ -468,6 +468,13 @@ type DerivedBlockSealPair struct {
 	Derived BlockSeal `json:"derived"`
 }
 
+func DerivedBlockSealPairFromRefs(source eth.BlockRef, derived eth.BlockRef) DerivedBlockSealPair {
+	return DerivedBlockSealPair{
+		Source:  BlockSealFromRef(source),
+		Derived: BlockSealFromRef(derived),
+	}
+}
+
 func (seals *DerivedBlockSealPair) IDs() DerivedIDPair {
 	return DerivedIDPair{
 		Source:  seals.Source.ID(),
