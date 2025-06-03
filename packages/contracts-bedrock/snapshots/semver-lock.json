@@ -31,6 +31,10 @@
     "initCodeHash": "0x5a76c8530cb24cf23d3baacc6eefaac226382af13f1e2a35535d2ec2b0573b29",
     "sourceCodeHash": "0xb3e32b18c95d4940980333e1e99b4dcf42d8a8bfce78139db4dc3fb06e9349d0"
   },
+  "src/L1/StandardValidator.sol:StandardValidator": {
+    "initCodeHash": "0x13e15cc4ba947a46c7bf4e3bf764a2b142b8e5cb3e12a9bbddc63058d00430dd",
+    "sourceCodeHash": "0x3fb114ff0219b0541ee9ec8c287f167a27546270c01b9ac235c574c7df28361c"
+  },
   "src/L1/SuperchainConfig.sol:SuperchainConfig": {
     "initCodeHash": "0x0ea921059d71fd19ac9c6e29c05b9724ad584eb27f74231de6df9551e9b13084",
     "sourceCodeHash": "0xad12c20a00dc20683bd3f68e6ee254f968da6cc2d98930be6534107ee5cb11d9"
