@@ -113,8 +113,8 @@ func (m *InstrumentedState) handleSyscall() error {
 			futexVal := m.getFutexValue(effFutexAddr)
 			targetVal := uint32(a2)
 			if futexVal != targetVal {
-				v0 = exec.SysErrorSignal
-				v1 = exec.MipsEAGAIN
+				v0 = exec.MipsEAGAIN
+				v1 = exec.SysErrorSignal
 			} else {
 				m.syscallYield(thread)
 				return nil
@@ -123,15 +123,15 @@ func (m *InstrumentedState) handleSyscall() error {
 			m.syscallYield(thread)
 			return nil
 		default:
-			v0 = exec.SysErrorSignal
-			v1 = exec.MipsEINVAL
+			v0 = exec.MipsEINVAL
+			v1 = exec.SysErrorSignal
 		}
 	case arch.SysSchedYield, arch.SysNanosleep:
 		m.syscallYield(thread)
 		return nil
 	case arch.SysOpen:
-		v0 = exec.SysErrorSignal
-		v1 = exec.MipsEBADF
+		v0 = exec.MipsEBADF
+		v1 = exec.SysErrorSignal
 	case arch.SysClockGetTime:
 		switch a0 {
 		case exec.ClockGettimeRealtimeFlag, exec.ClockGettimeMonotonicFlag:
@@ -152,8 +152,8 @@ func (m *InstrumentedState) handleSyscall() error {
 			m.state.Memory.SetWord(effAddr+arch.WordSizeBytes, nsecs)
 			m.handleMemoryUpdate(effAddr + arch.WordSizeBytes)
 		default:
-			v0 = exec.SysErrorSignal
-			v1 = exec.MipsEINVAL
+			v0 = exec.MipsEINVAL
+			v1 = exec.SysErrorSignal
 		}
 	case arch.SysGetpid:
 		v0 = 0
@@ -194,9 +194,10 @@ func (m *InstrumentedState) handleSyscall() error {
 	case arch.SysGetRLimit:
 	case arch.SysLseek:
 	case arch.SysEventFd2:
-		if !m.features.SupportNoopSysEventFd2 {
+		if !m.features.SupportMinimalSysEventFd2 {
 			m.handleUnrecognizedSyscall(syscallNum)
 		}
+		v0 = exec.FdEventFd
 	default:
 		// These syscalls have the same values on 64-bit. So we use if-stmts here to avoid "duplicate case" compiler error for the cannon64 build
 		if arch.IsMips32 && (syscallNum == arch.SysFstat64 || syscallNum == arch.SysStat64 || syscallNum == arch.SysLlseek) {
