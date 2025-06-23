@@ -81,12 +81,34 @@ func WithProposerPostDeploy(orch *Orchestrator, proposerID stack.L2ProposerID, l
 	l1EL, ok := orch.l1ELs.Get(l1ELID)
 	require.True(ok)
 
-	l2Net, ok := orch.l2Nets.Get(proposerID.ChainID())
-	require.True(ok)
+	l2ChainID := proposerID.ChainID()
+	l2Net, ok := orch.l2Nets.Get(l2ChainID)
+	require.Truef(ok, "l2Net %s not found", l2ChainID)
+
+	require.NotNilf(l2Net.deployment, "l2Net %s deployment not found", l2ChainID)
+	require.NotNilf(l2Net.genesis, "l2Net %s genesis not found", l2ChainID)
+	require.NotNilf(l2Net.rollupCfg, "l2Net %s rollup config not found", l2ChainID)
+
+	// Determine the dispute game factory address and game type
 	disputeGameFactoryAddr := l2Net.deployment.DisputeGameFactoryProxyAddr()
-	disputeGameType := 1 // Permissioned game type is the only one currently deployed
+	disputeGameType := 1 // Permissioned game type is the default
+
+	// Check if this is an interop system (either from genesis or via migration)
+	isInteropSystem := false
+
+	// Check if interop is configured from genesis
+	if l2Net.genesis.Config.InteropTime != nil {
+		isInteropSystem = true
+	}
+
+	// Check if there's an interop migration
 	if orch.wb.outInteropMigration != nil {
 		disputeGameFactoryAddr = orch.wb.outInteropMigration.DisputeGameFactory
+		isInteropSystem = true
+	}
+
+	// Use SuperCannonGameType for interop systems
+	if isInteropSystem {
 		disputeGameType = 4 // SUPER_CANNON
 	}
 
