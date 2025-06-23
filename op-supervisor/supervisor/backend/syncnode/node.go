@@ -298,6 +298,11 @@ func (m *ManagedNode) onUpdateLocalSafeFailed(ev superevents.UpdateLocalSafeFail
 	case errors.Is(ev.Err, types.ErrConflict):
 		log.Warn("DB indicated a conflict with this node, checking if node is inconsistent")
 		m.resetIfInconsistent()
+	case errors.Is(ev.Err, types.ErrOutOfOrder):
+		log.Debug("DB indicated this node provided an old block, node may be behind")
+		// Don't reset immediately for ErrOutOfOrder - the node might just be behind
+		// Let resetIfInconsistent handle it with proper temporal checks
+		m.resetIfInconsistent()
 	case errors.Is(ev.Err, types.ErrFuture):
 		log.Warn("DB indicated this node provided an update from the future, checking if node is ahead")
 		m.resetIfAhead()
@@ -433,9 +438,6 @@ func (m *ManagedNode) onReplaceBlock(replacement types.BlockReplacement) {
 	// if the node replaced a block, both the unsafe and safe are reset to this point
 	m.lastNodeLocalSafe = replacement.Replacement.ID()
 	m.lastNodeLocalUnsafe = replacement.Replacement.ID()
-	// TODO: I don't think we should initiate a reset at this point, since the database will already be properly updated
-	// to the replacement block once the event emitted above is processed.
-	// m.resetIfInconsistent()
 }
 
 func (m *ManagedNode) Close() error {
