@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-node/rollup/driver"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/interop"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/sync"
+	"github.com/ethereum-optimism/optimism/op-service/apollo"
 	"github.com/ethereum-optimism/optimism/op-service/oppprof"
 )
 
@@ -85,6 +86,10 @@ type Config struct {
 
 	// Experimental. Enables new opstack RPC namespace. Used by op-test-sequencer.
 	ExperimentalOPStackAPI bool
+
+	// For XLayer
+	// Apollo config
+	Apollo apollo.CLIConfig
 }
 
 // ConductorRPCFunc retrieves the endpoint. The RPC may not immediately be available.

@@ -9,6 +9,7 @@ import (
 	altda "github.com/ethereum-optimism/optimism/op-alt-da"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/engine"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/sync"
+	"github.com/ethereum-optimism/optimism/op-service/apollo"
 	openum "github.com/ethereum-optimism/optimism/op-service/enum"
 	opflags "github.com/ethereum-optimism/optimism/op-service/flags"
 	oplog "github.com/ethereum-optimism/optimism/op-service/log"
@@ -29,6 +30,7 @@ const (
 	AltDACategory      = "6. ALT-DA (EXPERIMENTAL)"
 	MiscCategory       = "7. MISC"
 	InteropCategory    = "8. INTEROP (SUPER EXPERIMENTAL)"
+	ApolloCategory     = "9. APOLLO CONFIG"
 )
 
 func init() {
@@ -530,6 +532,7 @@ func init() {
 	optionalFlags = append(optionalFlags, DeprecatedFlags...)
 	optionalFlags = append(optionalFlags, opflags.CLIFlags(EnvVarPrefix, RollupCategory)...)
 	optionalFlags = append(optionalFlags, altda.CLIFlags(EnvVarPrefix, AltDACategory)...)
+	optionalFlags = append(optionalFlags, apollo.CLIFlagsWithCategory(EnvVarPrefix, ApolloCategory)...)
 	Flags = append(requiredFlags, optionalFlags...)
 }
 

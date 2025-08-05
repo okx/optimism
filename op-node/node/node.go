@@ -30,6 +30,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-node/rollup/sequencing"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/status"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/sync"
+	"github.com/ethereum-optimism/optimism/op-service/apollo"
 	"github.com/ethereum-optimism/optimism/op-service/client"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/httputil"
@@ -97,6 +98,10 @@ type OpNode struct {
 	// cancels execution prematurely, e.g. to halt. This may be nil.
 	cancel context.CancelCauseFunc
 	halted atomic.Bool
+
+	// For XLayer
+	// Apollo configuration client
+	apolloClient *apollo.Client
 }
 
 // New creates a new OpNode instance.
@@ -165,6 +170,10 @@ func (n *OpNode) init(ctx context.Context, cfg *Config) error {
 	n.metrics.RecordUp()
 	if err := n.initPProf(cfg); err != nil {
 		return fmt.Errorf("failed to init profiling: %w", err)
+	}
+	// For XLayer
+	if err := n.initApollo(ctx, cfg); err != nil {
+		return fmt.Errorf("failed to init Apollo client: %w", err)
 	}
 	return nil
 }
