@@ -119,7 +119,7 @@ services:
       - --apollo.enabled=true
       - --apollo.endpoint=http://apollo-configservice:8085
       - --apollo.app-id=OpSeq
-      - --apollo.namespace=OpSeq
+      - --apollo.namespace=op-seq.txt
     depends_on:
       - op-geth-seq
 
