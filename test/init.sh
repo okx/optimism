@@ -30,8 +30,7 @@ TOKEN_ADDRESS="0x5FbDB2315678afecb367f032d93F642f64180aa3"
 git checkout config/agglayer-config.toml
 git checkout config/aggkit.toml
 git checkout config/test.bridge.config.toml
-# git checkout config/test.erigon.seq.config.yaml
-# git checkout config/test.genesis.config.json
+git checkout config/test.genesis.config.json
 git checkout config/dynamic-mynetwork-allocs.json
 git checkout config/dynamic-mynetwork-conf.json
 git checkout config/first-batch-config.json
@@ -175,12 +174,6 @@ if [ -n "$CONTAINER_ID" ]; then
   docker exec -it $CONTAINER_ID /bin/sh -c "ps -ef | grep geth; kill -15 \$(ps -ef | grep geth | grep -v grep | awk '{print \$1}')"
 fi
 
-echo "Generating configuration files..."
-go install ./cmd/hack/allocs
-which allocs
-allocs $TMP_DIR/xlayer-contracts/deployment/v2/genesis.json
-mv allocs.json $PWD_DIR/config/dynamic-mynetwork-allocs.json
-
 cat > $PWD_DIR/config/dynamic-mynetwork-conf.json << EOF
 {
   "root": "$GENESIS_VALUE",
@@ -191,19 +184,12 @@ cat > $PWD_DIR/config/dynamic-mynetwork-conf.json << EOF
 EOF
 echo "dynamic-mynetwork-conf.json file updated"
 
-echo "Updating test.erigon.seq.config.yaml file..."
-CONFIG_FILE="./test-pp-op/config/test.erigon.seq.config.yaml"
-sed_inplace "s|zkevm.address-zkevm: \"[^\"]*\"|zkevm.address-zkevm: \"$POE_ADDRESS\"|g" $CONFIG_FILE
-sed_inplace "s|zkevm.address-rollup: \"[^\"]*\"|zkevm.address-rollup: \"$ROLLUP_MANAGER_ADDRESS\"|g" $CONFIG_FILE
-sed_inplace "s|zkevm.address-ger-manager: \"[^\"]*\"|zkevm.address-ger-manager: \"$GLOBAL_EXIT_ROOT_ADDRESS\"|g" $CONFIG_FILE
-sed_inplace "s|zkevm.l1-first-block: [0-9]*|zkevm.l1-first-block: $L1_FIRST_BLOCK|g" $CONFIG_FILE
-
 mkdir -p "$PWD_DIR/config"
 jq '.firstBatchData' "$ROLLUP_OUTPUT_PATH" > "$PWD_DIR/config/first-batch-config.json"
 echo "Successfully exported firstBatchData to $PWD_DIR/config/first-batch-config.json"
 
 echo "Updating parameter in aggkit.toml..."
-CONFIG_FILE="./test-pp-op/config/aggkit.toml"
+CONFIG_FILE="./test/config/aggkit.toml"
 sed_inplace "s|polygonBridgeAddr = \"[^\"]*\"|polygonBridgeAddr = \"$BRIDGE_ADDRESS\"|" "$CONFIG_FILE"
 sed_inplace "s|BridgeAddr = \"[^\"]*\"|BridgeAddr = \"$BRIDGE_ADDRESS\"|" "$CONFIG_FILE"
 sed_inplace "s|BridgeAddrL2 = \"[^\"]*\"|BridgeAddrL2 = \"$BRIDGE_ADDRESS\"|" "$CONFIG_FILE"
@@ -216,14 +202,14 @@ sed_inplace "s|polygonZkEVMAddress = \"[^\"]*\"|polygonZkEVMAddress = \"$POE_ADD
 echo "Successfully updated contract address parameters in aggkit.toml"
 
 echo "Updating contract address parameters in agglayer-config.toml..."
-AGGLAYER_CONFIG_FILE="./test-pp-op/config/agglayer-config.toml"
+AGGLAYER_CONFIG_FILE="./test/config/agglayer-config.toml"
 sed_inplace "s|rollup-manager-contract = \"[^\"]*\"|rollup-manager-contract = \"$ROLLUP_MANAGER_ADDRESS\"|" "$AGGLAYER_CONFIG_FILE"
 sed_inplace "s|polygon-zkevm-global-exit-root-v2-contract = \"[^\"]*\"|polygon-zkevm-global-exit-root-v2-contract = \"$GLOBAL_EXIT_ROOT_ADDRESS\"|" "$AGGLAYER_CONFIG_FILE"
-GENESIS_CONFIG_FILE="./test-pp-op/config/test.genesis.config.json"
+GENESIS_CONFIG_FILE="./test/config/test.genesis.config.json"
 sed_inplace "s|\"genesisBlockNumber\": [0-9]*|\"genesisBlockNumber\": $L1_FIRST_BLOCK|" "$GENESIS_CONFIG_FILE"
 sed_inplace "s|\"rollupCreationBlockNumber\": [0-9]*|\"rollupCreationBlockNumber\": $L1_SECOND_BLOCK|" "$GENESIS_CONFIG_FILE"
 sed_inplace "s|\"rollupManagerCreationBlockNumber\": [0-9]*|\"rollupManagerCreationBlockNumber\": $L1_FIRST_BLOCK|" "$GENESIS_CONFIG_FILE"
-AGGLAYER_CONFIG_FILE="./test-pp-op/config/agglayer-config.toml"
+AGGLAYER_CONFIG_FILE="./test/config/agglayer-config.toml"
 sed_inplace "s|polygon-zkevm-global-exit-root-v2-contract = \"[^\"]*\"|polygon-zkevm-global-exit-root-v2-contract = \"$GLOBAL_EXIT_ROOT_ADDRESS\"|" "$AGGLAYER_CONFIG_FILE"
 
 echo "Initialization script completed!"

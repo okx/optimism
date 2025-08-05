@@ -89,7 +89,7 @@ apollo: stop build-docker
 	$(RUN_DOCKER_APOLLO_PORTAL)
 
 	@echo "🚀 Starting L1 PoS environment automatic dependency management..."
-	$(DOCKER_COMPOSE_APOLLO) up -d l1-validator
+	$(DOCKER_COMPOSE) up -d l1-validator
 	@echo "🎉 L1 PoS environment started!"
 	sleep 30
 	$(DEPLOY_ERC20_L1)
