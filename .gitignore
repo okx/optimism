@@ -50,3 +50,38 @@ __pycache__
 
 # Ignore echidna artifacts
 crytic-export
+
+# X Layer
+data/
+test/sqlite
+start.sh
+xlayerconfig-testnet.yaml
+**/cover.out
+**/cover.html
+test/mainnet
+test/lrp/mainnet
+test/lrp/external_ds
+test/*.zip
+test/*.tar.gz
+test/*.out
+datadir
+zk/tests/unwinds/datastream/hermez-dynamic-integration8-datastream
+cmd/smt-db-split/smt-db-split
+test/app
+bridge-config-artifact
+kurtosis-cli.tar.gz
+test/data
+test/l1-geth/execution/genesis.json
+test/l1-geth/execution/geth
+test/l1-geth/consensus/beacondata
+test/l1-geth/consensus/genesis.ssz
+test/l1-geth/consensus/validatordata
+test/tmp/
+test/config-op/31337-deploy.json
+test/config-op/artifact.json
+test/config-op/genesis.json
+test/config-op/rollup.json
+test/config-op/state_dump.json
+test/config-op/genesis-op-raw.json
+test/config-op/genesis-op-before-number.json
+!test/.env

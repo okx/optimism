@@ -1,0 +1,314 @@
+networks:
+  default:
+    name: pp-op
+
+services:
+  op-geth-seq:
+    image: "${OP_GETH_IMAGE_TAG}"
+    container_name: op-geth-seq
+    entrypoint: geth
+    volumes:
+      - ./data/op-geth-seq:/datadir
+      - ./config-op/jwt.txt:/jwt.txt
+    ports:
+      - "8123:8545"
+      - "7546:7546"
+      - "8552:8552"
+      - "30303:30303"
+      - "30303:30303/udp"
+    command:
+      - --datadir
+      - /datadir
+      - --http
+      - --http.corsdomain=*
+      - --http.vhosts=*
+      - --http.port=8545
+      - --http.addr=0.0.0.0
+      - --http.api=web3,debug,eth,txpool,net,engine,miner
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=7546
+      - --ws.origins=*
+      - --ws.api=debug,eth,txpool,net,engine
+      - --syncmode=full
+      - --gcmode=archive
+      - --nodiscover
+      - --maxpeers=0
+      - --networkid=901
+      - --authrpc.vhosts=*
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.port=8552
+      - --authrpc.jwtsecret=/jwt.txt
+      - --rollup.disabletxpoolgossip=true
+
+  op-geth-rpc:
+    image: "${OP_GETH_IMAGE_TAG}"
+    container_name: op-geth-rpc
+    entrypoint: geth
+    volumes:
+      - ./data/op-geth-rpc:/datadir
+      - ./config-op/jwt.txt:/jwt.txt
+    ports:
+      - "8124:8545"
+      - "7547:7546"
+      - "8553:8552"
+      - "30304:30303"
+      - "30304:30303/udp"
+    command:
+      - --datadir
+      - /datadir
+      - --http
+      - --http.corsdomain=*
+      - --http.vhosts=*
+      - --http.port=8545
+      - --http.addr=0.0.0.0
+      - --http.api=web3,debug,eth,txpool,net,engine,miner
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=7546
+      - --ws.origins=*
+      - --ws.api=debug,eth,txpool,net,engine
+      - --syncmode=full
+      - --gcmode=archive
+      - --nodiscover
+      - --maxpeers=0
+      - --networkid=901
+      - --authrpc.vhosts=*
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.port=8552
+      - --authrpc.jwtsecret=/jwt.txt
+      - --rollup.sequencerhttp=http://op-geth-seq:8545
+      - --rollup.enabletxpooladmission
+
+  op-seq:
+    image: "${OP_STACK_IMAGE_TAG}"
+    container_name: op-seq
+    volumes:
+      - ./config-op/rollup.json:/rollup.json
+      - ./config-op/jwt.txt:/jwt.txt
+      - ./config-op/opseq_p2p_priv.txt:/opnode_p2p_priv.txt
+      - ./data/op-seq:/data
+      - ./data/op-seq/p2p:/p2p-data
+    ports:
+      - "9545:9545"
+      - "7070:7070"
+      - "9223:9223"
+      - "9223:9223/udp"
+    command:
+      - /app/op-node/bin/op-node
+      - --log.level=debug
+      - --l2=http://op-geth-seq:8552
+      - --l2.jwt-secret=/jwt.txt
+      - --sequencer.enabled
+      - --sequencer.l1-confs=5
+      - --verifier.l1-confs=1
+      - --rollup.config=/rollup.json
+      - --rpc.addr=0.0.0.0
+      - --p2p.listen.tcp=9223
+      - --p2p.listen.udp=9223
+      - --p2p.priv.path=/opnode_p2p_priv.txt
+      - --p2p.peerstore.path=/p2p-data/opnode_peerstore_db
+      - --p2p.discovery.path=/p2p-data/opnode_discovery_db
+      - --p2p.no-discovery
+      - --rpc.enable-admin
+      - --p2p.sequencer.key=${SEQUENCER_P2P_KEY}
+      - --l1=${L1_RPC_URL_IN_DOCKER}
+      - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
+      - --l1.rpckind=standard
+      - --safedb.path=/data/safedb
+    depends_on:
+      - op-geth-seq
+
+  op-rpc:
+    image: "${OP_STACK_IMAGE_TAG}"
+    container_name: op-rpc
+    volumes:
+      - ./config-op/rollup.json:/rollup.json
+      - ./config-op/jwt.txt:/jwt.txt
+      - ./config-op/oprpc_p2p_priv.txt:/p2p-data/opnode_p2p_priv.txt
+      - ./data/op-rpc:/data
+      - ./data/op-rpc/p2p:/p2p-data
+    ports:
+      - "9546:9545"
+      - "7071:7070"
+      - "9224:9223"
+      - "9224:9223/udp"
+    command:
+      - /app/op-node/bin/op-node
+      - --log.level=debug
+      - --l2=http://op-geth-rpc:8552
+      - --l2.jwt-secret=/jwt.txt
+      - --sequencer.enabled=false
+      - --verifier.l1-confs=1
+      - --rollup.config=/rollup.json
+      - --rpc.addr=0.0.0.0
+      - --rpc.port=9545
+      - --p2p.listen.tcp=9223
+      - --p2p.listen.udp=9223
+      - --p2p.priv.path=/p2p-data/opnode_p2p_priv.txt
+      - --p2p.peerstore.path=/p2p-data/opnode_peerstore_db
+      - --p2p.discovery.path=/p2p-data/opnode_discovery_db
+      - --p2p.static=/ip4/${OP_SEQ_IP}/tcp/9223/p2p/16Uiu2HAkzHdkbmS2VrCsccLibsu7MvGHpmFUMJnMTkKifrtS5m65
+      - --p2p.no-discovery
+      - --rpc.enable-admin=true
+      - --l1=${L1_RPC_URL_IN_DOCKER}
+      - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
+      - --l1.rpckind=standard
+      - --safedb.path=/data/safedb
+    depends_on:
+      - op-geth-rpc
+
+  op-batcher:
+    image: "${OP_STACK_IMAGE_TAG}"
+    container_name: op-batcher
+    command:
+      - /app/op-batcher/bin/op-batcher
+      - --log.level=debug
+      - --l2-eth-rpc=http://op-geth-seq:8545
+      - --rollup-rpc=http://op-seq:9545
+      - --poll-interval=1s
+      - --sub-safety-margin=6
+      - --num-confirmations=1
+      - --safe-abort-nonce-too-low-count=3
+      - --resubmission-timeout=30s
+      - --rpc.addr=0.0.0.0
+      - --rpc.port=8548
+      - --rpc.enable-admin
+      - --max-channel-duration=25
+      - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
+      - --private-key=${OP_BATCHER_PRIVATE_KEY}
+    depends_on:
+      - op-seq
+
+  op-proposer:
+    image: "${OP_STACK_IMAGE_TAG}"
+    container_name: op-proposer
+    environment:
+      - DISPUTE_GAME_FACTORY_ADDRESS=${DISPUTE_GAME_FACTORY_ADDRESS}
+    command:
+      - /app/op-proposer/bin/op-proposer
+      - --log.level=debug
+      - --poll-interval=2s
+      - --rpc.port=8560
+      - --rollup-rpc=http://op-seq:9545
+      - --game-factory-address=${DISPUTE_GAME_FACTORY_ADDRESS}
+      - --proposal-interval=1m
+      - --private-key=${OP_PROPOSER_PRIVATE_KEY}
+      - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
+      - --game-type=${GAME_TYPE}
+      - --allow-non-finalized
+    depends_on:
+      - op-batcher
+
+  xlayer-oracle:
+    container_name: xlayer-oracle
+    image: aggkit:local
+    volumes:
+      - ./data/oracle:/tmp
+      - ./keystore/aggoracle.keystore:/etc/aggkit/aggoracle.keystore
+      - ./config-op/aggkit.toml:/etc/aggkit/aggkit.toml
+      - ./config/test.genesis.config.json:/etc/aggkit/genesis.json
+    ports:
+      - 15576:5576
+    command: ["run", "--cfg=/etc/aggkit/aggkit.toml", "--components=aggoracle"]
+
+  op-challenger:
+    image: "${OP_STACK_IMAGE_TAG}"
+    container_name: op-challenger
+    environment:
+      - L1_RPC_URL_IN_DOCKER=${L1_RPC_URL_IN_DOCKER}
+      - L1_BEACON_URL_IN_DOCKER=${L1_BEACON_URL_IN_DOCKER}
+      - DISPUTE_GAME_FACTORY_ADDRESS=${DISPUTE_GAME_FACTORY_ADDRESS}
+    volumes:
+      - ./data/cannon-data:/data
+      - ./config-op/rollup.json:/rollup.json
+      - ./config-op/genesis.json:/l2-genesis.json
+    depends_on:
+      - op-seq
+    command:
+      - /app/op-challenger/bin/op-challenger
+      - --log.level=debug
+      - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
+      - --l1-beacon=${L1_BEACON_URL_IN_DOCKER}
+      - --l2-eth-rpc=http://op-geth-seq:8545
+      - --rollup-rpc=http://op-seq:9545
+      - --game-factory-address=${DISPUTE_GAME_FACTORY_ADDRESS}
+      - --cannon-bin=/app/cannon/bin/cannon
+      - --cannon-server=/data/op-program
+      - --cannon-prestate=/data/prestate-mt64.bin.gz
+      - --cannon-rollup-config=/rollup.json
+      - --cannon-l2-genesis=/l2-genesis.json
+      - --private-key=${OP_PROPOSER_PRIVATE_KEY}
+      - --trace-type=cannon,permissioned
+      - --datadir=/data
+      - --game-window=${GAME_WINDOW}s
+
+  op-dispute-mon:
+    image: "${OP_STACK_IMAGE_TAG}"
+    container_name: op-dispute-mon
+    depends_on:
+      - op-challenger
+      - op-proposer
+    command:
+      - /app/op-dispute-mon/bin/op-dispute-mon
+      - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
+      - --rollup-rpc=http://op-seq:9545
+      - --game-factory-address=${DISPUTE_GAME_FACTORY_ADDRESS}
+      - --game-window=${GAME_WINDOW}s
+      - --honest-actors=${PROPOSER_ADDRESS}
+
+# Apollo services
+  apollo-configservice:
+    container_name: apollo-configservice
+    image: apolloconfig/apollo-configservice:latest
+    ports:
+      - "8085:8085"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/ApolloConfigDB?characterEncoding=utf8
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=${MYSQL_ROOT_PASSWORD:-password}
+      - SERVER_PORT=8085
+    depends_on:
+      - mysql
+
+  apollo-adminservice:
+    container_name: apollo-adminservice
+    image: apolloconfig/apollo-adminservice:latest
+    ports:
+      - "8095:8095"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/ApolloConfigDB?characterEncoding=utf8
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=${MYSQL_ROOT_PASSWORD:-password}
+      - SERVER_PORT=8095
+    depends_on:
+      - mysql
+
+  apollo-portal:
+    container_name: apollo-portal
+    image: apolloconfig/apollo-portal:latest
+    ports:
+      - "8070:8070"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/ApolloPortalDB?characterEncoding=utf8
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=${MYSQL_ROOT_PASSWORD:-password}
+      - APOLLO_PORTAL_ENVS=DEV
+      - DEV_META=http://apollo-configservice:8085
+    depends_on:
+      - apollo-adminservice
+
+  mysql:
+    container_name: mysql
+    platform: linux/arm64
+    image: mysql:8.0
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-password}
+      - MYSQL_DATABASE=ApolloConfigDB
+      - MYSQL_USER=apollo
+      - MYSQL_PASSWORD=${MYSQL_APOLLO_PASSWORD:-password2}
+    volumes:
+      - ./scripts/init-apollo.sh:/docker-entrypoint-initdb.d/init-apollo.sh
+      - ./scripts/sql/:/docker-entrypoint-initdb.d/sql
+    command: ["mysqld", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+

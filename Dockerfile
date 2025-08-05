@@ -1,0 +1,48 @@
+# Single stage build with Go
+FROM golang:1.24
+WORKDIR /app
+
+# Install all dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    jq \
+    docker.io \
+    make \
+    gcc \
+    nodejs \
+    npm \
+    bash \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install just
+ARG TARGETARCH
+RUN case ${TARGETARCH} in \
+        "amd64") JUST_ARCH="x86_64" ;; \
+        "arm64") JUST_ARCH="aarch64" ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac && \
+    curl -sSL "https://github.com/casey/just/releases/download/1.36.0/just-1.36.0-${JUST_ARCH}-unknown-linux-musl.tar.gz" | tar -xz -C /usr/local/bin just && \
+    chmod +x /usr/local/bin/just
+
+# Cache go dependencies first
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build Go binaries
+RUN make build-go
+
+# Copy foundry tools and artifacts from contracts image
+COPY --from=op-contracts:v1.13.4 /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil /usr/local/bin/
+
+# Verify installations
+RUN echo "🔍 Verifying installations:" && \
+    which go && go version && \
+    which docker && docker --version && \
+    which forge && forge --version && \
+    which just && just --version || echo "⚠️ Some tools not found"
+
+WORKDIR /app
