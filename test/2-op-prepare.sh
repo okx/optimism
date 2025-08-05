@@ -9,52 +9,7 @@ sed_inplace() {
   fi
 }
 
-
-# docker-compose stop xlayer-seq
-# docker-compose stop xlayer-rpc
-
-# docker-compose stop xlayer-bridge-service
-# docker-compose stop xlayer-bridge-ui
-# docker-compose stop xlayer-agg-sender
-
-# docker-compose stop xlayer-agglayer
-# docker-compose stop xlayer-agglayer-prover
-
-# LOG_OUTPUT=$(docker compose logs xlayer-seq 2>&1 | tail -100)
-# echo "LOG_OUTPUT: $LOG_OUTPUT"
-
-# FORK_BLOCK=$(echo "$LOG_OUTPUT" | grep "Finish block" | tail -1 | sed -n 's/.*Finish block \([0-9]*\) with.*/\1/p')
-# echo "FORK_BLOCK=$FORK_BLOCK"
-# sed_inplace "s/FORK_BLOCK=.*/FORK_BLOCK=$FORK_BLOCK/" .env
-
 PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# ROOT_DIR="$(dirname "$PWD_DIR")"
-# TMP_DIR="$PWD_DIR/tmp"
-
-# cd $TMP_DIR
-
-# if [ ! -d "optimism" ]; then
-#     echo "Cloning Optimism repository..."
-#     git clone -b v1.13.4 https://github.com/ethereum-optimism/optimism.git
-#     cp $PWD_DIR/op-docker/Dockerfile-contracts optimism/Dockerfile-contracts
-#     cp $PWD_DIR/op-docker/Dockerfile-opstack optimism/Dockerfile-opstack
-
-#     # cp Transactor.sol to optimism, which is used for addGameType
-#     cp $PWD_DIR/contracts/Transactor.sol optimism/packages/contracts-bedrock/src/periphery/Transactor.sol
-#     cd optimism
-#     docker build -t op-contracts:v1.13.4 -f Dockerfile-contracts .
-#     docker build -t op-stack:v1.13.4 -f Dockerfile-opstack .
-#     cd ..
-# fi
-
-# if [ ! -d "op-geth" ]; then
-#     echo "Cloning op-geth repository..."
-#     git clone -b v1.101511.0 https://github.com/ethereum-optimism/op-geth.git
-#     cp $PWD_DIR/op-docker/Dockerfile-opgeth op-geth/Dockerfile
-#     cd op-geth
-#     docker build -t op-geth:v1.101511.0 .
-#     cd ..
-# fi
 
 cd $PWD_DIR
 
@@ -187,58 +142,7 @@ docker run \
 
 echo "genesis.json and rollup.json are generated in deployments folder"
 
-# regenerate genesis.json for op-geth
-cp ./config-op/genesis.json ./config-op/genesis-op-raw.json
 
-# Try to build hack tool locally first, fall back to Docker if it fails
-# echo "🔧 Building hack tool..."
-# cd $ROOT_DIR
-
-# if go install ./cmd/hack/ 2>/dev/null; then
-#     echo "✅ hack tool built successfully"
-#     cd $PWD_DIR
-#     hack -action migrateGenesis -chaindata ./data/seq/chaindata/ -input ./config-op/genesis-op-raw.json -output ./config-op/genesis.json
-# else
-#     echo "❌ Local build failed, using Docker fallback..."
-#     cd $PWD_DIR
-
-#     # Build Docker image for hack tool
-#     echo "📦 Building hack tool Docker image..."
-#     cat > Dockerfile-hack << 'EOF'
-# FROM golang:1.24
-
-# RUN apt-get update && apt-get install -y git build-essential && apt-get clean
-
-# WORKDIR /app
-# COPY . .
-# RUN go build -o hack ./cmd/hack
-
-# CMD ["./hack"]
-# EOF
-
-#     cd $ROOT_DIR
-#     docker build -f $PWD_DIR/Dockerfile-hack -t hack-tool:latest .
-
-#     # Run hack tool in Docker
-#     cd $PWD_DIR
-#     docker run --rm \
-#         -v "$(pwd)/data/seq/chaindata:/chaindata:rw" \
-#         -v "$(pwd)/config-op:/config:rw" \
-#         hack-tool:latest \
-#         ./hack -action migrateGenesis \
-#         -chaindata /chaindata \
-#         -input /config/genesis-op-raw.json \
-#         -output /config/genesis.json
-
-#     # Clean up
-#     rm -f Dockerfile-hack
-#     echo "✅ hack tool completed via Docker"
-# fi
-
-# FORK_BLOCK_HEX=$(printf "0x%x" "$FORK_BLOCK")
-# cp ./config-op/genesis.json ./config-op/genesis-op-before-number.json
-# sed_inplace 's/"number": "0x0"/"number": "'"$FORK_BLOCK_HEX"'"/' ./config-op/genesis.json
-# sed_inplace 's/"number": 0/"number": '"$FORK_BLOCK"'/' ./config-op/rollup.json
 
 # Extract contract addresses from state.json and update .env file
 echo "🔧 Extracting contract addresses from state.json..."
@@ -321,20 +225,32 @@ fi
 
 echo "🎉 OP Stack deployment preparation completed!"
 
-# init op-geth
-OP_GETH_DATADIR="$(pwd)/data/op-geth"
+# init op-geth-seq and op-geth-rpc
+OP_GETH_DATADIR="$(pwd)/data/op-geth-seq"
 rm -rf "$OP_GETH_DATADIR"
 mkdir -p "$OP_GETH_DATADIR"
-docker compose run --no-deps \
+docker compose -f "$DOCKER_COMPOSE_FILE" run --no-deps \
   -v "$(pwd)/$CONFIG_DIR/genesis.json:/genesis.json" \
-  op-geth \
+  op-geth-seq \
   --datadir "/datadir" \
   --gcmode=archive \
   init \
   --state.scheme=hash \
   /genesis.json
 
-echo "finished init op-geth"
+OP_GETH_DATADIR="$(pwd)/data/op-geth-rpc"
+rm -rf "$OP_GETH_DATADIR"
+mkdir -p "$OP_GETH_DATADIR"
+docker compose -f "$DOCKER_COMPOSE_FILE" run --no-deps \
+  -v "$(pwd)/$CONFIG_DIR/genesis.json:/genesis.json" \
+  op-geth-rpc \
+  --datadir "/datadir" \
+  --gcmode=archive \
+  init \
+  --state.scheme=hash \
+  /genesis.json
+
+echo "finished init op-geth-seq and op-geth-rpc"
 
 # Ensure prestate files exist and devnetL1.json is consistent before deploying contracts
 EXPORT_DIR="$PWD_DIR/data/cannon-data"

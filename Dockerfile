@@ -32,8 +32,11 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build Go binaries
-RUN make build-go
+# Build with cache mounts for maximum efficiency
+RUN --mount=type=cache,target=/root/.cache \
+    --mount=type=cache,target=/tmp/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    make build-go
 
 # Copy foundry tools and artifacts from contracts image
 COPY --from=op-contracts:v1.13.4 /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil /usr/local/bin/

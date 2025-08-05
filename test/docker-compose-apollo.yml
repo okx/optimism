@@ -116,6 +116,10 @@ services:
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
       - --safedb.path=/data/safedb
+      - --apollo.enabled=true
+      - --apollo.endpoint=http://apollo-configservice:8085
+      - --apollo.app-id=OpSeq
+      - --apollo.namespace=OpSeq
     depends_on:
       - op-geth-seq
 
