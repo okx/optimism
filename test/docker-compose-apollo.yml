@@ -205,6 +205,10 @@ services:
       - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
       - --game-type=${GAME_TYPE}
       - --allow-non-finalized
+      - --apollo.enabled=true
+      - --apollo.endpoint=http://apollo-configservice:8085
+      - --apollo.app-id=OpProposer
+      - --apollo.namespace=op-proposer.txt
     depends_on:
       - op-batcher
 
@@ -250,6 +254,10 @@ services:
       - --trace-type=cannon,permissioned
       - --datadir=/data
       - --game-window=${GAME_WINDOW}s
+      - --apollo.enabled=true
+      - --apollo.endpoint=http://apollo-configservice:8085
+      - --apollo.app-id=OpChallenger
+      - --apollo.namespace=op-challenger.txt
 
   op-dispute-mon:
     image: "${OP_STACK_IMAGE_TAG}"
