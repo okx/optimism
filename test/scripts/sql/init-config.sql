@@ -133,5 +133,6 @@ VALUES ('OpSeq', 'default', 'op-seq.txt', 0),
        ('OpChallenger', 'default', 'op-challenger.txt', 0);
 
 INSERT INTO `Item` (`NamespaceId`, `Key`, `Type`, `Value`, `IsDeleted`)
-VALUES ('1', 'content', 0, 'l1.epoch-poll-interval: 12s', 0);
+VALUES ('1', 'content', 0, 'l1.epoch-poll-interval: 12s', 0),
+       ('3', 'content', 0, 'max-channel-duration: 40', 0);
 

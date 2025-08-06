@@ -181,6 +181,10 @@ services:
       - --max-channel-duration=25
       - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
       - --private-key=${OP_BATCHER_PRIVATE_KEY}
+      - --apollo.enabled=true
+      - --apollo.endpoint=http://apollo-configservice:8085
+      - --apollo.app-id=OpBatcher
+      - --apollo.namespace=op-batcher.txt
     depends_on:
       - op-seq
 

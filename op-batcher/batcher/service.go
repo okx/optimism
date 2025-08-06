@@ -18,6 +18,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-node/chaincfg"
 	"github.com/ethereum-optimism/optimism/op-node/params"
 	"github.com/ethereum-optimism/optimism/op-node/rollup"
+	"github.com/ethereum-optimism/optimism/op-service/apollo"
 	"github.com/ethereum-optimism/optimism/op-service/cliapp"
 	"github.com/ethereum-optimism/optimism/op-service/dial"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
@@ -78,6 +79,9 @@ type BatcherService struct {
 	stopped         atomic.Bool
 
 	NotSubmittingOnStart bool
+
+	// For XLayer
+	apolloClient *apollo.Client
 }
 
 type DriverSetupOption func(setup *DriverSetup)
@@ -146,6 +150,10 @@ func (bs *BatcherService) initFromCLIConfig(ctx context.Context, version string,
 
 	bs.Metrics.RecordInfo(bs.Version)
 	bs.Metrics.RecordUp()
+	// For XLayer
+	if err := bs.initApollo(ctx, cfg); err != nil {
+		return fmt.Errorf("failed to init Apollo: %w", err)
+	}
 	return nil
 }
 
