@@ -1,4 +1,4 @@
-package batcher
+package proposer
 
 import (
 	"context"
@@ -8,25 +8,23 @@ import (
 )
 
 // initApollo initializes the Apollo client for dynamic configuration management
-func (bs *BatcherService) initApollo(ctx context.Context, cfg *CLIConfig) error {
+func (ps *ProposerService) initApollo(ctx context.Context, cfg *CLIConfig) error {
 	// Initialize Apollo client
-	apolloClient, err := apollo.NewClient(cfg.Apollo, bs.Log)
+	apolloClient, err := apollo.NewClient(cfg.Apollo, ps.Log)
 	if err != nil {
 		return fmt.Errorf("failed to initialize Apollo client: %w", err)
 	}
-	bs.apolloClient = apolloClient
+	ps.apolloClient = apolloClient
 
 	if apolloClient.Enabled() {
-		bs.Log.Info("Apollo client initialized and enabled")
+		ps.Log.Info("Apollo client initialized and enabled")
 
 		// Create a configuration manager for this namespace
 		// configManager := apolloClient.CreateConfigManager(cfg.Apollo.Namespace)
 
 		// Register handlers for specific configuration items
-
-		bs.Log.Info("Apollo configuration handlers registered")
 	} else {
-		bs.Log.Info("Apollo client disabled")
+		ps.Log.Info("Apollo client disabled")
 	}
 
 	return nil

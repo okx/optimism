@@ -123,7 +123,9 @@ type CLIConfig struct {
 	PprofConfig   oppprof.CLIConfig
 	RPC           oprpc.CLIConfig
 	AltDA         altda.CLIConfig
-	Apollo        apollo.CLIConfig
+
+	// For XLayer, Apollo configuration for dynamic updates
+	Apollo apollo.CLIConfig
 }
 
 func (c *CLIConfig) Check() error {

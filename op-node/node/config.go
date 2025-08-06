@@ -87,8 +87,7 @@ type Config struct {
 	// Experimental. Enables new opstack RPC namespace. Used by op-test-sequencer.
 	ExperimentalOPStackAPI bool
 
-	// For XLayer
-	// Apollo config
+	// For XLayer, Apollo configuration for dynamic updates
 	Apollo apollo.CLIConfig
 }
 

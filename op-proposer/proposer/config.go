@@ -8,6 +8,7 @@ import (
 	"github.com/urfave/cli/v2"
 
 	"github.com/ethereum-optimism/optimism/op-proposer/flags"
+	"github.com/ethereum-optimism/optimism/op-service/apollo"
 	oplog "github.com/ethereum-optimism/optimism/op-service/log"
 	opmetrics "github.com/ethereum-optimism/optimism/op-service/metrics"
 	"github.com/ethereum-optimism/optimism/op-service/oppprof"
@@ -80,6 +81,9 @@ type CLIConfig struct {
 
 	// Whether to wait for the sequencer to sync to a recent block at startup.
 	WaitNodeSync bool
+
+	// For XLayer, Apollo configuration for dynamic updates
+	Apollo apollo.CLIConfig
 }
 
 func (c *CLIConfig) Check() error {
@@ -146,5 +150,7 @@ func NewConfig(ctx *cli.Context) *CLIConfig {
 		DisputeGameType:              uint32(ctx.Uint(flags.DisputeGameTypeFlag.Name)),
 		ActiveSequencerCheckDuration: ctx.Duration(flags.ActiveSequencerCheckDurationFlag.Name),
 		WaitNodeSync:                 ctx.Bool(flags.WaitNodeSyncFlag.Name),
+		// For XLayer
+		Apollo: apollo.ReadCLIConfig(ctx),
 	}
 }

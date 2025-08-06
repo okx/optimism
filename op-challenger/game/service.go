@@ -22,6 +22,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-challenger/game/scheduler"
 	"github.com/ethereum-optimism/optimism/op-challenger/metrics"
 	"github.com/ethereum-optimism/optimism/op-challenger/version"
+	"github.com/ethereum-optimism/optimism/op-service/apollo"
 	"github.com/ethereum-optimism/optimism/op-service/client"
 	"github.com/ethereum-optimism/optimism/op-service/clock"
 	"github.com/ethereum-optimism/optimism/op-service/dial"
@@ -62,6 +63,9 @@ type Service struct {
 	metricsSrv   *httputil.HTTPServer
 
 	balanceMetricer io.Closer
+
+	// For XLayer
+	apolloClient *apollo.Client
 
 	stopped atomic.Bool
 }
@@ -120,6 +124,12 @@ func (s *Service) initFromConfig(ctx context.Context, cfg *config.Config) error 
 
 	s.metrics.RecordInfo(version.SimpleWithMeta)
 	s.metrics.RecordUp()
+
+	// For XLayer
+	if err := s.initApollo(ctx, cfg); err != nil {
+		return fmt.Errorf("failed to init Apollo: %w", err)
+	}
+
 	return nil
 }
 

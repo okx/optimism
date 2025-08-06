@@ -9,6 +9,7 @@ import (
 
 	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/trace/vm"
 	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/types"
+	"github.com/ethereum-optimism/optimism/op-service/apollo"
 	"github.com/ethereum-optimism/optimism/op-service/flags"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
@@ -294,6 +295,7 @@ func init() {
 	optionalFlags = append(optionalFlags, txmgr.CLIFlagsWithDefaults(EnvVarPrefix, txmgr.DefaultChallengerFlagValues)...)
 	optionalFlags = append(optionalFlags, opmetrics.CLIFlags(EnvVarPrefix)...)
 	optionalFlags = append(optionalFlags, oppprof.CLIFlags(EnvVarPrefix)...)
+	optionalFlags = append(optionalFlags, apollo.CLIFlags(EnvVarPrefix)...)
 
 	Flags = append(requiredFlags, optionalFlags...)
 }
@@ -687,5 +689,7 @@ func NewConfigFromCLI(ctx *cli.Context, logger log.Logger) (*config.Config, erro
 		PprofConfig:                         pprofConfig,
 		SelectiveClaimResolution:            ctx.Bool(SelectiveClaimResolutionFlag.Name),
 		AllowInvalidPrestate:                ctx.Bool(UnsafeAllowInvalidPrestate.Name),
+		// For XLayer
+		Apollo: apollo.ReadCLIConfig(ctx),
 	}, nil
 }

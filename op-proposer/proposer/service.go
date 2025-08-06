@@ -72,6 +72,9 @@ type ProposerService struct {
 
 	balanceMetricer io.Closer
 
+	// Apollo client for dynamic configuration
+	apolloClient interface{} // Using interface{} to avoid import in service.go
+
 	stopped atomic.Bool
 }
 
@@ -122,6 +125,11 @@ func (ps *ProposerService) initFromCLIConfig(ctx context.Context, version string
 
 	ps.Metrics.RecordInfo(ps.Version)
 	ps.Metrics.RecordUp()
+
+	// For XLayer
+	if err := ps.initApollo(ctx, cfg); err != nil {
+		return fmt.Errorf("failed to init Apollo: %w", err)
+	}
 	return nil
 }
 
@@ -171,10 +179,11 @@ func (ps *ProposerService) initMetrics(cfg *CLIConfig) {
 }
 
 // initBalanceMonitor depends on Metrics, L1Client and TxManager to start background-monitoring of the Proposer balance.
-func (ps *ProposerService) initBalanceMonitor(cfg *CLIConfig) {
+func (ps *ProposerService) initBalanceMonitor(cfg *CLIConfig) error {
 	if cfg.MetricsConfig.Enabled {
 		ps.balanceMetricer = ps.Metrics.StartBalanceMetrics(ps.Log, ps.L1Client, ps.TxManager.From())
 	}
+	return nil
 }
 
 func (ps *ProposerService) initTxManager(cfg *CLIConfig) error {

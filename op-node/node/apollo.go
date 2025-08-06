@@ -24,7 +24,7 @@ func (n *OpNode) initApollo(ctx context.Context, cfg *Config) error {
 	if apolloClient.Enabled() {
 		n.log.Info("Apollo client initialized and enabled")
 
-		// Create a configuration manager for this namespace - much cleaner and modular
+		// Create a configuration manager for this namespace
 		configManager := apolloClient.CreateConfigManager(cfg.Apollo.Namespace)
 
 		// Register handlers for specific configuration items
