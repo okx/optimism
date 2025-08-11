@@ -133,8 +133,9 @@ VALUES ('OpSeq', 'default', 'op-seq.txt', 0),
        ('OpChallenger', 'default', 'op-challenger.txt', 0);
 
 INSERT INTO `Item` (`NamespaceId`, `Key`, `Type`, `Value`, `IsDeleted`)
-VALUES ('1', 'content', 0, 'l1.epoch-poll-interval: 12s', 0),
-       ('3', 'content', 0, 'sub-safety-margin: 10', 0),
-       ('4', 'content', 0, 'poll-interval: 3s', 0),
-       ('5', 'content', 0, 'game-window: 3600s', 0);
+VALUES ('1', 'content', 0, 'l1.epoch-poll-interval: 12s\nsequencer.max-safe-lag: 3\nsequencer.recover: true\nl1.http-poll-interval: 10s\nsequencer.l1-confs: 6', 0),
+       ('2', 'content', 0, 'l1.epoch-poll-interval: 12s\nl1.http-poll-interval: 10s\nverifier.l1-confs: 8', 0),
+       ('3', 'content', 0, 'sub-safety-margin: 10\nmax-channel-duration: 30\nmax-l1-tx-size-bytes: 150000', 0),
+       ('4', 'content', 0, 'proposal-interval: 90s\nallow-non-finalized: false\ngame-type: 1', 0),
+       ('5', 'content', 0, 'game-window: 3600s\nhttp-poll-interval: 10s', 0);
 

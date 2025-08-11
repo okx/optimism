@@ -250,7 +250,6 @@ func (n *OpNode) initRuntimeConfig(ctx context.Context, cfg *Config) error {
 	// attempt to load runtime config, repeat N times
 	n.runCfg = NewRuntimeConfig(n.log, n.l1Source, &cfg.Rollup)
 
-	confDepth := cfg.Driver.VerifierConfDepth
 	reload := func(ctx context.Context) (eth.L1BlockRef, error) {
 		fetchCtx, fetchCancel := context.WithTimeout(ctx, time.Second*10)
 		l1Head, err := n.l1Source.L1BlockRefByLabel(fetchCtx, eth.Unsafe)
@@ -260,7 +259,8 @@ func (n *OpNode) initRuntimeConfig(ctx context.Context, cfg *Config) error {
 			return eth.L1BlockRef{}, err
 		}
 
-		// Apply confirmation-distance
+		// Apply confirmation-distance (read current config for dynamic updates)
+		confDepth := n.cfg.Driver.VerifierConfDepth
 		blNum := l1Head.Number
 		if blNum >= confDepth {
 			blNum -= confDepth

@@ -26,6 +26,8 @@ func (bs *BatcherService) initApollo(ctx context.Context, cfg *CLIConfig) error 
 
 		// Register handlers for specific configuration items
 		configManager.RegisterConfigHandler(flags.SubSafetyMarginFlag.Name, bs.handleSubSafetyMarginChange)
+		configManager.RegisterConfigHandler(flags.MaxChannelDurationFlag.Name, bs.handleMaxChannelDurationChange)
+		configManager.RegisterConfigHandler(flags.MaxL1TxSizeBytesFlag.Name, bs.handleMaxL1TxSizeBytesChange)
 
 		bs.Log.Info("Apollo configuration handlers registered")
 	} else {
@@ -35,81 +37,44 @@ func (bs *BatcherService) initApollo(ctx context.Context, cfg *CLIConfig) error 
 	return nil
 }
 
-// handleSubSafetyMarginChange processes changes to the sub-safety-margin configuration
-// This function parses the new margin value and updates the channel configuration
-func (bs *BatcherService) handleSubSafetyMarginChange(value string) error {
+// updateChannelConfigField is a generic helper for updating uint64 channel configuration fields
+func (bs *BatcherService) updateChannelConfigField(value, fieldName string,
+	updateSimpleConfig func(*ChannelConfig, uint64) (uint64, error),
+	updateDynamicConfig func(*DynamicEthChannelConfig, uint64) (uint64, uint64, error)) error {
+
 	// Parse the uint64 value
-	newMargin, err := strconv.ParseUint(value, 10, 64)
+	newValue, err := strconv.ParseUint(value, 10, 64)
 	if err != nil {
-		return fmt.Errorf("failed to parse sub-safety-margin value: %w", err)
+		return fmt.Errorf("failed to parse %s value: %w", fieldName, err)
 	}
 
 	// Handle different types of ChannelConfigProvider
 	switch config := bs.ChannelConfig.(type) {
 	case ChannelConfig:
-		// Simple ChannelConfig - direct update
-		if config.SubSafetyMargin == newMargin {
-			return nil
+		// updateSimpleConfig should validate first, then update if valid
+		oldValue, err := updateSimpleConfig(&config, newValue)
+		if err != nil {
+			return fmt.Errorf("failed to update %s: %w", fieldName, err)
 		}
-
-		oldMargin := config.SubSafetyMargin
-		config.SubSafetyMargin = newMargin
-
-		if err := config.Check(); err != nil {
-			config.SubSafetyMargin = oldMargin
-			return fmt.Errorf("invalid sub-safety-margin value: %w", err)
+		if oldValue == newValue {
+			return nil // No change needed
 		}
 
 		bs.ChannelConfig = config
-		bs.Log.Info("Sub-safety-margin updated", "old_margin", oldMargin, "new_margin", newMargin)
-
-		// Recreate channel manager to apply new configuration immediately
-		if bs.driver != nil && bs.driver.channelMgr != nil {
-			bs.driver.channelMgrMutex.Lock()
-			bs.driver.channelMgr = NewChannelManager(bs.Log, bs.Metrics, bs.ChannelConfig, bs.RollupConfig)
-			if bs.driver.ChannelOutFactory != nil {
-				bs.driver.channelMgr.SetChannelOutFactory(bs.driver.ChannelOutFactory)
-			}
-			bs.driver.channelMgrMutex.Unlock()
-			bs.Log.Info("Channel manager recreated with new sub-safety-margin")
-		}
+		bs.Log.Info(fmt.Sprintf("%s updated", fieldName), "old_value", oldValue, "new_value", newValue)
 
 	case *DynamicEthChannelConfig:
-		// DynamicEthChannelConfig - update both blob and calldata configs
-		if config.blobConfig.SubSafetyMargin == newMargin && config.calldataConfig.SubSafetyMargin == newMargin {
-			return nil
+		// updateDynamicConfig should validate first, then update if valid
+		oldBlobValue, oldCalldataValue, err := updateDynamicConfig(config, newValue)
+		if err != nil {
+			return fmt.Errorf("failed to update %s: %w", fieldName, err)
+		}
+		if oldBlobValue == newValue && oldCalldataValue == newValue {
+			return nil // No change needed
 		}
 
-		oldBlobMargin := config.blobConfig.SubSafetyMargin
-		oldCalldataMargin := config.calldataConfig.SubSafetyMargin
-
-		config.blobConfig.SubSafetyMargin = newMargin
-		config.calldataConfig.SubSafetyMargin = newMargin
-
-		if err := config.blobConfig.Check(); err != nil {
-			config.blobConfig.SubSafetyMargin = oldBlobMargin
-			return fmt.Errorf("invalid sub-safety-margin value for blob config: %w", err)
-		}
-
-		if err := config.calldataConfig.Check(); err != nil {
-			config.blobConfig.SubSafetyMargin = oldBlobMargin
-			config.calldataConfig.SubSafetyMargin = oldCalldataMargin
-			return fmt.Errorf("invalid sub-safety-margin value for calldata config: %w", err)
-		}
-
-		bs.Log.Info("Sub-safety-margin updated", "old_blob_margin", oldBlobMargin,
-			"old_calldata_margin", oldCalldataMargin, "new_margin", newMargin)
-
-		// Recreate channel manager to apply new configuration immediately
-		if bs.driver != nil && bs.driver.channelMgr != nil {
-			bs.driver.channelMgrMutex.Lock()
-			bs.driver.channelMgr = NewChannelManager(bs.Log, bs.Metrics, bs.ChannelConfig, bs.RollupConfig)
-			if bs.driver.ChannelOutFactory != nil {
-				bs.driver.channelMgr.SetChannelOutFactory(bs.driver.ChannelOutFactory)
-			}
-			bs.driver.channelMgrMutex.Unlock()
-			bs.Log.Info("Channel manager recreated with new sub-safety-margin")
-		}
+		bs.Log.Info(fmt.Sprintf("%s updated", fieldName),
+			"old_blob_value", oldBlobValue, "old_calldata_value", oldCalldataValue, "new_value", newValue)
 
 	default:
 		bs.Log.Warn("Channel configuration type not supported for dynamic updates",
@@ -117,5 +82,123 @@ func (bs *BatcherService) handleSubSafetyMarginChange(value string) error {
 		return fmt.Errorf("channel configuration type %T not supported for dynamic updates", bs.ChannelConfig)
 	}
 
+	// Recreate channel manager to apply new configuration immediately
+	bs.refreshChannelManager(fieldName, newValue)
 	return nil
+}
+
+// recreateChannelManager forces current channel to be marked as full so new channels use updated config
+func (bs *BatcherService) refreshChannelManager(configName string, newValue uint64) {
+	if bs.driver != nil && bs.driver.channelMgr != nil {
+		bs.driver.channelMgrMutex.Lock()
+		defer bs.driver.channelMgrMutex.Unlock()
+
+		// Mark current channel as full so it gets finalized and a new one is created
+		// This is safer than setting it to nil which could cause panic
+		if bs.driver.channelMgr.currentChannel != nil {
+			// Force the channel to be full by setting a "configuration changed" error
+			bs.driver.channelMgr.currentChannel.channelBuilder.setFullErr(fmt.Errorf("channel closed due to configuration change: %s", configName))
+		}
+
+		// Update defaultCfg so new channels use the updated configuration
+		// This is the key fix - ensuring new channels pick up the new config
+		bs.driver.channelMgr.defaultCfg = bs.ChannelConfig.ChannelConfig(false)
+
+		bs.Log.Info("Current channel marked as full due to config change, new config will take effect on next channel",
+			"updated_config", configName, "new_value", newValue)
+	}
+}
+
+// validateAndUpdateSimpleConfig validates and updates a simple ChannelConfig field
+func validateAndUpdateSimpleConfig(config *ChannelConfig, newValue uint64,
+	getOldValue func(*ChannelConfig) uint64,
+	setNewValue func(*ChannelConfig, uint64)) (uint64, error) {
+
+	oldValue := getOldValue(config)
+
+	// Create a copy to test validation before updating
+	testConfig := *config
+	setNewValue(&testConfig, newValue)
+	if err := testConfig.Check(); err != nil {
+		return 0, err
+	}
+
+	// Update the actual config if validation passes
+	setNewValue(config, newValue)
+	return oldValue, nil
+}
+
+// validateAndUpdateDynamicConfig validates and updates a DynamicEthChannelConfig field
+func validateAndUpdateDynamicConfig(config *DynamicEthChannelConfig, newValue uint64,
+	getOldBlobValue func(*ChannelConfig) uint64,
+	getOldCalldataValue func(*ChannelConfig) uint64,
+	setNewValue func(*ChannelConfig, uint64)) (uint64, uint64, error) {
+
+	oldBlobValue := getOldBlobValue(&config.blobConfig)
+	oldCalldataValue := getOldCalldataValue(&config.calldataConfig)
+
+	// Create copies to test validation before updating
+	testBlobConfig := config.blobConfig
+	testCalldataConfig := config.calldataConfig
+	setNewValue(&testBlobConfig, newValue)
+	setNewValue(&testCalldataConfig, newValue)
+
+	if err := testBlobConfig.Check(); err != nil {
+		return 0, 0, fmt.Errorf("invalid value for blob config: %w", err)
+	}
+	if err := testCalldataConfig.Check(); err != nil {
+		return 0, 0, fmt.Errorf("invalid value for calldata config: %w", err)
+	}
+
+	// Update the actual configs if validation passes
+	setNewValue(&config.blobConfig, newValue)
+	setNewValue(&config.calldataConfig, newValue)
+	return oldBlobValue, oldCalldataValue, nil
+}
+
+// handleSubSafetyMarginChange processes changes to the sub-safety-margin configuration
+func (bs *BatcherService) handleSubSafetyMarginChange(value string) error {
+	return bs.updateChannelConfigField(value, "sub-safety-margin",
+		func(config *ChannelConfig, newValue uint64) (uint64, error) {
+			return validateAndUpdateSimpleConfig(config, newValue,
+				func(c *ChannelConfig) uint64 { return c.SubSafetyMargin },
+				func(c *ChannelConfig, v uint64) { c.SubSafetyMargin = v })
+		},
+		func(config *DynamicEthChannelConfig, newValue uint64) (uint64, uint64, error) {
+			return validateAndUpdateDynamicConfig(config, newValue,
+				func(c *ChannelConfig) uint64 { return c.SubSafetyMargin },
+				func(c *ChannelConfig) uint64 { return c.SubSafetyMargin },
+				func(c *ChannelConfig, v uint64) { c.SubSafetyMargin = v })
+		})
+}
+
+// handleMaxChannelDurationChange processes changes to the max-channel-duration configuration
+func (bs *BatcherService) handleMaxChannelDurationChange(value string) error {
+	return bs.updateChannelConfigField(value, "max-channel-duration",
+		func(config *ChannelConfig, newValue uint64) (uint64, error) {
+			return validateAndUpdateSimpleConfig(config, newValue,
+				func(c *ChannelConfig) uint64 { return c.MaxChannelDuration },
+				func(c *ChannelConfig, v uint64) { c.MaxChannelDuration = v })
+		},
+		func(config *DynamicEthChannelConfig, newValue uint64) (uint64, uint64, error) {
+			return validateAndUpdateDynamicConfig(config, newValue,
+				func(c *ChannelConfig) uint64 { return c.MaxChannelDuration },
+				func(c *ChannelConfig) uint64 { return c.MaxChannelDuration },
+				func(c *ChannelConfig, v uint64) { c.MaxChannelDuration = v })
+		})
+}
+
+func (bs *BatcherService) handleMaxL1TxSizeBytesChange(value string) error {
+	return bs.updateChannelConfigField(value, "max-l1-tx-size-bytes",
+		func(config *ChannelConfig, newValue uint64) (uint64, error) {
+			return validateAndUpdateSimpleConfig(config, newValue,
+				func(c *ChannelConfig) uint64 { return c.MaxFrameSize },
+				func(c *ChannelConfig, v uint64) { c.MaxFrameSize = v - 1 })
+		},
+		func(config *DynamicEthChannelConfig, newValue uint64) (uint64, uint64, error) {
+			return validateAndUpdateDynamicConfig(config, newValue,
+				func(c *ChannelConfig) uint64 { return c.MaxFrameSize },
+				func(c *ChannelConfig) uint64 { return c.MaxFrameSize },
+				func(c *ChannelConfig, v uint64) { c.MaxFrameSize = v - 1 })
+		})
 }

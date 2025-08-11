@@ -159,6 +159,11 @@ services:
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
       - --safedb.path=/data/safedb
+      - --apollo.enabled=true
+      - --apollo.endpoint=http://apollo-configservice:8085
+      - --apollo.app-id=OpRpc
+      - --apollo.namespace=op-rpc.txt
+      # - --l1.runtime-config-reload-interval=1m // Use for testing `verifier.l1-confs`
     depends_on:
       - op-geth-rpc
 
