@@ -16,11 +16,8 @@ type Client struct {
 	config CLIConfig
 	logger log.Logger
 
-	// Configuration update callbacks
-	mu        sync.RWMutex
-	callbacks map[string][]ConfigChangeCallback
-
 	// Direct handlers for specific namespaces
+	mu                sync.RWMutex
 	namespaceHandlers map[string]NamespaceHandler
 }
 
@@ -31,8 +28,6 @@ type ConfigItemHandler func(value string) error
 type NamespaceHandler interface {
 	HandleConfigChange(namespace, key, value string) error
 }
-
-type ConfigChangeCallback func(namespace, key, value string)
 
 func NewClient(cfg CLIConfig, logger log.Logger) (*Client, error) {
 	if !cfg.Enabled {
@@ -58,7 +53,6 @@ func NewClient(cfg CLIConfig, logger log.Logger) (*Client, error) {
 		client:            client,
 		config:            cfg,
 		logger:            logger,
-		callbacks:         make(map[string][]ConfigChangeCallback),
 		namespaceHandlers: make(map[string]NamespaceHandler),
 	}
 
@@ -146,28 +140,12 @@ func (c *Client) OnChange(event *storage.ChangeEvent) {
 					"namespace", event.Namespace,
 					"value", value.NewValue)
 			}
-
-			// Fallback to key-based callbacks for backward compatibility
-			if callbacks, exists := c.callbacks[key]; exists {
-				for _, callback := range callbacks {
-					// Type assert the new value to string
-					if newValue, ok := value.NewValue.(string); ok {
-						callback(event.Namespace, key, newValue)
-					}
-				}
-			}
 		}
 	}
 }
 
 // OnNewestChange implements the storage.ChangeListener interface
 func (c *Client) OnNewestChange(event *storage.FullChangeEvent) {
-}
-
-func (c *Client) RegisterCallback(key string, callback ConfigChangeCallback) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.callbacks[key] = append(c.callbacks[key], callback)
 }
 
 func (c *Client) RegisterNamespaceHandler(namespace string, handler NamespaceHandler) {

@@ -1,7 +1,6 @@
 package apollo
 
 import (
-	"errors"
 	"time"
 
 	"github.com/urfave/cli/v2"
@@ -15,28 +14,6 @@ type CLIConfig struct {
 	Namespace   string
 	Secret      string
 	SyncTimeout time.Duration
-}
-
-func NewCLIConfig() CLIConfig {
-	return CLIConfig{
-		Enabled:     false,
-		Cluster:     "default",
-		Namespace:   "application",
-		SyncTimeout: time.Second * 30,
-	}
-}
-
-func (c CLIConfig) Check() error {
-	if !c.Enabled {
-		return nil
-	}
-	if c.Endpoint == "" {
-		return errors.New("apollo endpoint is required when apollo is enabled")
-	}
-	if c.AppID == "" {
-		return errors.New("apollo app-id is required when apollo is enabled")
-	}
-	return nil
 }
 
 func ReadCLIConfig(ctx *cli.Context) CLIConfig {
