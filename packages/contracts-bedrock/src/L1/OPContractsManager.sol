@@ -146,9 +146,9 @@ contract OPContractsManager is ISemver {
 
     // -------- Constants and Variables --------
 
-    /// @custom:semver 1.6.0
+    /// @custom:semver 1.6.0-no-superchain-upgrade
     function version() public pure virtual returns (string memory) {
-        return "1.6.0";
+        return "1.6.0-no-superchain-upgrade";
     }
 
     /// @notice Address of the SuperchainConfig contract shared by all chains.
@@ -472,17 +472,6 @@ contract OPContractsManager is ISemver {
 
         Implementations memory impls = getImplementations();
         Blueprints memory bps = getBlueprints();
-
-        // If the SuperchainConfig is not already upgraded, upgrade it.
-        if (superchainProxyAdmin.getProxyImplementation(address(superchainConfig)) != impls.superchainConfigImpl) {
-            // Attempt to upgrade. If the ProxyAdmin is not the SuperchainConfig's admin, this will revert.
-            upgradeTo(superchainProxyAdmin, address(superchainConfig), impls.superchainConfigImpl);
-        }
-
-        // If the ProtocolVersions contract is not already upgraded, upgrade it.
-        if (superchainProxyAdmin.getProxyImplementation(address(protocolVersions)) != impls.protocolVersionsImpl) {
-            upgradeTo(superchainProxyAdmin, address(protocolVersions), impls.protocolVersionsImpl);
-        }
 
         for (uint256 i = 0; i < _opChainConfigs.length; i++) {
             assertValidOpChainConfig(_opChainConfigs[i]);

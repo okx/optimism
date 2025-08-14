@@ -146,6 +146,25 @@ commands:
           branch_pattern: develop
           mentions: "<< parameters.mentions >>"
 
+  get-target-branch:
+    description: "Determine the PR target branch and export TARGET_BRANCH for subsequent steps"
+    steps:
+      - run:
+          name: Determine target branch for this pipeline
+          command: |
+            TARGET_BRANCH=""
+            if [ -n "${CIRCLE_PULL_REQUEST:-}" ]; then
+              TARGET_BRANCH=$(curl -s "https://api.github.com/repos/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}/pulls/${CIRCLE_PULL_REQUEST##*/}" | jq -r .base.ref)
+            fi
+
+            # Fallbacks when not a PR or API did not return a branch
+            if [ -z "$TARGET_BRANCH" ] || [ "$TARGET_BRANCH" = "null" ]; then
+              TARGET_BRANCH="<< pipeline.git.branch >>"
+            fi
+
+            echo "Resolved TARGET_BRANCH=$TARGET_BRANCH"
+            echo "export TARGET_BRANCH=$TARGET_BRANCH" >> "$BASH_ENV"
+
   run-contracts-check:
     parameters:
       command:
@@ -614,17 +633,12 @@ jobs:
       - install-contracts-dependencies
       - check-changed:
           patterns: contracts-bedrock
+      - get-target-branch
       - run:
           name: Check if target branch is develop
           command: |
-            # Get PR number from CIRCLE_PULL_REQUEST
-            PR_NUMBER=$(echo $CIRCLE_PULL_REQUEST | rev | cut -d/ -f1 | rev)
-
-            # Use GitHub API to get target branch
-            TARGET_BRANCH=$(curl -s "https://api.github.com/repos/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}/pulls/${PR_NUMBER}" | jq -r .base.ref)
-
             # If the target branch is not develop, do not run this check
-            if [ "$TARGET_BRANCH" != "develop" ]; then
+            if [ "${TARGET_BRANCH}" != "develop" ]; then
               echo "Target branch is not develop, skipping frozen files check"
               circleci-agent step halt
             fi
@@ -789,6 +803,7 @@ jobs:
           environment:
             FOUNDRY_PROFILE: <<parameters.test_profile>>
             ETH_RPC_URL: https://ci-mainnet-l1-archive.optimism.io
+            SEPOLIA_RPC_URL: https://ci-sepolia-l1-archive.optimism.io
           working_directory: packages/contracts-bedrock
           no_output_timeout: <<parameters.test_timeout>>
       - run:
@@ -797,6 +812,7 @@ jobs:
           environment:
             FOUNDRY_PROFILE: <<parameters.test_profile>>
             ETH_RPC_URL: https://ci-mainnet-l1-archive.optimism.io
+            SEPOLIA_RPC_URL: https://ci-sepolia-l1-archive.optimism.io
           working_directory: packages/contracts-bedrock
           when: on_fail
       - codecov/upload:
@@ -845,6 +861,7 @@ jobs:
             FOUNDRY_FUZZ_RUNS: 1
             FOUNDRY_PROFILE: ci
             ETH_RPC_URL: https://ci-mainnet-l1-archive.optimism.io
+            SEPOLIA_RPC_URL: https://ci-sepolia-l1-archive.optimism.io
           working_directory: packages/contracts-bedrock
           no_output_timeout: 15m
       - run:
@@ -855,6 +872,7 @@ jobs:
             FOUNDRY_FUZZ_RUNS: 1
             FOUNDRY_PROFILE: ci
             ETH_RPC_URL: https://ci-mainnet-l1-archive.optimism.io
+            SEPOLIA_RPC_URL: https://ci-sepolia-l1-archive.optimism.io
           working_directory: packages/contracts-bedrock
           when: on_fail
       - save_cache:
@@ -879,6 +897,7 @@ jobs:
       - install-contracts-dependencies
       - check-changed:
           patterns: contracts-bedrock,op-node
+      - get-target-branch
       - run:
           name: print forge version
           command: forge --version
