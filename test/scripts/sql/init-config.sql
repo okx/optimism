@@ -181,5 +181,6 @@ VALUES ('1', 'content', 0, 'l1.epoch-poll-interval: 12s\nsequencer.max-safe-lag:
        ('2', 'content', 0, 'l1.epoch-poll-interval: 12s\nl1.http-poll-interval: 10s\nverifier.l1-confs: 8', 0),
        ('3', 'content', 0, 'sub-safety-margin: 10\nmax-channel-duration: 30\nmax-l1-tx-size-bytes: 150000', 0),
        ('4', 'content', 0, 'proposal-interval: 90s\nallow-non-finalized: false\ngame-type: 1', 0),
-       ('5', 'content', 0, 'game-window: 3600s\nhttp-poll-interval: 10s', 0);
+       ('5', 'content', 0, 'game-window: 3600s\nhttp-poll-interval: 10s', 0),
+       ('6', 'content', 0, 'txpool.accountslots: 32\ntxpool.globalslots: 8192\ntxpool.globalqueue: 2048\ntxpool.accountqueue: 128\ntxpool.PriceBump: 5\ntxpool.pricelimit: 2\nlifetime: 4h', 0);
 
