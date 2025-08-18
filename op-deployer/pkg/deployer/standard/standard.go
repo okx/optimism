@@ -39,11 +39,12 @@ const (
 	ContractsV180Tag        = "op-contracts/v1.8.0-rc.4"
 	ContractsV170Beta1L2Tag = "op-contracts/v1.7.0-beta.1+l2-contracts"
 	ContractsV200Tag        = "op-contracts/v2.0.0"
+	ContractsV220Tag        = "op-contracts/v2.2.0"
 )
 
 var DisputeAbsolutePrestate = common.HexToHash("0x038512e02c4c3f7bdaec27d00edf55b7155e0905301e1a88083e4e0a6764d54c")
 
-var DefaultL1ContractsTag = ContractsV200Tag
+var DefaultL1ContractsTag = ContractsV220Tag
 
 var DefaultL2ContractsTag = ContractsV170Beta1L2Tag
 
@@ -77,12 +78,16 @@ var taggedReleases = map[string]TaggedRelease{
 		ArtifactsHash: common.HexToHash("32e11c96e07b83619f419595facb273368dccfe2439287549e7b436c9b522204"),
 		ContentHash:   common.HexToHash("1cec51ed629c0394b8fb17ff2c6fa45c406c30f94ebbd37d4c90ede6c29ad608"),
 	},
+	ContractsV220Tag: {
+		ArtifactsHash: common.HexToHash("bac278daa21ea2dbbef60f58b5d5777ace4963b8a68aaf54e0d8137c1b33a7fd"),
+		ContentHash:   common.HexToHash("1e788c684d48232a85cf5f5bd3876e83d6d2240c80588f60e160faca0133eac8"),
+	},
 }
 
 var _ embed.FS
 
 func IsSupportedL1Version(tag string) bool {
-	return tag == ContractsV200Tag
+	return tag == ContractsV220Tag
 }
 
 func IsSupportedL2Version(tag string) bool {

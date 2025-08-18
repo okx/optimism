@@ -7,19 +7,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/broadcaster"
-	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/testutil"
-	"github.com/ethereum-optimism/optimism/op-deployer/pkg/env"
-	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/artifacts"
+	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/broadcaster"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/standard"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/state"
+	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/testutil"
+	"github.com/ethereum-optimism/optimism/op-deployer/pkg/env"
 	"github.com/ethereum-optimism/optimism/op-service/testlog"
 	"github.com/ethereum-optimism/optimism/op-service/testutils/devnet"
+	"github.com/ethereum-optimism/superchain-registry/validation"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/stretchr/testify/require"
 )
 
@@ -113,21 +114,19 @@ func TestInitLiveStrategy_OPCMReuseLogicSepolia(t *testing.T) {
 			proxyAdmin, err := standard.SuperchainProxyAdminAddrFor(l1ChainID)
 			require.NoError(t, err)
 
-			expDeployment := &state.SuperchainDeployment{
-				ProxyAdminAddress:            proxyAdmin,
-				ProtocolVersionsProxyAddress: superCfg.ProtocolVersionsAddr,
-				ProtocolVersionsImplAddress:  common.HexToAddress("0x37E15e4d6DFFa9e5E320Ee1eC036922E563CB76C"),
-				SuperchainConfigProxyAddress: superCfg.SuperchainConfigAddr,
-				SuperchainConfigImplAddress:  common.HexToAddress("0x4da82a327773965b8d4D85Fa3dB8249b387458E7"),
-			}
-
 			// Tagged locator will reuse the existing superchain and OPCM
 			require.NotNil(t, st.SuperchainDeployment)
 			require.NotNil(t, st.ImplementationsDeployment)
 			require.NotNil(t, st.SuperchainRoles)
-			require.Equal(t, *expDeployment, *st.SuperchainDeployment)
 			require.Equal(t, opcmAddr, st.ImplementationsDeployment.OpcmAddress)
 			require.Equal(t, *stdSuperchainRoles, *st.SuperchainRoles)
+
+			// SuperchainConfigImplAddress can be changed by future upgrades, therefore we
+			// don't check it here.
+			require.Equal(t, proxyAdmin, st.SuperchainDeployment.ProxyAdminAddress)
+			require.Equal(t, superCfg.SuperchainConfigAddr, st.SuperchainDeployment.SuperchainConfigProxyAddress)
+			require.Equal(t, superCfg.ProtocolVersionsAddr, st.SuperchainDeployment.ProtocolVersionsProxyAddress)
+			require.Equal(t, common.HexToAddress("0x37E15e4d6DFFa9e5E320Ee1eC036922E563CB76C"), st.SuperchainDeployment.ProtocolVersionsImplAddress)
 		}
 
 		runTest(state.IntentTypeStandard)
@@ -220,16 +219,17 @@ func TestPopulateSuperchainState(t *testing.T) {
 	require.NoError(t, err)
 	superchain, err := standard.SuperchainFor(11155111)
 	require.NoError(t, err)
-	opcmAddr := l1Versions["op-contracts/v2.0.0-rc.1"].OPContractsManager.Address
+	opcmAddr := l1Versions[validation.Semver220].OPContractsManager.Address
 	dep, roles, err := PopulateSuperchainState(rpcClient, common.Address(*opcmAddr))
 	require.NoError(t, err)
-	require.Equal(t, state.SuperchainDeployment{
-		ProxyAdminAddress:            common.HexToAddress("0x189aBAAaa82DfC015A588A7dbaD6F13b1D3485Bc"),
-		SuperchainConfigProxyAddress: superchain.SuperchainConfigAddr,
-		SuperchainConfigImplAddress:  common.HexToAddress("0x4da82a327773965b8d4D85Fa3dB8249b387458E7"),
-		ProtocolVersionsProxyAddress: superchain.ProtocolVersionsAddr,
-		ProtocolVersionsImplAddress:  common.HexToAddress("0x37E15e4d6DFFa9e5E320Ee1eC036922E563CB76C"),
-	}, *dep)
+
+	// SuperchainConfigImplAddress can be changed by future upgrades, therefore we
+	// don't check it here.
+	require.Equal(t, common.HexToAddress("0x189aBAAaa82DfC015A588A7dbaD6F13b1D3485Bc"), dep.ProxyAdminAddress)
+	require.Equal(t, superchain.SuperchainConfigAddr, dep.SuperchainConfigProxyAddress)
+	require.Equal(t, superchain.ProtocolVersionsAddr, dep.ProtocolVersionsProxyAddress)
+	require.Equal(t, common.HexToAddress("0x37E15e4d6DFFa9e5E320Ee1eC036922E563CB76C"), dep.ProtocolVersionsImplAddress)
+
 	require.Equal(t, state.SuperchainRoles{
 		ProxyAdminOwner:       common.HexToAddress("0x1Eb2fFc903729a0F03966B917003800b145F56E2"),
 		ProtocolVersionsOwner: common.HexToAddress("0xfd1D2e729aE8eEe2E146c033bf4400fE75284301"),
