@@ -23,7 +23,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	logger2 "github.com/ethereum/go-ethereum/eth/tracers/logger"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/ethereum/go-ethereum/ethdb/remotedb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -237,7 +236,7 @@ func mainAction(c *cli.Context) error {
 	defer cl.Close()
 
 	ethCl := ethclient.NewClient(cl)
-	db := remotedb.New(cl)
+	db := NewHybridRemoteDB(cl)
 
 	var config *params.ChainConfig
 	if err := cl.CallContext(ctx, &config, "debug_chainConfig"); err != nil {
@@ -635,7 +634,7 @@ func Process(logger log.Logger, config *params.ChainConfig, block *sources.RPCBl
 
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions {
-		logger.Info("Processing tx", "i", i, "hash", tx.Hash())
+		logger.Info("Processing tx", "i", i, "hash", tx.Hash().Hex())
 		msg, err := core.TransactionToMessage(tx, signer, header.BaseFee)
 		if err != nil {
 			return nil, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)

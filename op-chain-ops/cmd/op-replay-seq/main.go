@@ -24,7 +24,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	logger2 "github.com/ethereum/go-ethereum/eth/tracers/logger"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/ethereum/go-ethereum/ethdb/remotedb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -210,7 +209,7 @@ func mainAction(c *cli.Context) error {
 	defer cl.Close()
 
 	ethCl := ethclient.NewClient(cl)
-	db := remotedb.New(cl)
+	db := NewHybridRemoteDB(cl)
 
 	var config *params.ChainConfig
 	if err := cl.CallContext(ctx, &config, "debug_chainConfig"); err != nil {
@@ -542,7 +541,8 @@ func (rm *ReplayMiner) generateWork(params *generateParams, witness bool, block 
 	misc.EnsureCreate2Deployer(rm.chainConfig, work.header.Time, work.state)
 
 	// Process forced transactions (from block)
-	for _, tx := range params.txs {
+	for i, tx := range params.txs {
+		rm.logger.Info("Processing tx", "i", i, "hash", tx.Hash().Hex())
 		from, _ := types.Sender(work.signer, tx)
 		work.state.SetTxContext(tx.Hash(), work.tcount)
 		err = rm.commitTransaction(work, tx)
