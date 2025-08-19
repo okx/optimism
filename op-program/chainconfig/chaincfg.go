@@ -1,10 +1,13 @@
 package chainconfig
 
 import (
+	"bytes"
+	"compress/gzip"
 	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -77,6 +80,20 @@ func rollupConfigByChainID(chainID eth.ChainID, customChainFS embed.FS) (*rollup
 	return &customRollupConfig, customRollupConfig.ParseRollupConfig(file)
 }
 
+func decompressGzip(data []byte) ([]byte, error) {
+	reader, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	var uncompressedData bytes.Buffer
+	if _, err := io.Copy(&uncompressedData, reader); err != nil {
+		return nil, err
+	}
+	return uncompressedData.Bytes(), nil
+}
+
 // ChainConfigByChainID locates the genesis chain config from either the superchain-registry or the embed.
 // Returns ErrMissingChainConfig if the chain config is not found.
 func ChainConfigByChainID(chainID eth.ChainID) (*params.ChainConfig, error) {
@@ -94,6 +111,11 @@ func chainConfigByChainID(chainID eth.ChainID, customChainFS embed.FS) (*params.
 		return nil, fmt.Errorf("%w: no chain config available for chain ID: %v", ErrMissingChainConfig, chainID)
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to get chain config for chain ID %v: %w", chainID, err)
+	}
+
+	data, err = decompressGzip(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decompress chain config: %w", err)
 	}
 	var genesis core.Genesis
 	err = json.Unmarshal(data, &genesis)
