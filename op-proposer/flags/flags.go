@@ -84,6 +84,12 @@ var (
 		Value:   false,
 		EnvVars: prefixEnvVars("WAIT_NODE_SYNC"),
 	}
+	GenesisHeight = &cli.Uint64Flag{
+		Name:    "genesis-height",
+		Usage:   "The genesis block height to use",
+		Value:   0,
+		EnvVars: prefixEnvVars("GENESIS_HEIGHT"),
+	}
 	// Legacy Flags
 	L2OutputHDPathFlag = txmgr.L2OutputHDPathFlag
 )
@@ -104,6 +110,7 @@ var optionalFlags = []cli.Flag{
 	DisputeGameTypeFlag,
 	ActiveSequencerCheckDurationFlag,
 	WaitNodeSyncFlag,
+	GenesisHeight,
 }
 
 func init() {

@@ -50,6 +50,8 @@ type ProposerConfig struct {
 	AllowNonFinalized bool
 
 	WaitNodeSync bool
+
+	GenesisHeight uint64
 }
 
 type ProposerService struct {
@@ -96,6 +98,7 @@ func (ps *ProposerService) initFromCLIConfig(ctx context.Context, version string
 	ps.NetworkTimeout = cfg.TxMgrConfig.NetworkTimeout
 	ps.AllowNonFinalized = cfg.AllowNonFinalized
 	ps.WaitNodeSync = cfg.WaitNodeSync
+	ps.GenesisHeight = cfg.GenesisHeight
 
 	ps.initL2ooAddress(cfg)
 	ps.initDGF(cfg)
