@@ -1,10 +1,15 @@
 package chainconfig
 
 import (
+	"bytes"
+	"compress/gzip"
+	"crypto/md5"
 	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/log"
+	"io"
 	"os"
 	"strings"
 
@@ -87,6 +92,20 @@ func ChainConfigByChainID(chainID eth.ChainID) (*params.ChainConfig, error) {
 	return chainConfigByChainID(chainID, customChainConfigFS)
 }
 
+func decompressGzip(data []byte) ([]byte, error) {
+	reader, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	var uncompressedData bytes.Buffer
+	if _, err := io.Copy(&uncompressedData, reader); err != nil {
+		return nil, err
+	}
+	return uncompressedData.Bytes(), nil
+}
+
 func chainConfigByChainID(chainID eth.ChainID, customChainFS embed.FS) (*params.ChainConfig, error) {
 	// Load from custom chain configs from embed FS
 	data, err := customChainFS.ReadFile(fmt.Sprintf("configs/%v-genesis-l2.json", chainID))
@@ -95,6 +114,11 @@ func chainConfigByChainID(chainID eth.ChainID, customChainFS embed.FS) (*params.
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to get chain config for chain ID %v: %w", chainID, err)
 	}
+	data, err = decompressGzip(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decompress for chain ID %v: %w", chainID, err)
+	}
+	log.Info("decompress genesis", "chain id", chainID, "md5 hash", md5.Sum(data))
 	var genesis core.Genesis
 	err = json.Unmarshal(data, &genesis)
 	if err != nil {
