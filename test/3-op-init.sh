@@ -13,9 +13,6 @@ sed_inplace() {
   fi
 }
 
-# genesis.json is too large to embed in go, so we compress it now and decompress it in go code
-gzip -c config-op/genesis.json > config-op/genesis.gz.json
-
 FORK_BLOCK_HEX=$(printf "0x%x" "$FORK_BLOCK")
 sed_inplace 's/"number": "0x0"/"number": "'"$FORK_BLOCK_HEX"'"/' ./config-op/genesis.json
 sed_inplace 's/"number": 0/"number": '"$FORK_BLOCK"'/' ./config-op/rollup.json
@@ -136,13 +133,17 @@ docker compose run --no-deps \
 
 echo "finished init op-geth-seq and op-geth-rpc"
 
+# genesis.json is too large to embed in go, so we compress it now and decompress it in go code
+gzip -c config-op/genesis.json > config-op/genesis.json.gz
+
 # Ensure prestate files exist and devnetL1.json is consistent before deploying contracts
 EXPORT_DIR="$PWD_DIR/data/cannon-data"
+rm -rf $EXPORT_DIR
 mkdir -p $EXPORT_DIR
 docker run --rm \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -v "$(pwd)/config-op/rollup.json:/app/op-program/chainconfig/configs/195-rollup.json" \
-    -v "$(pwd)/config-op/genesis.gz.json:/app/op-program/chainconfig/configs/195-genesis-l2.json" \
+    -v "$(pwd)/config-op/genesis.json.gz:/app/op-program/chainconfig/configs/195-genesis-l2.json" \
     -v "$EXPORT_DIR:/app/op-program/bin" \
     -w /app \
     --network "${DOCKER_NETWORK}" \
