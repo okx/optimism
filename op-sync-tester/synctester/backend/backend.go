@@ -35,9 +35,21 @@ func SessionFromContext(ctx context.Context) (*Session, bool) {
 
 type Session struct {
 	SessionID string
-	Latest    uint64
-	Safe      uint64
-	Finalized uint64
+
+	// Non canonical view of the chain
+	Validated uint64
+	// Canonical view of the chain
+	CurrentState sttypes.FCUState
+	// payloads
+	Payloads map[eth.PayloadID]*eth.ExecutionPayloadEnvelope
+
+	InitialState sttypes.FCUState
+}
+
+func (s *Session) UpdateFCUState(latest, safe, finalized uint64) {
+	s.CurrentState.Latest = latest
+	s.CurrentState.Safe = safe
+	s.CurrentState.Finalized = finalized
 }
 
 type APIRouter interface {
