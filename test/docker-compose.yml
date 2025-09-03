@@ -1,6 +1,6 @@
 networks:
   default:
-    name: pp-op
+    name: dev-op
 
 services:
   l1-geth-remove-db:
