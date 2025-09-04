@@ -21,6 +21,11 @@ For more granular control or troubleshooting, follow the steps below.
 - At least 32GB RAM
 - At least 32GB available disk space
 
+if you stuck here, please give docker engine more memory limit, better to over 32GB
+![issue](./images/stuck.png)
+![solution](./images/docker.png)
+
+
 ### Initial Setup (First Time Only)
 1. Run `./init.sh` to initialize the environment (only needed once):
    - Install all git submodules
