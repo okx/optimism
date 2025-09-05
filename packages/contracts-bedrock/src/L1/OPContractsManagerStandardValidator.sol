@@ -186,6 +186,56 @@ contract OPContractsManagerStandardValidator is ISemver {
         return challenger;
     }
 
+    /// @notice Returns the expected SystemConfig version.
+    function systemConfigVersion() public pure returns (string memory) {
+        return "3.5.0";
+    }
+
+    /// @notice Returns the expected OptimismPortal version.
+    function optimismPortalVersion() public pure returns (string memory) {
+        return "4.7.0";
+    }
+
+    /// @notice Returns the expected L1CrossDomainMessenger version.
+    function l1CrossDomainMessengerVersion() public pure returns (string memory) {
+        return "2.9.0";
+    }
+
+    /// @notice Returns the expected L1ERC721Bridge version.
+    function l1ERC721BridgeVersion() public pure returns (string memory) {
+        return "2.7.0";
+    }
+
+    /// @notice Returns the expected L1StandardBridge version.
+    function l1StandardBridgeVersion() public pure returns (string memory) {
+        return "2.6.0";
+    }
+
+    /// @notice Returns the expected MIPS version.
+    function mipsVersion() public pure returns (string memory) {
+        return "1.9.0";
+    }
+
+    /// @notice Returns the expected OptimismMintableERC20Factory version.
+    function optimismMintableERC20FactoryVersion() public pure returns (string memory) {
+        return "1.10.1";
+    }
+
+    /// @notice Returns the expected DisputeGameFactory version.
+    function disputeGameFactoryVersion() public pure returns (string memory) {
+        return "1.2.0";
+    }
+
+    /// @notice Returns the expected AnchorStateRegistry version.
+    function anchorStateRegistryVersion() public pure returns (string memory) {
+        return "3.5.0";
+    }
+
+    /// @notice Returns the expected DelayedWETH version.
+    function delayedWETHVersion() public pure returns (string memory) {
+        return "1.5.0";
+    }
+
     /// @notice Returns the expected PermissionedDisputeGame version.
     function permissionedDisputeGameVersion() public pure returns (string memory) {
         return "1.8.0";
