@@ -162,3 +162,5 @@ docker run --rm \
         echo '📁 Checking contents of op-program/bin:'
         ls -la /app/op-program/bin/ || echo 'Directory is empty or does not exist'
     "
+
+    . "$PWD_DIR/patch-genesis.sh"
