@@ -243,7 +243,7 @@ func (r *InteropDevL2Recipe) build(l1ChainID uint64, addrs devkeys.Addresses) (*
 				GasPriceOracleBlobBaseFeeScalar: 810949,
 			},
 			GasTokenDeployConfig: genesis.GasTokenDeployConfig{
-				IsCustomGasToken:     false,
+				UseCustomGasToken:   false,
 				GasPayingTokenName:   "",
 				GasPayingTokenSymbol: "",
 			},
