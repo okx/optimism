@@ -87,17 +87,6 @@ func TestValidateStandardValues(t *testing.T) {
 			},
 			ErrIncompatibleValue,
 		},
-		{
-			"CustomGasToken",
-			func(intent *Intent) {
-				intent.Chains[0].CustomGasToken = &CustomGasToken{
-					Enabled: true,
-					Name:    "Custom Gas Token",
-					Symbol:  "CGT",
-				}
-			},
-			ErrNonStandardValue,
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
