@@ -170,7 +170,7 @@ func wdNetworkToBig(wd genesis.WithdrawalNetwork) *big.Int {
 
 func defaultOverrides() l2GenesisOverrides {
 	return l2GenesisOverrides{
-		UseCustomGasToken:                         false,
+		UseCustomGasToken:                        false,
 		GasPayingTokenName:                       "",
 		GasPayingTokenSymbol:                     "",
 		FundDevAccounts:                          false,
