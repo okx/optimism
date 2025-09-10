@@ -305,7 +305,7 @@
           },
           {
             "internalType": "bool",
-            "name": "isCustomGasToken",
+            "name": "useCustomGasToken",
             "type": "bool"
           },
           {
