@@ -188,27 +188,27 @@ contract OPContractsManagerStandardValidator is ISemver {
 
     /// @notice Returns the expected SystemConfig version.
     function systemConfigVersion() public pure returns (string memory) {
-        return "3.5.0";
+        return "3.8.0";
     }
 
     /// @notice Returns the expected OptimismPortal version.
     function optimismPortalVersion() public pure returns (string memory) {
-        return "4.7.0";
+        return "5.1.0";
     }
 
     /// @notice Returns the expected L1CrossDomainMessenger version.
     function l1CrossDomainMessengerVersion() public pure returns (string memory) {
-        return "2.9.0";
+        return "2.10.0";
     }
 
     /// @notice Returns the expected L1ERC721Bridge version.
     function l1ERC721BridgeVersion() public pure returns (string memory) {
-        return "2.7.0";
+        return "2.8.0";
     }
 
     /// @notice Returns the expected L1StandardBridge version.
     function l1StandardBridgeVersion() public pure returns (string memory) {
-        return "2.6.0";
+        return "2.7.0";
     }
 
     /// @notice Returns the expected MIPS version.
@@ -223,7 +223,7 @@ contract OPContractsManagerStandardValidator is ISemver {
 
     /// @notice Returns the expected DisputeGameFactory version.
     function disputeGameFactoryVersion() public pure returns (string memory) {
-        return "1.2.0";
+        return "1.3.0";
     }
 
     /// @notice Returns the expected AnchorStateRegistry version.
