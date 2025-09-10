@@ -63,9 +63,9 @@ contract OptimismPortal2_TestInit is DisputeGameFactory_TestInit {
             data: hex"aa" // includes calldata for ERC20 withdrawal test
          });
 
-         if (isUsingCustomGasToken()) {
+        if (isUsingCustomGasToken()) {
             _defaultTx.value = 0;
-         }
+        }
 
         // Get withdrawal proof data we can use for testing.
         (_stateRoot, _storageRoot, _outputRoot, _withdrawalHash, _withdrawalProof) =
