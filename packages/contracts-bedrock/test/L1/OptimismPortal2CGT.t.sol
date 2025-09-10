@@ -30,21 +30,13 @@ import {
     OptimismPortal2_Params_Test
 } from "test/L1/OptimismPortal2.t.sol";
 
-// Scripts
-import { ForgeArtifacts, StorageSlot } from "scripts/libraries/ForgeArtifacts.sol";
-
 // Libraries
 import { Types } from "src/libraries/Types.sol";
 import { Hashing } from "src/libraries/Hashing.sol";
-import { Constants } from "src/libraries/Constants.sol";
-import { AddressAliasHelper } from "src/vendor/AddressAliasHelper.sol";
-import { GameType, Claim } from "src/dispute/lib/Types.sol";
 
 // Interfaces
 import { IOptimismPortal2 as IOptimismPortal } from "interfaces/L1/IOptimismPortal2.sol";
 import { IDisputeGame } from "interfaces/dispute/IDisputeGame.sol";
-import { IProxyAdminOwnedBase } from "interfaces/L1/IProxyAdminOwnedBase.sol";
-import { IFaultDisputeGame } from "interfaces/dispute/IFaultDisputeGame.sol";
 
 /// @title OptimismPortal2CGT_TestInit
 /// @notice Reusable test initialization for `OptimismPortal2` tests with custom gas token enabled.
