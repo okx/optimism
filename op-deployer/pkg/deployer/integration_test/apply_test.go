@@ -13,6 +13,7 @@ import (
 
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/bootstrap"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/inspect"
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/params"
 
 	"github.com/ethereum-optimism/optimism/op-service/testutils"
@@ -34,6 +35,7 @@ import (
 	op_e2e "github.com/ethereum-optimism/optimism/op-e2e"
 
 	"github.com/holiman/uint256"
+	"github.com/lmittmann/w3"
 
 	"github.com/ethereum-optimism/optimism/op-chain-ops/addresses"
 	"github.com/ethereum-optimism/optimism/op-chain-ops/devkeys"
@@ -237,6 +239,42 @@ func TestEndToEndApply(t *testing.T) {
 			_, err := hexutil.Decode(val) // the not-empty val check is covered here as well
 			require.NoError(t, err)
 		}
+	})
+
+	t.Run("with custom gas token", func(t *testing.T) {
+		intent, st := newIntent(t, l1ChainID, dk, l2ChainID1, loc, loc)
+		intent.Chains[0].CustomGasToken = &state.CustomGasToken{
+			Enabled: true,
+			Name:    "Custom Gas Token",
+			Symbol:  "CGT",
+		}
+
+		require.NoError(t, deployer.ApplyPipeline(ctx, deployer.ApplyPipelineOpts{
+			DeploymentTarget:   deployer.DeploymentTargetLive,
+			L1RPCUrl:           l1RPC,
+			DeployerPrivateKey: pk,
+			Intent:             intent,
+			State:              st,
+			Logger:             lgr,
+			StateWriter:        pipeline.NoopStateWriter(),
+			CacheDir:           testCacheDir,
+		}))
+
+		systemConfig := st.Chains[0].SystemConfigProxy
+		fn := w3.MustNewFunc("isFeatureEnabled(bytes32)", "bool")
+		// bytes32("CUSTOM_GAS_TOKEN")
+		data, err := fn.EncodeArgs(w3.H("0x435553544f4d5f4741535f544f4b454e00000000000000000000000000000000"))
+		require.NoError(t, err)
+
+		res, err := l1Client.CallContract(ctx, ethereum.CallMsg{
+			To:   &systemConfig,
+			Data: data,
+		}, nil)
+		require.NoError(t, err)
+
+		var response bool
+		fn.DecodeReturns(res, &response)
+		require.Equal(t, true, response)
 	})
 }
 
@@ -712,9 +750,9 @@ func newChainIntent(t *testing.T, dk *devkeys.MnemonicDevKeys, l1ChainID *big.In
 			Challenger:        addrFor(t, dk, devkeys.ChallengerRole.Key(l1ChainID)),
 		},
 		CustomGasToken: &state.CustomGasToken{
-			Enabled: standard.CustomGasTokenEnabled,
-			Name:    standard.CustomGasTokenName,
-			Symbol:  standard.CustomGasTokenSymbol,
+			Enabled: false,
+			Name:    "",
+			Symbol:  "",
 		},
 	}
 }
