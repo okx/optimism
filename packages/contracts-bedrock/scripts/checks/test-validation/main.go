@@ -376,7 +376,7 @@ var excludedPaths = []string{
 	"test/L2/GasPriceOracle.t.sol",                       // Contains contracts not matching GasPriceOracle base name
 	"test/universal/StandardBridge.t.sol",                // Contains contracts not matching StandardBridge base name
 	"test/L1/OPContractsManagerContractsContainer.t.sol", // Contains contracts not matching OPContractsManagerContractsContainer base name
-	"test/L1/OptimismPortal2.t.sol",                     // Contains contracts not matching OptimismPortal2 base name
+	"test/L1/OptimismPortal2.t.sol",                      // Contains contracts not matching OptimismPortal2 base name
 
 	// PATHS EXCLUDED FROM FUNCTION NAME VALIDATION:
 	// These paths are excluded because they don't pass the function name validation, which checks

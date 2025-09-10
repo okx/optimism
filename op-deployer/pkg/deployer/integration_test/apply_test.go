@@ -273,7 +273,8 @@ func TestEndToEndApply(t *testing.T) {
 		require.NoError(t, err)
 
 		var response bool
-		fn.DecodeReturns(res, &response)
+		err = fn.DecodeReturns(res, &response)
+		require.NoError(t, err)
 		require.Equal(t, true, response)
 	})
 }
