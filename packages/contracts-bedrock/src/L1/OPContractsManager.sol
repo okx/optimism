@@ -1063,11 +1063,6 @@ contract OPContractsManagerDeployer is OPContractsManagerBase {
             output.opChainProxyAdmin, address(output.l1ERC721BridgeProxy), implementation.l1ERC721BridgeImpl, data
         );
 
-        data = encodeOptimismPortalInitializer(output, _input);
-        upgradeToAndCall(
-            output.opChainProxyAdmin, address(output.optimismPortalProxy), implementation.optimismPortalImpl, data
-        );
-
         // Initialize the SystemConfig before the ETHLockbox, required because the ETHLockbox will
         // try to get the SuperchainConfig from the SystemConfig inside of its initializer. Also
         // need to initialize before OptimismPortal because OptimismPortal does some sanity checks
@@ -1076,6 +1071,12 @@ contract OPContractsManagerDeployer is OPContractsManagerBase {
         upgradeToAndCall(
             output.opChainProxyAdmin, address(output.systemConfigProxy), implementation.systemConfigImpl, data
         );
+
+        // If the custom gas token feature was requested, enable the custom gas token feature in the SystemConfig
+        // contract.
+        if (_input.isCustomGasToken) {
+            output.systemConfigProxy.setFeature(Features.CUSTOM_GAS_TOKEN, true);
+        }
 
         // If the interop feature was requested, enable the ETHLockbox feature in the SystemConfig
         // contract. Only other way to get the ETHLockbox feature as of u16a is to have already had
@@ -1094,7 +1095,7 @@ contract OPContractsManagerDeployer is OPContractsManagerBase {
                 data
             );
         } else {
-            data = encodeOptimismPortalInitializer(output, _input);
+            data = encodeOptimismPortalInitializer(output);
             upgradeToAndCall(
                 output.opChainProxyAdmin, address(output.optimismPortalProxy), implementation.optimismPortalImpl, data
             );
@@ -1241,15 +1242,14 @@ contract OPContractsManagerDeployer is OPContractsManagerBase {
 
     /// @notice Helper method for encoding the OptimismPortal initializer data.
     function encodeOptimismPortalInitializer(
-        OPContractsManager.DeployOutput memory _output,
-        OPContractsManager.DeployInput memory _input
+        OPContractsManager.DeployOutput memory _output
     )
         internal
         view
         virtual
         returns (bytes memory)
     {
-        return abi.encodeCall(IOptimismPortal.initialize, (_output.systemConfigProxy, _output.anchorStateRegistryProxy, _input.isCustomGasToken));
+        return abi.encodeCall(IOptimismPortal.initialize, (_output.systemConfigProxy, _output.anchorStateRegistryProxy));
     }
 
     /// @notice Helper method for encoding the OptimismPortalInterop initializer data.

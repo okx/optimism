@@ -178,9 +178,8 @@ contract OptimismPortal2_TestInit is DisputeGameFactory_TestInit {
 
     /// @notice Sets the isCustomGasToken variable
     function setIsCustomGasToken(bool _isCustomGasToken) public {
-        stdstore.enable_packed_slots().target(address(optimismPortal2)).sig("isCustomGasToken()").checked_write(
-            _isCustomGasToken
-        );
+        vm.prank(address(proxyAdmin));
+        systemConfig.setFeature(Features.CUSTOM_GAS_TOKEN, _isCustomGasToken);
     }
 }
 
@@ -277,7 +276,7 @@ contract OptimismPortal2_Initialize_Test is OptimismPortal2_TestInit {
 
         // Call the `initialize` function with the sender
         vm.prank(_sender);
-        optimismPortal2.initialize(systemConfig, anchorStateRegistry, false);
+        optimismPortal2.initialize(systemConfig, anchorStateRegistry);
     }
 }
 
@@ -750,7 +749,7 @@ contract OptimismPortal2_MigrateLiquidity_Test is CommonTest {
 /// @title OptimismPortal2_MigrateToSuperRoots_Test
 /// @notice Test contract for OptimismPortal2 `migrateToSuperRoots` function.
 contract OptimismPortal2_MigrateToSuperRoots_Test is OptimismPortal2_TestInit {
-    function setUp() public override {
+    function setUp() public virtual override {
         super.setUp();
         skipIfDevFeatureDisabled(DevFeatures.OPTIMISM_PORTAL_INTEROP);
     }

@@ -120,7 +120,7 @@ contract OptimismPortal2_Initialize_Test is OptimismPortal2CGT_TestInit {
 
         // Call the `initialize` function with the sender
         vm.prank(_sender);
-        optimismPortal2.initialize(systemConfig, anchorStateRegistry, ethLockbox, true);
+        optimismPortal2.initialize(systemConfig, anchorStateRegistry);
     }
 }
 

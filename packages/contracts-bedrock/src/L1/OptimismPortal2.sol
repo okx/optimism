@@ -130,9 +130,6 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
     /// @custom:spacer superRootsActive
     bool private spacer_63_20_1;
 
-    /// @notice Whether the gas token is custom.
-    bool public isCustomGasToken;
-
     /// @notice Emitted when a transaction is deposited from L1 to L2. The parameters of this event
     ///         are read by the rollup node and used to derive deposit transactions on L2.
     /// @param from       Address that triggered the deposit transaction.
@@ -225,11 +222,9 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
     /// @notice Initializer.
     /// @param _systemConfig Address of the SystemConfig.
     /// @param _anchorStateRegistry Address of the AnchorStateRegistry.
-    /// @param _isCustomGasToken Whether the gas token is custom.
     function initialize(
         ISystemConfig _systemConfig,
-        IAnchorStateRegistry _anchorStateRegistry,
-        bool _isCustomGasToken
+        IAnchorStateRegistry _anchorStateRegistry
     )
         external
         reinitializer(initVersion())
@@ -240,7 +235,6 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
         // Now perform initialization logic.
         systemConfig = _systemConfig;
         anchorStateRegistry = _anchorStateRegistry;
-        isCustomGasToken = _isCustomGasToken;
 
         // Set the l2Sender slot, only if it is currently empty. This signals the first
         // initialization of the contract.
@@ -250,6 +244,12 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
 
         // Initialize the ResourceMetering contract.
         __ResourceMetering_init();
+    }
+
+    /// @notice Returns whether the custom gas token feature is enabled.
+    /// @return bool True if the custom gas token feature is enabled, false otherwise.
+    function isCustomGasToken() public view returns (bool) {
+        return _isUsingCustomGasToken();
     }
 
     /// @notice Getter for the current paused status.
@@ -443,8 +443,8 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
         public
     {
         // Cannot finalize withdrawal with value when custom gas token mode is enabled.
-        if (isCustomGasToken && _tx.value > 0) {
-            revert OptimismPortal_NotAllowedOnCGTMode();
+        if (_isUsingCustomGasToken()) {
+            if (_tx.value > 0) revert OptimismPortal_NotAllowedOnCGTMode();
         }
 
         // Cannot finalize withdrawal transactions while the system is paused.
@@ -572,18 +572,14 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
         payable
         metered(_gasLimit)
     {
-        if (msg.value > 0) {
-            if (isCustomGasToken) {
-                revert OptimismPortal_NotAllowedOnCGTMode();
-            }
+        if (_isUsingCustomGasToken()) {
+            if (msg.value > 0) revert OptimismPortal_NotAllowedOnCGTMode();
         }
 
         // If using ETHLockbox, lock the ETH in the ETHLockbox.
         if (_isUsingLockbox()) {
             if (msg.value > 0) ethLockbox.lockETH{ value: msg.value }();
         }
-        // Lock the ETH in the ETHLockbox.
-        if (msg.value > 0) ethLockbox.lockETH{ value: msg.value }();
 
         // Just to be safe, make sure that people specify address(0) as the target when doing
         // contract creations.
@@ -632,6 +628,12 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
     /// @return bool True if the ETHLockbox feature is enabled.
     function _isUsingLockbox() internal view returns (bool) {
         return systemConfig.isFeatureEnabled(Features.ETH_LOCKBOX) && address(ethLockbox) != address(0);
+    }
+
+    /// @notice Checks if the Custom Gas Token feature is enabled.
+    /// @return bool True if the Custom Gas Token feature is enabled.
+    function _isUsingCustomGasToken() internal view returns (bool) {
+        return systemConfig.isFeatureEnabled(Features.CUSTOM_GAS_TOKEN);
     }
 
     /// @notice Asserts that the contract is not paused.

@@ -294,11 +294,6 @@
         "internalType": "contract IAnchorStateRegistry",
         "name": "_anchorStateRegistry",
         "type": "address"
-      },
-      {
-        "internalType": "bool",
-        "name": "_isCustomGasToken",
-        "type": "bool"
       }
     ],
     "name": "initialize",

@@ -517,4 +517,10 @@ contract SystemConfig is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitializabl
     function guardian() public view returns (address) {
         return superchainConfig.guardian();
     }
+
+    /// @notice Returns whether the custom gas token feature is enabled.
+    /// @return bool True if the custom gas token feature is enabled, false otherwise.
+    function isCustomGasToken() public view returns (bool) {
+        return isFeatureEnabled[Features.CUSTOM_GAS_TOKEN];
+    }
 }

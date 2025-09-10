@@ -73,8 +73,7 @@ interface IOptimismPortal2 is IProxyAdminOwnedBase {
     function guardian() external view returns (address);
     function initialize(
         ISystemConfig _systemConfig,
-        IAnchorStateRegistry _anchorStateRegistry,
-        bool _isCustomGasToken
+        IAnchorStateRegistry _anchorStateRegistry
     )
         external;
     function initVersion() external view returns (uint8);
