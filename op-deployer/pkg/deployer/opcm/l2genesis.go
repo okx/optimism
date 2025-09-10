@@ -28,7 +28,7 @@ type L2GenesisInput struct {
 	DeployCrossL2Inbox                       bool
 	EnableGovernance                         bool
 	FundDevAccounts                          bool
-	IsCustomGasToken                         bool
+	UseCustomGasToken                        bool
 	GasPayingTokenName                       string
 	GasPayingTokenSymbol                     string
 }

@@ -22,7 +22,7 @@ import (
 )
 
 type l2GenesisOverrides struct {
-	IsCustomGasToken                         bool                      `json:"isCustomGasToken"`
+	UseCustomGasToken                        bool                      `json:"useCustomGasToken"`
 	GasPayingTokenName                       string                    `json:"gasPayingTokenName"`
 	GasPayingTokenSymbol                     string                    `json:"gasPayingTokenSymbol"`
 	FundDevAccounts                          bool                      `json:"fundDevAccounts"`
@@ -97,7 +97,7 @@ func GenerateL2Genesis(pEnv *Env, intent *state.Intent, bundle ArtifactsBundle, 
 		DeployCrossL2Inbox:                       len(intent.Chains) > 1,
 		EnableGovernance:                         overrides.EnableGovernance,
 		FundDevAccounts:                          overrides.FundDevAccounts,
-		IsCustomGasToken:                         thisIntent.CustomGasToken.Enabled,
+		UseCustomGasToken:                        thisIntent.CustomGasToken.Enabled,
 		GasPayingTokenName:                       thisIntent.CustomGasToken.Name,
 		GasPayingTokenSymbol:                     thisIntent.CustomGasToken.Symbol,
 	}); err != nil {
@@ -150,7 +150,7 @@ func calculateL2GenesisOverrides(intent *state.Intent, thisIntent *state.ChainIn
 
 	if thisIntent.CustomGasToken == nil {
 		thisIntent.CustomGasToken = &state.CustomGasToken{
-			Enabled: overrides.IsCustomGasToken,
+			Enabled: overrides.UseCustomGasToken,
 			Name:    overrides.GasPayingTokenName,
 			Symbol:  overrides.GasPayingTokenSymbol,
 		}
@@ -170,7 +170,7 @@ func wdNetworkToBig(wd genesis.WithdrawalNetwork) *big.Int {
 
 func defaultOverrides() l2GenesisOverrides {
 	return l2GenesisOverrides{
-		IsCustomGasToken:                         false,
+		UseCustomGasToken:                         false,
 		GasPayingTokenName:                       "",
 		GasPayingTokenSymbol:                     "",
 		FundDevAccounts:                          false,
