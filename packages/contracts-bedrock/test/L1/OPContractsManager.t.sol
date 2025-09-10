@@ -363,7 +363,7 @@ contract OPContractsManager_TestInit is CommonTest {
                 disputeSplitDepth: 30,
                 disputeClockExtension: Duration.wrap(10800),
                 disputeMaxClockDuration: Duration.wrap(302400),
-                isCustomGasToken: false
+                useCustomGasToken: false
             })
         );
     }
@@ -1639,7 +1639,7 @@ contract OPContractsManager_Deploy_Test is DeployOPChain_TestBase {
             disputeSplitDepth: _doi.disputeSplitDepth(),
             disputeClockExtension: _doi.disputeClockExtension(),
             disputeMaxClockDuration: _doi.disputeMaxClockDuration(),
-            isCustomGasToken: _doi.isCustomGasToken()
+            useCustomGasToken: _doi.useCustomGasToken()
         });
     }
 

@@ -176,10 +176,10 @@ contract OptimismPortal2_TestInit is DisputeGameFactory_TestInit {
         }
     }
 
-    /// @notice Sets the isCustomGasToken variable
-    function setIsCustomGasToken(bool _isCustomGasToken) public {
+    /// @notice Sets the useCustomGasToken variable
+    function setUseCustomGasToken(bool _useCustomGasToken) public {
         vm.prank(address(proxyAdmin));
-        systemConfig.setFeature(Features.CUSTOM_GAS_TOKEN, _isCustomGasToken);
+        systemConfig.setFeature(Features.CUSTOM_GAS_TOKEN, _useCustomGasToken);
     }
 }
 

@@ -423,7 +423,7 @@ contract Deploy is Deployer {
             basefeeScalar: cfg.basefeeScalar(),
             blobBasefeeScalar: cfg.blobbasefeeScalar(),
             l2ChainId: cfg.l2ChainID(),
-            isCustomGasToken: cfg.isCustomGasToken(),
+            useCustomGasToken: cfg.useCustomGasToken(),
             startingAnchorRoot: abi.encode(
                 Proposal({ root: Hash.wrap(cfg.faultGameGenesisOutputRoot()), l2SequenceNumber: cfg.faultGameGenesisBlock() })
             ),

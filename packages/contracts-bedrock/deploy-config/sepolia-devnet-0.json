@@ -80,7 +80,7 @@
   "fundDevAccounts": false,
   "requiredProtocolVersion": "0x0000000000000000000000000000000000000005000000000000000000000000",
   "recommendedProtocolVersion": "0x0000000000000000000000000000000000000005000000000000000000000000",
-  "isCustomGasToken": false,
+  "useCustomGasToken": false,
   "gasPayingTokenName": "",
   "gasPayingTokenSymbol": ""
 }

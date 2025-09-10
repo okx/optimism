@@ -72,7 +72,7 @@ func CombineDeployConfig(intent *Intent, chainIntent *ChainIntent, state *State,
 			},
 
 			GasTokenDeployConfig: genesis.GasTokenDeployConfig{
-				IsCustomGasToken:     chainIntent.CustomGasToken.Enabled,
+				UseCustomGasToken:    chainIntent.CustomGasToken.Enabled,
 				GasPayingTokenName:   chainIntent.CustomGasToken.Name,
 				GasPayingTokenSymbol: chainIntent.CustomGasToken.Symbol,
 			},

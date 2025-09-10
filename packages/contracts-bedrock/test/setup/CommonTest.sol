@@ -76,7 +76,7 @@ contract CommonTest is Test, Setup, Events {
             deploy.cfg().setUseUpgradedFork(true);
         }
         if (useCustomGasToken) {
-            deploy.cfg().setIsCustomGasToken(true);
+            deploy.cfg().setUseCustomGasToken(true);
             deploy.cfg().setBaseFeeVaultWithdrawalNetwork(1);
             deploy.cfg().setL1FeeVaultWithdrawalNetwork(1);
             deploy.cfg().setSequencerFeeVaultWithdrawalNetwork(1);

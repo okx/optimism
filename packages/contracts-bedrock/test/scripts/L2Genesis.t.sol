@@ -49,7 +49,7 @@ contract L2Genesis_TestInit is Test {
             assertEq(Predeploys.PROXY_ADMIN, EIP1967Helper.getAdmin(addr));
 
             // If it's not a supported predeploy, skip next checks.
-            if (!Predeploys.isSupportedPredeploy(addr, uint256(LATEST_FORK), true, input.isCustomGasToken)) {
+            if (!Predeploys.isSupportedPredeploy(addr, uint256(LATEST_FORK), true, input.useCustomGasToken)) {
                 continue;
             }
 
@@ -146,7 +146,7 @@ contract L2Genesis_Run_Test is L2Genesis_TestInit {
             deployCrossL2Inbox: true,
             enableGovernance: true,
             fundDevAccounts: true,
-            isCustomGasToken: false,
+            useCustomGasToken: false,
             gasPayingTokenName: "",
             gasPayingTokenSymbol: ""
         });
@@ -183,7 +183,7 @@ contract L2Genesis_Run_Test is L2Genesis_TestInit {
             deployCrossL2Inbox: true,
             enableGovernance: true,
             fundDevAccounts: true,
-            isCustomGasToken: true,
+            useCustomGasToken: true,
             gasPayingTokenName: "Custom Gas Token",
             gasPayingTokenSymbol: "CGT"
         });

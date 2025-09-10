@@ -74,7 +74,7 @@ contract DeployConfig is Script {
     uint256 public daResolveWindow;
     uint256 public daBondSize;
     uint256 public daResolverRefundPercentage;
-    bool public isCustomGasToken;
+    bool public useCustomGasToken;
     bool public useInterop;
     bool public useUpgradedFork;
     bytes32 public devFeatureBitmap;
@@ -120,7 +120,7 @@ contract DeployConfig is Script {
         l2GenesisBlockGasLimit = stdJson.readUint(_json, "$.l2GenesisBlockGasLimit");
         basefeeScalar = uint32(_readOr(_json, "$.gasPriceOracleBaseFeeScalar", 1368));
         blobbasefeeScalar = uint32(_readOr(_json, "$.gasPriceOracleBlobBaseFeeScalar", 810949));
-        isCustomGasToken = _readOr(_json, "$.isCustomGasToken", false);
+        useCustomGasToken = _readOr(_json, "$.useCustomGasToken", false);
 
         enableGovernance = _readOr(_json, "$.enableGovernance", false);
         systemConfigStartBlock = stdJson.readUint(_json, "$.systemConfigStartBlock");
@@ -225,9 +225,9 @@ contract DeployConfig is Script {
         useUpgradedFork = _useUpgradedFork;
     }
 
-    /// @notice Allow the `isCustomGasToken` config to be overridden in testing environments
-    function setIsCustomGasToken(bool _isCustomGasToken) public {
-        isCustomGasToken = _isCustomGasToken;
+    /// @notice Allow the `useCustomGasToken` config to be overridden in testing environments
+    function setUseCustomGasToken(bool _useCustomGasToken) public {
+        useCustomGasToken = _useCustomGasToken;
     }
 
     /// @notice Allow the `baseFeeVaultWithdrawalNetwork` config to be overridden in testing environments

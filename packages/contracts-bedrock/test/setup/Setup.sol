@@ -339,7 +339,7 @@ contract Setup is FeatureFlags {
                 deployCrossL2Inbox: deploy.cfg().useInterop(),
                 enableGovernance: deploy.cfg().enableGovernance(),
                 fundDevAccounts: deploy.cfg().fundDevAccounts(),
-                isCustomGasToken: deploy.cfg().isCustomGasToken(),
+                useCustomGasToken: deploy.cfg().useCustomGasToken(),
                 gasPayingTokenName: "Custom Gas Token",
                 gasPayingTokenSymbol: "CGT"
             })

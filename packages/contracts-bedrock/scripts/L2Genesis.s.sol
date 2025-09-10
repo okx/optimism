@@ -62,7 +62,7 @@ contract L2Genesis is Script {
         bool deployCrossL2Inbox;
         bool enableGovernance;
         bool fundDevAccounts;
-        bool isCustomGasToken;
+        bool useCustomGasToken;
         string gasPayingTokenName;
         string gasPayingTokenSymbol;
     }
@@ -200,7 +200,7 @@ contract L2Genesis is Script {
             vm.etch(addr, code);
             EIP1967Helper.setAdmin(addr, Predeploys.PROXY_ADMIN);
 
-            if (Predeploys.isSupportedPredeploy(addr, _input.fork, _input.deployCrossL2Inbox, _input.isCustomGasToken))
+            if (Predeploys.isSupportedPredeploy(addr, _input.fork, _input.deployCrossL2Inbox, _input.useCustomGasToken))
             {
                 address implementation = Predeploys.predeployToCodeNamespace(addr);
                 EIP1967Helper.setImplementation(addr, implementation);
@@ -225,8 +225,8 @@ contract L2Genesis is Script {
         setOptimismMintableERC20Factory(); // 12
         setL1BlockNumber(); // 13
         setL2ERC721Bridge(_input.l1ERC721BridgeProxy); // 14
-        setL1Block(_input.isCustomGasToken); // 15
-        setL2ToL1MessagePasser(_input.isCustomGasToken); // 16
+        setL1Block(_input.useCustomGasToken); // 15
+        setL2ToL1MessagePasser(_input.useCustomGasToken); // 16
         setOptimismMintableERC721Factory(_input); // 17
         setProxyAdmin(_input); // 18
         setBaseFeeVault(_input); // 19
@@ -242,7 +242,7 @@ contract L2Genesis is Script {
             }
             setL2ToL2CrossDomainMessenger(); // 23
         }
-        if (_input.isCustomGasToken) {
+        if (_input.useCustomGasToken) {
             setLiquidityController(_input); // 29
             setNativeAssetLiquidity(); // 2A
         }
@@ -262,8 +262,8 @@ contract L2Genesis is Script {
         vm.store(impl, _ownerSlot, bytes32(uint256(uint160(_input.opChainProxyAdminOwner))));
     }
 
-    function setL2ToL1MessagePasser(bool _isCustomGasToken) internal {
-        if (_isCustomGasToken) {
+    function setL2ToL1MessagePasser(bool _useCustomGasToken) internal {
+        if (_useCustomGasToken) {
             string memory cname = "L2ToL1MessagePasserCGT";
             address impl = Predeploys.predeployToCodeNamespace(Predeploys.L2_TO_L1_MESSAGE_PASSER);
             vm.etch(impl, vm.getDeployedCode(string.concat(cname, ".sol:", cname)));
@@ -307,7 +307,7 @@ contract L2Genesis is Script {
     function setSequencerFeeVault(Input memory _input) internal {
         Types.WithdrawalNetwork withdrawalNetwork = Types.WithdrawalNetwork(_input.sequencerFeeVaultWithdrawalNetwork);
 
-        if (_input.isCustomGasToken && withdrawalNetwork == Types.WithdrawalNetwork.L1) {
+        if (_input.useCustomGasToken && withdrawalNetwork == Types.WithdrawalNetwork.L1) {
             revert("SequencerFeeVault: withdrawalNetwork type cannot be L1 when custom gas token is enabled");
         }
 
@@ -368,8 +368,8 @@ contract L2Genesis is Script {
     }
 
     /// @notice This predeploy is following the safety invariant #1.
-    function setL1Block(bool _isCustomGasToken) internal {
-        if (_isCustomGasToken) {
+    function setL1Block(bool _useCustomGasToken) internal {
+        if (_useCustomGasToken) {
             // Set the implementation code for L1BlockCGT
             string memory cname = "L1BlockCGT";
             address impl = Predeploys.predeployToCodeNamespace(Predeploys.L1_BLOCK_ATTRIBUTES);
@@ -415,7 +415,7 @@ contract L2Genesis is Script {
     function setBaseFeeVault(Input memory _input) internal {
         Types.WithdrawalNetwork withdrawalNetwork = Types.WithdrawalNetwork(_input.baseFeeVaultWithdrawalNetwork);
 
-        if (_input.isCustomGasToken && withdrawalNetwork == Types.WithdrawalNetwork.L1) {
+        if (_input.useCustomGasToken && withdrawalNetwork == Types.WithdrawalNetwork.L1) {
             revert("BaseFeeVault: withdrawalNetwork type cannot be L1 when custom gas token is enabled");
         }
 
@@ -443,7 +443,7 @@ contract L2Genesis is Script {
     function setL1FeeVault(Input memory _input) internal {
         Types.WithdrawalNetwork withdrawalNetwork = Types.WithdrawalNetwork(_input.l1FeeVaultWithdrawalNetwork);
 
-        if (_input.isCustomGasToken && withdrawalNetwork == Types.WithdrawalNetwork.L1) {
+        if (_input.useCustomGasToken && withdrawalNetwork == Types.WithdrawalNetwork.L1) {
             revert("L1FeeVault: withdrawalNetwork type cannot be L1 when custom gas token is enabled");
         }
 

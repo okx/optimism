@@ -273,8 +273,8 @@ func (d *GasPriceOracleDeployConfig) OperatorFeeParams() [32]byte {
 
 // GasTokenDeployConfig configures the optional custom gas token functionality.
 type GasTokenDeployConfig struct {
-	// IsCustomGasToken is a flag to indicate that a custom gas token should be used
-	IsCustomGasToken bool `json:"isCustomGasToken"`
+	// UseCustomGasToken is a flag to indicate that a custom gas token should be used
+	UseCustomGasToken bool `json:"useCustomGasToken"`
 	// GasPayingTokenName represents the custom gas token name.
 	GasPayingTokenName string `json:"gasPayingTokenName"`
 	// GasPayingTokenSymbol represents the custom gas token symbol.
@@ -284,7 +284,7 @@ type GasTokenDeployConfig struct {
 var _ ConfigChecker = (*GasTokenDeployConfig)(nil)
 
 func (d *GasTokenDeployConfig) Check(log log.Logger) error {
-	if d.IsCustomGasToken {
+	if d.UseCustomGasToken {
 		if d.GasPayingTokenName == "" {
 			return fmt.Errorf("%w: GasPayingTokenName cannot be empty", ErrInvalidDeployConfig)
 		}
