@@ -3,5 +3,10 @@
   "files.trimTrailingWhitespace": true,
   "openInGitHub.defaultBranch": "develop",
   "openInGitHub.alwaysUseDefaultBranch": false,
-  "openInGitHub.excludeCurrentRevision": true
+  "openInGitHub.excludeCurrentRevision": true,
+  "workbench.colorCustomizations": {
+    "activityBar.background": "#5E0630",
+    "titleBar.activeBackground": "#830844",
+    "titleBar.activeForeground": "#FFFBFD"
+  }
 }
