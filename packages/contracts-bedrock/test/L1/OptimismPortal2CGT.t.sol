@@ -5,6 +5,7 @@ pragma solidity 0.8.15;
 import {
     OptimismPortal2_TestInit,
     OptimismPortal2_Version_Test,
+    OptimismPortal2_Initialize_Test,
     OptimismPortal2_Constructor_Test,
     OptimismPortal2_Upgrade_Test,
     OptimismPortal2_MinimumGasLimit_Test,
@@ -76,51 +77,18 @@ contract OptimismPortal2_CGT_Constructor_Test is OptimismPortal2_Constructor_Tes
 
 /// @title OptimismPortal2_Initialize_Test
 /// @notice Test contract for OptimismPortal2 `initialize` function.
-contract OptimismPortal2_Initialize_Test is OptimismPortal2CGT_TestInit {
+contract OptimismPortal2_CGT_Initialize_Test is OptimismPortal2_Initialize_Test {
+    function setUp() public override {
+        super.enableCustomGasToken();
+        super.setUp();
+    }
+
     /// @notice Tests that the initializer sets the correct values.
     /// @dev Marked virtual to be overridden in
     ///      test/kontrol/deployment/DeploymentSummary.t.sol
-    function test_initialize_succeeds() external virtual {
+    function test_initialize_succeeds() public override {
         skipIfForkTest("OptimismPortal2_Initialize_Test: isCustomGasToken() not available on forked networks");
-        assertEq(address(optimismPortal2.anchorStateRegistry()), address(anchorStateRegistry));
-        assertEq(address(optimismPortal2.disputeGameFactory()), address(disputeGameFactory));
-        assertEq(address(optimismPortal2.superchainConfig()), address(superchainConfig));
-        assertEq(optimismPortal2.l2Sender(), Constants.DEFAULT_L2_SENDER);
-        assertEq(optimismPortal2.paused(), false);
-        assertEq(address(optimismPortal2.systemConfig()), address(systemConfig));
-        assertEq(address(optimismPortal2.ethLockbox()), address(ethLockbox));
-        assertTrue(optimismPortal2.isCustomGasToken());
-
-        returnIfForkTest(
-            "OptimismPortal2_Initialize_Test: Do not check guardian and respectedGameType on forked networks"
-        );
-        address guardian = superchainConfig.guardian();
-
-        // This check is not valid for forked tests, as the guardian is not the same as the one in hardhat.json
-        assertEq(guardian, deploy.cfg().superchainConfigGuardian());
-
-        // This check is not valid on forked tests as the respectedGameType varies between OP Chains.
-        assertEq(optimismPortal2.respectedGameType().raw(), deploy.cfg().respectedGameType());
-    }
-
-    /// @notice Tests that the initialize function reverts if called by a non-proxy admin or owner.
-    /// @param _sender The address of the sender to test.
-    function testFuzz_initialize_notProxyAdminOrProxyAdminOwner_reverts(address _sender) public {
-        // Prank as the not ProxyAdmin or ProxyAdmin owner.
-        vm.assume(_sender != address(proxyAdmin) && _sender != proxyAdminOwner);
-
-        // Get the slot for _initialized.
-        StorageSlot memory slot = ForgeArtifacts.getSlot("OptimismPortal2", "_initialized");
-
-        // Set the initialized slot to 0.
-        vm.store(address(optimismPortal2), bytes32(slot.slot), bytes32(0));
-
-        // Expect the revert with `ProxyAdminOwnedBase_NotProxyAdminOrProxyAdminOwner` selector.
-        vm.expectRevert(IProxyAdminOwnedBase.ProxyAdminOwnedBase_NotProxyAdminOrProxyAdminOwner.selector);
-
-        // Call the `initialize` function with the sender
-        vm.prank(_sender);
-        optimismPortal2.initialize(systemConfig, anchorStateRegistry);
+        super.test_initialize_succeeds();
     }
 }
 
@@ -312,70 +280,6 @@ contract OptimismPortal2_CGT_FinalizeWithdrawalTransaction_Test is
     function setUp() public override {
         super.enableCustomGasToken();
         super.setUp();
-
-        // Override _defaultTx to use zero value for CGT compatibility
-        _defaultTx = Types.WithdrawalTransaction({
-            nonce: 0,
-            sender: alice,
-            target: bob,
-            value: 0, // Zero value for CGT mode
-            gasLimit: 100_000,
-            data: hex"aa"
-        });
-
-        // Get withdrawal proof data we can use for testing.
-        (_stateRoot, _storageRoot, _outputRoot, _withdrawalHash, _withdrawalProof) =
-            ffi.getProveWithdrawalTransactionInputs(_defaultTx);
-
-        // Setup a dummy output root proof for reuse.
-        _outputRootProof = Types.OutputRootProof({
-            version: bytes32(uint256(0)),
-            stateRoot: _stateRoot,
-            messagePasserStorageRoot: _storageRoot,
-            latestBlockhash: bytes32(uint256(0))
-        });
-        if (isForkTest()) {
-            // Set the proposed block number to be the next block number on the forked network
-            (, _proposedBlockNumber) = anchorStateRegistry.getAnchorRoot();
-            _proposedBlockNumber += 1;
-
-            // Set the init bond of anchor game type 0 to be 0.
-            // It is a mapping so the storage slot is calculated as keccak256(abi.encode(key, slot)).
-            // The storage slot for the initBond mapping is 102, see `snapshots/storageLayout/DisputeGameFactory.json`.
-            vm.store(
-                address(disputeGameFactory), keccak256(abi.encode(GameType.wrap(0), uint256(102))), bytes32(uint256(0))
-            );
-        } else {
-            // Set up the dummy game.
-            _proposedBlockNumber = 0xFF;
-        }
-
-        depositor = makeAddr("depositor");
-
-        setupFaultDisputeGame(Claim.wrap(_outputRoot));
-
-        // Warp forward in time to ensure that the game is created after the retirement timestamp.
-        vm.warp(anchorStateRegistry.retirementTimestamp() + 1);
-
-        respectedGameType = optimismPortal2.respectedGameType();
-        game = IFaultDisputeGame(
-            payable(
-                address(
-                    disputeGameFactory.create{ value: disputeGameFactory.initBonds(respectedGameType) }(
-                        respectedGameType, Claim.wrap(_outputRoot), abi.encode(_proposedBlockNumber)
-                    )
-                )
-            )
-        );
-
-        // Grab the index of the game we just created.
-        _proposedGameIndex = disputeGameFactory.gameCount() - 1;
-
-        // Warp beyond the chess clocks and finalize the game.
-        vm.warp(block.timestamp + game.maxClockDuration().raw() + 1 seconds);
-
-        // Fund the portal so that we can withdraw ETH.
-        vm.deal(address(ethLockbox), 0xFFFFFFFF);
     }
 
     /// @notice Tests that `finalizeWithdrawalTransaction` succeeds when the custom gas token mode
@@ -462,179 +366,6 @@ contract OptimismPortal2_CGT_FinalizeWithdrawalTransaction_Test is
         vm.expectRevert(IOptimismPortal.OptimismPortal_NotAllowedOnCGTMode.selector);
         optimismPortal2.finalizeWithdrawalTransaction(_defaultTx);
     }
-
-    // Override tests that use non-zero values and expect different reverts in CGT mode
-
-    /// @notice Override: In CGT mode, test with zero value and expect success
-    function test_finalizeWithdrawalTransaction_badTarget_reverts() external override {
-        _defaultTx.target = address(optimismPortal2);
-        vm.expectRevert(IOptimismPortal.OptimismPortal_BadTarget.selector);
-        optimismPortal2.finalizeWithdrawalTransaction(_defaultTx);
-
-        _defaultTx.target = address(ethLockbox);
-        vm.expectRevert(IOptimismPortal.OptimismPortal_BadTarget.selector);
-        optimismPortal2.finalizeWithdrawalTransaction(_defaultTx);
-    }
-
-    /// @notice Override: In CGT mode, any fuzzed test with value will revert
-    function testDiff_finalizeWithdrawalTransaction_succeeds(
-        address _sender,
-        address _target,
-        uint256 _value,
-        uint256 _gasLimit,
-        bytes memory _data
-    )
-        external
-        override
-    {
-        skipIfForkTest("Skipping on forked tests because of the L2ToL1MessageParser call below");
-
-        vm.assume(
-            _target != address(optimismPortal2) // Cannot call the optimism portal or a contract
-                && _target.code.length == 0 // No accounts with code
-                && _target != CONSOLE // The console has no code but behaves like a contract
-                && uint160(_target) > 9 // No precompiles (or zero address)
-        );
-
-        // In CGT mode, any non-zero value will cause revert
-        _value = 0;
-
-        uint256 gasLimit = bound(_gasLimit, 0, 50_000_000);
-        uint256 nonce = l2ToL1MessagePasser.messageNonce();
-
-        // Get a withdrawal transaction and mock proof from the differential testing script.
-        Types.WithdrawalTransaction memory _tx = Types.WithdrawalTransaction({
-            nonce: nonce,
-            sender: _sender,
-            target: _target,
-            value: _value,
-            gasLimit: gasLimit,
-            data: _data
-        });
-        (
-            bytes32 stateRoot,
-            bytes32 storageRoot,
-            bytes32 outputRoot,
-            bytes32 withdrawalHash,
-            bytes[] memory withdrawalProof
-        ) = ffi.getProveWithdrawalTransactionInputs(_tx);
-
-        // Create the output root proof
-        Types.OutputRootProof memory proof = Types.OutputRootProof({
-            version: bytes32(uint256(0)),
-            stateRoot: stateRoot,
-            messagePasserStorageRoot: storageRoot,
-            latestBlockhash: bytes32(uint256(0))
-        });
-
-        // Ensure the values returned from ffi are correct
-        assertEq(outputRoot, Hashing.hashOutputRootProof(proof));
-        assertEq(withdrawalHash, Hashing.hashWithdrawal(_tx));
-
-        // Setup the dispute game to return the output root
-        vm.mockCall(address(game), abi.encodeCall(game.rootClaim, ()), abi.encode(outputRoot));
-
-        // Prove the withdrawal transaction
-        optimismPortal2.proveWithdrawalTransaction(_tx, _proposedGameIndex, proof, withdrawalProof);
-        (IDisputeGame _game,) = optimismPortal2.provenWithdrawals(withdrawalHash, address(this));
-        assertTrue(_game.rootClaim().raw() != bytes32(0));
-
-        // Resolve the dispute game
-        game.resolveClaim(0, 0);
-        game.resolve();
-
-        // Warp past the finalization period
-        vm.warp(block.timestamp + optimismPortal2.proofMaturityDelaySeconds() + 1);
-
-        // Finalize the withdrawal transaction
-        vm.expectCallMinGas(_tx.target, _tx.value, uint64(_tx.gasLimit), _tx.data);
-        optimismPortal2.finalizeWithdrawalTransaction(_tx);
-        assertTrue(optimismPortal2.finalizedWithdrawals(withdrawalHash));
-    }
-
-    /// @notice Tests that `finalizeWithdrawalTransaction` succeeds even if the respected game type
-    ///         is changed.
-    function test_finalizeWithdrawalTransaction_wasRespectedGameType_succeeds(
-        address _sender,
-        address _target,
-        uint256 _value,
-        uint256 _gasLimit,
-        bytes memory _data,
-        GameType _newGameType
-    )
-        external
-        override
-    {
-        skipIfForkTest("Skipping on forked tests because of the L2ToL1MessageParser call below");
-
-        vm.assume(
-            _target != address(optimismPortal2) // Cannot call the optimism portal or a contract
-                && _target.code.length == 0 // No accounts with code
-                && _target != CONSOLE // The console has no code but behaves like a contract
-                && uint160(_target) > 9 // No precompiles (or zero address)
-        );
-
-        // Bound to prevent changes in retirementTimestamp
-        _newGameType = GameType.wrap(uint32(bound(_newGameType.raw(), 0, type(uint32).max - 1)));
-
-        _value = 0;
-
-        uint256 gasLimit = bound(_gasLimit, 0, 50_000_000);
-        uint256 nonce = l2ToL1MessagePasser.messageNonce();
-
-        // Get a withdrawal transaction and mock proof from the differential testing script.
-        Types.WithdrawalTransaction memory _tx = Types.WithdrawalTransaction({
-            nonce: nonce,
-            sender: _sender,
-            target: _target,
-            value: _value,
-            gasLimit: gasLimit,
-            data: _data
-        });
-        (
-            bytes32 stateRoot,
-            bytes32 storageRoot,
-            bytes32 outputRoot,
-            bytes32 withdrawalHash,
-            bytes[] memory withdrawalProof
-        ) = ffi.getProveWithdrawalTransactionInputs(_tx);
-
-        // Create the output root proof
-        Types.OutputRootProof memory proof = Types.OutputRootProof({
-            version: bytes32(uint256(0)),
-            stateRoot: stateRoot,
-            messagePasserStorageRoot: storageRoot,
-            latestBlockhash: bytes32(uint256(0))
-        });
-
-        // Ensure the values returned from ffi are correct
-        assertEq(outputRoot, Hashing.hashOutputRootProof(proof));
-        assertEq(withdrawalHash, Hashing.hashWithdrawal(_tx));
-
-        // Setup the dispute game to return the output root
-        vm.mockCall(address(game), abi.encodeCall(game.rootClaim, ()), abi.encode(outputRoot));
-
-        // Prove the withdrawal transaction
-        optimismPortal2.proveWithdrawalTransaction(_tx, _proposedGameIndex, proof, withdrawalProof);
-        (IDisputeGame _game,) = optimismPortal2.provenWithdrawals(withdrawalHash, address(this));
-        assertTrue(_game.rootClaim().raw() != bytes32(0));
-
-        // Resolve the dispute game
-        game.resolveClaim(0, 0);
-        game.resolve();
-
-        // Warp past the finalization period
-        vm.warp(block.timestamp + optimismPortal2.proofMaturityDelaySeconds() + 1);
-
-        // Change the respectedGameType
-        vm.prank(optimismPortal2.guardian());
-        anchorStateRegistry.setRespectedGameType(_newGameType);
-
-        // Withdrawal transaction still finalizable
-        vm.expectCallMinGas(_tx.target, _tx.value, uint64(_tx.gasLimit), _tx.data);
-        optimismPortal2.finalizeWithdrawalTransaction(_tx);
-        assertTrue(optimismPortal2.finalizedWithdrawals(withdrawalHash));
-    }
 }
 
 /// @title OptimismPortal2_CGT_FinalizeWithdrawalTransactionExternalProof_Test
@@ -646,70 +377,6 @@ contract OptimismPortal2_CGT_FinalizeWithdrawalTransactionExternalProof_Test is
     function setUp() public override {
         super.enableCustomGasToken();
         super.setUp();
-
-        // Override _defaultTx to use zero value for CGT compatibility
-        _defaultTx = Types.WithdrawalTransaction({
-            nonce: 0,
-            sender: alice,
-            target: bob,
-            value: 0, // Zero value for CGT mode
-            gasLimit: 100_000,
-            data: hex"aa"
-        });
-
-        // Get withdrawal proof data we can use for testing.
-        (_stateRoot, _storageRoot, _outputRoot, _withdrawalHash, _withdrawalProof) =
-            ffi.getProveWithdrawalTransactionInputs(_defaultTx);
-
-        // Setup a dummy output root proof for reuse.
-        _outputRootProof = Types.OutputRootProof({
-            version: bytes32(uint256(0)),
-            stateRoot: _stateRoot,
-            messagePasserStorageRoot: _storageRoot,
-            latestBlockhash: bytes32(uint256(0))
-        });
-        if (isForkTest()) {
-            // Set the proposed block number to be the next block number on the forked network
-            (, _proposedBlockNumber) = anchorStateRegistry.getAnchorRoot();
-            _proposedBlockNumber += 1;
-
-            // Set the init bond of anchor game type 0 to be 0.
-            // It is a mapping so the storage slot is calculated as keccak256(abi.encode(key, slot)).
-            // The storage slot for the initBond mapping is 102, see `snapshots/storageLayout/DisputeGameFactory.json`.
-            vm.store(
-                address(disputeGameFactory), keccak256(abi.encode(GameType.wrap(0), uint256(102))), bytes32(uint256(0))
-            );
-        } else {
-            // Set up the dummy game.
-            _proposedBlockNumber = 0xFF;
-        }
-
-        depositor = makeAddr("depositor");
-
-        setupFaultDisputeGame(Claim.wrap(_outputRoot));
-
-        // Warp forward in time to ensure that the game is created after the retirement timestamp.
-        vm.warp(anchorStateRegistry.retirementTimestamp() + 1);
-
-        respectedGameType = optimismPortal2.respectedGameType();
-        game = IFaultDisputeGame(
-            payable(
-                address(
-                    disputeGameFactory.create{ value: disputeGameFactory.initBonds(respectedGameType) }(
-                        respectedGameType, Claim.wrap(_outputRoot), abi.encode(_proposedBlockNumber)
-                    )
-                )
-            )
-        );
-
-        // Grab the index of the game we just created.
-        _proposedGameIndex = disputeGameFactory.gameCount() - 1;
-
-        // Warp beyond the chess clocks and finalize the game.
-        vm.warp(block.timestamp + game.maxClockDuration().raw() + 1 seconds);
-
-        // Fund the portal so that we can withdraw ETH.
-        vm.deal(address(ethLockbox), 0xFFFFFFFF);
     }
 }
 
@@ -720,70 +387,6 @@ contract OptimismPortal2_CGT_CheckWithdrawal_Test is OptimismPortal2_CheckWithdr
     function setUp() public override {
         super.enableCustomGasToken();
         super.setUp();
-
-        // Override _defaultTx to use zero value for CGT compatibility
-        _defaultTx = Types.WithdrawalTransaction({
-            nonce: 0,
-            sender: alice,
-            target: bob,
-            value: 0, // Zero value for CGT mode
-            gasLimit: 100_000,
-            data: hex"aa"
-        });
-
-        // Get withdrawal proof data we can use for testing.
-        (_stateRoot, _storageRoot, _outputRoot, _withdrawalHash, _withdrawalProof) =
-            ffi.getProveWithdrawalTransactionInputs(_defaultTx);
-
-        // Setup a dummy output root proof for reuse.
-        _outputRootProof = Types.OutputRootProof({
-            version: bytes32(uint256(0)),
-            stateRoot: _stateRoot,
-            messagePasserStorageRoot: _storageRoot,
-            latestBlockhash: bytes32(uint256(0))
-        });
-        if (isForkTest()) {
-            // Set the proposed block number to be the next block number on the forked network
-            (, _proposedBlockNumber) = anchorStateRegistry.getAnchorRoot();
-            _proposedBlockNumber += 1;
-
-            // Set the init bond of anchor game type 0 to be 0.
-            // It is a mapping so the storage slot is calculated as keccak256(abi.encode(key, slot)).
-            // The storage slot for the initBond mapping is 102, see `snapshots/storageLayout/DisputeGameFactory.json`.
-            vm.store(
-                address(disputeGameFactory), keccak256(abi.encode(GameType.wrap(0), uint256(102))), bytes32(uint256(0))
-            );
-        } else {
-            // Set up the dummy game.
-            _proposedBlockNumber = 0xFF;
-        }
-
-        depositor = makeAddr("depositor");
-
-        setupFaultDisputeGame(Claim.wrap(_outputRoot));
-
-        // Warp forward in time to ensure that the game is created after the retirement timestamp.
-        vm.warp(anchorStateRegistry.retirementTimestamp() + 1);
-
-        respectedGameType = optimismPortal2.respectedGameType();
-        game = IFaultDisputeGame(
-            payable(
-                address(
-                    disputeGameFactory.create{ value: disputeGameFactory.initBonds(respectedGameType) }(
-                        respectedGameType, Claim.wrap(_outputRoot), abi.encode(_proposedBlockNumber)
-                    )
-                )
-            )
-        );
-
-        // Grab the index of the game we just created.
-        _proposedGameIndex = disputeGameFactory.gameCount() - 1;
-
-        // Warp beyond the chess clocks and finalize the game.
-        vm.warp(block.timestamp + game.maxClockDuration().raw() + 1 seconds);
-
-        // Fund the portal so that we can withdraw ETH.
-        vm.deal(address(ethLockbox), 0xFFFFFFFF);
     }
 }
 
@@ -794,178 +397,6 @@ contract OptimismPortal2_CGT_DepositTransaction_Test is OptimismPortal2_DepositT
     function setUp() public override {
         super.enableCustomGasToken();
         super.setUp();
-    }
-
-    /// @notice Override: Tests that depositTransaction with EOA succeeds only with zero value in CGT mode
-    function testFuzz_depositTransaction_eoa_succeeds(
-        address _to,
-        uint64 _gasLimit,
-        uint256 _value,
-        uint256 _mint,
-        bool _isCreation,
-        bytes memory _data
-    )
-        external
-        override
-    {
-        // In CGT mode, only allow zero value transactions
-        _value = 0;
-        _mint = 0;
-
-        // Prevent overflow on an upgrade context
-        _gasLimit = uint64(
-            bound(
-                _gasLimit,
-                optimismPortal2.minimumGasLimit(uint64(_data.length)),
-                systemConfig.resourceConfig().maxResourceLimit
-            )
-        );
-        if (_isCreation) _to = address(0);
-
-        uint256 balanceBefore = address(optimismPortal2).balance;
-        uint256 lockboxBalanceBefore = address(ethLockbox).balance;
-
-        // EOA emulation
-        vm.expectEmit(address(optimismPortal2));
-        emitTransactionDeposited({
-            _from: depositor,
-            _to: _to,
-            _value: _value,
-            _mint: _mint,
-            _gasLimit: _gasLimit,
-            _isCreation: _isCreation,
-            _data: _data
-        });
-
-        // Expect call to the ETHLockbox to lock the funds only if the value is greater than 0.
-        vm.expectCall(address(ethLockbox), _mint, abi.encodeCall(ethLockbox.lockETH, ()), _mint > 0 ? 1 : 0);
-
-        vm.deal(depositor, _mint);
-        vm.prank(depositor, depositor);
-        optimismPortal2.depositTransaction{ value: _mint }({
-            _to: _to,
-            _value: _value,
-            _gasLimit: _gasLimit,
-            _isCreation: _isCreation,
-            _data: _data
-        });
-        assertEq(address(optimismPortal2).balance, balanceBefore);
-        assertEq(address(ethLockbox).balance, lockboxBalanceBefore + _mint);
-    }
-
-    /// @notice Override: Tests that depositTransaction with contract succeeds only with zero value in CGT mode
-    function testFuzz_depositTransaction_contract_succeeds(
-        address _to,
-        uint64 _gasLimit,
-        uint256 _value,
-        uint256 _mint,
-        bool _isCreation,
-        bytes memory _data
-    )
-        external
-        override
-    {
-        // In CGT mode, only allow zero value transactions
-        _value = 0;
-        _mint = 0;
-
-        // Prevent overflow on an upgrade context
-        _gasLimit = uint64(
-            bound(
-                _gasLimit,
-                optimismPortal2.minimumGasLimit(uint64(_data.length)),
-                systemConfig.resourceConfig().maxResourceLimit
-            )
-        );
-        if (_isCreation) _to = address(0);
-
-        uint256 balanceBefore = address(optimismPortal2).balance;
-        uint256 lockboxBalanceBefore = address(ethLockbox).balance;
-
-        // EOA emulation
-        vm.expectEmit(address(optimismPortal2));
-        emitTransactionDeposited({
-            _from: AddressAliasHelper.applyL1ToL2Alias(address(this)),
-            _to: _to,
-            _value: _value,
-            _mint: _mint,
-            _gasLimit: _gasLimit,
-            _isCreation: _isCreation,
-            _data: _data
-        });
-
-        vm.deal(address(this), _mint);
-        vm.prank(address(this));
-        optimismPortal2.depositTransaction{ value: _mint }({
-            _to: _to,
-            _value: _value,
-            _gasLimit: _gasLimit,
-            _isCreation: _isCreation,
-            _data: _data
-        });
-        assertEq(address(optimismPortal2).balance, balanceBefore);
-        assertEq(address(ethLockbox).balance, lockboxBalanceBefore + _mint);
-    }
-
-    /// @notice Override: Tests that depositTransaction with 7702 delegated contract succeeds only with zero value in
-    /// CGT mode
-    function testFuzz_depositTransaction_eoa7702_succeeds(
-        address _to,
-        uint64 _gasLimit,
-        uint256 _value,
-        uint256 _mint,
-        bool _isCreation,
-        bytes memory _data,
-        address _7702Target
-    )
-        external
-        override
-    {
-        // In CGT mode, only allow zero value transactions
-        _value = 0;
-        _mint = 0;
-
-        assumeNotForgeAddress(_7702Target);
-
-        // Prevent overflow on an upgrade context
-        _gasLimit = uint64(
-            bound(
-                _gasLimit,
-                optimismPortal2.minimumGasLimit(uint64(_data.length)),
-                systemConfig.resourceConfig().maxResourceLimit
-            )
-        );
-        if (_isCreation) _to = address(0);
-
-        uint256 portalBalanceBefore = address(optimismPortal2).balance;
-        uint256 lockboxBalanceBefore = address(ethLockbox).balance;
-
-        // EOA emulation
-        vm.expectEmit(address(optimismPortal2));
-        emitTransactionDeposited({
-            _from: depositor,
-            _to: _to,
-            _value: _value,
-            _mint: _mint,
-            _gasLimit: _gasLimit,
-            _isCreation: _isCreation,
-            _data: _data
-        });
-
-        // 7702 delegation using the 7702 prefix
-        vm.etch(depositor, abi.encodePacked(hex"EF0100", _7702Target));
-
-        vm.deal(depositor, _mint);
-        vm.prank(depositor, address(0x0420));
-        optimismPortal2.depositTransaction{ value: _mint }({
-            _to: _to,
-            _value: _value,
-            _gasLimit: _gasLimit,
-            _isCreation: _isCreation,
-            _data: _data
-        });
-        assertEq(address(optimismPortal2).balance, portalBalanceBefore);
-        assertEq(address(ethLockbox).balance, lockboxBalanceBefore + _mint);
     }
 
     /// @notice Tests that depositTransaction succeeds when value = 0 and custom gas token is enabled
@@ -984,7 +415,7 @@ contract OptimismPortal2_CGT_DepositTransaction_Test is OptimismPortal2_DepositT
         skipIfForkTest("OptimismPortal2_Initialize_Test: isCustomGasToken() not available on forked networks");
 
         // Prevent overflow on an upgrade context
-        _value = bound(_value, 1, type(uint256).max - address(ethLockbox).balance);
+        _value = bound(_value, 1, type(uint256).max - address(optimismPortal2).balance);
         uint64 gasLimit = optimismPortal2.minimumGasLimit(uint64(_data.length));
 
         vm.deal(alice, _value);

@@ -63,6 +63,10 @@ contract OptimismPortal2_TestInit is DisputeGameFactory_TestInit {
             data: hex"aa" // includes calldata for ERC20 withdrawal test
          });
 
+         if (isUsingCustomGasToken()) {
+            _defaultTx.value = 0;
+         }
+
         // Get withdrawal proof data we can use for testing.
         (_stateRoot, _storageRoot, _outputRoot, _withdrawalHash, _withdrawalProof) =
             ffi.getProveWithdrawalTransactionInputs(_defaultTx);
@@ -74,6 +78,7 @@ contract OptimismPortal2_TestInit is DisputeGameFactory_TestInit {
             messagePasserStorageRoot: _storageRoot,
             latestBlockhash: bytes32(uint256(0))
         });
+
         if (isForkTest()) {
             // Set the proposed block number to be the next block number on the forked network
             (, _proposedBlockNumber) = anchorStateRegistry.getAnchorRoot();
@@ -158,6 +163,12 @@ contract OptimismPortal2_TestInit is DisputeGameFactory_TestInit {
             systemConfig.isFeatureEnabled(Features.ETH_LOCKBOX) && address(optimismPortal2.ethLockbox()) != address(0);
     }
 
+    /// @notice Checks if the Custom Gas Token feature is enabled.
+    /// @return bool True if the Custom Gas Token feature is enabled.
+    function isUsingCustomGasToken() public view returns (bool) {
+        return systemConfig.isFeatureEnabled(Features.CUSTOM_GAS_TOKEN);
+    }
+
     /// @notice Enables the ETHLockbox feature if not enabled.
     /// @param _lockbox Address of the lockbox to enable.
     function forceEnableLockbox(address _lockbox) public {
@@ -215,7 +226,7 @@ contract OptimismPortal2_Initialize_Test is OptimismPortal2_TestInit {
     /// @notice Tests that the initializer sets the correct values.
     /// @dev Marked virtual to be overridden in
     ///      test/kontrol/deployment/DeploymentSummary.t.sol
-    function test_initialize_succeeds() external virtual {
+    function test_initialize_succeeds() public virtual {
         assertEq(address(optimismPortal2.anchorStateRegistry()), address(anchorStateRegistry));
         assertEq(address(optimismPortal2.disputeGameFactory()), address(disputeGameFactory));
         assertEq(address(optimismPortal2.superchainConfig()), address(superchainConfig));
@@ -228,7 +239,11 @@ contract OptimismPortal2_Initialize_Test is OptimismPortal2_TestInit {
         } else {
             assertEq(address(optimismPortal2.ethLockbox()), address(0));
         }
-        assertFalse(OptimismPortal2(payable(address(optimismPortal2))).isCustomGasToken());
+        if (isUsingCustomGasToken()) {
+            assertTrue(OptimismPortal2(payable(address(optimismPortal2))).isCustomGasToken());
+        } else {
+            assertFalse(OptimismPortal2(payable(address(optimismPortal2))).isCustomGasToken());
+        }
 
         returnIfForkTest(
             "OptimismPortal2_Initialize_Test: Do not check guardian and respectedGameType on forked networks"
@@ -1819,6 +1834,9 @@ contract OptimismPortal2_FinalizeWithdrawalTransaction_Test is OptimismPortal2_T
         virtual
     {
         skipIfForkTest("Skipping on forked tests because of the L2ToL1MessageParser call below");
+        if (isUsingCustomGasToken()) {
+            _value = 0;
+        }
 
         vm.assume(
             _target != address(optimismPortal2) // Cannot call the optimism portal or a contract
@@ -1901,6 +1919,9 @@ contract OptimismPortal2_FinalizeWithdrawalTransaction_Test is OptimismPortal2_T
         virtual
     {
         skipIfForkTest("Skipping on forked tests because of the L2ToL1MessageParser call below");
+        if (isUsingCustomGasToken()) {
+            _value = 0;
+        }
 
         vm.assume(
             _target != address(optimismPortal2) // Cannot call the optimism portal or a contract
@@ -2424,7 +2445,15 @@ contract OptimismPortal2_DepositTransaction_Test is OptimismPortal2_TestInit {
         virtual
     {
         // Prevent overflow on an upgrade context
-        _mint = bound(_mint, 0, type(uint256).max - address(ethLockbox).balance);
+        if (isUsingLockbox()) {
+            _mint = bound(_mint, 0, type(uint256).max - address(ethLockbox).balance);
+        } else {
+            _mint = bound(_mint, 0, type(uint256).max - address(optimismPortal2).balance);
+        }
+        if (isUsingCustomGasToken()) {
+            _mint = 0;
+        }
+
         _gasLimit = uint64(
             bound(
                 _gasLimit,
@@ -2491,6 +2520,10 @@ contract OptimismPortal2_DepositTransaction_Test is OptimismPortal2_TestInit {
         // Prevent overflow on an upgrade context
         _mint = bound(_mint, 0, type(uint256).max - address(ethLockbox).balance);
 
+        if (isUsingCustomGasToken()) {
+            _mint = 0;
+        }
+
         _gasLimit = uint64(
             bound(
                 _gasLimit,
@@ -2551,6 +2584,9 @@ contract OptimismPortal2_DepositTransaction_Test is OptimismPortal2_TestInit {
     {
         // Prevent overflow on an upgrade context
         _mint = bound(_mint, 0, type(uint256).max - address(ethLockbox).balance);
+        if (isUsingCustomGasToken()) {
+            _mint = 0;
+        }
         _gasLimit = uint64(
             bound(
                 _gasLimit,
