@@ -36,7 +36,7 @@ contract L1BlockCGT is L1Block {
     }
 
     /// @notice Returns the gas paying token, its decimals, name and symbol.
-    function gasPayingToken() public view override returns (address, uint8) {
+    function gasPayingToken() public pure override returns (address, uint8) {
         revert("L1BlockCGT: deprecated");
     }
 

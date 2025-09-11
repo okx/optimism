@@ -67,7 +67,7 @@ contract L1Block is ISemver {
     }
 
     /// @notice Returns the gas paying token, its decimals, name and symbol.
-    function gasPayingToken() public view virtual returns (address addr_, uint8 decimals_) {
+    function gasPayingToken() public pure virtual returns (address addr_, uint8 decimals_) {
         addr_ = Constants.ETHER;
         decimals_ = 18;
     }
