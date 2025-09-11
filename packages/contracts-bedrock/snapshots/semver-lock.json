@@ -92,12 +92,12 @@
     "sourceCodeHash": "0xde724da82ecf3c96b330c2876a7285b6e2b933ac599241eaa3174c443ebbe33a"
   },
   "src/L2/L2ToL1MessagePasser.sol:L2ToL1MessagePasser": {
-    "initCodeHash": "0x88f7b25f956eceeab9ad84c17e66cded6a1acbb933054ac2c8b336641f70f875",
-    "sourceCodeHash": "0x83396cbd12a0c5c02e09a4d99c4b62ab4e9d9eb762745e63283e2e818a78a39c"
+    "initCodeHash": "0xd898143a05fdc788b29f9deab68a35e4178175738831e229dd27fdf0f5401cb8",
+    "sourceCodeHash": "0x4d7bf6118ba61c4699f331b9144771124baa64c2860a7efde20478621905c76c"
   },
   "src/L2/L2ToL1MessagePasserCGT.sol:L2ToL1MessagePasserCGT": {
-    "initCodeHash": "0x9a99e97e5e4aeef421226a7f30e5132cee3d1ea1afb16fe41c5aac97478b8a80",
-    "sourceCodeHash": "0x7233348d779a1679a9862d65c9208d7076bc353b25d063bc3eba8acbdedc5f21"
+    "initCodeHash": "0x3b438ec99bf8d85601a1bab8468ae29c0e1b063f000af147e00443b786b18a3f",
+    "sourceCodeHash": "0xf7a1b8c423ee277c75e067026e759cc3819f27d647214ff705591d6c4c6687fa"
   },
   "src/L2/L2ToL2CrossDomainMessenger.sol:L2ToL2CrossDomainMessenger": {
     "initCodeHash": "0x975fd33a3a386310d54dbb01b56f3a6a8350f55a3b6bd7781e5ccc2166ddf2e6",

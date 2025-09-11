@@ -7,9 +7,9 @@ import { Hashing } from "src/libraries/Hashing.sol";
 import { Encoding } from "src/libraries/Encoding.sol";
 import { Burn } from "src/libraries/Burn.sol";
 import { Predeploys } from "src/libraries/Predeploys.sol";
+import { L2ToL1MessagePasser } from "src/L2/L2ToL1MessagePasser.sol";
 
 // Interfaces
-import { ISemver } from "interfaces/universal/ISemver.sol";
 import { IL1Block } from "interfaces/L2/IL1Block.sol";
 
 /// @custom:proxied true
@@ -18,96 +18,23 @@ import { IL1Block } from "interfaces/L2/IL1Block.sol";
 /// @notice The L2ToL1MessagePasserCGT is a dedicated contract where messages that are being sent from
 ///         L2 to L1 can be stored. The storage root of this contract is pulled up to the top level
 ///         of the L2 output to reduce the cost of proving the existence of sent messages.
-contract L2ToL1MessagePasserCGT is ISemver {
-    /// @notice The L1 gas limit set when eth is withdrawn using the receive() function.
-    uint256 internal constant RECEIVE_DEFAULT_GAS_LIMIT = 100_000;
-
-    /// @notice The current message version identifier.
-    uint16 public constant MESSAGE_VERSION = 1;
-
-    /// @notice Includes the message hashes for all withdrawals
-    mapping(bytes32 => bool) public sentMessages;
-
-    /// @notice A unique value hashed with each withdrawal.
-    uint240 internal msgNonce;
-
+contract L2ToL1MessagePasserCGT is L2ToL1MessagePasser {
     /// @notice The error thrown when a withdrawal is initiated with value and custom gas token is used.
     error L2ToL1MessagePasserCGT_NotAllowedOnCGTMode();
 
-    /// @notice Emitted any time a withdrawal is initiated.
-    /// @param nonce          Unique value corresponding to each withdrawal.
-    /// @param sender         The L2 account address which initiated the withdrawal.
-    /// @param target         The L1 account address the call will be send to.
-    /// @param value          The ETH value submitted for withdrawal, to be forwarded to the target.
-    /// @param gasLimit       The minimum amount of gas that must be provided when withdrawing.
-    /// @param data           The data to be forwarded to the target on L1.
-    /// @param withdrawalHash The hash of the withdrawal.
-    event MessagePassed(
-        uint256 indexed nonce,
-        address indexed sender,
-        address indexed target,
-        uint256 value,
-        uint256 gasLimit,
-        bytes data,
-        bytes32 withdrawalHash
-    );
-
-    /// @notice Emitted when the balance of this contract is burned.
-    /// @param amount Amount of ETh that was burned.
-    event WithdrawerBalanceBurnt(uint256 indexed amount);
-
-    /// @custom:semver 1.2.0
-    string public constant version = "1.2.0";
-
-    /// @notice Allows users to withdraw ETH by sending directly to this contract.
-    receive() external payable {
-        initiateWithdrawal(msg.sender, RECEIVE_DEFAULT_GAS_LIMIT, bytes(""));
-    }
-
-    /// @notice Removes all ETH held by this contract from the state. Used to prevent the amount of
-    ///         ETH on L2 inflating when ETH is withdrawn. Currently only way to do this is to
-    ///         create a contract and self-destruct it to itself. Anyone can call this function. Not
-    ///         incentivized since this function is very cheap.
-    function burn() external {
-        uint256 balance = address(this).balance;
-        Burn.eth(balance);
-        emit WithdrawerBalanceBurnt(balance);
+    /// @custom:semver 1.2.0+custom-gas-token
+    function version() public pure override returns (string memory) {
+        return string.concat(super.version(), "+custom-gas-token");
     }
 
     /// @notice Sends a message from L2 to L1.
     /// @param _target   Address to call on L1 execution.
     /// @param _gasLimit Minimum gas limit for executing the message on L1.
     /// @param _data     Data to forward to L1 target.
-    function initiateWithdrawal(address _target, uint256 _gasLimit, bytes memory _data) public payable {
+    function initiateWithdrawal(address _target, uint256 _gasLimit, bytes memory _data) public override payable {
         if (IL1Block(Predeploys.L1_BLOCK_ATTRIBUTES).isCustomGasToken() && msg.value > 0) {
             revert L2ToL1MessagePasserCGT_NotAllowedOnCGTMode();
         }
-
-        bytes32 withdrawalHash = Hashing.hashWithdrawal(
-            Types.WithdrawalTransaction({
-                nonce: messageNonce(),
-                sender: msg.sender,
-                target: _target,
-                value: msg.value,
-                gasLimit: _gasLimit,
-                data: _data
-            })
-        );
-
-        sentMessages[withdrawalHash] = true;
-
-        emit MessagePassed(messageNonce(), msg.sender, _target, msg.value, _gasLimit, _data, withdrawalHash);
-
-        unchecked {
-            ++msgNonce;
-        }
-    }
-
-    /// @notice Retrieves the next message nonce. Message version will be added to the upper two
-    ///         bytes of the message nonce. Message version allows us to treat messages as having
-    ///         different structures.
-    /// @return Nonce of the next message to be sent, with added message version.
-    function messageNonce() public view returns (uint256) {
-        return Encoding.encodeVersionedNonce(msgNonce, MESSAGE_VERSION);
+        super.initiateWithdrawal(_target, _gasLimit, _data);
     }
 }
