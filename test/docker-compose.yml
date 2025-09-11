@@ -141,7 +141,7 @@ services:
       - 4000:4000
       - 3500:3500
       - 18080:8080
-      - 6060:6060
+      - 6066:6060
       - 19090:9090
     volumes:
       - ./l1-geth/consensus:/consensus
@@ -173,7 +173,7 @@ services:
       - ./data/op-geth-seq:/datadir
       - ./config-op/jwt.txt:/jwt.txt
     ports:
-      - "8123:8545"
+      - "8223:8545"
       - "7546:7546"
       - "8552:8552"
       - "30303:30303"
@@ -212,7 +212,7 @@ services:
       - ./data/op-geth-rpc:/datadir
       - ./config-op/jwt.txt:/jwt.txt
     ports:
-      - "8124:8545"
+      - "8224:8545"
       - "7547:7546"
       - "8553:8552"
       - "30304:30303"
@@ -409,4 +409,3 @@ services:
       - --game-factory-address=${DISPUTE_GAME_FACTORY_ADDRESS}
       - --game-window=${GAME_WINDOW}s
       - --honest-actors=${PROPOSER_ADDRESS}
-

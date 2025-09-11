@@ -12,6 +12,18 @@ sed_inplace() {
     sed -i "$@"
   fi
 }
+PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+RAMFS_DIR=$PWD_DIR/ramfs
+echo "RAMFS_DIR is $RAMFS_DIR"
+
+mkdir -p $RAMFS_DIR || echo "$RAMFS_DIR already exists"
+#if not macos then
+if [[ "$OSTYPE" != "darwin"* ]]; then
+  mount -t ramfs ramfs $RAMFS_DIR
+  echo "Mounted ramfs at $RAMFS_DIR"
+fi
+cp "$MDBX_FILE" $RAMFS_DIR/mdbx.dat
 
 FORK_BLOCK_HEX=$(printf "0x%x" "$FORK_BLOCK")
 sed_inplace 's/"number": "0x0"/"number": "'"$FORK_BLOCK_HEX"'"/' ./config-op/genesis.json
@@ -19,7 +31,7 @@ sed_inplace 's/"number": 0/"number": '"$FORK_BLOCK"'/' ./config-op/rollup.json
 
 # Extract contract addresses from state.json and update .env file
 echo "🔧 Extracting contract addresses from state.json..."
-PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 STATE_JSON="$PWD_DIR/config-op/state.json"
 
 if [ -f "$STATE_JSON" ]; then
@@ -108,8 +120,10 @@ docker compose run --no-deps \
   --gcmode=archive \
   --db.engine=$DB_ENGINE \
   --log.format json \
-  init \
+  migrate \
   --state.scheme=hash \
+  --smt-db-path=$RAMFS_DIR/mdbx.dat \
+  --ignore-addresses=0x000000000000000000000000000000005ca1ab1e \
   /genesis.json 2>&1 | tee init.log
 
 # update genesis block hash in rollup.json
@@ -129,6 +143,8 @@ docker compose run --no-deps \
   --db.engine=$DB_ENGINE \
   init \
   --state.scheme=hash \
+  --smt-db-path=$RAMFS_DIR/mdbx.dat \
+  --ignore-addresses=0x000000000000000000000000000000005ca1ab1e \
   /genesis.json
 
 echo "finished init op-geth-seq and op-geth-rpc"
@@ -163,4 +179,7 @@ docker run --rm \
         ls -la /app/op-program/bin/ || echo 'Directory is empty or does not exist'
     "
 
-    . "$PWD_DIR/patch-genesis.sh"
+if [[ "$OSTYPE" != "darwin"* ]]; then
+  umount  $RAMFS_DIR
+  echo "un mounted ramfs at $RAMFS_DIR"
+fi
