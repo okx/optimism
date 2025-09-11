@@ -86,6 +86,7 @@
   "useCustomGasToken": false,
   "gasPayingTokenName": "",
   "gasPayingTokenSymbol": "",
+  "nativeAssetLiquidityAmount": null,
   "useFaultProofs": false,
   "useAltDA": false,
   "daBondSize": 0,

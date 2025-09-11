@@ -65,6 +65,7 @@ contract L2Genesis is Script {
         bool useCustomGasToken;
         string gasPayingTokenName;
         string gasPayingTokenSymbol;
+        uint256 nativeAssetLiquidityAmount;
     }
 
     using ForkUtils for Fork;
@@ -596,11 +597,11 @@ contract L2Genesis is Script {
 
     /// @notice This predeploy is following the safety invariant #1.
     ///         This contract has no initializer.
-    function setNativeAssetLiquidity() internal {
+    function setNativeAssetLiquidity(Input memory _input) internal {
         _setImplementationCode(Predeploys.NATIVE_ASSET_LIQUIDITY);
 
         // Pre-fund the liquidity contract with the specified amount
-        vm.deal(Predeploys.NATIVE_ASSET_LIQUIDITY, type(uint248).max);
+        vm.deal(Predeploys.NATIVE_ASSET_LIQUIDITY, _input.nativeAssetLiquidityAmount);
     }
 
     /// @notice Sets all the preinstalls.

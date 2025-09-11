@@ -300,9 +300,10 @@ func NewIntentCustom(l1ChainId uint64, l2ChainIds []common.Hash) (Intent, error)
 			ID:       l2ChainID,
 			GasLimit: standard.GasLimit,
 			CustomGasToken: &CustomGasToken{
-				Enabled: false,
-				Name:    "",
-				Symbol:  "",
+				Enabled:                    false,
+				Name:                       "",
+				Symbol:                     "",
+				NativeAssetLiquidityAmount: nil,
 			},
 		})
 	}
@@ -349,9 +350,10 @@ func NewIntentStandard(l1ChainId uint64, l2ChainIds []common.Hash) (Intent, erro
 				L2ProxyAdminOwner: l2ProxyAdminOwner,
 			},
 			CustomGasToken: &CustomGasToken{
-				Enabled: false,
-				Name:    "",
-				Symbol:  "",
+				Enabled:                    false,
+				Name:                       "",
+				Symbol:                     "",
+				NativeAssetLiquidityAmount: nil,
 			},
 		})
 	}

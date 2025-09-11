@@ -2,6 +2,7 @@ package state
 
 import (
 	"fmt"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -57,9 +58,10 @@ type L2DevGenesisParams struct {
 }
 
 type CustomGasToken struct {
-	Enabled bool   `json:"enabled" toml:"enabled"`
-	Name    string `json:"name" toml:"name"`
-	Symbol  string `json:"symbol" toml:"symbol"`
+	Enabled                    bool         `json:"enabled" toml:"enabled"`
+	Name                       string       `json:"name" toml:"name"`
+	Symbol                     string       `json:"symbol" toml:"symbol"`
+	NativeAssetLiquidityAmount *hexutil.Big `json:"nativeAssetLiquidityAmount,omitempty" toml:"nativeAssetLiquidityAmount,omitempty"`
 }
 
 type ChainIntent struct {
@@ -139,4 +141,15 @@ func (c *ChainIntent) Check() error {
 	}
 
 	return nil
+}
+
+// GetNativeAssetLiquidityAmount returns the native asset liquidity amount for the chain.
+// If not set, returns the default value of type(uint248).max.
+func (c *ChainIntent) GetNativeAssetLiquidityAmount() *big.Int {
+	if c.CustomGasToken != nil && c.CustomGasToken.NativeAssetLiquidityAmount != nil {
+		return c.CustomGasToken.NativeAssetLiquidityAmount.ToInt()
+	}
+	// Default to type(uint248).max = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+	maxUint248, _ := new(big.Int).SetString("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 16)
+	return maxUint248
 }

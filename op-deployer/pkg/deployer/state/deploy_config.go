@@ -72,9 +72,10 @@ func CombineDeployConfig(intent *Intent, chainIntent *ChainIntent, state *State,
 			},
 
 			GasTokenDeployConfig: genesis.GasTokenDeployConfig{
-				UseCustomGasToken:    chainIntent.CustomGasToken.Enabled,
-				GasPayingTokenName:   chainIntent.CustomGasToken.Name,
-				GasPayingTokenSymbol: chainIntent.CustomGasToken.Symbol,
+				UseCustomGasToken:          chainIntent.CustomGasToken.Enabled,
+				GasPayingTokenName:         chainIntent.CustomGasToken.Name,
+				GasPayingTokenSymbol:       chainIntent.CustomGasToken.Symbol,
+				NativeAssetLiquidityAmount: (*hexutil.Big)(chainIntent.GetNativeAssetLiquidityAmount()),
 			},
 
 			// STOP! This struct sets the _default_ upgrade schedule for all chains.
@@ -177,3 +178,4 @@ func calculateBatchInboxAddr(chainID common.Hash) common.Address {
 	copy(out[1:], crypto.Keccak256(chainID[:])[:19])
 	return out
 }
+

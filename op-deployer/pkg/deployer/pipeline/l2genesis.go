@@ -34,6 +34,7 @@ type l2GenesisOverrides struct {
 	SequencerFeeVaultWithdrawalNetwork       genesis.WithdrawalNetwork `json:"sequencerFeeVaultWithdrawalNetwork"`
 	EnableGovernance                         bool                      `json:"enableGovernance"`
 	GovernanceTokenOwner                     common.Address            `json:"governanceTokenOwner"`
+	NativeAssetLiquidityAmount               *hexutil.Big              `json:"nativeAssetLiquidityAmount"`
 }
 
 func GenerateL2Genesis(pEnv *Env, intent *state.Intent, bundle ArtifactsBundle, st *state.State, chainID common.Hash) error {
@@ -100,6 +101,7 @@ func GenerateL2Genesis(pEnv *Env, intent *state.Intent, bundle ArtifactsBundle, 
 		UseCustomGasToken:                        thisIntent.CustomGasToken.Enabled,
 		GasPayingTokenName:                       thisIntent.CustomGasToken.Name,
 		GasPayingTokenSymbol:                     thisIntent.CustomGasToken.Symbol,
+		NativeAssetLiquidityAmount:               thisIntent.GetNativeAssetLiquidityAmount(),
 	}); err != nil {
 		return fmt.Errorf("failed to call L2Genesis script: %w", err)
 	}
@@ -150,9 +152,10 @@ func calculateL2GenesisOverrides(intent *state.Intent, thisIntent *state.ChainIn
 
 	if thisIntent.CustomGasToken == nil {
 		thisIntent.CustomGasToken = &state.CustomGasToken{
-			Enabled: overrides.UseCustomGasToken,
-			Name:    overrides.GasPayingTokenName,
-			Symbol:  overrides.GasPayingTokenSymbol,
+			Enabled:                    overrides.UseCustomGasToken,
+			Name:                       overrides.GasPayingTokenName,
+			Symbol:                     overrides.GasPayingTokenSymbol,
+			NativeAssetLiquidityAmount: overrides.NativeAssetLiquidityAmount,
 		}
 	}
 
@@ -169,6 +172,9 @@ func wdNetworkToBig(wd genesis.WithdrawalNetwork) *big.Int {
 }
 
 func defaultOverrides() l2GenesisOverrides {
+	// Default to type(uint248).max = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+	maxUint248, _ := new(big.Int).SetString("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 16)
+
 	return l2GenesisOverrides{
 		UseCustomGasToken:                        false,
 		GasPayingTokenName:                       "",
@@ -182,5 +188,6 @@ func defaultOverrides() l2GenesisOverrides {
 		SequencerFeeVaultWithdrawalNetwork:       "local",
 		EnableGovernance:                         false,
 		GovernanceTokenOwner:                     standard.GovernanceTokenOwner,
+		NativeAssetLiquidityAmount:               (*hexutil.Big)(maxUint248),
 	}
 }
