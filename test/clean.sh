@@ -15,3 +15,4 @@ rm -rf l1-geth/consensus/genesis.ssz
 rm -rf l1-geth/consensus/validatordata/
 rm -rf l1-geth/execution/genesis.json
 rm -rf l1-geth/execution/geth/
+rm -rf config-op/195-*

@@ -131,6 +131,34 @@ docker compose run --no-deps \
   --state.scheme=hash \
   /genesis.json
 
+
+OP_GETH_DATADIR="$(pwd)/data/op-geth-seq2"
+rm -rf "$OP_GETH_DATADIR"
+mkdir -p "$OP_GETH_DATADIR"
+docker compose run --no-deps \
+  -v "$(pwd)/$CONFIG_DIR/genesis.json:/genesis.json" \
+  op-geth-seq2 \
+  --datadir "/datadir" \
+  --gcmode=archive \
+  --db.engine=$DB_ENGINE \
+  init \
+  --state.scheme=hash \
+  /genesis.json
+
+
+OP_GETH_DATADIR="$(pwd)/data/op-geth-seq3"
+rm -rf "$OP_GETH_DATADIR"
+mkdir -p "$OP_GETH_DATADIR"
+docker compose run --no-deps \
+  -v "$(pwd)/$CONFIG_DIR/genesis.json:/genesis.json" \
+  op-geth-seq3 \
+  --datadir "/datadir" \
+  --gcmode=archive \
+  --db.engine=$DB_ENGINE \
+  init \
+  --state.scheme=hash \
+  /genesis.json
+
 echo "finished init op-geth-seq and op-geth-rpc"
 
 # genesis.json is too large to embed in go, so we compress it now and decompress it in go code
