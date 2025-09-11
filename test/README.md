@@ -8,6 +8,18 @@ Run `./0-all.sh` to automatically:
 - Start all required components
 - Complete all configurations and deployments
 
+⚠️ **Important Notes**:
+
+1. Configuration Management:
+   - Always make configuration changes in `example.env`
+   - Never modify `.env` directly as it will be reset by `clean.sh`
+   - Run `clean.sh` to apply changes from `example.env`
+
+2. Environment Reset:
+   - `clean.sh` will stop all containers
+   - Clean all data directories
+   - Reset `.env` to values from `example.env`
+
 > Note: For first-time setup, we recommend following the step-by-step deployment process to better understand each component and troubleshoot any potential issues.
 
 ### Step-by-Step Deployment
@@ -99,7 +111,7 @@ The test environment includes a 3-node conductor cluster for sequencer high avai
 - **High Availability**: Ensures continuous L2 block production
 
 #### Configuration
-Enable or disable conductor cluster in `.env`:
+Enable or disable conductor cluster in `example.env`:
 ```bash
 # Enable HA mode with conductor cluster
 CONDUCTOR_ENABLED=true
@@ -137,14 +149,27 @@ When leader becomes unhealthy:
 - Activates sequencer on new leader
 
 #### Leadership Management
-Control cluster leadership with `transfer_leader.sh`:
+There are two ways to trigger leader transfer:
+
+1. Using `transfer_leader.sh`:
 ```bash
 # Auto transfer to any healthy node
 ./scripts/transfer_leader.sh
 
-# Transfer to specific node (1-3)
+# Transfer to specific node (1 or 2 or 3)
 ./scripts/transfer_leader.sh 2
 ```
+
+2. Force transfer by stopping leader's sequencer:
+```bash
+# Stop leader's sequencer, which triggers automatic transfer
+./scripts/stop_leader_sequencer.sh
+
+# To restart all stopped sequencers later
+./scripts/start_all_sequencers.sh
+```
+
+The second method simulates a leader failure scenario, which is useful for testing automatic failover.
 
 ## Troubleshooting
 
@@ -158,11 +183,3 @@ Control cluster leadership with `transfer_leader.sh`:
    - Verify L1 node is running
    - Check account balances
    - Validate gas settings
-
-### Environment Reset
-To reset the environment:
-- Run `./clean.sh`: automatically stops all services and cleans up
-- Script handles:
-  - Stopping all Docker containers
-  - Cleaning data directory
-  - Resetting environment to initial state from example.env
