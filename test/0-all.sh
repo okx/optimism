@@ -1,5 +1,4 @@
 #!/bin/bash
-set -x
 set -e
 
 ./1-start-l1.sh

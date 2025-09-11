@@ -1,5 +1,5 @@
+#!/bin/bash
 set -e
-set -x
 
 sed_inplace() {
   if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -14,6 +14,7 @@ source .env
 
 PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$PWD_DIR")"
+SCRIPTS_DIR=$ROOT_DIR/test/scripts
 
 # Function to add game type via Transactor
 add_game_type_via_transactor() {
@@ -153,6 +154,14 @@ add_game_type_via_transactor() {
 }
 
 docker compose up -d op-batcher
+
+if [ "$CONDUCTOR_ENABLED" = "true" ]; then
+    docker compose up -d op-conductor
+    docker compose up -d op-conductor2
+    docker compose up -d op-conductor3
+    sleep 3
+    $SCRIPTS_DIR/active_sequencer.sh
+fi
 
 docker compose up -d op-rpc
 

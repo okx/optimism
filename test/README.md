@@ -107,4 +107,4 @@ To reset the environment:
 - Script handles:
   - Stopping all Docker containers
   - Cleaning data directory
-  - Resetting environment to initial state
+  - Resetting environment to initial state from example.env

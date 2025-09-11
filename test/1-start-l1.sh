@@ -1,5 +1,4 @@
 #!/bin/bash
-set -x
 set -e
 source .env
 docker compose up -d l1-validator
