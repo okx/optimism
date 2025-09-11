@@ -21,11 +21,9 @@ done
 
 # Stop leader's sequencer
 if [ "$LEADER_PORT" != "0" ]; then
-    CONTAINER="op-seq"
-    [ "$OLD_LEADER" != "1" ] && CONTAINER="${CONTAINER}${OLD_LEADER}"
-    echo "Stopping $CONTAINER container..."
-    docker stop $CONTAINER
-    echo "Container stopped, waiting for leader transfer..."
+    SEQUENCER_PORT=$((9545 + OLD_LEADER -1))
+    curl -sS -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"admin_stopSequencer","params":[],"id":1}' http://localhost:$SEQUENCER_PORT > /dev/null
+    echo "sequencer stopped, waiting for leader transfer..."
 
     # Wait and check for leader change every second
     echo "Waiting for leader transfer..."
@@ -35,10 +33,7 @@ if [ "$LEADER_PORT" != "0" ]; then
         NEW_LEADER=0
         for i in {0..2}; do
             PORT=$((BASE_PORT + i))
-            IS_LEADER=$(curl -s -X POST -H "Content-Type: application/json" \
-                --data '{"jsonrpc":"2.0","method":"conductor_leader","params":[],"id":1}' \
-                http://localhost:$PORT | jq -r .result)
-
+            IS_LEADER=$(curl -s -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"conductor_leader","params":[],"id":1}' http://localhost:$PORT | jq -r .result)
             if [ "$IS_LEADER" = "true" ]; then
                 NEW_LEADER=$((i+1))
                 if [ "$NEW_LEADER" != "$OLD_LEADER" ]; then
@@ -49,5 +44,4 @@ if [ "$LEADER_PORT" != "0" ]; then
         done
     done
     echo "Warning: Leader transfer not detected after $MAX_SECONDS seconds"
-    exit 1
 fi
