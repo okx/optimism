@@ -122,7 +122,7 @@ docker compose run --no-deps \
   --log.format json \
   migrate \
   --state.scheme=hash \
-  --smt-db-path=$RAMFS_DIR/mdbx.dat \
+  --chaindata=$RAMFS_DIR \
   --ignore-addresses=0x000000000000000000000000000000005ca1ab1e \
   /genesis.json 2>&1 | tee init.log
 
@@ -143,7 +143,7 @@ docker compose run --no-deps \
   --db.engine=$DB_ENGINE \
   init \
   --state.scheme=hash \
-  --smt-db-path=$RAMFS_DIR/mdbx.dat \
+  --chaindata=$RAMFS_DIR \
   --ignore-addresses=0x000000000000000000000000000000005ca1ab1e \
   /genesis.json
 
