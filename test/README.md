@@ -87,6 +87,64 @@ Run `./4-op-start-service.sh`:
   - op-geth: L2 execution engine
   - op-challenger: State validation
   - op-dispute-mon: Dispute monitoring
+  - op-conductor: Sequencer HA management
+
+### 5. Conductor Management
+The test environment includes a 3-node conductor cluster for sequencer high availability (HA).
+
+#### Architecture
+- **Cluster Type**: 3-node Raft consensus cluster
+- **Active Sequencer**: Only runs on leader node
+- **Failover**: Automatic when leader becomes unhealthy
+- **High Availability**: Ensures continuous L2 block production
+
+#### Configuration
+Enable or disable conductor cluster in `.env`:
+```bash
+# Enable HA mode with conductor cluster
+CONDUCTOR_ENABLED=true
+
+# Disable HA, run single sequencer
+CONDUCTOR_ENABLED=false
+```
+
+#### Network Ports
+Each conductor node uses three ports:
+- **RPC Port**: Management API
+  - Node 1: 8547
+  - Node 2: 8548
+  - Node 3: 8549
+
+- **Consensus Port**: Raft protocol
+  - Node 1: 50050
+  - Node 2: 50051
+  - Node 3: 50052
+
+- **Sequencer Port**: L2 execution
+  - Node 1: 9545
+  - Node 2: 9546
+  - Node 3: 9547
+
+#### Health Monitoring
+The conductor cluster monitors each node's:
+- Sync status with L1
+- P2P network connectivity
+- Block production rate
+
+When leader becomes unhealthy:
+- Automatically transfers leadership
+- Deactivates unhealthy sequencer
+- Activates sequencer on new leader
+
+#### Leadership Management
+Control cluster leadership with `transfer_leader.sh`:
+```bash
+# Auto transfer to any healthy node
+./scripts/transfer_leader.sh
+
+# Transfer to specific node (1-3)
+./scripts/transfer_leader.sh 2
+```
 
 ## Troubleshooting
 
