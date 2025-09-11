@@ -132,61 +132,87 @@ docker compose run --no-deps \
   /genesis.json
 
 
-OP_GETH_DATADIR="$(pwd)/data/op-geth-seq2"
-rm -rf "$OP_GETH_DATADIR"
-mkdir -p "$OP_GETH_DATADIR"
-docker compose run --no-deps \
-  -v "$(pwd)/$CONFIG_DIR/genesis.json:/genesis.json" \
-  op-geth-seq2 \
-  --datadir "/datadir" \
-  --gcmode=archive \
-  --db.engine=$DB_ENGINE \
-  init \
-  --state.scheme=hash \
-  /genesis.json
+if [ "$CONDUCTOR_ENABLED" = "true" ]; then
+    OP_GETH_DATADIR="$(pwd)/data/op-geth-seq2"
+    rm -rf "$OP_GETH_DATADIR"
+    mkdir -p "$OP_GETH_DATADIR"
+    docker compose run --no-deps \
+      -v "$(pwd)/$CONFIG_DIR/genesis.json:/genesis.json" \
+      op-geth-seq2 \
+      --datadir "/datadir" \
+      --gcmode=archive \
+      --db.engine=$DB_ENGINE \
+      init \
+      --state.scheme=hash \
+      /genesis.json
 
 
-OP_GETH_DATADIR="$(pwd)/data/op-geth-seq3"
-rm -rf "$OP_GETH_DATADIR"
-mkdir -p "$OP_GETH_DATADIR"
-docker compose run --no-deps \
-  -v "$(pwd)/$CONFIG_DIR/genesis.json:/genesis.json" \
-  op-geth-seq3 \
-  --datadir "/datadir" \
-  --gcmode=archive \
-  --db.engine=$DB_ENGINE \
-  init \
-  --state.scheme=hash \
-  /genesis.json
+    OP_GETH_DATADIR="$(pwd)/data/op-geth-seq3"
+    rm -rf "$OP_GETH_DATADIR"
+    mkdir -p "$OP_GETH_DATADIR"
+    docker compose run --no-deps \
+      -v "$(pwd)/$CONFIG_DIR/genesis.json:/genesis.json" \
+      op-geth-seq3 \
+      --datadir "/datadir" \
+      --gcmode=archive \
+      --db.engine=$DB_ENGINE \
+      init \
+      --state.scheme=hash \
+      /genesis.json
+fi
 
 echo "finished init op-geth-seq and op-geth-rpc"
 
 # genesis.json is too large to embed in go, so we compress it now and decompress it in go code
 gzip -c config-op/genesis.json > config-op/genesis.json.gz
 
-# Ensure prestate files exist and devnetL1.json is consistent before deploying contracts
-EXPORT_DIR="$PWD_DIR/data/cannon-data"
-rm -rf $EXPORT_DIR
-mkdir -p $EXPORT_DIR
-docker run --rm \
-    -v /var/run/docker.sock:/var/run/docker.sock \
-    -v "$(pwd)/config-op/rollup.json:/app/op-program/chainconfig/configs/195-rollup.json" \
-    -v "$(pwd)/config-op/genesis.json.gz:/app/op-program/chainconfig/configs/195-genesis-l2.json" \
-    -v "$EXPORT_DIR:/app/op-program/bin" \
-    -w /app \
-    --network "${DOCKER_NETWORK}" \
-    -e DOCKER_HOST=unix:///var/run/docker.sock \
-    "${OP_STACK_IMAGE_TAG}" \
-    bash -c "
-        echo '📊 Verifying Docker connection:'
-        apt-get update
-        apt-get install docker.io -y
-        docker --version
-        docker ps --format 'table {{.Names}}\t{{.Status}}' | head -3
+CURRENT_ROLLUP_HASH=$(md5sum config-op/rollup.json | awk '{print $1}')
+CURRENT_GENESIS_HASH=$(md5sum config-op/genesis.json.gz | awk '{print $1}')
 
-        echo '🚀 Running make reproducible-prestate...'
-        make reproducible-prestate
+NEED_REBUILD=true
+if [ -f "$HASH_FILE" ] && [ -d "$EXPORT_DIR" ]; then
+    if [ -f "$EXPORT_DIR/prestate-proof.json" ]; then  # 检查编译产物是否存在
+        SAVED_ROLLUP_HASH=$(grep "rollup_hash" "$HASH_FILE" | cut -d= -f2)
+        SAVED_GENESIS_HASH=$(grep "genesis_hash" "$HASH_FILE" | cut -d= -f2)
 
-        echo '📁 Checking contents of op-program/bin:'
-        ls -la /app/op-program/bin/ || echo 'Directory is empty or does not exist'
-    "
+        if [ "$CURRENT_ROLLUP_HASH" = "$SAVED_ROLLUP_HASH" ] && [ "$CURRENT_GENESIS_HASH" = "$SAVED_GENESIS_HASH" ]; then
+            echo "📝 Config files unchanged, skipping rebuild"
+            NEED_REBUILD=false
+        fi
+    fi
+fi
+
+if [ "$NEED_REBUILD" = true ]; then
+    # Ensure prestate files exist and devnetL1.json is consistent before deploying contracts
+    echo "🔨 Rebuilding op-program..."
+    rm -rf $EXPORT_DIR
+    mkdir -p $EXPORT_DIR
+
+    docker run --rm \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        -v "$(pwd)/config-op/rollup.json:/app/op-program/chainconfig/configs/195-rollup.json" \
+        -v "$(pwd)/config-op/genesis.json.gz:/app/op-program/chainconfig/configs/195-genesis-l2.json" \
+        -v "$EXPORT_DIR:/app/op-program/bin" \
+        -w /app \
+        --network "${DOCKER_NETWORK}" \
+        -e DOCKER_HOST=unix:///var/run/docker.sock \
+        "${OP_STACK_IMAGE_TAG}" \
+        bash -c "
+            echo '📊 Verifying Docker connection:'
+            apt-get update
+            apt-get install docker.io -y
+            docker --version
+            docker ps --format 'table {{.Names}}\t{{.Status}}' | head -3
+
+            echo '🚀 Running make reproducible-prestate...'
+            make reproducible-prestate
+
+            echo '📁 Checking contents of op-program/bin:'
+            ls -la /app/op-program/bin/ || echo 'Directory is empty or does not exist'
+        "
+
+    # 保存新的 hash 值
+    echo "rollup_hash=$CURRENT_ROLLUP_HASH" > "$HASH_FILE"
+    echo "genesis_hash=$CURRENT_GENESIS_HASH" >> "$HASH_FILE"
+    echo "📝 Saved new config hashes"
+fi
