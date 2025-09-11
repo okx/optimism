@@ -35,6 +35,11 @@ contract L1BlockCGT is L1Block {
         }
     }
 
+    /// @notice Returns the gas paying token, its decimals, name and symbol.
+    function gasPayingToken() public view override returns (address addr_, uint8 decimals_) {
+        revert("L1BlockCGT: deprecated");
+    }
+
     /// @notice Returns the gas paying token name.
     ///         If nothing is set in state, then it means ether is used.
     ///         This function cannot be removed because WETH depends on it.
