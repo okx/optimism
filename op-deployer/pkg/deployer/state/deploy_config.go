@@ -178,4 +178,3 @@ func calculateBatchInboxAddr(chainID common.Hash) common.Address {
 	copy(out[1:], crypto.Keccak256(chainID[:])[:19])
 	return out
 }
-
