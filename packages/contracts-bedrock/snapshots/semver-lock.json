@@ -69,7 +69,7 @@
   },
   "src/L2/L1BlockCGT.sol:L1BlockCGT": {
     "initCodeHash": "0x4a12ae06f475c342268b0cd2c1fb8fe5f49210813eb6349b1cd6cd10ec9748c1",
-    "sourceCodeHash": "0x3e702eeaad9f2ed6b8e11588ed7395cb7a3b84a85bab070e53d861395c5258f2"
+    "sourceCodeHash": "0xb59b4189260bddacbf787022d8b7f9e20e149790b110d5cf7c16c6f3302679f7"
   },
   "src/L2/L1FeeVault.sol:L1FeeVault": {
     "initCodeHash": "0x9b664e3d84ad510091337b4aacaa494b142512e2f6f7fbcdb6210ed62ca9b885",
