@@ -34,6 +34,7 @@ interface IL1BlockCGT {
     function setL1BlockValuesEcotone() external;
     function setL1BlockValuesIsthmus() external;
     function setCustomGasToken() external;
+    function gasPayingToken() external view returns (address addr_, uint8 decimals_);
 
     function __constructor__() external;
 }
