@@ -27,7 +27,7 @@ contract L2ToL1MessagePasserCGT is L2ToL1MessagePasser {
     /// @param _target   Address to call on L1 execution.
     /// @param _gasLimit Minimum gas limit for executing the message on L1.
     /// @param _data     Data to forward to L1 target.
-    function initiateWithdrawal(address _target, uint256 _gasLimit, bytes memory _data) public override payable {
+    function initiateWithdrawal(address _target, uint256 _gasLimit, bytes memory _data) public payable override {
         if (IL1Block(Predeploys.L1_BLOCK_ATTRIBUTES).isCustomGasToken() && msg.value > 0) {
             revert L2ToL1MessagePasserCGT_NotAllowedOnCGTMode();
         }

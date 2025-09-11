@@ -51,9 +51,9 @@ contract L2ToL1MessagePasser is ISemver {
     /// @param amount Amount of ETh that was burned.
     event WithdrawerBalanceBurnt(uint256 indexed amount);
 
-    /// @custom:semver 1.1.2
+    /// @custom:semver 1.1.3
     function version() public pure virtual returns (string memory) {
-        return "1.1.2";
+        return "1.1.3";
     }
 
     /// @notice Allows users to withdraw ETH by sending directly to this contract.
@@ -75,7 +75,7 @@ contract L2ToL1MessagePasser is ISemver {
     /// @param _target   Address to call on L1 execution.
     /// @param _gasLimit Minimum gas limit for executing the message on L1.
     /// @param _data     Data to forward to L1 target.
-    function initiateWithdrawal(address _target, uint256 _gasLimit, bytes memory _data) public virtual payable {
+    function initiateWithdrawal(address _target, uint256 _gasLimit, bytes memory _data) public payable virtual {
         bytes32 withdrawalHash = Hashing.hashWithdrawal(
             Types.WithdrawalTransaction({
                 nonce: messageNonce(),
