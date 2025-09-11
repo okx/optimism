@@ -75,6 +75,9 @@ contract DeployConfig is Script {
     uint256 public daBondSize;
     uint256 public daResolverRefundPercentage;
     bool public useCustomGasToken;
+    string public gasPayingTokenName;
+    string public gasPayingTokenSymbol;
+    uint256 public nativeAssetLiquidityAmount;
     bool public useInterop;
     bool public useUpgradedFork;
     bytes32 public devFeatureBitmap;
@@ -121,6 +124,9 @@ contract DeployConfig is Script {
         basefeeScalar = uint32(_readOr(_json, "$.gasPriceOracleBaseFeeScalar", 1368));
         blobbasefeeScalar = uint32(_readOr(_json, "$.gasPriceOracleBlobBaseFeeScalar", 810949));
         useCustomGasToken = _readOr(_json, "$.useCustomGasToken", false);
+        gasPayingTokenName = _readOr(_json, "$.gasPayingTokenName", "");
+        gasPayingTokenSymbol = _readOr(_json, "$.gasPayingTokenSymbol", "");
+        nativeAssetLiquidityAmount = stdJson.readUint(_json, "$.nativeAssetLiquidityAmount");
 
         enableGovernance = _readOr(_json, "$.enableGovernance", false);
         systemConfigStartBlock = stdJson.readUint(_json, "$.systemConfigStartBlock");

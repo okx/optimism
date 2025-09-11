@@ -148,7 +148,8 @@ contract L2Genesis_Run_Test is L2Genesis_TestInit {
             fundDevAccounts: true,
             useCustomGasToken: false,
             gasPayingTokenName: "",
-            gasPayingTokenSymbol: ""
+            gasPayingTokenSymbol: "",
+            nativeAssetLiquidityAmount: type(uint248).max
         });
         genesis.run(input);
 
@@ -185,7 +186,8 @@ contract L2Genesis_Run_Test is L2Genesis_TestInit {
             fundDevAccounts: true,
             useCustomGasToken: true,
             gasPayingTokenName: "Custom Gas Token",
-            gasPayingTokenSymbol: "CGT"
+            gasPayingTokenSymbol: "CGT",
+            nativeAssetLiquidityAmount: type(uint248).max
         });
         _;
     }

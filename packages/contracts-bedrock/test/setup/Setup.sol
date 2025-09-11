@@ -341,7 +341,8 @@ contract Setup is FeatureFlags {
                 fundDevAccounts: deploy.cfg().fundDevAccounts(),
                 useCustomGasToken: deploy.cfg().useCustomGasToken(),
                 gasPayingTokenName: "Custom Gas Token",
-                gasPayingTokenSymbol: "CGT"
+                gasPayingTokenSymbol: "CGT",
+                nativeAssetLiquidityAmount: deploy.cfg().nativeAssetLiquidityAmount()
             })
         );
 

@@ -245,7 +245,7 @@ contract L2Genesis is Script {
         }
         if (_input.useCustomGasToken) {
             setLiquidityController(_input); // 29
-            setNativeAssetLiquidity(); // 2A
+            setNativeAssetLiquidity(_input); // 2A
         }
     }
 
