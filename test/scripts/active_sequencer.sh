@@ -1,5 +1,6 @@
 #!/bin/bash
 
+# 1. check connected peers
 CONNECTED=$(curl -sS -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"opp2p_peerStats","params":[],"id":1}' http://localhost:9545 | jq .result.connected)
 if (( CONNECTED < 2 )); then
     echo "$CONNECTED peers connected, which is less than 2"
@@ -19,7 +20,7 @@ fi
 
 
 
-# 2. try to start sequencer if it is stopped
+# 3. try to start sequencer if it is stopped
 ACTIVE=$(curl -sS -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"admin_sequencerActive","params":[],"id":1}' http://localhost:8547 | jq -r .result)
 if [ $ACTIVE = "false" ]; then
     BLOCK_HASH=$(curl -sS -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}'  http://localhost:8123 | jq -r .result.hash)
@@ -38,7 +39,7 @@ if [ $ACTIVE = "false" ]; then
 fi
 
 
-# 3. verify sequencer is active
+# 4. verify sequencer is active
 sleep 1
 ACTIVE=$(curl -sS -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"admin_sequencerActive","params":[],"id":1}' http://localhost:9545 | jq -r .result)
 if [ "$ACTIVE" != "true" ]; then
@@ -48,7 +49,7 @@ fi
 
 echo "Sequencer successfully activated"
 
-# 1. try to add other two conductors to raft consensus cluster
+# 5. try to add other two conductors to raft consensus cluster
 SERVER_COUNT=$(curl -sS -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"conductor_clusterMembership","params":[],"id":1}' http://localhost:8547  | jq '.result.servers | length')
 if (( $SERVER_COUNT < 3 )); then
     curl -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"conductor_addServerAsVoter","params":["conductor-2", "op-conductor2:50050", 0],"id":1}' http://localhost:8547
