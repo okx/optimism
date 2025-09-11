@@ -2,10 +2,6 @@
 pragma solidity 0.8.15;
 
 // Libraries
-import { Types } from "src/libraries/Types.sol";
-import { Hashing } from "src/libraries/Hashing.sol";
-import { Encoding } from "src/libraries/Encoding.sol";
-import { Burn } from "src/libraries/Burn.sol";
 import { Predeploys } from "src/libraries/Predeploys.sol";
 import { L2ToL1MessagePasser } from "src/L2/L2ToL1MessagePasser.sol";
 

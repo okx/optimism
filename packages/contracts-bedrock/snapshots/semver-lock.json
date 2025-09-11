@@ -97,7 +97,7 @@
   },
   "src/L2/L2ToL1MessagePasserCGT.sol:L2ToL1MessagePasserCGT": {
     "initCodeHash": "0x3b438ec99bf8d85601a1bab8468ae29c0e1b063f000af147e00443b786b18a3f",
-    "sourceCodeHash": "0xf7a1b8c423ee277c75e067026e759cc3819f27d647214ff705591d6c4c6687fa"
+    "sourceCodeHash": "0xf8d30b9f081aca0444a53040c3225404981e2b55b76e2a06375d01020deda8c1"
   },
   "src/L2/L2ToL2CrossDomainMessenger.sol:L2ToL2CrossDomainMessenger": {
     "initCodeHash": "0x975fd33a3a386310d54dbb01b56f3a6a8350f55a3b6bd7781e5ccc2166ddf2e6",
