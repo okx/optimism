@@ -12,6 +12,13 @@ sed_inplace() {
   fi
 }
 
+# Check if FORK_BLOCK is set
+if [ -z "$FORK_BLOCK" ]; then
+    echo " ❌ FORK_BLOCK environment variable is not set"
+    echo "Please set FORK_BLOCK in your .env file"
+    exit 1
+fi
+
 FORK_BLOCK_HEX=$(printf "0x%x" "$FORK_BLOCK")
 sed_inplace 's/"number": "0x0"/"number": "'"$FORK_BLOCK_HEX"'"/' ./config-op/genesis.json
 sed_inplace 's/"number": 0/"number": '"$FORK_BLOCK"'/' ./config-op/rollup.json
@@ -48,59 +55,59 @@ if [ -f "$STATE_JSON" ]; then
 
         # Update .env if found
         if [ -n "$DISPUTE_GAME_FACTORY_ADDRESS" ]; then
-            echo "✅ Found DisputeGameFactoryProxy address: $DISPUTE_GAME_FACTORY_ADDRESS"
+            echo " ✅ Found DisputeGameFactoryProxy address: $DISPUTE_GAME_FACTORY_ADDRESS"
             sed_inplace "s/DISPUTE_GAME_FACTORY_ADDRESS=.*/DISPUTE_GAME_FACTORY_ADDRESS=$DISPUTE_GAME_FACTORY_ADDRESS/" .env
         else
-            echo "⚠️  DisputeGameFactoryProxy address not found in opChainDeployments"
+            echo " ⚠️ DisputeGameFactoryProxy address not found in opChainDeployments"
         fi
 
         if [ -n "$L2OO_ADDRESS" ]; then
-            echo "✅ Found L2OutputOracleProxy address: $L2OO_ADDRESS"
+            echo " ✅ Found L2OutputOracleProxy address: $L2OO_ADDRESS"
             sed_inplace "s/L2OO_ADDRESS=.*/L2OO_ADDRESS=$L2OO_ADDRESS/" .env
         else
-            echo "⚠️  L2OutputOracleProxy address not found in opChainDeployments"
+            echo " ⚠️ L2OutputOracleProxy address not found in opChainDeployments"
         fi
 
         if [ -n "$OPCM_IMPL_ADDRESS" ]; then
-            echo "✅ Found opcmAddress address: $OPCM_IMPL_ADDRESS"
+            echo " ✅ Found opcmAddress address: $OPCM_IMPL_ADDRESS"
             sed_inplace "s/OPCM_IMPL_ADDRESS=.*/OPCM_IMPL_ADDRESS=$OPCM_IMPL_ADDRESS/" .env
         else
-            echo "⚠️  opcmAddress address not found in opChainDeployments"
+            echo " ⚠️ opcmAddress address not found in opChainDeployments"
         fi
 
         if [ -n "$SYSTEM_CONFIG_PROXY_ADDRESS" ]; then
-            echo "✅ Found SystemConfigProxy address: $SYSTEM_CONFIG_PROXY_ADDRESS"
+            echo " ✅ Found SystemConfigProxy address: $SYSTEM_CONFIG_PROXY_ADDRESS"
             sed_inplace "s/SYSTEM_CONFIG_PROXY_ADDRESS=.*/SYSTEM_CONFIG_PROXY_ADDRESS=$SYSTEM_CONFIG_PROXY_ADDRESS/" .env
         else
-            echo "⚠️  SystemConfigProxy address not found in opChainDeployments"
+            echo " ⚠️ SystemConfigProxy address not found in opChainDeployments"
         fi
 
         if [ -n "$PROXY_ADMIN" ]; then
-            echo "✅ Found ProxyAdmin address: $PROXY_ADMIN"
+            echo " ✅ Found ProxyAdmin address: $PROXY_ADMIN"
             sed_inplace "s/PROXY_ADMIN=.*/PROXY_ADMIN=$PROXY_ADMIN/" .env
         else
-            echo "⚠️  ProxyAdmin address not found in opChainDeployments"
+            echo " ⚠️ ProxyAdmin address not found in opChainDeployments"
         fi
 
         # Show summary
-        echo "📄 Contract addresses updated in .env:"
+        echo " 📄 Contract addresses updated in .env:"
         echo "   DISPUTE_GAME_FACTORY_ADDRESS=$DISPUTE_GAME_FACTORY_ADDRESS"
         echo "   L2OO_ADDRESS=$L2OO_ADDRESS"
         echo "   OPCM_IMPL_ADDRESS=$OPCM_IMPL_ADDRESS"
         echo "   SYSTEM_CONFIG_PROXY_ADDRESS=$SYSTEM_CONFIG_PROXY_ADDRESS"
         echo "   PROXY_ADMIN=$PROXY_ADMIN"
     else
-        echo "❌ $STATE_JSON is not a valid JSON object"
+        echo " ❌ $STATE_JSON is not a valid JSON object"
     fi
 else
-    echo "❌ state.json not found at $STATE_JSON"
+    echo " ❌ state.json not found at $STATE_JSON"
 fi
 
 # init op-geth-seq and op-geth-rpc
 OP_GETH_DATADIR="$(pwd)/data/op-geth-seq"
 rm -rf "$OP_GETH_DATADIR"
 mkdir -p "$OP_GETH_DATADIR"
-docker compose run --no-deps \
+docker compose run --no-deps --rm \
   -v "$(pwd)/$CONFIG_DIR/genesis.json:/genesis.json" \
   op-geth-seq \
   --datadir "/datadir" \
@@ -113,51 +120,31 @@ docker compose run --no-deps \
 
 # update genesis block hash in rollup.json
 NEW_BLOCK_HASH=$(grep "Successfully wrote genesis state" init.log | jq -r .hash)
-ROLLUP_CONTENT=$(jq ".genesis.l2.hash = \"$NEW_BLOCK_HASH\"" config-op/rollup.json)
-echo $ROLLUP_CONTENT | jq > config-op/rollup.json
-rm -f init.log
+if [ -z "$NEW_BLOCK_HASH" ] || [ "$NEW_BLOCK_HASH" = "null" ]; then
+    echo " ❌ Failed to extract genesis block hash from init.log"
+    echo "Please check if op-geth-seq initialization was successful"
+    exit 1
+fi
+jq ".genesis.l2.hash = \"$NEW_BLOCK_HASH\"" config-op/rollup.json > config-op/rollup.json.tmp
+mv config-op/rollup.json.tmp config-op/rollup.json
 
-OP_GETH_DATADIR="$(pwd)/data/op-geth-rpc"
-rm -rf "$OP_GETH_DATADIR"
-mkdir -p "$OP_GETH_DATADIR"
-docker compose run --no-deps \
-  -v "$(pwd)/$CONFIG_DIR/genesis.json:/genesis.json" \
-  op-geth-rpc \
-  --datadir "/datadir" \
-  --gcmode=archive \
-  --db.engine=$DB_ENGINE \
-  init \
-  --state.scheme=hash \
-  /genesis.json
+# Copy initialized database from op-geth-seq to other nodes
+OP_GETH_RPC_DATADIR="$(pwd)/data/op-geth-rpc"
 
+echo " 🔄 Copying database from op-geth-seq to op-geth-rpc..."
+rm -rf "$OP_GETH_RPC_DATADIR"
+cp -r "$OP_GETH_DATADIR" "$OP_GETH_RPC_DATADIR"
 
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
-    OP_GETH_DATADIR="$(pwd)/data/op-geth-seq2"
-    rm -rf "$OP_GETH_DATADIR"
-    mkdir -p "$OP_GETH_DATADIR"
-    docker compose run --no-deps \
-      -v "$(pwd)/$CONFIG_DIR/genesis.json:/genesis.json" \
-      op-geth-seq2 \
-      --datadir "/datadir" \
-      --gcmode=archive \
-      --db.engine=$DB_ENGINE \
-      init \
-      --state.scheme=hash \
-      /genesis.json
+    echo " 🔄 Copying database from op-geth-seq to op-geth-seq2..."
+    OP_GETH_SEQ2_DATADIR="$(pwd)/data/op-geth-seq2"
+    rm -rf "$OP_GETH_SEQ2_DATADIR"
+    cp -r "$OP_GETH_DATADIR" "$OP_GETH_SEQ2_DATADIR"
 
-
-    OP_GETH_DATADIR="$(pwd)/data/op-geth-seq3"
-    rm -rf "$OP_GETH_DATADIR"
-    mkdir -p "$OP_GETH_DATADIR"
-    docker compose run --no-deps \
-      -v "$(pwd)/$CONFIG_DIR/genesis.json:/genesis.json" \
-      op-geth-seq3 \
-      --datadir "/datadir" \
-      --gcmode=archive \
-      --db.engine=$DB_ENGINE \
-      init \
-      --state.scheme=hash \
-      /genesis.json
+    echo " 🔄 Copying database from op-geth-seq to op-geth-seq3..."
+    OP_GETH_SEQ3_DATADIR="$(pwd)/data/op-geth-seq3"
+    rm -rf "$OP_GETH_SEQ3_DATADIR"
+    cp -r "$OP_GETH_DATADIR" "$OP_GETH_SEQ3_DATADIR"
 fi
 
 echo "finished init op-geth-seq and op-geth-rpc"
@@ -169,25 +156,12 @@ gzip -c config-op/genesis.json > config-op/genesis.json.gz
 EXPORT_DIR="$PWD_DIR/data/cannon-data"
 rm -rf $EXPORT_DIR
 mkdir -p $EXPORT_DIR
+
+echo "🔨 Building op-program prestate files..."
 docker run --rm \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -v "$(pwd)/config-op/rollup.json:/app/op-program/chainconfig/configs/195-rollup.json" \
     -v "$(pwd)/config-op/genesis.json.gz:/app/op-program/chainconfig/configs/195-genesis-l2.json" \
     -v "$EXPORT_DIR:/app/op-program/bin" \
-    -w /app \
-    --network "${DOCKER_NETWORK}" \
-    -e DOCKER_HOST=unix:///var/run/docker.sock \
     "${OP_STACK_IMAGE_TAG}" \
-    bash -c "
-        echo '📊 Verifying Docker connection:'
-        apt-get update
-        apt-get install docker.io -y
-        docker --version
-        docker ps --format 'table {{.Names}}\t{{.Status}}' | head -3
-
-        echo '🚀 Running make reproducible-prestate...'
-        make reproducible-prestate
-
-        echo '📁 Checking contents of op-program/bin:'
-        ls -la /app/op-program/bin/ || echo 'Directory is empty or does not exist'
-    "
+    make -C op-program reproducible-prestate

@@ -27,7 +27,7 @@ if [ "$LEADER_PORT" != "0" ]; then
 
     # Wait and check for leader change every second
     echo "Waiting for leader transfer..."
-    MAX_SECONDS=10
+    MAX_SECONDS=20
     for ((second=1; second<=MAX_SECONDS; second++)); do
         sleep 1
         NEW_LEADER=0
