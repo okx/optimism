@@ -19,38 +19,37 @@ source .env
 
 # Deploy Transactor contract first
 echo "🔧 Deploying Transactor contract..."
-TRANSACTOR_DEPLOY_OUTPUT=$(docker run \
+TRANSACTOR_DEPLOY_OUTPUT=$(docker run --rm \
   --network "$DOCKER_NETWORK" \
   -v "$(pwd)/$CONFIG_DIR:/deployments" \
-  -w /app \
+  -w /app/packages/contracts-bedrock \
   "${OP_CONTRACTS_IMAGE_TAG}" \
-  bash -c "
-    set -e
-    cd /app/packages/contracts-bedrock
-    cast send --rpc-url $L1_RPC_URL_IN_DOCKER --private-key $DEPLOYER_PRIVATE_KEY --create \"\$(forge inspect src/periphery/Transactor.sol:Transactor bytecode)\$(cast abi-encode 'constructor(address)' $ADMIN_OWNER_ADDRESS | sed 's/0x//')\" --json
-  ")
+  forge create --json --broadcast \
+    --rpc-url $L1_RPC_URL_IN_DOCKER \
+    --private-key $DEPLOYER_PRIVATE_KEY \
+    src/periphery/Transactor.sol:Transactor.0.8.30 \
+    --constructor-args $ADMIN_OWNER_ADDRESS)
 
 # Extract contract address from deployment output
-TRANSACTOR_ADDRESS=$(echo "$TRANSACTOR_DEPLOY_OUTPUT" | jq -r '.contractAddress // empty')
+TRANSACTOR_ADDRESS=$(echo "$TRANSACTOR_DEPLOY_OUTPUT" | jq -r '.deployedTo // empty')
 if [ -z "$TRANSACTOR_ADDRESS" ] || [ "$TRANSACTOR_ADDRESS" = "null" ]; then
-  echo "❌ Failed to extract Transactor contract address from deployment output"
+  echo " ❌ Failed to extract Transactor contract address from deployment output"
   echo "Deployment output: $TRANSACTOR_DEPLOY_OUTPUT"
   exit 1
 fi
 
-echo "✅ Transactor contract deployed at: $TRANSACTOR_ADDRESS"
+echo " ✅ Transactor contract deployed at: $TRANSACTOR_ADDRESS"
 
 # Update .env file with Transactor address
 sed_inplace "s/TRANSACTOR=.*/TRANSACTOR=$TRANSACTOR_ADDRESS/" .env
 source .env
-echo "✅ Updated TRANSACTOR address in .env: $TRANSACTOR_ADDRESS"
+echo " ✅ Updated TRANSACTOR address in .env: $TRANSACTOR_ADDRESS"
 
 echo "🔧 Bootstrapping superchain with op-deployer..."
 
-docker run \
+docker run --rm \
   --network "$DOCKER_NETWORK" \
   -v "$(pwd)/$CONFIG_DIR:/deployments" \
-  -w /app \
   "${OP_CONTRACTS_IMAGE_TAG}" \
   bash -c "
     set -e
@@ -71,10 +70,9 @@ PROTOCOL_VERSIONS_PROXY=$(jq -r '.protocolVersionsProxyAddress' "$SUPERCHAIN_JSO
 SUPERCHAIN_CONFIG_PROXY=$(jq -r '.superchainConfigProxyAddress' "$SUPERCHAIN_JSON")
 PROXY_ADMIN=$(jq -r '.proxyAdminAddress' "$SUPERCHAIN_JSON")
 
-docker run \
+docker run --rm \
   --network "$DOCKER_NETWORK" \
   -v "$(pwd)/$CONFIG_DIR:/deployments" \
-  -w /app \
   "${OP_CONTRACTS_IMAGE_TAG}" \
   bash -c "
     set -e
@@ -99,24 +97,23 @@ cp ./config-op/state.json.bak ./config-op/state.json
 
 # Update intent.toml with Transactor address for l1ProxyAdminOwner
 sed_inplace "s/l1ProxyAdminOwner = \".*\"/l1ProxyAdminOwner = \"$TRANSACTOR_ADDRESS\"/" ./config-op/intent.toml
-echo "✅ Updated l1ProxyAdminOwner in intent.toml: $TRANSACTOR_ADDRESS"
+echo " ✅ Updated l1ProxyAdminOwner in intent.toml: $TRANSACTOR_ADDRESS"
 
 # Read opcmAddress from implementations.json and write it into intent.toml
 OPCM_ADDRESS=$(jq -r '.opcmAddress' ./config-op/implementations.json)
 if [ -z "$OPCM_ADDRESS" ] || [ "$OPCM_ADDRESS" = "null" ]; then
-  echo "❌ Failed to read opcmAddress from implementations.json"
+  echo " ❌ Failed to read opcmAddress from implementations.json"
   exit 1
 fi
 
 # Replace the opcmAddress field in intent.toml with the new value
 sed_inplace "s/^opcmAddress = \".*\"/opcmAddress = \"$OPCM_ADDRESS\"/" ./config-op/intent.toml
-echo "✅ Updated opcmAddress ($OPCM_ADDRESS) in intent.toml"
+echo " ✅ Updated opcmAddress ($OPCM_ADDRESS) in intent.toml"
 
 # deploy contracts, TODO, should we need to modify source code to deploy contracts?
-docker run \
+docker run --rm \
   --network "$DOCKER_NETWORK" \
   -v "$(pwd)/$CONFIG_DIR:/deployments" \
-  -w /app \
   "${OP_CONTRACTS_IMAGE_TAG}" \
   bash -c "
     set -e
@@ -128,7 +125,7 @@ docker run \
       --private-key $DEPLOYER_PRIVATE_KEY \
       --l1-rpc-url $L1_RPC_URL_IN_DOCKER
 
-    echo '📄 Generating L2 genesis and rollup config...'
+    echo ' 📄 Generating L2 genesis and rollup config...'
 
     # Generate L2 genesis using op-deployer
     /app/op-deployer/bin/op-deployer inspect genesis \
@@ -140,7 +137,7 @@ docker run \
       --workdir /deployments \
       195 > /deployments/rollup.json
 
-    echo '✅ Contract deployment completed successfully'
+    echo ' ✅ Contract deployment completed successfully'
   "
 
 echo "genesis.json and rollup.json are generated in deployments folder"
