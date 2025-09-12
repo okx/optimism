@@ -203,10 +203,11 @@ fi
 # Run the reproducible-prestate command
 $DOCKER_CMD \
     -v "$(pwd)/scripts:/scripts" \
-    -v /var/run/docker.sock:/var/run/docker.sock \
     -v "$(pwd)/config-op/rollup.json:/app/op-program/chainconfig/configs/195-rollup.json" \
     -v "$(pwd)/config-op/genesis.json.gz:/app/op-program/chainconfig/configs/195-genesis-l2.json" \
     -v "$EXPORT_DIR:/app/op-program/bin" \
     "${OP_STACK_IMAGE_TAG}" \
-    /scripts/docker-install-start.sh $DOCKER_TYPE && \
-    make -C op-program reproducible-prestate
+    bash -c " \
+      /scripts/docker-install-start.sh $DOCKER_TYPE
+      make -C op-program reproducible-prestate
+    "

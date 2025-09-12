@@ -2,15 +2,13 @@
 
 # Install Docker in Docker and start Docker daemon
 
-apt-get update
-
-# If default (rooted Docker) is used, just make sure docker.io is installed
+# If default (rooted Docker) is used, just exit
 if [ "$1" == "default" ]; then
-  apt-get install docker.io -y
   exit 0
 fi
 
 # Otherwise (rootless Docker): remove docker.io, install and configure Docker in Docker
+apt-get update
 apt-get remove -y --purge docker.io
 
 curl -sSL https://get.docker.com/ | sh
