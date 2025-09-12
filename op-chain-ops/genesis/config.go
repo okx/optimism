@@ -293,6 +293,9 @@ func (d *GasTokenDeployConfig) Check(log log.Logger) error {
 		if d.GasPayingTokenSymbol == "" {
 			return fmt.Errorf("%w: GasPayingTokenSymbol cannot be empty", ErrInvalidDeployConfig)
 		}
+		if d.NativeAssetLiquidityAmount == nil {
+			return fmt.Errorf("%w: NativeAssetLiquidityAmount cannot be nil", ErrInvalidDeployConfig)
+		}
 	}
 	return nil
 }

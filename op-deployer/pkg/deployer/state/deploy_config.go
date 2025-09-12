@@ -75,7 +75,7 @@ func CombineDeployConfig(intent *Intent, chainIntent *ChainIntent, state *State,
 				UseCustomGasToken:          chainIntent.CustomGasToken.Enabled,
 				GasPayingTokenName:         chainIntent.CustomGasToken.Name,
 				GasPayingTokenSymbol:       chainIntent.CustomGasToken.Symbol,
-				NativeAssetLiquidityAmount: (*hexutil.Big)(chainIntent.GetNativeAssetLiquidityAmount()),
+				NativeAssetLiquidityAmount: chainIntent.CustomGasToken.NativeAssetLiquidityAmount,
 			},
 
 			// STOP! This struct sets the _default_ upgrade schedule for all chains.
@@ -115,15 +115,11 @@ func CombineDeployConfig(intent *Intent, chainIntent *ChainIntent, state *State,
 
 	if chainState.StartBlock == nil {
 		// These are dummy variables - see below for rationale.
-		num := rpc.LatestBlockNumber
-		cfg.L1StartingBlockTag = &genesis.MarshalableRPCBlockNumberOrHash{
-			BlockNumber: &num,
-		}
+		blockNumOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+		cfg.L1StartingBlockTag = (*genesis.MarshalableRPCBlockNumberOrHash)(&blockNumOrHash)
 	} else {
-		startHash := chainState.StartBlock.Hash
-		cfg.L1StartingBlockTag = &genesis.MarshalableRPCBlockNumberOrHash{
-			BlockHash: &startHash,
-		}
+		blockNumOrHash := rpc.BlockNumberOrHashWithHash(chainState.StartBlock.Hash, false)
+		cfg.L1StartingBlockTag = (*genesis.MarshalableRPCBlockNumberOrHash)(&blockNumOrHash)
 	}
 
 	if chainIntent.DangerousAltDAConfig.UseAltDA {
