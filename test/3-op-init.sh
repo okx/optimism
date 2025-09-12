@@ -169,19 +169,30 @@ gzip -c config-op/genesis.json > config-op/genesis.json.gz
 EXPORT_DIR="$PWD_DIR/data/cannon-data"
 rm -rf $EXPORT_DIR
 mkdir -p $EXPORT_DIR
-docker run --rm \
-    -v /var/run/docker.sock:/var/run/docker.sock \
+
+# Determine if we are using rootless Docker and set the appropriate Docker command
+ROOTLESS_DOCKER=$(docker info -f "{{println .SecurityOptions}}" | grep rootless || true)
+if ! [ -z "$ROOTLESS_DOCKER" ]; then
+echo "Using rootless Docker!"
+DOCKER_CMD="docker run --rm --privileged "
+DOCKER_TYPE="rootless"
+else
+DOCKER_CMD="docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -e DOCKER_HOST=unix:///var/run/docker.sock "
+DOCKER_TYPE="default"
+fi
+
+# Run the reproducible-prestate command
+$DOCKER_CMD \
+    -v "$(pwd)/scripts:/scripts" \
     -v "$(pwd)/config-op/rollup.json:/app/op-program/chainconfig/configs/195-rollup.json" \
     -v "$(pwd)/config-op/genesis.json.gz:/app/op-program/chainconfig/configs/195-genesis-l2.json" \
     -v "$EXPORT_DIR:/app/op-program/bin" \
     -w /app \
     --network "${DOCKER_NETWORK}" \
-    -e DOCKER_HOST=unix:///var/run/docker.sock \
     "${OP_STACK_IMAGE_TAG}" \
     bash -c "
         echo '📊 Verifying Docker connection:'
-        apt-get update
-        apt-get install docker.io -y
+        /scripts/docker-install-start.sh $DOCKER_TYPE
         docker --version
         docker ps --format 'table {{.Names}}\t{{.Status}}' | head -3
 
