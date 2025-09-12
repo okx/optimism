@@ -141,7 +141,7 @@ services:
       - 4000:4000
       - 3500:3500
       - 18080:8080
-      - 6060:6060
+      - 9090:6060
       - 19090:9090
     volumes:
       - ./l1-geth/consensus:/consensus
@@ -173,7 +173,7 @@ services:
       - ./data/op-geth-seq:/datadir
       - ./config-op/jwt.txt:/jwt.txt
     ports:
-      - "8123:8545"
+      - "9123:8545"
       - "7546:7546"
       - "8552:8552"
       - "30303:30303"
@@ -216,7 +216,11 @@ services:
       - ./data/op-geth-rpc:/datadir
       - ./config-op/jwt.txt:/jwt.txt
     ports:
-      - "9123:8545"
+      - "9124:8545"
+      - "7547:7546"
+      - "8553:8552"
+      - "30304:30303"
+      - "30304:30303/udp"
     command:
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
