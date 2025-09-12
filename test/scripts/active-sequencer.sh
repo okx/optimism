@@ -18,8 +18,6 @@ if [ $PAUSED = "true" ]; then
     fi
 fi
 
-
-
 # 3. try to start sequencer if it is stopped
 ACTIVE=$(curl -sS -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"admin_sequencerActive","params":[],"id":1}' http://localhost:8547 | jq -r .result)
 if [ $ACTIVE = "false" ]; then
@@ -37,7 +35,6 @@ if [ $ACTIVE = "false" ]; then
         exit 1
     fi
 fi
-
 
 # 4. verify sequencer is active
 sleep 1

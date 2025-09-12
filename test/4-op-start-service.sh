@@ -160,7 +160,7 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     docker compose up -d op-conductor2
     docker compose up -d op-conductor3
     sleep 3
-    $SCRIPTS_DIR/active_sequencer.sh
+    $SCRIPTS_DIR/active-sequencer.sh
 fi
 
 docker compose up -d op-rpc
