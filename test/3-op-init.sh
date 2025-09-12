@@ -1,6 +1,5 @@
 #!/bin/bash
 
-set -x
 set -e
 
 source .env
@@ -130,6 +129,36 @@ docker compose run --no-deps \
   init \
   --state.scheme=hash \
   /genesis.json
+
+
+if [ "$CONDUCTOR_ENABLED" = "true" ]; then
+    OP_GETH_DATADIR="$(pwd)/data/op-geth-seq2"
+    rm -rf "$OP_GETH_DATADIR"
+    mkdir -p "$OP_GETH_DATADIR"
+    docker compose run --no-deps \
+      -v "$(pwd)/$CONFIG_DIR/genesis.json:/genesis.json" \
+      op-geth-seq2 \
+      --datadir "/datadir" \
+      --gcmode=archive \
+      --db.engine=$DB_ENGINE \
+      init \
+      --state.scheme=hash \
+      /genesis.json
+
+
+    OP_GETH_DATADIR="$(pwd)/data/op-geth-seq3"
+    rm -rf "$OP_GETH_DATADIR"
+    mkdir -p "$OP_GETH_DATADIR"
+    docker compose run --no-deps \
+      -v "$(pwd)/$CONFIG_DIR/genesis.json:/genesis.json" \
+      op-geth-seq3 \
+      --datadir "/datadir" \
+      --gcmode=archive \
+      --db.engine=$DB_ENGINE \
+      init \
+      --state.scheme=hash \
+      /genesis.json
+fi
 
 echo "finished init op-geth-seq and op-geth-rpc"
 
