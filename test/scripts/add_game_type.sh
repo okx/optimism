@@ -1,0 +1,188 @@
+#!/bin/bash
+
+set -e
+
+# Source environment variables
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="$(dirname "$SCRIPT_DIR")/.env"
+source "$ENV_FILE"
+
+# Function to set respected game type
+set_respected_game_type() {
+    local GAME_TYPE=${1:-0}  # Default to game type 0
+
+    echo "=== Setting Respected Game Type to $GAME_TYPE ==="
+
+    # Get contract addresses
+    echo " 📋 Gathering contract addresses..."
+    DISPUTE_GAME_FACTORY_ADDR=$(cast call --rpc-url $L1_RPC_URL $SYSTEM_CONFIG_PROXY_ADDRESS 'disputeGameFactory()(address)')
+    OPTIMISM_PORTAL_ADDR=$(cast call --rpc-url $L1_RPC_URL $SYSTEM_CONFIG_PROXY_ADDRESS 'optimismPortal()(address)')
+    ANCHOR_STATE_REGISTRY_ADDR=$(cast call --rpc-url $L1_RPC_URL $OPTIMISM_PORTAL_ADDR 'anchorStateRegistry()(address)')
+    GAME_ADDR=$(cast call --rpc-url $L1_RPC_URL $DISPUTE_GAME_FACTORY_ADDR 'gameImpls(uint32)(address)' $GAME_TYPE)
+
+    echo "Contract addresses:"
+    echo "  Dispute Game Factory: $DISPUTE_GAME_FACTORY_ADDR"
+    echo "  Optimism Portal: $OPTIMISM_PORTAL_ADDR"
+    echo "  Anchor State Registry: $ANCHOR_STATE_REGISTRY_ADDR"
+    echo "  Game Implementation ($GAME_TYPE): $GAME_ADDR"
+    echo ""
+
+    # Execute transaction and capture output
+    echo "Setting respected game type to $GAME_TYPE..."
+    TX_OUTPUT=$(cast send \
+        --json \
+        --rpc-url $L1_RPC_URL \
+        --private-key $DEPLOYER_PRIVATE_KEY \
+        --from $(cast wallet address --private-key $DEPLOYER_PRIVATE_KEY) \
+        $ANCHOR_STATE_REGISTRY_ADDR \
+        'setRespectedGameType(uint32)' \
+        $GAME_TYPE)
+
+    # Extract transaction hash and status
+    TX_HASH=$(echo "$TX_OUTPUT" | jq -r '.transactionHash // empty')
+    TX_STATUS=$(echo "$TX_OUTPUT" | jq -r '.status // empty')
+
+    echo "Transaction sent, TX_HASH: $TX_HASH"
+
+    # Check if transaction was successful
+    if [ "$TX_STATUS" = "0x1" ] || [ "$TX_STATUS" = "1" ]; then
+        echo " ✅ setRespectedGameType completed successfully"
+    else
+        echo " ❌ Transaction failed with status: $TX_STATUS"
+        echo "Full output: $TX_OUTPUT"
+        exit 1
+    fi
+}
+
+# Function to add game type via Transactor
+add_game_type_via_transactor() {
+    # Check parameter count
+    if [ $# -ne 5 ]; then
+        echo "Error: add_game_type_via_transactor requires exactly 5 parameters"
+        echo "Usage: add_game_type_via_transactor <GAME_TYPE> <IS_PERMISSIONED> <CLOCK_EXTENSION> <MAX_CLOCK_DURATION> <ABSOLUTE_PRESTATE>"
+        echo "Example: add_game_type_via_transactor 2 true 600 1800 0x..."
+        return 1
+    fi
+
+    local GAME_TYPE=$1
+    local IS_PERMISSIONED=$2
+    local CLOCK_EXTENSION_VAL=$3
+    local MAX_CLOCK_DURATION_VAL=$4
+    local ABSOLUTE_PRESTATE_VAL=$5
+
+    echo "=== Adding Game Type $GAME_TYPE via Transactor ==="
+    echo "  Game Type: $GAME_TYPE"
+    echo "  Is Permissioned: $IS_PERMISSIONED"
+    echo "  Clock Extension: $CLOCK_EXTENSION_VAL"
+    echo "  Max Clock Duration: $MAX_CLOCK_DURATION_VAL"
+    echo ""
+
+    # Get dispute game factory address
+    DISPUTE_GAME_FACTORY=$(cast call --rpc-url $L1_RPC_URL $SYSTEM_CONFIG_PROXY_ADDRESS 'disputeGameFactory()(address)')
+
+    echo "Debug Info:"
+    echo "  State JSON: $STATE_JSON_PATH"
+    echo "  Dispute Game Factory: $DISPUTE_GAME_FACTORY"
+    echo "  System Config: $SYSTEM_CONFIG_PROXY_ADDRESS"
+    echo "  Proxy Admin: $PROXY_ADMIN"
+    echo "  OPCM: $OPCM_IMPL_ADDRESS"
+    echo "  Transactor: $TRANSACTOR"
+    echo "  RPC URL: $L1_RPC_URL"
+    echo "  Sender: $(cast wallet address --private-key $DEPLOYER_PRIVATE_KEY)"
+    echo ""
+
+    # Retrieve existing permissioned game implementation for parameters
+    echo "Retrieving permissioned game parameters..."
+    PERMISSIONED_GAME=$(cast call --rpc-url $L1_RPC_URL $DISPUTE_GAME_FACTORY 'gameImpls(uint32)(address)' 1)
+    echo "Permissioned Game Implementation: $PERMISSIONED_GAME"
+
+    if [ "$PERMISSIONED_GAME" == "0x0000000000000000000000000000000000000000" ]; then
+        echo "Error: No permissioned game found. Cannot retrieve parameters."
+        exit 1
+    fi
+
+    # Retrieve parameters from existing permissioned game
+    ABSOLUTE_PRESTATE="$ABSOLUTE_PRESTATE_VAL"
+    MAX_GAME_DEPTH=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME 'maxGameDepth()')
+    SPLIT_DEPTH=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME 'splitDepth()')
+    VM=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME 'vm()(address)')
+
+    echo "Retrieved parameters:"
+    echo "  Absolute Prestate: $ABSOLUTE_PRESTATE"
+    echo "  Max Game Depth: $MAX_GAME_DEPTH"
+    echo "  Split Depth: $SPLIT_DEPTH"
+    echo "  Clock Extension: $CLOCK_EXTENSION_VAL"
+    echo "  Max Clock Duration: $MAX_CLOCK_DURATION_VAL"
+    echo "  VM: $VM"
+    echo ""
+
+    # Set constants
+    INITIAL_BOND='1000000000000000000'  # 1 ETH in wei
+    SALT_MIXER='123'  # Unique salt for game type
+
+    echo "Creating addGameType calldata..."
+
+    # Build game type parameters array (simplified)
+    GAME_PARAMS="[(\"$SALT_MIXER\",$SYSTEM_CONFIG_PROXY_ADDRESS,$PROXY_ADMIN,0x0000000000000000000000000000000000000000,$GAME_TYPE,$ABSOLUTE_PRESTATE,$MAX_GAME_DEPTH,$SPLIT_DEPTH,$CLOCK_EXTENSION_VAL,$MAX_CLOCK_DURATION_VAL,$INITIAL_BOND,$VM,$IS_PERMISSIONED)]"
+
+    echo "Parameters prepared for addGameType"
+
+    # Execute the transaction through Transactor
+    echo "Executing transaction via Transactor..."
+    echo "Target: $TRANSACTOR"
+    echo "From: $(cast wallet address --private-key $DEPLOYER_PRIVATE_KEY)"
+
+    # Simplified DELEGATECALL - build calldata first, then call
+    ADDGAMETYPE_CALLDATA=$(cast calldata 'addGameType((string,address,address,address,uint32,bytes32,uint256,uint256,uint64,uint64,uint256,address,bool)[])' "$GAME_PARAMS")
+
+    # Execute transaction and capture output
+    TX_OUTPUT=$(cast send \
+        --json \
+        --rpc-url $L1_RPC_URL \
+        --private-key $DEPLOYER_PRIVATE_KEY \
+        --from $(cast wallet address --private-key $DEPLOYER_PRIVATE_KEY) \
+        $TRANSACTOR \
+        'DELEGATECALL(address,bytes)' \
+        $OPCM_IMPL_ADDRESS \
+        $ADDGAMETYPE_CALLDATA)
+
+    # Extract transaction hash and status
+    TX_HASH=$(echo "$TX_OUTPUT" | jq -r '.transactionHash // empty')
+    TX_STATUS=$(echo "$TX_OUTPUT" | jq -r '.status // empty')
+
+    echo ""
+    echo "Transaction sent, TX_HASH: $TX_HASH"
+
+    # Check if transaction was successful
+    if [ "$TX_STATUS" = "0x1" ] || [ "$TX_STATUS" = "1" ]; then
+        echo " ✅ Transaction successful!"
+    else
+        echo " ❌ Transaction failed with status: $TX_STATUS"
+        echo "Full output: $TX_OUTPUT"
+        exit 1
+    fi
+    echo ""
+
+    # Verify the new game type was added
+    echo "Verifying new game type was added..."
+    NEW_GAME_IMPL=$(cast call --rpc-url $L1_RPC_URL $DISPUTE_GAME_FACTORY 'gameImpls(uint32)(address)' $GAME_TYPE)
+
+    if [ "$NEW_GAME_IMPL" != "0x0000000000000000000000000000000000000000" ]; then
+        echo " ✅ Success! New game type $GAME_TYPE added."
+        echo "Game Type $GAME_TYPE Implementation: $NEW_GAME_IMPL"
+    else
+        echo " ❌ Warning: Could not verify game type was added. Check transaction status."
+    fi
+
+    echo " ✅ AddGameType operations completed successfully"
+
+    # Set the newly added game type as respected
+    echo ""
+    set_respected_game_type "$GAME_TYPE"
+}
+
+# Main execution
+if [ "${BASH_SOURCE[0]}" == "${0}" ]; then
+    # Script is being executed directly - call the function
+    add_game_type_via_transactor "$@"
+fi
