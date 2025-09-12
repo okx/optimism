@@ -237,6 +237,7 @@ contract LiquidityController_Burn_Test is LiquidityController_TestInit {
         public
         isAuthorizedMinter(authorizedMinter)
     {
+        vm.assume(_caller != authorizedMinter);
         _amount = bound(_amount, 0, type(uint248).max);
 
         // Deal the unauthorized caller with the amount to burn
