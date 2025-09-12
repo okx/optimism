@@ -51,7 +51,7 @@ ANCHOR_STATE_REGISTRY=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME "anch
 L2_CHAIN_ID=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME "l2ChainId()")
 
 # Call the function to add game type 1 (permissioned) via Transactor
-"$SCRIPTS_DIR/add_game_type.sh" 1 true $TEMP_CLOCK_EXTENSION $TEMP_MAX_CLOCK_DURATION $ABSOLUTE_PRESTATE
+"$SCRIPTS_DIR/add-game-type.sh" 1 true $TEMP_CLOCK_EXTENSION $TEMP_MAX_CLOCK_DURATION $ABSOLUTE_PRESTATE
 
 export GAME_TYPE=1
 docker compose up -d op-proposer
@@ -147,7 +147,7 @@ ABSOLUTE_PRESTATE=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME "absolute
 ANCHOR_STATE_REGISTRY=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME "anchorStateRegistry()")
 
 # Call the function to add game type 0 (permissionless) via Transactor
-"$SCRIPTS_DIR/add_game_type.sh" 0 false $CLOCK_EXTENSION $MAX_CLOCK_DURATION $ABSOLUTE_PRESTATE
+"$SCRIPTS_DIR/add-game-type.sh" 0 false $CLOCK_EXTENSION $MAX_CLOCK_DURATION $ABSOLUTE_PRESTATE
 
 export GAME_TYPE=0
 
