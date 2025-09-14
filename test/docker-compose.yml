@@ -24,7 +24,7 @@ services:
       - testnet
       - generate-genesis
       - --fork=deneb
-      - --num-validators=64
+      - --num-validators=4
       - --genesis-time-delay=0
       - --output-ssz=/consensus/genesis.ssz
       - --chain-config-file=/consensus/config.yml
@@ -155,7 +155,7 @@ services:
       - --beacon-rpc-provider=l1-beacon-chain:4000
       - --datadir=/consensus/validatordata
       - --accept-terms-of-use
-      - --interop-num-validators=64
+      - --interop-num-validators=4
       - --interop-start-index=0
       - --chain-config-file=/consensus/config.yml
       - --verbosity=info
