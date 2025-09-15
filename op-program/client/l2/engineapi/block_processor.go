@@ -145,7 +145,7 @@ func (b *BlockProcessor) CheckTxWithinGasLimit(tx *types.Transaction) error {
 func (b *BlockProcessor) AddTx(tx *types.Transaction) (*types.Receipt, error) {
 	txIndex := len(b.transactions)
 	b.state.SetTxContext(tx.Hash(), txIndex)
-	receipt, err := core.ApplyTransaction(b.evm, b.gasPool, b.state, b.header, tx, &b.header.GasUsed)
+	receipt, _, err := core.ApplyTransaction(b.evm, b.gasPool, b.state, b.header, tx, &b.header.GasUsed)
 	if err != nil {
 		return nil, fmt.Errorf("failed to apply transaction to L2 block (tx %d): %w", txIndex, err)
 	}

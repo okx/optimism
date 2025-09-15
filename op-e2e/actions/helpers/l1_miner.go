@@ -184,7 +184,7 @@ func (s *L1Miner) IncludeTx(t Testing, tx *types.Transaction) *types.Receipt {
 	s.l1BuildingState.SetTxContext(tx.Hash(), len(s.L1Transactions))
 	blockCtx := core.NewEVMBlockContext(s.l1BuildingHeader, s.l1Chain, nil, s.l1Cfg.Config, s.l1BuildingState)
 	evm := vm.NewEVM(blockCtx, s.l1BuildingState, s.l1Cfg.Config, *s.l1Chain.GetVMConfig())
-	receipt, err := core.ApplyTransaction(
+	receipt, _, err := core.ApplyTransaction(
 		evm, s.L1GasPool, s.l1BuildingState, s.l1BuildingHeader, tx.WithoutBlobTxSidecar(), &s.l1BuildingHeader.GasUsed)
 	if err != nil {
 		s.l1TxFailed = append(s.l1TxFailed, tx)
