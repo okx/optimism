@@ -1,5 +1,71 @@
 # Optimism Test Environment Setup Guide
 
+## Prerequisites
+
+### System Requirements
+- Docker 20.10.0 or higher
+- Docker Compose
+- At least 32GB RAM
+- At least 32GB available disk space
+
+> **Important**: If you encounter performance issues, increase Docker engine memory limit to over 32GB
+> ![issue](./images/stuck.png)
+> ![solution](./images/docker.png)
+
+### Initial Setup (First Time Only)
+1. Run `./init.sh` to initialize the environment (only needed once):
+   - Install all git submodules
+   - Build required Docker images
+   - Prepare base environment
+
+> Important: `init.sh` should only be run once during initial setup. Re-run only if you need to rebuild Docker images after code changes.
+
+### Code Updates and Image Rebuilding (Optional)
+If you've updated the Optimism codebase and need to rebuild Docker images:
+
+1. **Update image tags** in `example.env`:
+   ```bash
+   # Example: increment version numbers
+   OP_GETH_IMAGE_TAG=op-geth:v1.101512.0-patch
+   OP_STACK_IMAGE_TAG=op-stack:v1.13.5
+   OP_CONTRACTS_IMAGE_TAG=op-contracts:v1.13.5
+   ```
+
+2. **Apply changes**:
+   ```bash
+   ./clean.sh  # This will update .env from example.env
+   ```
+
+3. **Rebuild images**:
+   ```bash
+   ./init.sh  # Rebuilds all Docker images
+
+   # Or rebuild specific images only (optional)
+   source .env && cd .. && docker build -t ${OP_STACK_IMAGE_TAG} -f Dockerfile-opstack . && cd -
+   ```
+
+### Directory Structure
+```
+test/
+├── 0-all.sh            # One-click deployment script
+├── init.sh             # Initialization script
+├── clean.sh            # Environment cleanup script
+├── 1-start-l1.sh       # L1 chain startup script
+├── 2-deploy-op-contracts.sh  # Contract deployment script
+├── 3-op-init.sh        # Environment initialization script
+├── 4-op-start-service.sh    # Service startup script
+├── scripts/            # Utility scripts
+│   ├── transfer_leader.sh      # Leader transfer script
+│   ├── stop_leader_sequencer.sh # Sequencer stop script
+│   ├── active_sequencer.sh      # Check active sequencer
+│   └── add_game_type.sh         # Add dispute game type
+├── config-op/          # Configuration directory
+├── data/              # Data storage directory
+├── contracts/         # Smart contracts
+├── images/            # Documentation images
+├── example.env        # Environment template
+```
+
 ## Quick Start
 
 ### One-Click Deployment
@@ -24,42 +90,6 @@ Run `./0-all.sh` to automatically:
 
 ### Step-by-Step Deployment
 For more granular control or troubleshooting, follow the steps below.
-
-## Prerequisites
-
-### System Requirements
-- Docker 20.10.0 or higher
-- Docker Compose
-- At least 32GB RAM
-- At least 32GB available disk space
-
-if you stuck here, please give docker engine more memory limit, better to over 32GB
-![issue](./images/stuck.png)
-![solution](./images/docker.png)
-
-
-### Initial Setup (First Time Only)
-1. Run `./init.sh` to initialize the environment (only needed once):
-   - Install all git submodules
-   - Build required Docker images
-   - Prepare base environment
-
-> Important: `init.sh` should only be run once during initial setup. Re-run only if you need to rebuild Docker images after code changes.
-
-### Directory Structure
-```
-test/
-├── 0-all.sh            # One-click deployment script
-├── init.sh             # Initialization script
-├── clean.sh            # Environment cleanup script
-├── 1-start-l1.sh       # L1 chain startup script
-├── 2-deploy-op-contracts.sh  # Contract deployment script
-├── 3-op-init.sh        # Environment initialization script
-├── 4-op-start-service.sh    # Service startup script
-├── config-op/          # Configuration directory
-├── data/              # Data storage directory
-└── .env               # Environment variables
-```
 
 ## Deployment Process
 
@@ -173,12 +203,55 @@ This method simulates a sequencer failure scenario, enabling comprehensive testi
 ## Troubleshooting
 
 ### Common Issues
-1. Service Startup Failures
-   - Check Docker logs: `docker compose logs <service-name>`
-   - Verify port availability
-   - Validate environment variables
 
-2. Contract Deployment Issues
-   - Verify L1 node is running
-   - Check account balances
-   - Validate gas settings
+#### 1. Service Startup Failures
+- **Check Docker logs**: `docker compose logs <service-name>`
+- **Verify port availability**: Ensure ports 8545, 8546, 4000, 3500 are free
+- **Validate environment variables**: Check `.env` file matches `example.env`
+- **Memory issues**: Increase Docker memory limit to 32GB+
+
+#### 2. Contract Deployment Issues
+- **Verify L1 node is running**: Check `docker compose ps`
+- **Check account balances**: Ensure test accounts have sufficient ETH
+- **Validate gas settings**: Check gas limit and price in deployment logs
+
+#### 3. Synchronization Issues
+- **L2 not syncing**: Check op-geth-seq is running and producing blocks
+- **RPC node issues**: Verify op-geth-rpc can connect to op-geth-seq
+- **Genesis mismatch**: Ensure rollup.json matches actual L2 genesis
+
+#### 4. Conductor Cluster Issues
+- **Leader election problems**: Check Raft consensus logs
+- **Sequencer not switching**: Verify health check configuration
+- **P2P connectivity**: Check network configuration and firewall
+
+## Service Ports Overview
+
+| Service | Port | Description |
+|---------|------|-------------|
+| **L1 Services** | | |
+| l1-geth | 8545 | L1 Ethereum RPC |
+| l1-geth | 8546 | L1 Ethereum WebSocket |
+| l1-geth | 8551 | L1 Ethereum Engine API |
+| l1-beacon-chain | 4000 | L1 Beacon RPC |
+| l1-beacon-chain | 3500 | L1 Beacon HTTP |
+| l1-beacon-chain | 18080 | L1 Beacon Metrics |
+| **L2 Services** | | |
+| op-geth-seq | 8123 | L2 Sequencer RPC |
+| op-geth-seq | 7546 | L2 Sequencer WebSocket |
+| op-geth-seq | 8552 | L2 Sequencer Engine API |
+| op-geth-rpc | 9123 | L2 RPC Node RPC |
+| op-seq | 9545 | L2 Node RPC |
+| op-seq | 7070 | L2 Node P2P |
+| op-seq | 9223 | L2 Node P2P (UDP) |
+| op-rpc | 9555 | L2 RPC Node RPC |
+| **Conductor Cluster** | | |
+| op-conductor | 8547 | Conductor 1 RPC |
+| op-conductor | 50050 | Conductor 1 Consensus |
+| op-conductor2 | 8548 | Conductor 2 RPC |
+| op-conductor2 | 50051 | Conductor 2 Consensus |
+| op-conductor3 | 8549 | Conductor 3 RPC |
+| op-conductor3 | 50052 | Conductor 3 Consensus |
+| **Other Services** | | |
+| op-batcher | 8548 | Batcher RPC |
+| op-proposer | 8560 | Proposer RPC |
