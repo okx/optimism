@@ -18,5 +18,5 @@ done
 
 # Fund all actor addresses
 for addr in $OP_BATCHER_ADDR $OP_PROPOSER_ADDR $OP_CHALLENGER_ADDR; do
-    cast send --private-key $RICH_L1_PRIVATE_KEY --value 100ether $addr --legacy
+    cast send --private-key $RICH_L1_PRIVATE_KEY --value 100ether $addr --legacy --rpc-url $L1_RPC_URL
 done
