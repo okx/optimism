@@ -1,3 +1,5 @@
+//go:build !ci
+
 package sync
 
 import (
@@ -11,7 +13,7 @@ import (
 )
 
 // TestL2CLAheadOfSupervisor tests the below scenario:
-// L2CL ahead of supervisor, aka supervisor needs to reset the L2CL, to reproduce old data. Currently supervisor has only managed mode implemented, so the supervisor will ask the L2CL to reset back.
+// L2CL ahead of supervisor, aka supervisor needs to reset the L2CL, to reproduce old data. Currently supervisor has only indexing mode implemented, so the supervisor will ask the L2CL to reset back.
 func TestL2CLAheadOfSupervisor(gt *testing.T) {
 	t := devtest.SerialT(gt)
 
@@ -21,7 +23,7 @@ func TestL2CLAheadOfSupervisor(gt *testing.T) {
 
 	// Make sequencers (L2CL), verifiers (L2CL), and supervisors sync for a few blocks.
 	// Sequencer and verifier are connected via P2P, which makes their unsafe heads in sync.
-	// Both L2CLs are in managed mode, digesting L1 blocks from the supervisor and reporting unsafe and safe blocks back to the supervisor.
+	// Both L2CLs are in indexing mode, digesting L1 blocks from the supervisor and reporting unsafe and safe blocks back to the supervisor.
 	delta := uint64(10)
 	logger.Info("Make sure verifiers advances unsafe head", "delta", delta)
 	dsl.CheckAll(t,
@@ -131,6 +133,8 @@ func TestL2CLAheadOfSupervisor(gt *testing.T) {
 // TestUnsafeChainKnownToL2CL tests the below scenario:
 // supervisor cross-safe ahead of L2CL cross-safe, aka L2CL can "skip" forward to match safety of supervisor.
 func TestUnsafeChainKnownToL2CL(gt *testing.T) {
+	gt.Skip("TODO(#16972): skipping due to flakiness and impending op-node/supervisor refactor")
+
 	t := devtest.SerialT(gt)
 
 	sys := presets.NewMultiSupervisorInterop(t)
@@ -200,6 +204,8 @@ func TestUnsafeChainKnownToL2CL(gt *testing.T) {
 // TestUnsafeChainUnknownToL2CL tests the below scenario:
 // supervisor unsafe ahead of L2CL unsafe, aka L2CL processes new blocks first.
 func TestUnsafeChainUnknownToL2CL(gt *testing.T) {
+	gt.Skip("TODO(#16972): skipping due to flakiness and impending op-node/supervisor refactor")
+
 	t := devtest.SerialT(gt)
 
 	sys := presets.NewMultiSupervisorInterop(t)

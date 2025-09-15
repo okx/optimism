@@ -411,10 +411,10 @@ func (d *UpgradeScheduleDeployConfig) ForkTimeOffset(fork rollup.ForkName) *uint
 		return (*uint64)(d.L2GenesisHoloceneTimeOffset)
 	case rollup.Isthmus:
 		return (*uint64)(d.L2GenesisIsthmusTimeOffset)
-	case rollup.Interop:
-		return (*uint64)(d.L2GenesisInteropTimeOffset)
 	case rollup.Jovian:
 		return (*uint64)(d.L2GenesisJovianTimeOffset)
+	case rollup.Interop:
+		return (*uint64)(d.L2GenesisInteropTimeOffset)
 	default:
 		panic(fmt.Sprintf("unknown fork: %s", fork))
 	}
@@ -438,10 +438,10 @@ func (d *UpgradeScheduleDeployConfig) SetForkTimeOffset(fork rollup.ForkName, of
 		d.L2GenesisHoloceneTimeOffset = (*hexutil.Uint64)(offset)
 	case rollup.Isthmus:
 		d.L2GenesisIsthmusTimeOffset = (*hexutil.Uint64)(offset)
-	case rollup.Interop:
-		d.L2GenesisInteropTimeOffset = (*hexutil.Uint64)(offset)
 	case rollup.Jovian:
 		d.L2GenesisJovianTimeOffset = (*hexutil.Uint64)(offset)
+	case rollup.Interop:
+		d.L2GenesisInteropTimeOffset = (*hexutil.Uint64)(offset)
 	default:
 		panic(fmt.Sprintf("unknown fork: %s", fork))
 	}
@@ -549,8 +549,8 @@ func (d *UpgradeScheduleDeployConfig) forks() []Fork {
 		{L2GenesisTimeOffset: d.L2GenesisGraniteTimeOffset, Name: string(L2AllocsGranite)},
 		{L2GenesisTimeOffset: d.L2GenesisHoloceneTimeOffset, Name: string(L2AllocsHolocene)},
 		{L2GenesisTimeOffset: d.L2GenesisIsthmusTimeOffset, Name: string(L2AllocsIsthmus)},
-		{L2GenesisTimeOffset: d.L2GenesisInteropTimeOffset, Name: string(L2AllocsInterop)},
 		{L2GenesisTimeOffset: d.L2GenesisJovianTimeOffset, Name: string(L2AllocsJovian)},
+		{L2GenesisTimeOffset: d.L2GenesisInteropTimeOffset, Name: string(L2AllocsInterop)},
 	}
 }
 
@@ -1156,6 +1156,7 @@ type L1Deployments struct {
 	OptimismMintableERC20Factory      common.Address `json:"OptimismMintableERC20Factory"`
 	OptimismMintableERC20FactoryProxy common.Address `json:"OptimismMintableERC20FactoryProxy"`
 	OptimismPortal                    common.Address `json:"OptimismPortal"`
+	OptimismPortalInterop             common.Address `json:"OptimismPortalInterop"`
 	OptimismPortalProxy               common.Address `json:"OptimismPortalProxy"`
 	ETHLockbox                        common.Address `json:"ETHLockbox"`
 	ETHLockboxProxy                   common.Address `json:"ETHLockboxProxy"`
@@ -1183,6 +1184,7 @@ func CreateL1DeploymentsFromContracts(contracts *addresses.L1Contracts) *L1Deplo
 		OptimismMintableERC20Factory:      contracts.OptimismMintableErc20FactoryImpl,
 		OptimismMintableERC20FactoryProxy: contracts.OptimismMintableErc20FactoryProxy,
 		OptimismPortal:                    contracts.OptimismPortalImpl,
+		OptimismPortalInterop:             contracts.OptimismPortalInteropImpl,
 		OptimismPortalProxy:               contracts.OptimismPortalProxy,
 		ETHLockbox:                        contracts.EthLockboxImpl,
 		ETHLockboxProxy:                   contracts.EthLockboxProxy,

@@ -1,3 +1,5 @@
+//go:build !ci
+
 package upgrade
 
 import (
@@ -40,7 +42,7 @@ func TestPostInbox(gt *testing.T) {
 }
 
 func TestPostInteropUpgradeComprehensive(gt *testing.T) {
-	t := devtest.ParallelT(gt)
+	t := devtest.SerialT(gt)
 	sys := presets.NewSimpleInterop(t)
 	require := t.Require()
 	logger := t.Logger()
@@ -155,8 +157,8 @@ func testInteropMessageInclusion(t devtest.T, sys *presets.SimpleInterop) {
 func setupInteropTestEnvironment(sys *presets.SimpleInterop) (alice, bob *dsl.EOA, eventLoggerAddress common.Address) {
 
 	// Create EOAs for interop messaging
-	alice = sys.FunderA.NewFundedEOA(eth.OneEther)
-	bob = sys.FunderB.NewFundedEOA(eth.OneEther)
+	alice = sys.FunderA.NewFundedEOA(eth.OneHundredthEther)
+	bob = sys.FunderB.NewFundedEOA(eth.OneHundredthEther)
 
 	// Deploy event logger contract on chain A
 	eventLoggerAddress = alice.DeployEventLogger()

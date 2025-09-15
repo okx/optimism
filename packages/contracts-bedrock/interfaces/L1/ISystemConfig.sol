@@ -24,8 +24,10 @@ interface ISystemConfig is IProxyAdminOwnedBase {
     }
 
     error ReinitializableBase_ZeroInitVersion();
+    error SystemConfig_InvalidFeatureState();
 
     event ConfigUpdate(uint256 indexed version, UpdateType indexed updateType, bytes data);
+    event FeatureSet(bytes32 indexed feature, bool indexed enabled);
     event Initialized(uint8 version);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
@@ -87,11 +89,12 @@ interface ISystemConfig is IProxyAdminOwnedBase {
     function startBlock() external view returns (uint256 startBlock_);
     function transferOwnership(address newOwner) external; // nosemgrep
     function unsafeBlockSigner() external view returns (address addr_);
-    function upgrade(uint256 _l2ChainId, ISuperchainConfig _superchainConfig) external;
     function version() external pure returns (string memory);
     function paused() external view returns (bool);
     function superchainConfig() external view returns (ISuperchainConfig);
     function guardian() external view returns (address);
+    function setFeature(bytes32 _feature, bool _enabled) external;
+    function isFeatureEnabled(bytes32) external view returns (bool);
 
     function __constructor__() external;
 }

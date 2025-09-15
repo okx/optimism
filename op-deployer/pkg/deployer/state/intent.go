@@ -29,12 +29,13 @@ var emptyAddress common.Address
 var emptyHash common.Hash
 
 type SuperchainProofParams struct {
-	WithdrawalDelaySeconds          uint64 `json:"faultGameWithdrawalDelay" toml:"faultGameWithdrawalDelay"`
-	MinProposalSizeBytes            uint64 `json:"preimageOracleMinProposalSize" toml:"preimageOracleMinProposalSize"`
-	ChallengePeriodSeconds          uint64 `json:"preimageOracleChallengePeriod" toml:"preimageOracleChallengePeriod"`
-	ProofMaturityDelaySeconds       uint64 `json:"proofMaturityDelaySeconds" toml:"proofMaturityDelaySeconds"`
-	DisputeGameFinalityDelaySeconds uint64 `json:"disputeGameFinalityDelaySeconds" toml:"disputeGameFinalityDelaySeconds"`
-	MIPSVersion                     uint64 `json:"mipsVersion" toml:"mipsVersion"`
+	WithdrawalDelaySeconds          uint64      `json:"faultGameWithdrawalDelay" toml:"faultGameWithdrawalDelay"`
+	MinProposalSizeBytes            uint64      `json:"preimageOracleMinProposalSize" toml:"preimageOracleMinProposalSize"`
+	ChallengePeriodSeconds          uint64      `json:"preimageOracleChallengePeriod" toml:"preimageOracleChallengePeriod"`
+	ProofMaturityDelaySeconds       uint64      `json:"proofMaturityDelaySeconds" toml:"proofMaturityDelaySeconds"`
+	DisputeGameFinalityDelaySeconds uint64      `json:"disputeGameFinalityDelaySeconds" toml:"disputeGameFinalityDelaySeconds"`
+	MIPSVersion                     uint64      `json:"mipsVersion" toml:"mipsVersion"`
+	DevFeatureBitmap                common.Hash `json:"devFeatureBitmap" toml:"devFeatureBitmap"`
 }
 
 type L1DevGenesisBlockParams struct {
@@ -84,13 +85,11 @@ func (c *Intent) L1ChainIDBig() *big.Int {
 }
 
 func (c *Intent) validateCustomConfig() error {
-	if c.L1ContractsLocator == nil ||
-		(c.L1ContractsLocator.Tag == "" && c.L1ContractsLocator.URL == &url.URL{}) {
+	if c.L1ContractsLocator == nil {
 		return ErrL1ContractsLocatorUndefined
 	}
 
-	if c.L2ContractsLocator == nil ||
-		(c.L2ContractsLocator.Tag == "" && c.L2ContractsLocator.URL == &url.URL{}) {
+	if c.L2ContractsLocator == nil {
 		return ErrL2ContractsLocatorUndefined
 	}
 
@@ -127,9 +126,6 @@ func (c *Intent) validateStandardValues() error {
 	if err := c.checkL1Prod(); err != nil {
 		return err
 	}
-	if err := c.checkL2Prod(); err != nil {
-		return err
-	}
 
 	if c.SuperchainConfigProxy != nil {
 		return ErrIncompatibleValue
@@ -139,7 +135,7 @@ func (c *Intent) validateStandardValues() error {
 		return ErrIncompatibleValue
 	}
 
-	standardOPCM, err := standard.OPCMImplAddressFor(c.L1ChainID, c.L1ContractsLocator.Tag)
+	standardOPCM, err := standard.OPCMImplAddressFor(c.L1ChainID, standard.CurrentTag)
 	if err != nil {
 		return fmt.Errorf("error getting OPCM address: %w", err)
 	}
@@ -154,6 +150,9 @@ func (c *Intent) validateStandardValues() error {
 		if chain.Eip1559DenominatorCanyon != standard.Eip1559DenominatorCanyon ||
 			chain.Eip1559Denominator != standard.Eip1559Denominator ||
 			chain.Eip1559Elasticity != standard.Eip1559Elasticity {
+			return fmt.Errorf("%w: chainId=%s", ErrNonStandardValue, chain.ID)
+		}
+		if chain.GasLimit != standard.GasLimit {
 			return fmt.Errorf("%w: chainId=%s", ErrNonStandardValue, chain.ID)
 		}
 		if len(chain.AdditionalDisputeGames) > 0 {
@@ -249,11 +248,11 @@ func (c *Intent) checkL1Prod() error {
 		return err
 	}
 
-	if _, ok := versions[validation.Semver(c.L1ContractsLocator.Tag)]; !ok {
-		return fmt.Errorf("tag '%s' not found in standard versions", c.L1ContractsLocator.Tag)
+	if _, ok := versions[validation.Semver(standard.CurrentTag)]; !ok {
+		return fmt.Errorf("tag '%s' not found in standard versions", standard.CurrentTag)
 	}
 
-	opcmAddr, err := standard.OPCMImplAddressFor(c.L1ChainID, c.L1ContractsLocator.Tag)
+	opcmAddr, err := standard.OPCMImplAddressFor(c.L1ChainID, standard.CurrentTag)
 	if err != nil {
 		return fmt.Errorf("error getting OPCM address: %w", err)
 	}
@@ -262,11 +261,6 @@ func (c *Intent) checkL1Prod() error {
 	}
 
 	return nil
-}
-
-func (c *Intent) checkL2Prod() error {
-	_, err := standard.ArtifactsURLForTag(c.L2ContractsLocator.Tag)
-	return err
 }
 
 func NewIntent(configType IntentType, l1ChainId uint64, l2ChainIds []common.Hash) (intent Intent, err error) {
@@ -303,14 +297,15 @@ func NewIntentCustom(l1ChainId uint64, l2ChainIds []common.Hash) (Intent, error)
 
 	for _, l2ChainID := range l2ChainIds {
 		intent.Chains = append(intent.Chains, &ChainIntent{
-			ID: l2ChainID,
+			ID:       l2ChainID,
+			GasLimit: standard.GasLimit,
 		})
 	}
 	return intent, nil
 }
 
 func NewIntentStandard(l1ChainId uint64, l2ChainIds []common.Hash) (Intent, error) {
-	opcmAddr, err := standard.OPCMImplAddressFor(l1ChainId, artifacts.DefaultL1ContractsLocator.Tag)
+	opcmAddr, err := standard.OPCMImplAddressFor(l1ChainId, standard.CurrentTag)
 	if err != nil {
 		return Intent{}, fmt.Errorf("error getting OPCM impl address: %w", err)
 	}
@@ -342,6 +337,7 @@ func NewIntentStandard(l1ChainId uint64, l2ChainIds []common.Hash) (Intent, erro
 			Eip1559DenominatorCanyon: standard.Eip1559DenominatorCanyon,
 			Eip1559Denominator:       standard.Eip1559Denominator,
 			Eip1559Elasticity:        standard.Eip1559Elasticity,
+			GasLimit:                 standard.GasLimit,
 			Roles: ChainRoles{
 				Challenger:        challenger,
 				L1ProxyAdminOwner: l1ProxyAdminOwner,

@@ -22,7 +22,6 @@ cache
 
 !op-deployer/pkg/deployer/artifacts
 
-
 packages/contracts-bedrock/deployments/anvil
 
 # vim
@@ -45,7 +44,6 @@ packages/contracts-bedrock/deployments/anvil
 
 coverage.out
 
-
 __pycache__
 
 # Ignore echidna artifacts
@@ -65,3 +63,6 @@ test/l1-geth/consensus/genesis.ssz
 test/l1-geth/execution/geth/genesis.json
 test/l1-geth/execution/geth
 test/data
+
+# ignore local asdf config
+.tool-versions

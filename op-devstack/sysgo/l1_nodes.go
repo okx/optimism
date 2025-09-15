@@ -5,7 +5,7 @@ import (
 
 	"github.com/ethereum-optimism/optimism/op-devstack/shim"
 	"github.com/ethereum-optimism/optimism/op-devstack/stack"
-	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils"
+	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/blobstore"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/fakebeacon"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/geth"
 	"github.com/ethereum-optimism/optimism/op-service/client"
@@ -73,7 +73,7 @@ func WithL1Nodes(l1ELID stack.L1ELNodeID, l1CLID stack.L1CLNodeID) stack.Option[
 		blobPath := clP.TempDir()
 
 		clLogger := clP.Logger()
-		bcn := fakebeacon.NewBeacon(clLogger, e2eutils.NewBlobStore(), l1Net.genesis.Timestamp, blockTimeL1)
+		bcn := fakebeacon.NewBeacon(clLogger, blobstore.New(), l1Net.genesis.Timestamp, blockTimeL1)
 		clP.Cleanup(func() {
 			_ = bcn.Close()
 		})
@@ -109,6 +109,27 @@ func WithL1Nodes(l1ELID stack.L1ELNodeID, l1CLID stack.L1CLNodeID) stack.Option[
 			beaconHTTPAddr: beaconApiAddr,
 			beacon:         bcn,
 			fakepos:        &FakePoS{fakepos: fp, p: clP},
+		}
+		require.True(orch.l1CLs.SetIfMissing(l1CLID, l1CLNode), "must not already exist")
+	})
+}
+
+// WithExtL1Nodes initializes L1 EL and CL nodes that connect to external RPC endpoints
+func WithExtL1Nodes(l1ELID stack.L1ELNodeID, l1CLID stack.L1CLNodeID, elRPCEndpoint string, clRPCEndpoint string) stack.Option[*Orchestrator] {
+	return stack.AfterDeploy(func(orch *Orchestrator) {
+		require := orch.P().Require()
+
+		// Create L1 EL node with external RPC
+		l1ELNode := &L1ELNode{
+			id:      l1ELID,
+			userRPC: elRPCEndpoint,
+		}
+		require.True(orch.l1ELs.SetIfMissing(l1ELID, l1ELNode), "must not already exist")
+
+		// Create L1 CL node with external RPC
+		l1CLNode := &L1CLNode{
+			id:             l1CLID,
+			beaconHTTPAddr: clRPCEndpoint,
 		}
 		require.True(orch.l1CLs.SetIfMissing(l1CLID, l1CLNode), "must not already exist")
 	})

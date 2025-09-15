@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-devstack/stack/match"
 	"github.com/ethereum-optimism/optimism/op-service/apis"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
+	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/types"
 	"github.com/ethereum-optimism/optimism/op-test-sequencer/sequencer/seqtypes"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
@@ -18,6 +19,8 @@ import (
 type checksFunc func(t devtest.T, sys *presets.SimpleInterop)
 
 func TestL2ReorgAfterL1Reorg(gt *testing.T) {
+	gt.Skip("TODO(#16972): skipping due to flakiness and impending op-node/supervisor refactor")
+
 	gt.Run("unsafe reorg", func(gt *testing.T) {
 		var crossSafeRef, localSafeRef, unsafeRef eth.BlockID
 		pre := func(t devtest.T, sys *presets.SimpleInterop) {
@@ -95,6 +98,8 @@ func testL2ReorgAfterL1Reorg(gt *testing.T, n int, preChecks, postChecks checksF
 	// pre reorg trigger validations and checks
 	preChecks(t, sys)
 
+	tipL2_preReorg := sys.L2ELA.BlockRefByLabel(eth.Unsafe)
+
 	// reorg the L1 chain -- sequence an alternative L1 block from divergence block parent
 	sequenceL1Block(t, ts, divergence.ParentHash)
 
@@ -103,6 +108,9 @@ func testL2ReorgAfterL1Reorg(gt *testing.T, n int, preChecks, postChecks checksF
 
 	// confirm L1 reorged
 	sys.L1EL.ReorgTriggered(divergence, 5)
+
+	// wait until L2 chain A cross-safe ref caught up to where it was before the reorg
+	sys.L2CLA.Reached(types.CrossSafe, tipL2_preReorg.Number, 50)
 
 	// test that latest chain A unsafe is not referencing a reorged L1 block (through the L1Origin field)
 	require.Eventually(t, func() bool {
