@@ -188,10 +188,26 @@ rm -rf $EXPORT_DIR
 mkdir -p $EXPORT_DIR
 
 echo "🔨 Building op-program prestate files..."
-docker run --rm \
-    -v /var/run/docker.sock:/var/run/docker.sock \
+
+# Determine if we are using rootless Docker and set the appropriate Docker command
+ROOTLESS_DOCKER=$(docker info -f "{{println .SecurityOptions}}" | grep rootless || true)
+if ! [ -z "$ROOTLESS_DOCKER" ]; then
+echo "Using rootless Docker!"
+DOCKER_CMD="docker run --rm --privileged "
+DOCKER_TYPE="rootless"
+else
+DOCKER_CMD="docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "
+DOCKER_TYPE="default"
+fi
+
+# Run the reproducible-prestate command
+$DOCKER_CMD \
+    -v "$(pwd)/scripts:/scripts" \
     -v "$(pwd)/config-op/rollup.json:/app/op-program/chainconfig/configs/195-rollup.json" \
     -v "$(pwd)/config-op/genesis.json.gz:/app/op-program/chainconfig/configs/195-genesis-l2.json" \
     -v "$EXPORT_DIR:/app/op-program/bin" \
     "${OP_STACK_IMAGE_TAG}" \
-    make -C op-program reproducible-prestate
+    bash -c " \
+      /scripts/docker-install-start.sh $DOCKER_TYPE
+      make -C op-program reproducible-prestate
+    "

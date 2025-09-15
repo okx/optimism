@@ -151,13 +151,13 @@ When leader becomes unhealthy:
 #### Leadership Management
 There are two ways to trigger leader transfer:
 
-1. Using `transfer_leader.sh`:
+1. Using `transfer-leader.sh`:
 ```bash
 # Auto transfer to any healthy node
-./scripts/transfer_leader.sh
+./scripts/transfer-leader.sh
 
 # Transfer to specific node (1 or 2 or 3)
-./scripts/transfer_leader.sh 2
+./scripts/transfer-leader.sh 2
 ```
 
 2. Force transfer by stopping leader's sequencer:
@@ -165,7 +165,7 @@ There are two ways to trigger leader transfer:
 # Stops block production while keeping the container running
 # Automatically triggers leader transfer after health check timeout
 # Can be run multiple times to test different leadership scenarios
-./scripts/stop_leader_sequencer.sh
+./scripts/stop-leader-sequencer.sh
 ```
 
 This method simulates a sequencer failure scenario, enabling comprehensive testing of automatic failover mechanisms. Each execution stops the current leader's sequencer and triggers a transfer to another node, allowing you to test different leadership scenarios by running the script multiple times. The cluster maintains high availability through dynamic role switching - when a sequencer stops producing blocks, it transitions to follower status while another node assumes leadership. The system remains resilient as any follower can automatically promote to leader if the current leader encounters issues.
