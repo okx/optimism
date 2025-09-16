@@ -6,12 +6,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ledgerwatch/erigon-lib/chain"
-	"github.com/ledgerwatch/erigon/accounts/abi/bind"
-	"github.com/ledgerwatch/erigon/core/types"
-	"github.com/ledgerwatch/erigon/crypto"
-	"github.com/ledgerwatch/erigon/ethclient"
-	"github.com/ledgerwatch/erigon/zkevm/log"
+	"github.com/ethereum-optimism/optimism/op-service/client"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 // Public shared
@@ -21,8 +22,8 @@ const (
 	DefaultL1AdminAddress           = "0x8f8E2d6cF621f30e9a11309D6A56A876281Fd534"
 	DefaultL1AdminPrivateKey        = "0x815405dddb0e2a99b12af775fd2929e526704e1d1aea6a0b4e74dc33e2f7fcd2"
 
-	DefaultL2NetworkURL        = "http://localhost:8124"
-	DefaultL2SeqURL            = "http://localhost:8123"
+	DefaultL2NetworkURL        = "http://localhost:8123"
+	DefaultL2SeqURL            = "http://localhost:8124"
 	DefaultL2ChainID    uint64 = 195
 
 	DefaultL2MetricsPrometheusURL = "http://127.0.0.1:9092/debug/metrics/prometheus"
@@ -43,6 +44,16 @@ const (
 	DefaultL2NewAcc2Address    = "0xAed6892D56AAB5DA8FBcd85b924C3bE63c74Cc29"
 	DefaultL2NewAcc2PrivateKey = "bc362a16d3dedd6cdba639eb8fa91b2f6d9f929eb490ca2e5a748ba041c6a131"
 )
+
+var clientRPC client.RPC
+
+func init() {
+	var err error
+	clientRPC, err = GetRPCClient()
+	if err != nil {
+		log.Crit("Failed to initialize RPC client", "error", err)
+	}
+}
 
 // ApplyL1Txs sends the given L1 txs, waits for them to be consolidated and checks the final state.
 func ApplyL1Txs(ctx context.Context, txs []*types.Transaction, auth *bind.TransactOpts, client *ethclient.Client) error {
@@ -113,15 +124,15 @@ func ApplyL2Txs(ctx context.Context, txs []*types.Transaction, auth *bind.Transa
 	return l2BlockNumbers, nil
 }
 
-func applyTxs(ctx context.Context, txs []*types.Transaction, auth *bind.TransactOpts, client *ethclient.Client, waitToBeMined bool) ([]types.Transaction, error) {
-	var sentTxs []types.Transaction
+func applyTxs(ctx context.Context, txs []*types.Transaction, auth *bind.TransactOpts, client *ethclient.Client, waitToBeMined bool) ([]*types.Transaction, error) {
+	var sentTxs []*types.Transaction
 
 	for i := 0; i < len(txs); i++ {
-		signedTx, err := auth.Signer(auth.From, *txs[i])
+		signedTx, err := auth.Signer(auth.From, txs[i])
 		if err != nil {
 			return nil, err
 		}
-		log.Infof("Sending Tx %v Nonce %v", signedTx.Hash(), signedTx.GetNonce())
+		log.Info("Sending Tx %v Nonce %v", signedTx.Hash(), signedTx.Nonce())
 		err = client.SendTransaction(context.Background(), signedTx)
 		if err != nil {
 			return nil, err
@@ -136,16 +147,16 @@ func applyTxs(ctx context.Context, txs []*types.Transaction, auth *bind.Transact
 	// wait for TX to be mined
 	timeout := 180 * time.Second //nolint:gomnd
 	for _, tx := range sentTxs {
-		log.Infof("Waiting Tx %s to be mined", tx.Hash())
+		log.Info("Waiting Tx %s to be mined", tx.Hash())
 		err := WaitTxToBeMined(ctx, client, tx, timeout)
 		if err != nil {
 			return nil, err
 		}
-		log.Infof("Tx %s mined successfully", tx.Hash())
+		log.Info("Tx %s mined successfully", tx.Hash())
 	}
 	nTxs := len(txs)
 	if nTxs > 1 {
-		log.Infof("%d transactions added into the trusted state successfully.", nTxs)
+		log.Info("%d transactions added into the trusted state successfully.", nTxs)
 	} else {
 		log.Info("transaction added into the trusted state successfully.")
 	}
@@ -181,19 +192,31 @@ func GetClient(URL string) (*ethclient.Client, error) {
 	return client, nil
 }
 
-func GetTestChainConfig(chainID uint64) *chain.Config {
-	return &chain.Config{
-		ChainID:               big.NewInt(int64(chainID)),
-		Consensus:             chain.EtHashConsensus,
-		HomesteadBlock:        big.NewInt(0),
-		TangerineWhistleBlock: big.NewInt(0),
-		SpuriousDragonBlock:   big.NewInt(0),
-		ByzantiumBlock:        big.NewInt(0),
-		ConstantinopleBlock:   big.NewInt(0),
-		PetersburgBlock:       big.NewInt(0),
-		IstanbulBlock:         big.NewInt(0),
-		MuirGlacierBlock:      big.NewInt(0),
-		BerlinBlock:           big.NewInt(0),
-		Ethash:                new(chain.EthashConfig),
+func GetTestChainConfig(chainID uint64) *params.ChainConfig {
+	return &params.ChainConfig{
+		ChainID:             big.NewInt(int64(chainID)),
+		HomesteadBlock:      big.NewInt(0),
+		ByzantiumBlock:      big.NewInt(0),
+		ConstantinopleBlock: big.NewInt(0),
+		PetersburgBlock:     big.NewInt(0),
+		IstanbulBlock:       big.NewInt(0),
+		MuirGlacierBlock:    big.NewInt(0),
+		BerlinBlock:         big.NewInt(0),
+		Ethash:              new(params.EthashConfig),
 	}
+}
+
+func GetRPCClient() (client.RPC, error) {
+	ctx := context.Background()
+
+	// Create RPC client with reasonable timeouts
+	rpcClient, err := client.NewRPC(ctx, nil, DefaultL2NetworkURL,
+		client.WithCallTimeout(30*time.Second),
+		client.WithFixedDialBackoff(10*time.Second),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return rpcClient, nil
 }

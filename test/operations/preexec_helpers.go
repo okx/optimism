@@ -8,17 +8,18 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ethereum-optimism/optimism/test/constants"
+
 	"github.com/holiman/uint256"
-	ethereum "github.com/ledgerwatch/erigon"
-	libcommon "github.com/ledgerwatch/erigon-lib/common"
-	"github.com/ledgerwatch/erigon/accounts/abi"
-	"github.com/ledgerwatch/erigon/accounts/abi/bind"
-	"github.com/ledgerwatch/erigon/core/types"
-	"github.com/ledgerwatch/erigon/crypto"
-	"github.com/ledgerwatch/erigon/ethclient"
-	"github.com/ledgerwatch/erigon/turbo/jsonrpc/constants"
 )
 
 const (
@@ -27,10 +28,10 @@ const (
 
 // Global variables to store deployed contract addresses
 var (
-	ContractAAddr     libcommon.Address
-	ContractBAddr     libcommon.Address
-	FactoryAddr       libcommon.Address
-	DeploymentAddress libcommon.Address
+	ContractAAddr     common.Address
+	ContractBAddr     common.Address
+	FactoryAddr       common.Address
+	DeploymentAddress common.Address
 	ContractsDeployed bool
 )
 
@@ -45,20 +46,17 @@ func TransTokenWithFrom(t *testing.T, ctx context.Context, client *ethclient.Cli
 	gasPrice, err := client.SuggestGasPrice(ctx)
 	require.NoError(t, err)
 
-	to := libcommon.HexToAddress(toAddress)
-	gas, err := client.EstimateGas(ctx, ethereum.CallMsg{From: auth.From, To: &to, Value: amount})
+	to := common.HexToAddress(toAddress)
+	gas, err := client.EstimateGas(ctx, ethereum.CallMsg{From: auth.From, To: &to, Value: amount.ToBig()})
 	require.NoError(t, err)
 
-	tx := &types.LegacyTx{
-		CommonTx: types.CommonTx{Nonce: nonce, To: &to, Gas: gas, Value: amount},
-		GasPrice: uint256.MustFromBig(gasPrice),
-	}
+	tx := types.NewTransaction(nonce, to, amount.ToBig(), gas, gasPrice, nil)
 
 	privateKey, err := crypto.HexToECDSA(strings.TrimPrefix(fromPrivateKey, "0x"))
 	require.NoError(t, err)
 
-	signer := types.MakeSigner(GetTestChainConfig(DefaultL2ChainID), 1, 0)
-	signedTx, err := types.SignTx(tx, *signer, privateKey)
+	signer := types.MakeSigner(GetTestChainConfig(DefaultL2ChainID), big.NewInt(1), 0)
+	signedTx, err := types.SignTx(tx, signer, privateKey)
 	require.NoError(t, err)
 
 	err = client.SendTransaction(ctx, signedTx)
@@ -76,7 +74,7 @@ func TransToken(t *testing.T, ctx context.Context, client *ethclient.Client, amo
 }
 
 // DeployContract deploys a contract using the provided parameters
-func DeployContract(t *testing.T, ctx context.Context, client *ethclient.Client, privateKey *ecdsa.PrivateKey, contractName, abiJson, bytecodeStr string, constructorArgs ...interface{}) libcommon.Address {
+func DeployContract(t *testing.T, ctx context.Context, client *ethclient.Client, privateKey *ecdsa.PrivateKey, contractName, abiJson, bytecodeStr string, constructorArgs ...interface{}) common.Address {
 	fromAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
 	nonce, err := client.PendingNonceAt(ctx, fromAddress)
 	require.NoError(t, err)
@@ -134,7 +132,7 @@ func EncodeTransferCall(to string, amount uint64) []byte {
 	selector := []byte{0xa9, 0x05, 0x9c, 0xbb}
 
 	// Convert address string to bytes
-	toAddr := libcommon.HexToAddress(to)
+	toAddr := common.HexToAddress(to)
 
 	// Create the data payload
 	data := make([]byte, 68) // 4 bytes selector + 32 bytes address + 32 bytes amount
@@ -149,7 +147,7 @@ func EncodeTransferCall(to string, amount uint64) []byte {
 }
 
 // EncodeComplexCall encodes a complex contract call
-func EncodeComplexCall(target libcommon.Address) []byte {
+func EncodeComplexCall(target common.Address) []byte {
 	// Function selector for complex call
 	selector := []byte{0xe6, 0x09, 0x05, 0x5e}
 

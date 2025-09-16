@@ -13,13 +13,13 @@ import (
 	"os/signal"
 	"time"
 
-	ethereum "github.com/ledgerwatch/erigon"
-	"github.com/ledgerwatch/erigon-lib/common"
-	"github.com/ledgerwatch/erigon/accounts/abi"
-	"github.com/ledgerwatch/erigon/accounts/abi/bind"
-	"github.com/ledgerwatch/erigon/core/types"
-	"github.com/ledgerwatch/erigon/ethclient"
-	"github.com/ledgerwatch/erigon/zkevm/log"
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -57,7 +57,7 @@ func Poll(interval, deadline time.Duration, condition ConditionFunc) error {
 	for {
 		select {
 		case <-timeout:
-			log.Infof("timeout reached after %v", deadline)
+			log.Info("timeout reached after %v", deadline)
 			return ErrTimeoutReached
 		case <-tick.C:
 			ok, err := condition()
@@ -78,14 +78,14 @@ type ethClienter interface {
 }
 
 // WaitTxToBeMined waits until a tx has been mined or the given timeout expires.
-func WaitTxToBeMined(parentCtx context.Context, client ethClienter, tx types.Transaction, timeout time.Duration) error {
+func WaitTxToBeMined(parentCtx context.Context, client ethClienter, tx *types.Transaction, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
 	receipt, err := bind.WaitMined(ctx, client, tx)
 	if errors.Is(err, context.DeadlineExceeded) {
 		return err
 	} else if err != nil {
-		log.Errorf("error waiting tx %s to be mined: %v", tx.Hash(), err)
+		log.Error("error waiting tx %s to be mined: %v", tx.Hash(), err)
 		return err
 	}
 	if receipt.Status == types.ReceiptStatusFailed {
@@ -94,26 +94,32 @@ func WaitTxToBeMined(parentCtx context.Context, client ethClienter, tx types.Tra
 		if reasonErr != nil {
 			reason = reasonErr.Error()
 		}
-		return fmt.Errorf("transaction has failed, reason: %s, receipt: %+v. tx: %+v, gas: %v", reason, receipt, tx, tx.GetGas())
+		return errors.New(fmt.Sprintf("transaction has failed, reason: %s, receipt: %+v. tx: %+v, gas: %v", reason, receipt, tx, tx.Gas()))
 	}
-	log.Debugf("Transaction successfully mined: %v", tx.Hash())
+	log.Debug("Transaction successfully mined: %v", tx.Hash())
 	return nil
 }
 
 // RevertReason returns the revert reason for a tx that has a receipt with failed status
-func RevertReason(ctx context.Context, c ethClienter, tx types.Transaction, blockNumber *big.Int) (string, error) {
+func RevertReason(ctx context.Context, c ethClienter, tx *types.Transaction, blockNumber *big.Int) (string, error) {
 	if tx == nil {
 		return "", nil
 	}
 
-	from, _ := tx.GetSender()
-	msg := ethereum.CallMsg{
-		From: from,
-		To:   tx.GetTo(),
-		Gas:  tx.GetGas(),
+	signer := types.MakeSigner(GetTestChainConfig(DefaultL2ChainID), big.NewInt(1), 0)
 
-		Value: tx.GetValue(),
-		Data:  tx.GetData(),
+	sender, err := types.Sender(signer, tx)
+	if err != nil {
+		return "", err
+	}
+
+	msg := ethereum.CallMsg{
+		From: sender,
+		To:   tx.To(),
+		Gas:  tx.Gas(),
+
+		Value: tx.Value(),
+		Data:  tx.Data(),
 	}
 	hex, err := c.CallContract(ctx, msg, blockNumber)
 	if err != nil {
@@ -122,7 +128,7 @@ func RevertReason(ctx context.Context, c ethClienter, tx types.Transaction, bloc
 
 	unpackedMsg, err := abi.UnpackRevert(hex)
 	if err != nil {
-		log.Warnf("failed to get the revert message for tx %v: %v", tx.Hash(), err)
+		log.Warn("failed to get the revert message for tx %v: %v", tx.Hash(), err)
 		return "", errors.New("execution reverted")
 	}
 
@@ -254,7 +260,7 @@ func WaitSignal(cleanupFuncs ...func()) {
 	for sig := range signals {
 		switch sig {
 		case os.Interrupt, os.Kill:
-			log.Infof("terminating application gracefully...")
+			log.Info("terminating application gracefully...")
 			for _, cleanup := range cleanupFuncs {
 				cleanup()
 			}

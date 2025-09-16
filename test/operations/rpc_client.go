@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -9,69 +10,72 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ledgerwatch/erigon-lib/common"
-	"github.com/ledgerwatch/erigon/rpc"
-	types "github.com/ledgerwatch/erigon/zk/rpcdaemon"
-	zktypes "github.com/ledgerwatch/erigon/zk/types"
-	"github.com/ledgerwatch/erigon/zkevm/hex"
-	"github.com/ledgerwatch/erigon/zkevm/jsonrpc/client"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/rpc"
 )
 
 func GetBlockNumber() (uint64, error) {
-	response, err := client.JSONRPCCall(DefaultL2NetworkURL, "eth_blockNumber")
+	var result string
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err := clientRPC.CallContext(ctx, &result, "eth_blockNumber")
 	if err != nil {
 		return 0, err
 	}
-	if response.Error != nil {
-		return 0, fmt.Errorf("%d - %s", response.Error.Code, response.Error.Message)
-	}
 
-	return transHexToUint64(response.Result)
+	fmt.Println("result", result)
+
+	return transHexStringToUint64(result)
 }
 
-func GetBatchNumber() (uint64, error) {
-	response, err := client.JSONRPCCall(DefaultL2NetworkURL, "zkevm_batchNumber")
-	if err != nil {
-		return 0, err
-	}
-	if response.Error != nil {
-		return 0, fmt.Errorf("%d - %s", response.Error.Code, response.Error.Message)
-	}
+// func GetBatchNumber() (uint64, error) {
+// 	response, err := client.JSONRPCCall(DefaultL2NetworkURL, "zkevm_batchNumber")
+// 	if err != nil {
+// 		return 0, err
+// 	}
+// 	if response.Error != nil {
+// 		return 0, fmt.Errorf("%d - %s", response.Error.Code, response.Error.Message)
+// 	}
 
-	return transHexToUint64(response.Result)
-}
+// 	return transHexToUint64(response.Result)
+// }
 
 func GetEthSyncing(url string) (bool, error) {
-	response, err := client.JSONRPCCall(url, "eth_syncing")
+	if clientRPC == nil {
+		return false, fmt.Errorf("RPC client not initialized")
+	}
+
+	var result interface{}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err := clientRPC.CallContext(ctx, &result, "eth_syncing")
 	if err != nil {
 		return false, err
 	}
-	if response.Error != nil {
-		return false, fmt.Errorf("%d - %s", response.Error.Code, response.Error.Message)
+
+	// If result is false, node is not syncing
+	if result == false {
+		return false, nil
 	}
 
-	result := false
-	err = json.Unmarshal(response.Result, &result)
-	if err != nil {
-		return false, err
-	}
-
-	return result, nil
+	// If result is not false (could be a sync object), node is syncing
+	return true, nil
 }
 
 func GetNetVersion(url string) (uint64, error) {
-	response, err := client.JSONRPCCall(url, "net_version")
-	if err != nil {
-		return 0, err
-	}
-	if response.Error != nil {
-		return 0, fmt.Errorf("%d - %s", response.Error.Code, response.Error.Message)
-	}
 	var result string
-	err = json.Unmarshal(response.Result, &result)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err := clientRPC.CallContext(ctx, &result, "net_version")
 	if err != nil {
 		return 0, err
 	}
+
 	num, err := strconv.ParseUint(result, 10, 64)
 	if err != nil {
 		return 0, err
@@ -79,55 +83,48 @@ func GetNetVersion(url string) (uint64, error) {
 	return num, nil
 }
 
-func GetBatchNumberByBlockNumber(l2Block *big.Int) (uint64, error) {
-	response, err := client.JSONRPCCall(DefaultL2NetworkURL, "zkevm_batchNumberByBlockNumber", hex.EncodeBig(l2Block))
-	if err != nil {
-		return 0, err
-	}
-	if response.Error != nil {
-		return 0, fmt.Errorf("%d - %s", response.Error.Code, response.Error.Message)
-	}
-	return transHexToUint64(response.Result)
-}
+// func GetBatchNumberByBlockNumber(l2Block *big.Int) (uint64, error) {
+// 	response, err := client.JSONRPCCall(DefaultL2NetworkURL, "zkevm_batchNumberByBlockNumber", hex.EncodeBig(l2Block))
+// 	if err != nil {
+// 		return 0, err
+// 	}
+// 	if response.Error != nil {
+// 		return 0, fmt.Errorf("%d - %s", response.Error.Code, response.Error.Message)
+// 	}
+// 	return transHexToUint64(response.Result)
+// }
 
-func GetBatchSealTime(batchNum *big.Int) (uint64, error) {
-	response, err := client.JSONRPCCall(DefaultL2NetworkURL, "zkevm_getBatchSealTime", hex.EncodeBig(batchNum))
-	if err != nil {
-		return 0, err
-	}
-	if response.Error != nil {
-		return 0, fmt.Errorf("%d - %s", response.Error.Code, response.Error.Message)
-	}
-	return transHexToUint64(response.Result)
-}
+// func GetBatchSealTime(batchNum *big.Int) (uint64, error) {
+// 	response, err := client.JSONRPCCall(DefaultL2NetworkURL, "zkevm_getBatchSealTime", hex.EncodeBig(batchNum))
+// 	if err != nil {
+// 		return 0, err
+// 	}
+// 	if response.Error != nil {
+// 		return 0, fmt.Errorf("%d - %s", response.Error.Code, response.Error.Message)
+// 	}
+// 	return transHexToUint64(response.Result)
+// }
 
-func GetBatchByNumber(batchNum *big.Int) (*types.Batch, error) {
-	response, err := client.JSONRPCCall(DefaultL2NetworkURL, "zkevm_getBatchByNumber", hex.EncodeBig(batchNum))
-	if err != nil {
-		return nil, err
-	}
-	if response.Error != nil {
-		return nil, fmt.Errorf("%d - %s", response.Error.Code, response.Error.Message)
-	}
-	result := types.Batch{}
-	err = json.Unmarshal(response.Result, &result)
-	if err != nil {
-		return nil, err
-	}
+// func GetBatchByNumber(batchNum *big.Int) (*types.Batch, error) {
+// 	response, err := client.JSONRPCCall(DefaultL2NetworkURL, "zkevm_getBatchByNumber", hex.EncodeBig(batchNum))
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	if response.Error != nil {
+// 		return nil, fmt.Errorf("%d - %s", response.Error.Code, response.Error.Message)
+// 	}
+// 	result := types.Batch{}
+// 	err = json.Unmarshal(response.Result, &result)
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	return &result, nil
-}
+// 	return &result, nil
+// }
 
 func GetBlockByHash(hash common.Hash) (*types.Block, error) {
-	response, err := client.JSONRPCCall(DefaultL2NetworkURL, "eth_getBlockByHash", hash, true)
-	if err != nil {
-		return nil, err
-	}
-	if response.Error != nil {
-		return nil, fmt.Errorf("%d - %s", response.Error.Code, response.Error.Message)
-	}
-	result := types.Block{}
-	err = json.Unmarshal(response.Result, &result)
+	var result types.Block
+	err := clientRPC.CallContext(context.Background(), &result, "eth_getBlockByHash", hash, true)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +137,7 @@ func toBlockNumArg(number *big.Int) string {
 		return "latest"
 	}
 	if number.Sign() >= 0 {
-		return hex.EncodeBig(number)
+		return hexutil.EncodeBig(number)
 	}
 	// It's negative.
 	if number.IsInt64() {
@@ -152,15 +149,8 @@ func toBlockNumArg(number *big.Int) string {
 
 // GetBlockByNumber retrieves a block by its number
 func GetBlockByNumber(blockNumber *big.Int) (*types.Block, error) {
-	response, err := client.JSONRPCCall(DefaultL2NetworkURL, "eth_getBlockByNumber", toBlockNumArg(blockNumber), true)
-	if err != nil {
-		return nil, err
-	}
-	if response.Error != nil {
-		return nil, fmt.Errorf("%d - %s", response.Error.Code, response.Error.Message)
-	}
-	result := types.Block{}
-	err = json.Unmarshal(response.Result, &result)
+	var result types.Block
+	err := clientRPC.CallContext(context.Background(), &result, "eth_getBlockByNumber", toBlockNumArg(blockNumber), true)
 	if err != nil {
 		return nil, err
 	}
@@ -173,19 +163,15 @@ func GetBlockHashByNumber(block uint64) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return blockData.Hash.String(), nil
+	return blockData.Hash().String(), nil
 }
 
-func GetInternalTransactions(hash common.Hash) ([]zktypes.InnerTx, error) {
-	response, err := client.JSONRPCCall(DefaultL2NetworkURL, "eth_getInternalTransactions", hash)
-	if err != nil {
-		return nil, err
-	}
-	if response.Error != nil {
-		return nil, fmt.Errorf("%d - %s", response.Error.Code, response.Error.Message)
-	}
-	result := []zktypes.InnerTx{}
-	err = json.Unmarshal(response.Result, &result)
+func GetInternalTransactions(hash common.Hash) ([]interface{}, error) {
+	var result []interface{}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	err := clientRPC.CallContext(ctx, &result, "eth_getInternalTransactions", hash)
 	if err != nil {
 		return nil, err
 	}
@@ -193,16 +179,12 @@ func GetInternalTransactions(hash common.Hash) ([]zktypes.InnerTx, error) {
 	return result, nil
 }
 
-func GetBlockInternalTransactions(block *big.Int) (map[common.Hash][]*zktypes.InnerTx, error) {
-	response, err := client.JSONRPCCall(DefaultL2NetworkURL, "eth_getBlockInternalTransactions", hex.EncodeBig(block))
-	if err != nil {
-		return nil, err
-	}
-	if response.Error != nil {
-		return nil, fmt.Errorf("%d - %s", response.Error.Code, response.Error.Message)
-	}
-	result := map[common.Hash][]*zktypes.InnerTx{}
-	err = json.Unmarshal(response.Result, &result)
+func GetBlockInternalTransactions(block *big.Int) (map[common.Hash][]interface{}, error) {
+	var result map[common.Hash][]interface{}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	err := clientRPC.CallContext(ctx, &result, "eth_getBlockInternalTransactions", hexutil.EncodeBig(block))
 	if err != nil {
 		return nil, err
 	}
@@ -211,15 +193,11 @@ func GetBlockInternalTransactions(block *big.Int) (map[common.Hash][]*zktypes.In
 }
 
 func GetTransactionByHash(hash common.Hash) (*types.Transaction, error) {
-	response, err := client.JSONRPCCall(DefaultL2NetworkURL, "eth_getTransactionByHash", hash)
-	if err != nil {
-		return nil, err
-	}
-	if response.Error != nil {
-		return nil, fmt.Errorf("%d - %s", response.Error.Code, response.Error.Message)
-	}
-	result := types.Transaction{}
-	err = json.Unmarshal(response.Result, &result)
+	var result types.Transaction
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	err := clientRPC.CallContext(ctx, &result, "eth_getTransactionByHash", hash)
 	if err != nil {
 		return nil, err
 	}
@@ -228,15 +206,16 @@ func GetTransactionByHash(hash common.Hash) (*types.Transaction, error) {
 }
 
 func GetGasPrice() (uint64, error) {
-	response, err := client.JSONRPCCall(DefaultL2NetworkURL, "eth_gasPrice")
+	var result string
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err := clientRPC.CallContext(ctx, &result, "eth_gasPrice")
 	if err != nil {
 		return 0, err
 	}
-	if response.Error != nil {
-		return 0, fmt.Errorf("%d - %s", response.Error.Code, response.Error.Message)
-	}
 
-	return transHexToUint64(response.Result)
+	return transHexStringToUint64(result)
 }
 
 func transHexToUint64(hex json.RawMessage) (uint64, error) {
@@ -257,16 +236,18 @@ func transHexToUint64(hex json.RawMessage) (uint64, error) {
 
 	return result1, nil
 }
+
 func GetMinGasPrice() (uint64, error) {
-	response, err := client.JSONRPCCall(DefaultL2NetworkURL, "eth_minGasPrice")
+	var result string
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err := clientRPC.CallContext(ctx, &result, "eth_minGasPrice")
 	if err != nil {
 		return 0, err
 	}
-	if response.Error != nil {
-		return 0, fmt.Errorf("%d - %s", response.Error.Code, response.Error.Message)
-	}
 
-	return transHexToUint64(response.Result)
+	return transHexStringToUint64(result)
 }
 
 func GetMetricsPrometheus() (string, error) {
@@ -304,13 +285,14 @@ func GetMetrics() (string, error) {
 }
 
 func GetBlockGasLimit() (uint64, error) {
-	response, err := client.JSONRPCCall(DefaultL2NetworkURL, "eth_getBlockGasLimit")
+	var result string
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err := clientRPC.CallContext(ctx, &result, "eth_getBlockGasLimit")
 	if err != nil {
 		return 0, err
 	}
-	if response.Error != nil {
-		return 0, fmt.Errorf("%d - %s", response.Error.Code, response.Error.Message)
-	}
 
-	return transHexToUint64(response.Result)
+	return transHexStringToUint64(result)
 }
