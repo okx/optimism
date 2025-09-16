@@ -13,7 +13,7 @@ help: ## Prints this help message
 build: build-go build-contracts ## Builds Go components and contracts-bedrock
 .PHONY: build
 
-build-go: submodules op-node op-proposer op-batcher op-challenger op-dispute-mon op-program cannon ## Builds main Go components
+build-go: submodules op-node op-proposer op-batcher op-challenger op-dispute-mon op-program cannon withdrawal op-conductor ## Builds main Go components
 .PHONY: build-go
 
 build-contracts:
@@ -126,6 +126,14 @@ op-program: ## Builds op-program binary
 cannon:  ## Builds cannon binary
 	make -C ./cannon cannon
 .PHONY: cannon
+
+withdrawal: ## Builds withdrawal binary
+	just $(JUSTFLAGS) ./op-chain-ops/withdrawal
+.PHONY: withdrawal
+
+op-conductor: ## Builds op-conductor binary
+	just $(JUSTFLAGS) ./op-conductor/op-conductor
+.PHONY: op-conductor
 
 reproducible-prestate:   ## Builds reproducible-prestate binary
 	make -C ./op-program reproducible-prestate

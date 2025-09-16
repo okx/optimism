@@ -277,7 +277,8 @@ func (l *L2OutputSubmitter) FetchDGFOutput(ctx context.Context) (source.Proposal
 		return source.Proposal{}, false, fmt.Errorf("could not fetch current block number: %w", err)
 	}
 
-	if currentBlockNumber == 0 {
+	l.Log.Info("check height", "height", currentBlockNumber, "genesis height", l.Cfg.GenesisHeight)
+	if currentBlockNumber == l.Cfg.GenesisHeight {
 		l.Log.Info("Skipping proposal for genesis block")
 		return source.Proposal{}, false, nil
 	}
