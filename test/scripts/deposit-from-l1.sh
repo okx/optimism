@@ -14,7 +14,7 @@ ETHER=100000000000000000
 AMOUNT=$(python3 -c "print(3000 * $ETHER)")
 AMOUNT_PLUS_FEE=$(python3 -c "print($AMOUNT + $ETHER)")
 
-cast send --private-key $RICH_L1_PRIVATE_KEY --value $AMOUNT_PLUS_FEE $ADDRESS --legacy
+cast send --private-key $RICH_L1_PRIVATE_KEY --value $AMOUNT_PLUS_FEE $ADDRESS --legacy --rpc-url $L1_RPC_URL
 
 PRE_BALANCE=$(cast balance $ADDRESS --rpc-url=$L2_RPC_URL)
 
@@ -24,7 +24,7 @@ cast send \
     --value $AMOUNT \
     $OP_PORTAL_ADDRESS \
     'function depositTransaction(address _target, uint256 _value, uint64 _gasLimit, bool _isCreation, bytes _data)' \
-    $ADDRESS $AMOUNT 100000 false 0x
+    $ADDRESS $AMOUNT 100000 false 0x --rpc-url $L1_RPC_URL
 
 echo " 📋 Initial balance: $PRE_BALANCE"
 
