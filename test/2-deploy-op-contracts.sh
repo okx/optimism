@@ -65,6 +65,17 @@ docker run --rm \
 
 echo "🔧 Bootstrapping implementations with op-deployer..."
 
+# Use challenger address from environment or calculate from private key
+if [ -z "$OP_CHALLENGER_ADDR" ]; then
+    OP_CHALLENGER_ADDR=$(cast wallet a $OP_CHALLENGER_PRIVATE_KEY)
+    echo " ✅ Calculated challenger address: $OP_CHALLENGER_ADDR"
+    # Save to .env file for future use
+    sed_inplace "s/OP_CHALLENGER_ADDR=.*/OP_CHALLENGER_ADDR=$OP_CHALLENGER_ADDR/" .env
+    echo " ✅ Saved challenger address to .env file"
+else
+    echo " ✅ Using challenger address from .env: $OP_CHALLENGER_ADDR"
+fi
+
 SUPERCHAIN_JSON="$CONFIG_DIR/superchain.json"
 PROTOCOL_VERSIONS_PROXY=$(jq -r '.protocolVersionsProxyAddress' "$SUPERCHAIN_JSON")
 SUPERCHAIN_CONFIG_PROXY=$(jq -r '.superchainConfigProxyAddress' "$SUPERCHAIN_JSON")
@@ -86,6 +97,7 @@ docker run --rm \
       --superchain-config-proxy $SUPERCHAIN_CONFIG_PROXY \
       --superchain-proxy-admin $PROXY_ADMIN \
       --upgrade-controller $ADMIN_OWNER_ADDRESS \
+      --challenger $OP_CHALLENGER_ADDR \
       --challenge-period-seconds $CHALLENGE_PERIOD_SECONDS \
       --withdrawal-delay-seconds $WITHDRAWAL_DELAY_SECONDS \
       --proof-maturity-delay-seconds $WITHDRAWAL_DELAY_SECONDS \
@@ -94,6 +106,13 @@ docker run --rm \
 
 cp ./config-op/intent.toml.bak ./config-op/intent.toml
 cp ./config-op/state.json.bak ./config-op/state.json
+
+# Add gasLimit to intent.toml if not present
+if ! grep -q "gasLimit" ./config-op/intent.toml; then
+    # Insert gasLimit after eip1559Elasticity line using awk
+    awk '/eip1559Elasticity = 6/ { print; print "  gasLimit = 60000000"; next } 1' ./config-op/intent.toml > ./config-op/intent.toml.tmp && mv ./config-op/intent.toml.tmp ./config-op/intent.toml
+    echo " ✅ Added gasLimit to intent.toml"
+fi
 
 # Update intent.toml with Transactor address for l1ProxyAdminOwner
 sed_inplace "s/l1ProxyAdminOwner = \".*\"/l1ProxyAdminOwner = \"$TRANSACTOR_ADDRESS\"/" ./config-op/intent.toml
