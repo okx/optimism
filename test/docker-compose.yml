@@ -96,8 +96,8 @@ services:
       - --verbosity=3
     ports:
       - 8551:8551
-      - 8545:8545
-      - 8546:8546
+      - 6545:8545
+      - 6546:8546
     depends_on:
       l1-geth-genesis:
         condition: service_completed_successfully
@@ -141,7 +141,7 @@ services:
       - 4000:4000
       - 3500:3500
       - 18080:8080
-      - 9090:6060
+      - 6660:6060
       - 19090:9090
     volumes:
       - ./l1-geth/consensus:/consensus

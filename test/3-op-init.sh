@@ -118,6 +118,7 @@ docker compose run --no-deps --rm \
   --log.format json \
   init \
   --state.scheme=hash \
+  --no-verify \
   /genesis.json 2>&1 | tee init.log
 
 # update genesis block hash in rollup.json
@@ -130,6 +131,7 @@ fi
 jq ".genesis.l2.hash = \"$NEW_BLOCK_HASH\"" config-op/rollup.json > config-op/rollup.json.tmp
 mv config-op/rollup.json.tmp config-op/rollup.json
 
+<<<<<<< HEAD
 # Copy initialized database from op-geth-seq to other nodes
 OP_GETH_RPC_DATADIR="$(pwd)/data/op-geth-rpc"
 
@@ -178,6 +180,21 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
       --state.scheme=hash \
       /genesis.json
 fi
+=======
+OP_GETH_DATADIR="$(pwd)/data/op-geth-rpc"
+rm -rf "$OP_GETH_DATADIR"
+mkdir -p "$OP_GETH_DATADIR"
+docker compose run --no-deps \
+  -v "$(pwd)/$CONFIG_DIR/genesis.json:/genesis.json" \
+  op-geth-rpc \
+  --datadir "/datadir" \
+  --gcmode=archive \
+  --db.engine=$DB_ENGINE \
+  init \
+  --state.scheme=hash \
+  --no-verify \
+  /genesis.json
+>>>>>>> e80e23929 (feat: need update in aws)
 
 echo "finished init op-geth-seq and op-geth-rpc"
 
