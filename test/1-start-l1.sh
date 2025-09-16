@@ -11,7 +11,7 @@ OP_PROPOSER_ADDR=$(cast wallet a $OP_PROPOSER_PRIVATE_KEY)
 OP_CHALLENGER_ADDR=$(cast wallet a $OP_CHALLENGER_PRIVATE_KEY)
 
 # Wait for L1 node to finish syncing
-while [[ "$(cast rpc eth_syncing)" != "false" ]]; do
+while [[ "$(cast rpc eth_syncing --rpc-url $L1_RPC_URL)" != "false" ]]; do
     echo "Waiting for node to finish syncing..."
     sleep 1
 done
