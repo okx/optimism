@@ -305,7 +305,7 @@ func simulate(ctx context.Context, logger log.Logger, conf *params.ChainConfig,
 	// nil block-author, since it defaults to header.coinbase
 	blockCtx := core.NewEVMBlockContext(header, cCtx, nil, conf, state)
 	evm := vm.NewEVM(blockCtx, state, conf, vmConfig)
-	receipt, _, err := core.ApplyTransaction(evm, &gp, state, header, tx, &usedGas)
+	receipt, err := core.ApplyTransaction(evm, &gp, state, header, tx, &usedGas)
 	if err != nil {
 		return fmt.Errorf("failed to apply tx: %w", err)
 	}

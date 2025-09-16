@@ -342,7 +342,7 @@ func Process(logger log.Logger, config *params.ChainConfig,
 		}
 		statedb.SetTxContext(tx.Hash(), i)
 
-		receipt, _, err := core.ApplyTransactionWithEVM(msg, gp, statedb, blockNumber, blockHash, tx, usedGas, vmenv)
+		receipt, err := core.ApplyTransactionWithEVM(msg, gp, statedb, blockNumber, blockHash, tx, usedGas, vmenv)
 		if err != nil {
 			return nil, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
