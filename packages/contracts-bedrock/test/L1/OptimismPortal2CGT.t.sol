@@ -7,7 +7,6 @@ import {
     OptimismPortal2_Version_Test,
     OptimismPortal2_Initialize_Test,
     OptimismPortal2_Constructor_Test,
-    OptimismPortal2_Upgrade_Test,
     OptimismPortal2_MinimumGasLimit_Test,
     OptimismPortal2_Paused_Test,
     OptimismPortal2_ProofMaturityDelaySeconds_Test,
@@ -84,15 +83,6 @@ contract OptimismPortal2_CGT_Initialize_Test is OptimismPortal2_Initialize_Test 
     }
 }
 
-/// @title OptimismPortal2_CGT_Upgrade_Test
-/// @notice Tests the upgrade functionality of the `OptimismPortal2` contract with custom gas token
-///         enabled.
-contract OptimismPortal2_CGT_Upgrade_Test is OptimismPortal2_Upgrade_Test {
-    function setUp() public override {
-        super.enableCustomGasToken();
-        super.setUp();
-    }
-}
 
 /// @title OptimismPortal2_CGT_MinimumGasLimit_Test
 /// @notice Tests the `minimumGasLimit` function of the `OptimismPortal2` contract with custom gas
