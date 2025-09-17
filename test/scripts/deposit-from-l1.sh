@@ -10,7 +10,7 @@ source "$ENV_FILE"
 OP_PORTAL_ADDRESS=$(jq -r '.opChainDeployments[0].OptimismPortalProxy' config-op/state.json)
 PRIVATE_KEY="0x815405dddb0e2a99b12af775fd2929e526704e1d1aea6a0b4e74dc33e2f7fcd2"
 ADDRESS=$(cast wallet a $PRIVATE_KEY) #0x8f8E2d6cF621f30e9a11309D6A56A876281Fd534
-ETHER=100000000000000000
+ETHER=1000000000000000000
 AMOUNT=$(python3 -c "print(3000 * $ETHER)")
 AMOUNT_PLUS_FEE=$(python3 -c "print($AMOUNT + $ETHER)")
 
