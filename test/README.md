@@ -59,7 +59,9 @@ test/
 │   ├── stop_leader_sequencer.sh # Sequencer stop script
 │   ├── active_sequencer.sh      # Check active sequencer
 │   ├── add_game_type.sh         # Add dispute game type
-│   └── deposit-from-l1.sh      # L1 to L2 deposit script
+│   ├── deposit-from-l1.sh      # L1 to L2 deposit script
+│   ├── deposit-from-banker.sh  # transfer ETH from banker script
+│   └── show-dev-accounts.sh   # Display dev accounts info
 ├── config-op/          # Configuration directory
 ├── data/              # Data storage directory
 ├── contracts/         # Smart contracts
@@ -237,6 +239,53 @@ This script is useful for:
 - Measuring deposit confirmation times
 - Verifying L1/L2 synchronization
 - Validating OptimismPortal contract integration
+
+### Banker Account Deposit Script
+
+The `scripts/deposit-from-banker.sh` script enables large-scale testing using a banker account with massive balance:
+
+#### Features
+- **Large Amount Transfers**: Transfers 1,000,000 ETH (1 million ETH)
+- **Banker Account**: Uses a pre-funded account with astronomical balance
+- **Simple Transfer**: Direct ETH transfer without cross-chain complexity
+- **Legacy Transaction**: Uses legacy transaction format for compatibility
+
+#### Usage
+```bash
+# Run the banker deposit script
+./scripts/deposit-from-banker.sh
+```
+
+#### What it does
+1. **Uses Banker Account**: Leverages account `0x70997970C51812dc3A010C7d01b50e0d17dc79C8`
+2. **Large Transfer**: Sends 1,000,000 ETH to target address
+3. **Direct Transfer**: Simple ETH transfer on L2 network
+4. **Legacy Format**: Uses legacy transaction format
+
+### Development Accounts Display Script
+
+The `scripts/show-dev-accounts.sh` script displays all development accounts with their private keys:
+
+#### Features
+- **Account Listing**: Shows all 30 development accounts (paths 0-29)
+- **Private Key Display**: Reveals private keys for testing
+- **Address Generation**: Shows corresponding addresses
+- **Mnemonic Path**: Displays derivation paths
+
+#### Usage
+```bash
+# Display all dev accounts
+./scripts/show-dev-accounts.sh
+```
+
+#### What it does
+1. **Generates Accounts**: Creates 30 accounts from standard mnemonic (paths 0-29)
+2. **Shows Details**: Displays address, private key, and derivation path
+3. **Standard Mnemonic**: Uses "test test test test test test test test test test test junk"
+4. **Path Format**: Uses `m/44'/60'/0'/0/{i}` derivation paths
+
+#### Important Notes
+- **Balance Status**: Most dev accounts are pre-funded with 10,000 ETH, but some accounts may have zero initial balance
 
 ## Troubleshooting
 
