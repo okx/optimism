@@ -202,7 +202,7 @@ services:
       - --authrpc.addr=0.0.0.0
       - --authrpc.port=8552
       - --authrpc.jwtsecret=/jwt.txt
-      - --rollup.disabletxpoolgossip=true
+      - --rollup.disabletxpoolgossip=false
       - --txpool.globalslots=500000
       - --txpool.globalqueue=100000
       - --txpool.accountslots=50000
@@ -475,7 +475,7 @@ services:
       - --authrpc.addr=0.0.0.0
       - --authrpc.port=8552
       - --authrpc.jwtsecret=/jwt.txt
-      - --rollup.disabletxpoolgossip=true
+      - --rollup.disabletxpoolgossip=false
 
   op-seq2:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -585,7 +585,7 @@ services:
       - --authrpc.addr=0.0.0.0
       - --authrpc.port=8552
       - --authrpc.jwtsecret=/jwt.txt
-      - --rollup.disabletxpoolgossip=true
+      - --rollup.disabletxpoolgossip=false
 
   op-seq3:
     image: "${OP_STACK_IMAGE_TAG}"
