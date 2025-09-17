@@ -25,3 +25,7 @@ test-e2e:
 	make run-test
 	echo "E2E tests passed"
 
+
+.PHONY: clean
+clean:
+	./clean.sh
