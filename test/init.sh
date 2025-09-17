@@ -27,9 +27,6 @@ if [ -n "$BRANCH_NAME" ]; then
     # Remove specific op-geth image tag only
     echo "Removing existing $OP_GETH_IMAGE_TAG image..."
     docker rmi $OP_GETH_IMAGE_TAG 2>/dev/null || true
-    
-    # Clean build cache specifically
-    docker builder prune -f
 else 
     echo "No branch name provided, using default branch"
     cd $OP_GETH_DIR
