@@ -3,7 +3,6 @@ set -e
 source .env
 docker compose up -d l1-validator
 
-sleep 20
 
 # Calculate addresses for all actors
 OP_BATCHER_ADDR=$(cast wallet a $OP_BATCHER_PRIVATE_KEY)
@@ -18,5 +17,5 @@ done
 
 # Fund all actor addresses
 for addr in $OP_BATCHER_ADDR $OP_PROPOSER_ADDR $OP_CHALLENGER_ADDR; do
-    echo cast send --private-key $RICH_L1_PRIVATE_KEY --value 100ether $addr --legacy --rpc-url $L1_RPC_URL
+    cast send --private-key $RICH_L1_PRIVATE_KEY --value 100ether $addr --legacy --rpc-url $L1_RPC_URL
 done
