@@ -33,7 +33,7 @@ if [ -z "$L1_RPC_URL" ] || [ -z "$L2_RPC_URL" ]; then
 fi
 
 # Contract addresses
-L1_WOKB_ADDRESS="0xbaf487126e02a6e589cf5b0cb3b24233f37d5a9e"  # Our deployed OptimismMintableERC20
+L1_WOKB_ADDRESS="0x5ceef1981dc38767d8b9bdc82e4dfd43ad103c87"  # Our deployed OptimismMintableERC20
 L2_WETH_ADDRESS="0x4200000000000000000000000000000000000006"  # L2 WETH (acts as WOKB)
 L1_STANDARD_BRIDGE="0x0013c64b9aec2f228c772d2449f64c070264854f"  # L1StandardBridge
 

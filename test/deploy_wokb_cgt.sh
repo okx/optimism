@@ -224,8 +224,19 @@ main() {
     # Show summary
     show_summary
 
-    echo -e "\n${YELLOW}💡 Important: Update your test scripts with the new L1 WOKB address:${NC}"
-    echo "sed -i '' 's/L1_WOKB_ADDRESS=\".*\"/L1_WOKB_ADDRESS=\"$WOKB_L1_ADDRESS\"/' test_basic_cgt.sh test_cross_chain_cgt.sh"
+    echo -e "\n${YELLOW}📝 Updating test scripts with the new L1 WOKB address...${NC}"
+
+    # Update test scripts with the new L1 WOKB address
+    for script in test_basic_cgt.sh test_cross_chain_1_cgt.sh test_cross_chain_2_cgt.sh; do
+        if [ -f "$script" ]; then
+            sed -i.bak "s/L1_WOKB_ADDRESS=\".*\"/L1_WOKB_ADDRESS=\"$WOKB_L1_ADDRESS\"/" "$script"
+            echo "✅ Updated $script with new L1 WOKB address"
+        else
+            echo "⚠️  Script $script not found, skipping"
+        fi
+    done
+
+    echo -e "\n${GREEN}✅ All test scripts have been updated with the new L1 WOKB address: $WOKB_L1_ADDRESS${NC}"
 }
 
 # Run main function

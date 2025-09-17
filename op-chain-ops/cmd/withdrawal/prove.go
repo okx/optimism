@@ -117,9 +117,15 @@ func ProveWithdrawal(ctx *cli.Context) error {
 		return fmt.Errorf("failed to create L1 eth client: %w", err)
 	}
 	boundPortal := bindings.NewBindings[bindings.OptimismPortal2](bindings.WithClient(l1EthClient), bindings.WithTo(portalAddr))
-	usesSuperRoots, err := contractio.Read(boundPortal.SuperRootsActive(), ctx.Context)
+
+	// Try to read superRootsActive, but default to false if it fails
+	usesSuperRoots := false
+	superRootsResult, err := contractio.Read(boundPortal.SuperRootsActive(), ctx.Context)
 	if err != nil {
-		return fmt.Errorf("failed to fetch uses super roots from portal: %w", err)
+		logger.Warn("Failed to read superRootsActive from portal, defaulting to output root proof method", "err", err)
+		usesSuperRoots = false
+	} else {
+		usesSuperRoots = superRootsResult
 	}
 
 	var txData []byte
