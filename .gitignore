@@ -65,6 +65,5 @@ test/l1-geth/consensus/genesis.ssz
 test/l1-geth/execution/geth/genesis.json
 test/l1-geth/execution/geth
 test/data
-packages/contracts-bedrock/src/periphery/Transactor.sol
 test/l1-geth/execution/genesis.json
 test/tmp
