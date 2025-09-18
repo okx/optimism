@@ -36,10 +36,14 @@ run-test:
 .PHONY: test-e2e
 test-e2e: 
 	@set -e; \
+	TEST_SUCCESS=0; \
 	cleanup() { \
 		echo "Performing cleanup..."; \
 		make cleanup-temp-dir; \
 		make clean; \
+		if [ $$TEST_SUCCESS -eq 1 ]; then \
+			echo "✅ E2E tests passed"; \
+		fi; \
 	}; \
 	trap cleanup EXIT ERR INT TERM; \
 	if [ -n "$(BRANCH)" ]; then \
@@ -48,13 +52,13 @@ test-e2e:
 		make clean && \
 		make run BRANCH=$(BRANCH) && \
 		sleep 3 && \
-		make run-test BRANCH=$(BRANCH); \
-		echo "E2E tests passed"; \
+		make run-test BRANCH=$(BRANCH) && \
+		TEST_SUCCESS=1; \
 	else \
 		echo "Running E2E tests with default branch"; \
 		make clean && \
 		make run && \
 		sleep 3 && \
-		make run-test; \
-		echo "E2E tests passed"; \
+		make run-test && \
+		TEST_SUCCESS=1; \
 	fi; \
