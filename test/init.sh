@@ -11,7 +11,6 @@ OPTIMISM_DIR=$(git rev-parse --show-toplevel)
 
 source .env
 
-
 if [ "$OP_GETH_LOCAL_DIRECTORY" = "" ]; then
     git submodule update --init --recursive
     OP_GETH_DIR="$OPTIMISM_DIR/op-geth"
@@ -19,7 +18,7 @@ else
     OP_GETH_DIR="$OP_GETH_LOCAL_DIRECTORY"
 fi
 
-# If branch name is provided, clone a separate op-geth repo and build branch-specific image
+# If branch name is provided, clone a separate op-geth repo and set variables
 if [ -n "$BRANCH_NAME" ]; then
     echo "Building op-geth image for branch: $BRANCH_NAME"
     
@@ -44,20 +43,13 @@ if [ -n "$BRANCH_NAME" ]; then
     BRANCH_SPECIFIC_TAG="op-geth:$BRANCH_TAG"
     echo "Removing existing $BRANCH_SPECIFIC_TAG image..."
     docker rmi "$BRANCH_SPECIFIC_TAG" 2>/dev/null || true
-    
-    # Build branch-specific image
-    echo "Building Docker image with tag: $BRANCH_SPECIFIC_TAG"
-    docker build -t "$BRANCH_SPECIFIC_TAG" .
-    
-    # Return to original directory but keep TEMP_DIR for testing
-    cd "$PWD_DIR"
-    
-    # Export TEMP_DIR for use in testing
-    export OP_GETH_TEMP_DIR="$TEMP_DIR/op-geth"
-    echo "Temporary op-geth directory available at: $OP_GETH_TEMP_DIR"
+
+    OP_GETH_DIR="$TEMP_DIR/op-geth"
     
     # Update OP_GETH_IMAGE_TAG for this session
     export OP_GETH_IMAGE_TAG="$BRANCH_SPECIFIC_TAG"
+
+    cd "$PWD_DIR"
 else 
     echo "No branch name provided, using default submodule"
 fi
@@ -102,9 +94,6 @@ else
     echo "Image $OP_STACK_IMAGE_TAG already exists, skipping build"
 fi
 
-# Build OP_GETH image from submodule if no branch was specified
-if [ "$BRANCH_NAME" == ""  ]; then
-    echo "Building $OP_GETH_IMAGE_TAG"
-    cd $OP_GETH_DIR
-    docker build -t $OP_GETH_IMAGE_TAG .
-fi
+echo "Building $OP_GETH_IMAGE_TAG"
+cd $OP_GETH_DIR
+docker build -t $OP_GETH_IMAGE_TAG .
