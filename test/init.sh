@@ -21,4 +21,6 @@ docker build -t $OP_CONTRACTS_IMAGE_TAG -f ./Dockerfile-contracts .
 docker build -t $OP_STACK_IMAGE_TAG -f ./Dockerfile-opstack .
 
 cd $OP_GETH_DIR
+git checkout dev
+git pull
 docker build -t $OP_GETH_IMAGE_TAG .
