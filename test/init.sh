@@ -9,16 +9,6 @@ OPTIMISM_DIR=$(git rev-parse --show-toplevel)
 
 [ ! -f .env ] && cp example.env .env
 
-# Update .env with branch-specific image tag if needed
-if [ -n "$BRANCH_NAME" ]; then
-    # Replace OP_GETH_IMAGE_TAG in .env file with branch-specific tag
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        sed -i '' "s|OP_GETH_IMAGE_TAG=.*|OP_GETH_IMAGE_TAG=$OP_GETH_IMAGE_TAG|" .env
-    else
-        sed -i "s|OP_GETH_IMAGE_TAG=.*|OP_GETH_IMAGE_TAG=$OP_GETH_IMAGE_TAG|" .env
-    fi
-fi
-
 source .env
 
 
@@ -70,6 +60,18 @@ if [ -n "$BRANCH_NAME" ]; then
 else 
     echo "No branch name provided, using default submodule"
 fi
+
+# Update .env with branch-specific image tag if needed
+if [ -n "$BRANCH_NAME" ]; then
+    # Replace OP_GETH_IMAGE_TAG in .env file with branch-specific tag
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "s|OP_GETH_IMAGE_TAG=.*|OP_GETH_IMAGE_TAG=$OP_GETH_IMAGE_TAG|" .env
+    else
+        sed -i "s|OP_GETH_IMAGE_TAG=.*|OP_GETH_IMAGE_TAG=$OP_GETH_IMAGE_TAG|" .env
+    fi
+fi
+
+source .env
 
 
 # TODO: need to further confirm why it fails if we do not add require in this contract
