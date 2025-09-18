@@ -6,7 +6,27 @@ set -e
 BRANCH_NAME=${1:-""}
 PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OPTIMISM_DIR=$(git rev-parse --show-toplevel)
-OP_GETH_DIR=${OP_GETH_DIR:-${OPTIMISM_DIR}/op-geth}
+
+[ ! -f .env ] && cp example.env .env
+
+# Update .env with branch-specific image tag if needed
+if [ -n "$BRANCH_NAME" ]; then
+    # Replace OP_GETH_IMAGE_TAG in .env file with branch-specific tag
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "s|OP_GETH_IMAGE_TAG=.*|OP_GETH_IMAGE_TAG=$OP_GETH_IMAGE_TAG|" .env
+    else
+        sed -i "s|OP_GETH_IMAGE_TAG=.*|OP_GETH_IMAGE_TAG=$OP_GETH_IMAGE_TAG|" .env
+    fi
+fi
+
+source .env
+
+
+if [ "$OP_GETH_LOCAL_DIRECTORY" = "" ]; then
+    OP_GETH_DIR="$OPTIMISM_DIR/op-geth"
+else
+    OP_GETH_DIR="$OP_GETH_LOCAL_DIRECTORY"
+fi
 
 # If branch name is provided, clone a separate op-geth repo and build branch-specific image
 if [ -n "$BRANCH_NAME" ]; then
@@ -26,7 +46,7 @@ if [ -n "$BRANCH_NAME" ]; then
     git pull origin "$BRANCH_NAME"
     
     echo "Performing cleanup for branch-specific build..."
-    docker compose down --volumes --remove-orphans 2>/dev/null || true
+    docker compose down
     
     # Create Docker-safe tag by replacing slashes with hyphens
     BRANCH_TAG=$(echo "$BRANCH_NAME" | sed 's/\//-/g')
@@ -51,19 +71,6 @@ else
     echo "No branch name provided, using default submodule"
 fi
 
-cp example.env .env
-
-# Update .env with branch-specific image tag if needed
-if [ -n "$BRANCH_NAME" ]; then
-    # Replace OP_GETH_IMAGE_TAG in .env file with branch-specific tag
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        sed -i '' "s|OP_GETH_IMAGE_TAG=.*|OP_GETH_IMAGE_TAG=$OP_GETH_IMAGE_TAG|" .env
-    else
-        sed -i "s|OP_GETH_IMAGE_TAG=.*|OP_GETH_IMAGE_TAG=$OP_GETH_IMAGE_TAG|" .env
-    fi
-fi
-
-source .env
 
 # TODO: need to further confirm why it fails if we do not add require in this contract
 cp $PWD_DIR/contracts/Transactor.sol $OPTIMISM_DIR/packages/contracts-bedrock/src/periphery/Transactor.sol

@@ -23,7 +23,4 @@ rm -rf l1-geth/execution/genesis.json
 rm -rf l1-geth/execution/geth/
 rm -rf init.log
 
-echo " 📄 Restoring environment configuration from example.env..."
-cp example.env .env
-
 echo " ✅ Cleanup completed!"
