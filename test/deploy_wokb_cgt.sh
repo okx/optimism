@@ -27,8 +27,8 @@ if [ -n "$L2_RPC_URL_IN_DOCKER" ]; then
 fi
 
 # Ensure required environment variables are set
-if [ -z "$L1_RPC_URL" ] || [ -z "$L2_RPC_URL" ] || [ -z "$DEPLOYER_PRIVATE_KEY" ]; then
-    echo "❌ Missing required environment variables (L1_RPC_URL, L2_RPC_URL, DEPLOYER_PRIVATE_KEY)"
+if [ -z "$L1_RPC_URL" ] || [ -z "$L2_RPC_URL" ] || [ -z "$DEPLOYER_PRIVATE_KEY" ] || [ -z "$OP_PROPOSER_PRIVATE_KEY" ]; then
+    echo "❌ Missing required environment variables (L1_RPC_URL, L2_RPC_URL, DEPLOYER_PRIVATE_KEY, OP_PROPOSER_PRIVATE_KEY)"
     exit 1
 fi
 
@@ -36,10 +36,11 @@ fi
 DEPLOYER_ADDRESS=$(cast wallet address "$DEPLOYER_PRIVATE_KEY")
 echo "Deployer address: $DEPLOYER_ADDRESS"
 
-# Check L1 balance only
-check_l1_balance() {
-    echo -e "\n${BLUE}💰 Checking L1 deployer balance...${NC}"
+# Check balances
+check_balances() {
+    echo -e "\n${BLUE}💰 Checking balances...${NC}"
 
+    # Check L1 balance
     L1_BALANCE=$(cast balance "$DEPLOYER_ADDRESS" --rpc-url "$L1_RPC_URL")
     echo "L1 balance: $L1_BALANCE wei"
 
@@ -49,6 +50,17 @@ check_l1_balance() {
     fi
 
     echo "✅ Deployer has sufficient L1 balance"
+
+    # Check L2 balance
+    L2_BALANCE=$(cast balance "$PROPOSER_ADDRESS" --rpc-url "$L2_RPC_URL")
+    echo "L2 balance: $L2_BALANCE wei"
+
+    if [ "$L2_BALANCE" = "0" ]; then
+        echo "❌ Proposer has no L2 balance. Please fund the account first."
+        exit 1
+    fi
+
+    echo "✅ Proposer has sufficient L2 balance"
 }
 
 # Deploy L2 WOKB contract
@@ -118,7 +130,7 @@ deploy_l2_wokb() {
     cd ../packages/contracts-bedrock
     forge create --json --broadcast src/L2/xlayer/WOKB.sol:WOKB \
         --rpc-url "$L2_RPC_URL" \
-        --private-key "$PROPOSER_PRIVATE_KEY" \
+        --private-key "$OP_PROPOSER_PRIVATE_KEY" \
         > /tmp/forge_result.json 2>&1
     cd ../../test
 
@@ -371,8 +383,8 @@ show_summary() {
 main() {
     echo -e "${GREEN}Starting WOKB deployment...${NC}"
 
-    # Check L1 balance only
-    check_l1_balance
+    # Check balances
+    check_balances
 
     # Deploy L2 WOKB
     deploy_l2_wokb
