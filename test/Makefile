@@ -1,16 +1,23 @@
 
 .PHONY: create-temp-dir
 create-temp-dir:
-	mkdir -p tmp
+	@mkdir -p tmp
 
 .PHONY: cleanup-temp-dir
 cleanup-temp-dir:
-	echo "Cleaning up temporary directory: tmp"; \
-	rm -rf tmp
+	@echo "Removing temporary directory: tmp"
+	@rm -rf tmp
 
 .PHONY: clean
 clean:
-	./clean.sh
+	@./clean.sh
+
+.PHONY: cleanup
+cleanup:
+	echo "Performing cleanup..."
+	@make cleanup-temp-dir >/dev/null 2>&1
+	@make clean >/dev/null 2>&1 
+	echo "Cleanup completed"
 
 .PHONY: run
 run:
@@ -34,31 +41,12 @@ run-test:
 	fi
 
 .PHONY: test-e2e
-test-e2e: 
-	@set -e; \
-	TEST_SUCCESS=0; \
-	cleanup() { \
-		echo "Performing cleanup..."; \
-		make cleanup-temp-dir; \
-		make clean; \
-		if [ $$TEST_SUCCESS -eq 1 ]; then \
-			echo "✅ E2E tests passed"; \
-		fi; \
-	}; \
-	trap cleanup EXIT ERR INT TERM; \
+test-e2e: clean create-temp-dir
+	@trap 'make cleanup' EXIT ERR INT TERM; \
 	if [ -n "$(BRANCH)" ]; then \
 		echo "Running E2E tests with branch: $(BRANCH)"; \
-		make create-temp-dir && \
-		make clean && \
-		make run BRANCH=$(BRANCH) && \
-		sleep 3 && \
-		make run-test BRANCH=$(BRANCH) && \
-		TEST_SUCCESS=1; \
+		make run BRANCH=$(BRANCH) && sleep 3 && make run-test BRANCH=$(BRANCH); \
 	else \
 		echo "Running E2E tests with default branch"; \
-		make clean && \
-		make run && \
-		sleep 3 && \
-		make run-test && \
-		TEST_SUCCESS=1; \
-	fi; \
+		make run && sleep 3 && make run-test; \
+	fi && echo "✅ E2E tests passed ✅"

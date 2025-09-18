@@ -6,9 +6,7 @@ set -e
 BRANCH_NAME=${1:-""}
 PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OPTIMISM_DIR=$(git rev-parse --show-toplevel)
-OP_GETH_DIR=${OPTIMISM_DIR}/op-geth
-
-git submodule update --init --recursive
+OP_GETH_DIR=${OP_GETH_DIR:-${OPTIMISM_DIR}/op-geth}
 
 # If branch name is provided, clone a separate op-geth repo and build branch-specific image
 if [ -n "$BRANCH_NAME" ]; then
@@ -89,16 +87,8 @@ else
 fi
 
 # Build OP_GETH image from submodule if no branch was specified
-if [ -z "$BRANCH_NAME" ]; then
-    # Check if the default image exists and build it if it doesn't
-    if [ -z "$(docker images -q $OP_GETH_IMAGE_TAG)" ]; then
-        echo "Building $OP_GETH_IMAGE_TAG from submodule..."
-        cd $OP_GETH_DIR
-        docker build -t $OP_GETH_IMAGE_TAG .
-        cd $PWD_DIR
-    else
-        echo "Image $OP_GETH_IMAGE_TAG already exists, skipping build"
-    fi
-else
-    echo "Using branch-specific image: $OP_GETH_IMAGE_TAG"
+if [ "$BRANCH_NAME" == ""  ]; then
+    echo "Building $OP_GETH_IMAGE_TAG"
+    cd $OP_GETH_DIR
+    docker build -t $OP_GETH_IMAGE_TAG .
 fi
