@@ -20,7 +20,7 @@ cleanup:
 	echo "Cleanup completed"
 
 .PHONY: run
-run:
+run: clean create-temp-dir
 	@if [ -n "$(BRANCH)" ]; then \
 		echo "Initializing with branch: $(BRANCH)"; \
 		./init.sh $(BRANCH); \
@@ -45,7 +45,7 @@ run-test:
 	fi
 
 .PHONY: test-e2e
-test-e2e: clean create-temp-dir
+test-e2e: 
 	@trap 'make cleanup' EXIT ERR INT TERM; \
 	if [ -n "$(BRANCH)" ]; then \
 		echo "Running E2E tests with branch: $(BRANCH)"; \

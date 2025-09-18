@@ -13,6 +13,7 @@ source .env
 
 
 if [ "$OP_GETH_LOCAL_DIRECTORY" = "" ]; then
+    git submodule update --init --recursive
     OP_GETH_DIR="$OPTIMISM_DIR/op-geth"
 else
     OP_GETH_DIR="$OP_GETH_LOCAL_DIRECTORY"
@@ -63,12 +64,18 @@ fi
 
 # Update .env with branch-specific image tag if needed
 if [ -n "$BRANCH_NAME" ]; then
-    # Replace OP_GETH_IMAGE_TAG in .env file with branch-specific tag
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        sed -i '' "s|OP_GETH_IMAGE_TAG=.*|OP_GETH_IMAGE_TAG=$OP_GETH_IMAGE_TAG|" .env
-    else
-        sed -i "s|OP_GETH_IMAGE_TAG=.*|OP_GETH_IMAGE_TAG=$OP_GETH_IMAGE_TAG|" .env
-    fi
+    # Use branch-specific tag
+    NEW_OP_GETH_IMAGE_TAG="$OP_GETH_IMAGE_TAG"
+else
+    # Extract from example.env
+    NEW_OP_GETH_IMAGE_TAG=$(grep "^OP_GETH_IMAGE_TAG=" example.env | cut -d'=' -f2)
+fi
+
+echo "Setting OP_GETH_IMAGE_TAG: $NEW_OP_GETH_IMAGE_TAG"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    sed -i '' "s|OP_GETH_IMAGE_TAG=.*|OP_GETH_IMAGE_TAG=$NEW_OP_GETH_IMAGE_TAG|" .env
+else
+    sed -i "s|OP_GETH_IMAGE_TAG=.*|OP_GETH_IMAGE_TAG=$NEW_OP_GETH_IMAGE_TAG|" .env
 fi
 
 source .env
