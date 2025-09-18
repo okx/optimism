@@ -203,6 +203,10 @@ services:
       - --authrpc.port=8552
       - --authrpc.jwtsecret=/jwt.txt
       - --rollup.disabletxpoolgossip=true
+      - --txpool.globalslots=500000
+      - --txpool.globalqueue=100000
+      - --txpool.accountslots=50000
+      - --txpool.accountqueue=10000
 
   op-geth-rpc:
     image: "${OP_GETH_IMAGE_TAG}"
@@ -367,6 +371,7 @@ services:
       - --max-channel-duration=25
       - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
       - --private-key=${OP_BATCHER_PRIVATE_KEY}
+      - --throttle-always-block-size=1300000
     depends_on:
       - op-seq
 

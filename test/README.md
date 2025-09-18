@@ -58,7 +58,10 @@ test/
 │   ├── transfer_leader.sh      # Leader transfer script
 │   ├── stop_leader_sequencer.sh # Sequencer stop script
 │   ├── active_sequencer.sh      # Check active sequencer
-│   └── add_game_type.sh         # Add dispute game type
+│   ├── add_game_type.sh         # Add dispute game type
+│   ├── deposit-from-l1.sh      # L1 to L2 deposit script
+│   ├── deposit-from-banker.sh  # transfer ETH from banker script
+│   └── show-dev-accounts.sh   # Display dev accounts info
 ├── config-op/          # Configuration directory
 ├── data/              # Data storage directory
 ├── contracts/         # Smart contracts
@@ -199,6 +202,90 @@ There are two ways to trigger leader transfer:
 ```
 
 This method simulates a sequencer failure scenario, enabling comprehensive testing of automatic failover mechanisms. Each execution stops the current leader's sequencer and triggers a transfer to another node, allowing you to test different leadership scenarios by running the script multiple times. The cluster maintains high availability through dynamic role switching - when a sequencer stops producing blocks, it transitions to follower status while another node assumes leadership. The system remains resilient as any follower can automatically promote to leader if the current leader encounters issues.
+
+## Utility Scripts
+
+### L1 to L2 Deposit Script
+
+The `scripts/deposit-from-l1.sh` script facilitates testing L1 to L2 cross-chain deposits:
+
+#### Features
+- **Automatic Deposit**: Deposits 3000 ETH from L1 to L2
+- **Balance Monitoring**: Monitors L2 balance changes in real-time
+- **Wait Time Tracking**: Measures total deposit confirmation time
+- **Status Updates**: Provides clear progress feedback
+
+#### Usage
+```bash
+# Run the deposit script
+./scripts/deposit-from-l1.sh
+```
+
+#### What it does
+1. **Funds Test Account**: Sends ETH to the test account on L1
+2. **Creates Deposit Transaction**: Calls OptimismPortal.depositTransaction()
+3. **Monitors L2 Balance**: Continuously checks L2 balance until change detected
+4. **Reports Results**: Shows deposit confirmation time and balance changes
+
+#### Configuration
+The script uses these default parameters:
+- **Deposit Amount**: 3000 ETH
+- **Gas Limit**: 100,000
+- **Target Address**: Same as sender (self-deposit)
+- **L2 RPC**: http://127.0.0.1:8123
+
+This script is useful for:
+- Testing cross-chain deposit functionality
+- Measuring deposit confirmation times
+- Verifying L1/L2 synchronization
+- Validating OptimismPortal contract integration
+
+### Banker Account Deposit Script
+
+The `scripts/deposit-from-banker.sh` script enables large-scale testing using a banker account with massive balance:
+
+#### Features
+- **Large Amount Transfers**: Transfers 1,000,000 ETH (1 million ETH)
+- **Banker Account**: Uses a pre-funded account with astronomical balance
+- **Simple Transfer**: Direct ETH transfer without cross-chain complexity
+- **Legacy Transaction**: Uses legacy transaction format for compatibility
+
+#### Usage
+```bash
+# Run the banker deposit script
+./scripts/deposit-from-banker.sh
+```
+
+#### What it does
+1. **Uses Banker Account**: Leverages account `0x70997970C51812dc3A010C7d01b50e0d17dc79C8`
+2. **Large Transfer**: Sends 1,000,000 ETH to target address
+3. **Direct Transfer**: Simple ETH transfer on L2 network
+4. **Legacy Format**: Uses legacy transaction format
+
+### Development Accounts Display Script
+
+The `scripts/show-dev-accounts.sh` script displays all development accounts with their private keys:
+
+#### Features
+- **Account Listing**: Shows all 30 development accounts (paths 0-29)
+- **Private Key Display**: Reveals private keys for testing
+- **Address Generation**: Shows corresponding addresses
+- **Mnemonic Path**: Displays derivation paths
+
+#### Usage
+```bash
+# Display all dev accounts
+./scripts/show-dev-accounts.sh
+```
+
+#### What it does
+1. **Generates Accounts**: Creates 30 accounts from standard mnemonic (paths 0-29)
+2. **Shows Details**: Displays address, private key, and derivation path
+3. **Standard Mnemonic**: Uses "test test test test test test test test test test test junk"
+4. **Path Format**: Uses `m/44'/60'/0'/0/{i}` derivation paths
+
+#### Important Notes
+- **Balance Status**: Most dev accounts are pre-funded with 10,000 ETH, but some accounts may have zero initial balance
 
 ## Troubleshooting
 

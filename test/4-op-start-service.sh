@@ -26,7 +26,9 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     $SCRIPTS_DIR/active-sequencer.sh
 fi
 
-docker compose up -d op-rpc
+if [ "$LAUNCH_RPC_NODE" = "true" ]; then
+    docker compose up -d op-rpc
+fi
 
 sleep 10
 
