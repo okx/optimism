@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🧪 Starting CGT Cross-Chain Tests Part 2 (After Challenge Period)..."
+echo "🧪 Starting CGT L1→L2 Deposit Tests..."
 
 # Color definitions
 RED='\033[0;31m'
@@ -33,9 +33,12 @@ if [ -z "$L1_RPC_URL" ] || [ -z "$L2_RPC_URL" ]; then
 fi
 
 # Contract addresses
-L1_WOKB_ADDRESS="0x5ceef1981dc38767d8b9bdc82e4dfd43ad103c87"  # Our deployed OptimismMintableERC20
+if [ -z "$L1_WOKB_ADDRESS" ]; then
+    echo "❌ L1_WOKB_ADDRESS not found in environment. Please run ./deploy_wokb_cgt.sh first."
+    exit 1
+fi
 L2_WETH_ADDRESS="0x4200000000000000000000000000000000000006"  # L2 WETH (acts as WOKB)
-L1_STANDARD_BRIDGE="0x0013c64b9aec2f228c772d2449f64c070264854f"  # L1StandardBridge
+# L1StandardBridge address will be read from config
 
 # Test user (using pre-funded test account)
 TEST_PRIVATE_KEY="0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
@@ -69,9 +72,86 @@ get_balances() {
     echo "L2 OKB:  $l2_okb_ether OKB"
 }
 
+# Wait for L2 deposit processing and verify balance increase
+wait_for_l2_deposit_processing() {
+    local expected_amount="$1"
+    local expected_amount_ether=$(wei_to_ether "$expected_amount")
+
+    echo -e "\n${YELLOW}⏳ Waiting for L2 deposit processing (checking every 30 seconds)...${NC}"
+    echo "Expected L2 WOKB increase: $expected_amount_ether WOKB"
+
+    # Get initial L2 WOKB balance
+    local initial_l2_wokb_wei=$(cast call "$L2_WETH_ADDRESS" "balanceOf(address)" "$TEST_ADDRESS" --rpc-url "$L2_RPC_URL")
+    local initial_l2_wokb_ether=$(wei_to_ether "$initial_l2_wokb_wei")
+
+    echo "Initial L2 WOKB balance: $initial_l2_wokb_ether WOKB"
+
+    # Wait up to 5 minutes (10 checks, 30 seconds apart)
+    # L1→L2 deposits can take longer than L2→L1 withdrawals
+    local max_attempts=10
+    local attempt=1
+    local check_interval=30
+
+    while [ $attempt -le $max_attempts ]; do
+        echo "⏳ Checking attempt $attempt/$max_attempts ($(($attempt * $check_interval))s elapsed)..."
+
+        # Get current L2 WOKB balance
+        local current_l2_wokb_wei=$(cast call "$L2_WETH_ADDRESS" "balanceOf(address)" "$TEST_ADDRESS" --rpc-url "$L2_RPC_URL" 2>/dev/null || echo "0")
+        local current_l2_wokb_ether=$(wei_to_ether "$current_l2_wokb_wei")
+
+        echo "Current L2 WOKB balance: $current_l2_wokb_ether WOKB"
+
+        # Calculate the difference
+        local balance_diff=$((current_l2_wokb_wei - initial_l2_wokb_wei))
+        local balance_diff_ether=$(wei_to_ether "$balance_diff")
+
+        # Check if balance increased by expected amount (with small tolerance for rounding)
+        local tolerance=$((expected_amount / 1000))  # 0.1% tolerance
+        if [ "$balance_diff" -ge $((expected_amount - tolerance)) ]; then
+            echo -e "${GREEN}✅ L2 deposit processed successfully!${NC}"
+            echo "Balance increased by: $balance_diff_ether WOKB"
+            echo "Expected: $(wei_to_ether $expected_amount) WOKB"
+            get_balances "AFTER_STEP3_CONFIRMED"
+            return 0
+        elif [ "$balance_diff" -gt 0 ]; then
+            echo "⚠️  Partial deposit detected: $balance_diff_ether WOKB (expected: $(wei_to_ether $expected_amount) WOKB)"
+        fi
+
+        if [ $attempt -lt $max_attempts ]; then
+            echo "💤 Waiting $check_interval seconds before next check..."
+            sleep $check_interval
+        fi
+
+        attempt=$((attempt + 1))
+    done
+
+    echo -e "${RED}❌ L2 deposit not confirmed within 5 minutes${NC}"
+    echo "💡 This might indicate:"
+    echo "   • L1→L2 bridge processing issues"
+    echo "   • Network congestion"
+    echo "   • Incorrect bridge address"
+    echo "Final balance check:"
+    get_balances "AFTER_STEP3_TIMEOUT"
+    return 1
+}
+
 # Step 3: L1 -> L2 cross-chain 2 WOKB
 step3_l1_to_l2() {
     echo -e "\n${BLUE}🔄 Step 3: L1 → L2 cross-chain 2 WOKB${NC}"
+
+    # Get L1StandardBridge address from config
+    local l1_standard_bridge
+    if [ -f "config-op/state.json" ]; then
+        l1_standard_bridge=$(jq -r '.opChainDeployments[0].L1StandardBridgeProxy' config-op/state.json)
+        if [ "$l1_standard_bridge" = "null" ] || [ -z "$l1_standard_bridge" ]; then
+            echo "❌ Could not find L1StandardBridgeProxy in config-op/state.json"
+            return 1
+        fi
+        echo "✅ L1StandardBridge address: $l1_standard_bridge"
+    else
+        echo "❌ config-op/state.json not found"
+        return 1
+    fi
 
     get_balances "BEFORE_STEP3"
 
@@ -94,7 +174,7 @@ step3_l1_to_l2() {
     # Approve L1 bridge
     echo "Approving L1 bridge to spend 2 WOKB..."
     local approve_tx=$(cast send "$L1_WOKB_ADDRESS" \
-        "approve(address,uint256)" "$L1_STANDARD_BRIDGE" "$amount" \
+        "approve(address,uint256)" "$l1_standard_bridge" "$amount" \
         --rpc-url "$L1_RPC_URL" \
         --private-key "$TEST_PRIVATE_KEY" \
         --json | jq -r '.transactionHash')
@@ -108,7 +188,11 @@ step3_l1_to_l2() {
 
     # Initiate deposit
     echo "Initiating L1 → L2 deposit..."
-    local deposit_tx=$(cast send "$L1_STANDARD_BRIDGE" \
+    echo "Bridge address: $l1_standard_bridge"
+    echo "L1 WOKB: $L1_WOKB_ADDRESS → L2 WETH: $L2_WETH_ADDRESS"
+    echo "Amount: $(wei_to_ether $amount) WOKB"
+
+    local deposit_tx=$(cast send "$l1_standard_bridge" \
         "depositERC20(address,address,uint256,uint32,bytes)" \
         "$L1_WOKB_ADDRESS" "$L2_WETH_ADDRESS" "$amount" "200000" "0x" \
         --rpc-url "$L1_RPC_URL" \
@@ -118,8 +202,11 @@ step3_l1_to_l2() {
     if [ "$deposit_tx" != "null" ] && [ -n "$deposit_tx" ]; then
         echo "✅ L1 → L2 deposit initiated, tx: $deposit_tx"
         sleep 5
-        get_balances "AFTER_STEP3"
-        echo -e "${YELLOW}⏳ Note: L2 WOKB will increase after deposit relay (few minutes)${NC}"
+        get_balances "AFTER_STEP3_INITIAL"
+
+        # Wait for L2 deposit processing and verify balance increase
+        wait_for_l2_deposit_processing "$amount"
+
         return 0
     else
         echo "❌ L1 → L2 deposit failed"
@@ -164,20 +251,15 @@ step4_wokb_to_okb() {
 
 # Main function
 main() {
-    echo -e "${GREEN}🚀 Starting CGT Cross-Chain Tests Part 2${NC}"
+    echo -e "${GREEN}🚀 Starting CGT L1→L2 Deposit Tests${NC}"
     echo "=================================================="
     echo "Test Account: $TEST_ADDRESS"
     echo "L1 WOKB Contract: $L1_WOKB_ADDRESS"
     echo "L2 WOKB Contract: $L2_WETH_ADDRESS"
     echo "=================================================="
 
-    # Check if withdrawal from part 1 exists
-    if [ -f "withdrawal_tx.txt" ]; then
-        WITHDRAWAL_TX=$(cat withdrawal_tx.txt)
-        echo "Previous L2→L1 withdrawal tx: $WITHDRAWAL_TX"
-    else
-        echo "⚠️  No withdrawal_tx.txt found. Please run test_cross_chain_1_cgt.sh first."
-    fi
+    # Note: This script tests L1→L2 deposits and runs independently
+    echo "💡 This script tests L1→L2 deposits (requires existing L1 WOKB balance)"
 
     # Get current balances
     get_balances "PART2_INITIAL"
@@ -200,17 +282,18 @@ main() {
     fi
 
     # Final summary
-    echo -e "\n${GREEN}🎉 Part 2 Tests Completed!${NC}"
-    echo -e "\n${YELLOW}📋 Part 2 Summary:${NC}"
-    echo "3. ✅ Cross-chain 2 WOKB from L1 → L2 (if L1 balance available)"
-    echo "4. ✅ Converted all remaining WOKB → OKB on L2"
+    echo -e "\n${GREEN}🎉 L1→L2 Deposit Tests Completed!${NC}"
+    echo -e "\n${YELLOW}📋 Test Summary:${NC}"
+    echo "1. ✅ Deposited WOKB from L1 → L2 (with real-time verification)"
+    echo "2. ✅ Converted all WOKB → OKB on L2"
 
     get_balances "FINAL"
 
-    echo -e "\n${YELLOW}📝 Complete Test Flow:${NC}"
-    echo "• Part 1: OKB→WOKB conversion + L2→L1 withdrawal initiation"
-    echo "• Part 2: L1→L2 deposit (after challenge period) + WOKB→OKB conversion"
-    echo "• Total test demonstrates full cross-chain cycle"
+    echo -e "\n${YELLOW}📝 L1→L2 Deposit Flow:${NC}"
+    echo "• L1: Approve bridge to spend WOKB"
+    echo "• L1: Call depositERC20 on L1StandardBridge"
+    echo "• L2: Wait for L2 node to process L1 deposit event (2-5 minutes)"
+    echo "• L2: WOKB balance increases automatically"
 }
 
 # Run Main function

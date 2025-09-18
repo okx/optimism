@@ -99,13 +99,53 @@ deploy_l1_contract() {
     fi
     echo "✅ Factory contract verified"
 
-    # Check if already deployed for this L2 token
-    EXISTING_DEPLOYMENT=$(cast call "$FACTORY_ADDRESS" "deployments(address)" "$L2_WETH_ADDRESS" --rpc-url "$L1_RPC_URL")
-    if [ "$EXISTING_DEPLOYMENT" != "0x0000000000000000000000000000000000000000000000000000000000000000" ]; then
-        WOKB_L1_ADDRESS=$(echo "$EXISTING_DEPLOYMENT" | sed 's/0x000000000000000000000000/0x/')
-        echo "✅ WOKB already deployed at: $WOKB_L1_ADDRESS"
-        return 0
+    # Check if WOKB already deployed by checking .env file and verifying contract
+    echo "Checking if WOKB already deployed..."
+
+    if grep -q "^L1_WOKB_ADDRESS=" .env; then
+        EXISTING_WOKB_ADDRESS=$(grep "^L1_WOKB_ADDRESS=" .env | cut -d'=' -f2)
+        echo "Found L1_WOKB_ADDRESS in .env: $EXISTING_WOKB_ADDRESS"
+
+        if [ -n "$EXISTING_WOKB_ADDRESS" ] && [ "$EXISTING_WOKB_ADDRESS" != "0x0000000000000000000000000000000000000000" ]; then
+            # Verify the address has contract code
+            echo "Verifying contract code at address..."
+            EXISTING_CODE=$(cast code "$EXISTING_WOKB_ADDRESS" --rpc-url "$L1_RPC_URL" 2>/dev/null || echo "0x")
+
+            if [ "$EXISTING_CODE" != "0x" ] && [ -n "$EXISTING_CODE" ]; then
+                echo "✅ Contract code found, verifying it's a valid WOKB contract..."
+
+                # Verify it's actually a WOKB contract by checking basic functions
+                CONTRACT_NAME=$(cast call "$EXISTING_WOKB_ADDRESS" "name()" --rpc-url "$L1_RPC_URL" 2>/dev/null | cast --to-ascii 2>/dev/null || echo "")
+                CONTRACT_SYMBOL=$(cast call "$EXISTING_WOKB_ADDRESS" "symbol()" --rpc-url "$L1_RPC_URL" 2>/dev/null | cast --to-ascii 2>/dev/null || echo "")
+                REMOTE_TOKEN=$(cast call "$EXISTING_WOKB_ADDRESS" "remoteToken()" --rpc-url "$L1_RPC_URL" 2>/dev/null || echo "")
+
+                # Check if it matches our expected WOKB contract
+                if [ "$CONTRACT_NAME" = "Wrapped OKB" ] && [ "$CONTRACT_SYMBOL" = "WOKB" ] && [ "$REMOTE_TOKEN" = "0x0000000000000000000000004200000000000000000000000000000000000006" ]; then
+                    echo "✅ WOKB already deployed and verified at: $EXISTING_WOKB_ADDRESS"
+                    echo "   Name: $CONTRACT_NAME"
+                    echo "   Symbol: $CONTRACT_SYMBOL"
+                    echo "   Remote Token: $REMOTE_TOKEN"
+                    WOKB_L1_ADDRESS="$EXISTING_WOKB_ADDRESS"
+                    return 0
+                else
+                    echo "⚠️  Contract at address doesn't match expected WOKB contract:"
+                    echo "   Name: '$CONTRACT_NAME' (expected: 'Wrapped OKB')"
+                    echo "   Symbol: '$CONTRACT_SYMBOL' (expected: 'WOKB')"
+                    echo "   Remote Token: '$REMOTE_TOKEN' (expected: '0x0000000000000000000000004200000000000000000000000000000000000006')"
+                    echo "   Will deploy a new WOKB contract..."
+                fi
+            else
+                echo "⚠️  Address in .env has no contract code (L1 chain may have been reset)"
+                echo "   Will deploy a new WOKB contract..."
+            fi
+        else
+            echo "⚠️  Invalid address in .env file"
+        fi
+    else
+        echo "No L1_WOKB_ADDRESS found in .env file"
     fi
+
+    echo "Proceeding with new WOKB deployment..."
 
     # Get current block number for log filtering
     CURRENT_BLOCK=$(cast block-number --rpc-url "$L1_RPC_URL")
@@ -113,17 +153,35 @@ deploy_l1_contract() {
 
     # Create OptimismMintableERC20 with correct function
     echo "Creating OptimismMintableERC20 for L2 WETH..."
+
+    # Try to create the token, capture both stdout and stderr
     TX_RESULT=$(cast send "$FACTORY_ADDRESS" \
         "createOptimismMintableERC20WithDecimals(address,string,string,uint8)" \
         "$L2_WETH_ADDRESS" "Wrapped OKB" "WOKB" "18" \
         --rpc-url "$L1_RPC_URL" \
         --private-key "$DEPLOYER_PRIVATE_KEY" \
-        --json)
+        --json 2>&1)
 
-    TRANSACTION_HASH=$(echo "$TX_RESULT" | jq -r '.transactionHash')
+    # Check if the command succeeded
+    if echo "$TX_RESULT" | grep -q "execution reverted"; then
+        echo "⚠️  Transaction reverted - this usually means a token with the same parameters already exists"
+        echo "💡 Trying to find existing deployment..."
+
+        # Try to calculate the expected address or find it through events
+        # For now, we'll exit with an informative error
+        echo "❌ Cannot proceed: Token with same parameters (L2 token: $L2_WETH_ADDRESS, name: 'Wrapped OKB', symbol: 'WOKB') may already exist"
+        echo "💡 To fix this, either:"
+        echo "   1. Use different token name/symbol parameters"
+        echo "   2. Find and use the existing L1 token address"
+        echo "   3. Reset the L1 chain if this is a test environment"
+        exit 1
+    fi
+
+    TRANSACTION_HASH=$(echo "$TX_RESULT" | jq -r '.transactionHash' 2>/dev/null)
 
     if [ "$TRANSACTION_HASH" = "null" ] || [ -z "$TRANSACTION_HASH" ]; then
         echo "❌ Failed to create OptimismMintableERC20"
+        echo "Raw output: $TX_RESULT"
         exit 1
     fi
 
@@ -224,19 +282,23 @@ main() {
     # Show summary
     show_summary
 
-    echo -e "\n${YELLOW}📝 Updating test scripts with the new L1 WOKB address...${NC}"
+    echo -e "\n${YELLOW}📝 Updating .env file with the new L1 WOKB address...${NC}"
 
-    # Update test scripts with the new L1 WOKB address
-    for script in test_basic_cgt.sh test_cross_chain_1_cgt.sh test_cross_chain_2_cgt.sh; do
-        if [ -f "$script" ]; then
-            sed -i.bak "s/L1_WOKB_ADDRESS=\".*\"/L1_WOKB_ADDRESS=\"$WOKB_L1_ADDRESS\"/" "$script"
-            echo "✅ Updated $script with new L1 WOKB address"
-        else
-            echo "⚠️  Script $script not found, skipping"
-        fi
-    done
+    # Update .env file with the new L1 WOKB address
+    if grep -q "^L1_WOKB_ADDRESS=" .env; then
+        # Update existing line
+        sed -i.bak "s/^L1_WOKB_ADDRESS=.*/L1_WOKB_ADDRESS=$WOKB_L1_ADDRESS/" .env
+        echo "✅ Updated existing L1_WOKB_ADDRESS in .env"
+    else
+        # Add new line
+        echo "" >> .env
+        echo "# WOKB Contract Address (auto-generated)" >> .env
+        echo "L1_WOKB_ADDRESS=$WOKB_L1_ADDRESS" >> .env
+        echo "✅ Added L1_WOKB_ADDRESS to .env"
+    fi
 
-    echo -e "\n${GREEN}✅ All test scripts have been updated with the new L1 WOKB address: $WOKB_L1_ADDRESS${NC}"
+    echo -e "\n${GREEN}✅ .env file updated with L1 WOKB address: $WOKB_L1_ADDRESS${NC}"
+    echo -e "${YELLOW}💡 Test scripts will now read L1_WOKB_ADDRESS from environment variables${NC}"
 }
 
 # Run main function
