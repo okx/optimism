@@ -94,6 +94,9 @@ docker run --rm \
 
 cp ./config-op/intent.toml.bak ./config-op/intent.toml
 cp ./config-op/state.json.bak ./config-op/state.json
+CHAIN_ID_UINT256=$(cast to-uint256 $CHAIN_ID)
+sed_inplace 's/id = .*/id = "'"$CHAIN_ID_UINT256"'"/' ./config-op/intent.toml
+echo " ✅ Updated chain id in intent.toml: $CHAIN_ID_UINT256"
 
 # Update intent.toml with Transactor address for l1ProxyAdminOwner
 sed_inplace "s/l1ProxyAdminOwner = \".*\"/l1ProxyAdminOwner = \"$TRANSACTOR_ADDRESS\"/" ./config-op/intent.toml
@@ -130,12 +133,12 @@ docker run --rm \
     # Generate L2 genesis using op-deployer
     /app/op-deployer/bin/op-deployer inspect genesis \
       --workdir /deployments \
-      195 > /deployments/genesis.json
+      $CHAIN_ID > /deployments/genesis.json
 
     # Generate L2 rollup using op-node
     /app/op-deployer/bin/op-deployer inspect rollup \
       --workdir /deployments \
-      195 > /deployments/rollup.json
+      $CHAIN_ID > /deployments/rollup.json
 
     echo ' ✅ Contract deployment completed successfully'
   "
