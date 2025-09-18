@@ -32,12 +32,13 @@ run:
 
 .PHONY: run-test
 run-test:
+	source .env && \
 	if [ -n "$(BRANCH)" ]; then \
 		echo "Running tests from branch: $(BRANCH)"; \
 		cd ./tmp/op-geth && MallocNanoZone=0 go test -count=1 -failfast -race -v -p 1 -timeout 600s ./test/e2e/...; \
-	elif [ -n "$(OP_GETH_LOCAL_DIRECTORY)" ]; then \
-		echo "Running tests from custom local directory: $(OP_GETH_LOCAL_DIRECTORY)"; \
-		cd $(OP_GETH_LOCAL_DIRECTORY) && MallocNanoZone=0 go test -count=1 -failfast -race -v -p 1 -timeout 600s ./test/e2e/...; \
+	elif [ -n "$$OP_GETH_LOCAL_DIRECTORY" ]; then \
+		echo "Running tests from custom local directory: $$OP_GETH_LOCAL_DIRECTORY"; \
+		cd "$$OP_GETH_LOCAL_DIRECTORY" && MallocNanoZone=0 go test -count=1 -failfast -race -v -p 1 -timeout 600s ./test/e2e/...; \
 	else \
 		echo "Running tests from default submodule"; \
 		cd ../op-geth && MallocNanoZone=0 go test -count=1 -failfast -race -v -p 1 -timeout 600s ./test/e2e/...; \
