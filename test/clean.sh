@@ -4,7 +4,7 @@ set -e
 echo " 🧹 Cleaning up Optimism test environment..."
 
 echo " 📦 Stopping Docker containers..."
-docker compose down
+[ -f .env ] && docker compose down
 
 echo " 🗑️  Removing generated files..."
 rm -rf data
