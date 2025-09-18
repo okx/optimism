@@ -37,7 +37,7 @@ if [ -z "$L1_WOKB_ADDRESS" ]; then
     echo "❌ L1_WOKB_ADDRESS not found in environment. Please run ./deploy_wokb_cgt.sh first."
     exit 1
 fi
-L2_WETH_ADDRESS="0x4200000000000000000000000000000000000006"  # L2 WETH (acts as WOKB)
+
 L2_STANDARD_BRIDGE="0x4200000000000000000000000000000000000010"  # L2StandardBridge
 
 # Test user (using pre-funded test account)
@@ -59,7 +59,7 @@ get_balances() {
     local l1_wokb_ether=$(wei_to_ether "$l1_wokb_wei")
 
     # L2 WOKB balance
-    local l2_wokb_wei=$(cast call "$L2_WETH_ADDRESS" "balanceOf(address)" "$TEST_ADDRESS" --rpc-url "$L2_RPC_URL")
+    local l2_wokb_wei=$(cast call "$L2_WOKB_ADDRESS" "balanceOf(address)" "$TEST_ADDRESS" --rpc-url "$L2_RPC_URL")
     local l2_wokb_ether=$(wei_to_ether "$l2_wokb_wei")
 
     # L2 native balance (OKB)
@@ -91,7 +91,7 @@ step1_okb_to_wokb() {
     local deposit_amount="10000000000000000000"  # 10 OKB
 
     echo "Depositing 10 OKB to L2 WETH contract..."
-    local tx_hash=$(cast send "$L2_WETH_ADDRESS" "deposit()" \
+    local tx_hash=$(cast send "$L2_WOKB_ADDRESS" "deposit()" \
         --value "$deposit_amount" \
         --rpc-url "$L2_RPC_URL" \
         --private-key "$TEST_PRIVATE_KEY" \
@@ -113,6 +113,11 @@ check_withdrawal_tool() {
     echo -e "\n${BLUE}🔧 Checking withdrawal tool...${NC}"
 
     local withdrawal_binary="../op-chain-ops/bin/withdrawal"
+    local go_bin_dir="$HOME/go/bin"
+    local go_bin_withdrawal="$go_bin_dir/withdrawal"
+
+    # Ensure ~/go/bin directory exists
+    mkdir -p "$go_bin_dir"
 
     if [ ! -f "$withdrawal_binary" ]; then
         echo "⚠️  Withdrawal tool not found, building..."
@@ -128,6 +133,13 @@ check_withdrawal_tool() {
     else
         echo "✅ Withdrawal tool found"
     fi
+
+    # Copy withdrawal tool to ~/go/bin/ for easy access
+    echo "📦 Installing withdrawal tool to ~/go/bin/..."
+    cp "$withdrawal_binary" "$go_bin_withdrawal"
+    chmod +x "$go_bin_withdrawal"
+    echo "✅ Withdrawal tool installed to ~/go/bin/withdrawal"
+
     return 0
 }
 
@@ -141,7 +153,7 @@ step2_l2_to_l1() {
 
     # Approve L2 bridge
     echo "Approving L2 bridge to spend 5 WOKB..."
-    local approve_tx=$(cast send "$L2_WETH_ADDRESS" \
+    local approve_tx=$(cast send "$L2_WOKB_ADDRESS" \
         "approve(address,uint256)" "$L2_STANDARD_BRIDGE" "$amount" \
         --rpc-url "$L2_RPC_URL" \
         --private-key "$TEST_PRIVATE_KEY" \
@@ -158,7 +170,7 @@ step2_l2_to_l1() {
     echo "Initiating L2 → L1 withdrawal..."
     local withdraw_tx=$(cast send "$L2_STANDARD_BRIDGE" \
         "bridgeERC20(address,address,uint256,uint32,bytes)" \
-        "$L2_WETH_ADDRESS" "$L1_WOKB_ADDRESS" "$amount" "200000" "0x" \
+        "$L2_WOKB_ADDRESS" "$L1_WOKB_ADDRESS" "$amount" "200000" "0x" \
         --rpc-url "$L2_RPC_URL" \
         --private-key "$TEST_PRIVATE_KEY" \
         --json | jq -r '.transactionHash')
@@ -214,7 +226,7 @@ step3_prove_withdrawal() {
     local prove_pid_file=$(mktemp)
 
     # Start prove command in background
-    (cd .. && ./op-chain-ops/bin/withdrawal prove \
+    (cd .. && withdrawal prove \
         --tx "$WITHDRAWAL_TX" \
         --l1 "$L1_RPC_URL" \
         --l2 "$L2_RPC_URL" \
@@ -306,7 +318,7 @@ step4_finalize_withdrawal() {
     local finalize_output_file=$(mktemp)
 
     # Start finalize command in background
-    (cd .. && ./op-chain-ops/bin/withdrawal finalize \
+    (cd .. && withdrawal finalize \
         --tx "$WITHDRAWAL_TX" \
         --l1 "$L1_RPC_URL" \
         --l2 "$L2_RPC_URL" \
@@ -383,7 +395,7 @@ main() {
     echo "=================================================="
     echo "Test Account: $TEST_ADDRESS"
     echo "L1 WOKB Contract: $L1_WOKB_ADDRESS"
-    echo "L2 WOKB Contract: $L2_WETH_ADDRESS"
+    echo "L2 WOKB Contract: $L2_WOKB_ADDRESS"
     echo "=================================================="
 
     # Get initial balances

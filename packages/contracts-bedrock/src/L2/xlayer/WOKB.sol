@@ -2,7 +2,7 @@
 pragma solidity 0.8.15;
 
 // Contracts
-import { WETH98 } from "src/universal/WETH98.sol";
+import { WETH99 } from "src/L2/xlayer/WETH99.sol";
 
 // Libraries
 import { Predeploys } from "src/libraries/Predeploys.sol";
@@ -11,7 +11,7 @@ import { Predeploys } from "src/libraries/Predeploys.sol";
 import { ISemver } from "interfaces/universal/ISemver.sol";
 import { IL1Block } from "interfaces/L2/IL1Block.sol";
 
-contract WOKB is WETH98, ISemver {
+contract WOKB is WETH99, ISemver {
     /// @custom:semver 1.0.0
     string public constant version = "1.0.0";
 
@@ -19,8 +19,11 @@ contract WOKB is WETH98, ISemver {
 
     event AutoUnwrap(address indexed user, uint256 amount);
 
-    /// @notice Override transfer function to automatically handle unwrapping when received from bridge
-    function transfer(address to, uint256 amount) public override returns (bool) {
+    /// @notice Transfer function that automatically unwraps when called by bridge
+    /// @param to Address to transfer to
+    /// @param amount Amount to transfer
+    /// @return True if the transfer was successful
+    function transfer(address to, uint256 amount) external override returns (bool) {
         // If sender is bridge contract, automatically withdraw to OKB and transfer to user
         if (msg.sender == BRIDGE) {
             return _withdrawTo(msg.sender, to, amount);

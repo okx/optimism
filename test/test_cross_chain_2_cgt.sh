@@ -37,7 +37,6 @@ if [ -z "$L1_WOKB_ADDRESS" ]; then
     echo "❌ L1_WOKB_ADDRESS not found in environment. Please run ./deploy_wokb_cgt.sh first."
     exit 1
 fi
-L2_WETH_ADDRESS="0x4200000000000000000000000000000000000006"  # L2 WETH (acts as WOKB)
 # L1StandardBridge address will be read from config
 
 # Test user (using pre-funded test account)
@@ -59,7 +58,7 @@ get_balances() {
     local l1_wokb_ether=$(wei_to_ether "$l1_wokb_wei")
 
     # L2 WOKB balance
-    local l2_wokb_wei=$(cast call "$L2_WETH_ADDRESS" "balanceOf(address)" "$TEST_ADDRESS" --rpc-url "$L2_RPC_URL")
+    local l2_wokb_wei=$(cast call "$L2_WOKB_ADDRESS" "balanceOf(address)" "$TEST_ADDRESS" --rpc-url "$L2_RPC_URL")
     local l2_wokb_ether=$(wei_to_ether "$l2_wokb_wei")
 
     # L2 native balance (OKB)
@@ -72,19 +71,19 @@ get_balances() {
     echo "L2 OKB:  $l2_okb_ether OKB"
 }
 
-# Wait for L2 deposit processing and verify balance increase
+# Wait for L2 deposit processing and verify OKB balance increase (WOKB auto-unwraps)
 wait_for_l2_deposit_processing() {
     local expected_amount="$1"
     local expected_amount_ether=$(wei_to_ether "$expected_amount")
 
     echo -e "\n${YELLOW}⏳ Waiting for L2 deposit processing (checking every 30 seconds)...${NC}"
-    echo "Expected L2 WOKB increase: $expected_amount_ether WOKB"
+    echo "Expected L2 OKB increase: $expected_amount_ether OKB (WOKB auto-unwraps to OKB)"
 
-    # Get initial L2 WOKB balance
-    local initial_l2_wokb_wei=$(cast call "$L2_WETH_ADDRESS" "balanceOf(address)" "$TEST_ADDRESS" --rpc-url "$L2_RPC_URL")
-    local initial_l2_wokb_ether=$(wei_to_ether "$initial_l2_wokb_wei")
+    # Get initial L2 OKB balance (WOKB auto-unwraps to OKB)
+    local initial_l2_okb_wei=$(cast balance "$TEST_ADDRESS" --rpc-url "$L2_RPC_URL")
+    local initial_l2_okb_ether=$(wei_to_ether "$initial_l2_okb_wei")
 
-    echo "Initial L2 WOKB balance: $initial_l2_wokb_ether WOKB"
+    echo "Initial L2 OKB balance: $initial_l2_okb_ether OKB"
 
     # Wait up to 5 minutes (10 checks, 30 seconds apart)
     # L1→L2 deposits can take longer than L2→L1 withdrawals
@@ -95,26 +94,26 @@ wait_for_l2_deposit_processing() {
     while [ $attempt -le $max_attempts ]; do
         echo "⏳ Checking attempt $attempt/$max_attempts ($(($attempt * $check_interval))s elapsed)..."
 
-        # Get current L2 WOKB balance
-        local current_l2_wokb_wei=$(cast call "$L2_WETH_ADDRESS" "balanceOf(address)" "$TEST_ADDRESS" --rpc-url "$L2_RPC_URL" 2>/dev/null || echo "0")
-        local current_l2_wokb_ether=$(wei_to_ether "$current_l2_wokb_wei")
+        # Get current L2 OKB balance
+        local current_l2_okb_wei=$(cast balance "$TEST_ADDRESS" --rpc-url "$L2_RPC_URL" 2>/dev/null || echo "0")
+        local current_l2_okb_ether=$(wei_to_ether "$current_l2_okb_wei")
 
-        echo "Current L2 WOKB balance: $current_l2_wokb_ether WOKB"
+        echo "Current L2 OKB balance: $current_l2_okb_ether OKB"
 
         # Calculate the difference
-        local balance_diff=$((current_l2_wokb_wei - initial_l2_wokb_wei))
+        local balance_diff=$((current_l2_okb_wei - initial_l2_okb_wei))
         local balance_diff_ether=$(wei_to_ether "$balance_diff")
 
         # Check if balance increased by expected amount (with small tolerance for rounding)
         local tolerance=$((expected_amount / 1000))  # 0.1% tolerance
         if [ "$balance_diff" -ge $((expected_amount - tolerance)) ]; then
             echo -e "${GREEN}✅ L2 deposit processed successfully!${NC}"
-            echo "Balance increased by: $balance_diff_ether WOKB"
-            echo "Expected: $(wei_to_ether $expected_amount) WOKB"
+            echo "OKB balance increased by: $balance_diff_ether OKB"
+            echo "Expected: $(wei_to_ether $expected_amount) OKB"
             get_balances "AFTER_STEP3_CONFIRMED"
             return 0
         elif [ "$balance_diff" -gt 0 ]; then
-            echo "⚠️  Partial deposit detected: $balance_diff_ether WOKB (expected: $(wei_to_ether $expected_amount) WOKB)"
+            echo "⚠️  Partial deposit detected: $balance_diff_ether OKB (expected: $(wei_to_ether $expected_amount) OKB)"
         fi
 
         if [ $attempt -lt $max_attempts ]; then
@@ -135,9 +134,9 @@ wait_for_l2_deposit_processing() {
     return 1
 }
 
-# Step 3: L1 -> L2 cross-chain 2 WOKB
+# Step 3: L1 -> L2 cross-chain 2 WOKB (auto-unwraps to OKB)
 step3_l1_to_l2() {
-    echo -e "\n${BLUE}🔄 Step 3: L1 → L2 cross-chain 2 WOKB${NC}"
+    echo -e "\n${BLUE}🔄 Step 3: L1 → L2 cross-chain 2 WOKB (auto-unwraps to OKB)${NC}"
 
     # Get L1StandardBridge address from config
     local l1_standard_bridge
@@ -189,12 +188,12 @@ step3_l1_to_l2() {
     # Initiate deposit
     echo "Initiating L1 → L2 deposit..."
     echo "Bridge address: $l1_standard_bridge"
-    echo "L1 WOKB: $L1_WOKB_ADDRESS → L2 WETH: $L2_WETH_ADDRESS"
-    echo "Amount: $(wei_to_ether $amount) WOKB"
+    echo "L1 WOKB: $L1_WOKB_ADDRESS → L2 WETH: $L2_WOKB_ADDRESS"
+    echo "Amount: $(wei_to_ether $amount) WOKB (will auto-unwrap to OKB on L2)"
 
     local deposit_tx=$(cast send "$l1_standard_bridge" \
         "depositERC20(address,address,uint256,uint32,bytes)" \
-        "$L1_WOKB_ADDRESS" "$L2_WETH_ADDRESS" "$amount" "200000" "0x" \
+        "$L1_WOKB_ADDRESS" "$L2_WOKB_ADDRESS" "$amount" "200000" "0x" \
         --rpc-url "$L1_RPC_URL" \
         --private-key "$TEST_PRIVATE_KEY" \
         --json | jq -r '.transactionHash')
@@ -214,40 +213,7 @@ step3_l1_to_l2() {
     fi
 }
 
-# Step 4: Convert all WOKB back to OKB on L2
-step4_wokb_to_okb() {
-    echo -e "\n${BLUE}🔄 Step 4: Converting all WOKB back to OKB on L2${NC}"
-
-    get_balances "BEFORE_STEP4"
-
-    # Get current L2 WOKB balance
-    local l2_wokb_balance=$(cast call "$L2_WETH_ADDRESS" "balanceOf(address)" "$TEST_ADDRESS" --rpc-url "$L2_RPC_URL")
-    local balance_dec=$((16#${l2_wokb_balance:2}))
-
-    if [ $balance_dec -eq 0 ]; then
-        echo "⚠️  No WOKB balance to convert"
-        get_balances "AFTER_STEP4"
-        return 0
-    fi
-
-    local balance_ether=$(wei_to_ether "$l2_wokb_balance")
-    echo "Converting $balance_ether WOKB back to OKB..."
-
-    local tx_hash=$(cast send "$L2_WETH_ADDRESS" "withdraw(uint256)" "$l2_wokb_balance" \
-        --rpc-url "$L2_RPC_URL" \
-        --private-key "$TEST_PRIVATE_KEY" \
-        --json | jq -r '.transactionHash')
-
-    if [ "$tx_hash" != "null" ] && [ -n "$tx_hash" ]; then
-        echo "✅ WOKB to OKB conversion successful, tx: $tx_hash"
-        sleep 3
-        get_balances "AFTER_STEP4"
-        return 0
-    else
-        echo "❌ WOKB to OKB conversion failed"
-        return 1
-    fi
-}
+# Step 4 is no longer needed - WOKB auto-unwraps to OKB on L2
 
 # Main function
 main() {
@@ -255,7 +221,7 @@ main() {
     echo "=================================================="
     echo "Test Account: $TEST_ADDRESS"
     echo "L1 WOKB Contract: $L1_WOKB_ADDRESS"
-    echo "L2 WOKB Contract: $L2_WETH_ADDRESS"
+    echo "L2 WOKB Contract: $L2_WOKB_ADDRESS"
     echo "=================================================="
 
     # Note: This script tests L1→L2 deposits and runs independently
@@ -264,28 +230,22 @@ main() {
     # Get current balances
     get_balances "PART2_INITIAL"
 
-    # Execute steps 3 and 4
+    # Execute step 3 (WOKB auto-unwraps to OKB, no step 4 needed)
     echo -e "\n${YELLOW}🔄 Executing Part 2 Steps:${NC}"
 
     if step3_l1_to_l2; then
         echo -e "${GREEN}✅ Step 3 completed successfully${NC}"
+        echo -e "${GREEN}✅ WOKB automatically unwrapped to OKB on L2${NC}"
     else
         echo -e "${RED}❌ Step 3 failed${NC}"
         echo -e "${YELLOW}💡 This is expected if challenge period hasn't completed yet${NC}"
-    fi
-
-    if step4_wokb_to_okb; then
-        echo -e "${GREEN}✅ Step 4 completed successfully${NC}"
-    else
-        echo -e "${RED}❌ Step 4 failed${NC}"
-        exit 1
     fi
 
     # Final summary
     echo -e "\n${GREEN}🎉 L1→L2 Deposit Tests Completed!${NC}"
     echo -e "\n${YELLOW}📋 Test Summary:${NC}"
     echo "1. ✅ Deposited WOKB from L1 → L2 (with real-time verification)"
-    echo "2. ✅ Converted all WOKB → OKB on L2"
+    echo "2. ✅ WOKB automatically unwrapped to OKB on L2 (no manual conversion needed)"
 
     get_balances "FINAL"
 
@@ -293,7 +253,8 @@ main() {
     echo "• L1: Approve bridge to spend WOKB"
     echo "• L1: Call depositERC20 on L1StandardBridge"
     echo "• L2: Wait for L2 node to process L1 deposit event (2-5 minutes)"
-    echo "• L2: WOKB balance increases automatically"
+    echo "• L2: WOKB automatically unwraps to OKB and transfers to user"
+    echo -e "\n${BLUE}💡 Key Feature: WOKB auto-unwraps on L2, providing seamless L1→L2 OKB transfer!${NC}"
 }
 
 # Run Main function
