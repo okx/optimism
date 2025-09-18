@@ -19,17 +19,17 @@ PRIVATE_KEY="0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356"
 
 echo "OPTIMISM PORTAL Address: $OPTIMISM_PORTAL"
 echo "Recipient: $RECIPIENT" 
-cast balance $RECIPIENT --rpc-url http://localhost:8123
+cast balance $RECIPIENT --rpc-url $L2_RPC_URL
 echo "Bridging 1 ETH from L1 to L2..."
 
 # Bridge 1 ETH to L2
 cast send $OPTIMISM_PORTAL \
-  --rpc-url http://localhost:8545 \
+  --rpc-url $L1_RPC_URL \
   --private-key $PRIVATE_KEY \
   --value 100ether
 
 cast send $OPTIMISM_PORTAL \
-  --rpc-url http://localhost:8545 \
+  --rpc-url $L1_RPC_URL \
   --private-key $L1_ADMIN_PRIVATE_KEY \
   --value 100ether
 
@@ -38,15 +38,15 @@ cast send $OPTIMISM_PORTAL \
 echo -e "\nWaiting for bridging to complete..."
 
 echo "Checking L2 balance for $RECIPIENT:"
-BALANCE=$(cast balance $RECIPIENT --rpc-url http://localhost:8123)
-ADMIN_BALANCE=$(cast balance $L1_ADMIN_ADDRESS --rpc-url http://localhost:8123)
+BALANCE=$(cast balance $RECIPIENT --rpc-url $L2_RPC_URL)
+ADMIN_BALANCE=$(cast balance $L1_ADMIN_ADDRESS --rpc-url $L2_RPC_URL)
 
 while [ $BALANCE == 0 ] || [ $ADMIN_BALANCE == 0 ]; do
     echo "L2 account not funded or L1 admin account not funded"
     sleep 5
-    BALANCE=$(cast balance $RECIPIENT --rpc-url http://localhost:8123)
+    BALANCE=$(cast balance $RECIPIENT --rpc-url $L2_RPC_URL)
     echo "Balance after additional wait: $(cast --to-unit $BALANCE ether) ETH"
-    ADMIN_BALANCE=$(cast balance $L1_ADMIN_ADDRESS --rpc-url http://localhost:8123)
+    ADMIN_BALANCE=$(cast balance $L1_ADMIN_ADDRESS --rpc-url $L2_RPC_URL)
     echo "Admin balance after additional wait: $(cast --to-unit $ADMIN_BALANCE ether) ETH"
 done
 
