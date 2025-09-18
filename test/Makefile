@@ -32,7 +32,7 @@ run:
 
 .PHONY: run-test
 run-test:
-	source .env && \
+	@source .env && \
 	if [ -n "$(BRANCH)" ]; then \
 		echo "Running tests from branch: $(BRANCH)"; \
 		cd ./tmp/op-geth && MallocNanoZone=0 go test -count=1 -failfast -race -v -p 1 -timeout 600s ./test/e2e/...; \
