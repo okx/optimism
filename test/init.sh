@@ -10,32 +10,60 @@ OP_GETH_DIR=${OPTIMISM_DIR}/op-geth
 
 git submodule update --init --recursive
 
-# If branch name is provided, checkout that branch for op-geth submodule
+# If branch name is provided, clone a separate op-geth repo and build branch-specific image
 if [ -n "$BRANCH_NAME" ]; then
-    echo "Switching op-geth submodule to branch: $BRANCH_NAME"
-    cd $OP_GETH_DIR
+    echo "Building op-geth image for branch: $BRANCH_NAME"
+    
+    # Create temporary directory outside optimism repo
+    TEMP_DIR=$PWD_DIR/tmp
+    echo "Created temporary directory: $TEMP_DIR"
+    
+    # Clone op-geth to temporary directory
+    echo "Cloning op-geth repository..."
+    git clone https://github.com/okx/op-geth.git "$TEMP_DIR/op-geth"
+    
+    cd "$TEMP_DIR/op-geth"
     git fetch origin
     git checkout "$BRANCH_NAME"
     git pull origin "$BRANCH_NAME"
-    cd $PWD_DIR
     
-    echo "Performing thorough cleanup for branch switch..."
+    echo "Performing cleanup for branch-specific build..."
+    docker compose down --volumes --remove-orphans 2>/dev/null || true
     
-    # Stop and remove all containers
-    docker compose down --volumes --remove-orphans
+    # Create Docker-safe tag by replacing slashes with hyphens
+    BRANCH_TAG=$(echo "$BRANCH_NAME" | sed 's/\//-/g')
+    BRANCH_SPECIFIC_TAG="op-geth:$BRANCH_TAG"
+    echo "Removing existing $BRANCH_SPECIFIC_TAG image..."
+    docker rmi "$BRANCH_SPECIFIC_TAG" 2>/dev/null || true
     
-    # Remove specific op-geth image tag only
-    echo "Removing existing $OP_GETH_IMAGE_TAG image..."
-    docker rmi $OP_GETH_IMAGE_TAG 2>/dev/null || true
+    # Build branch-specific image
+    echo "Building Docker image with tag: $BRANCH_SPECIFIC_TAG"
+    docker build -t "$BRANCH_SPECIFIC_TAG" .
+    
+    # Return to original directory but keep TEMP_DIR for testing
+    cd "$PWD_DIR"
+    
+    # Export TEMP_DIR for use in testing
+    export OP_GETH_TEMP_DIR="$TEMP_DIR/op-geth"
+    echo "Temporary op-geth directory available at: $OP_GETH_TEMP_DIR"
+    
+    # Update OP_GETH_IMAGE_TAG for this session
+    export OP_GETH_IMAGE_TAG="$BRANCH_SPECIFIC_TAG"
 else 
-    echo "No branch name provided, using default branch"
-    cd $OP_GETH_DIR
-    git fetch origin
-    git checkout dev
-    cd $PWD_DIR
+    echo "No branch name provided, using default submodule"
 fi
 
 cp example.env .env
+
+# Update .env with branch-specific image tag if needed
+if [ -n "$BRANCH_NAME" ]; then
+    # Replace OP_GETH_IMAGE_TAG in .env file with branch-specific tag
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "s|OP_GETH_IMAGE_TAG=.*|OP_GETH_IMAGE_TAG=$OP_GETH_IMAGE_TAG|" .env
+    else
+        sed -i "s|OP_GETH_IMAGE_TAG=.*|OP_GETH_IMAGE_TAG=$OP_GETH_IMAGE_TAG|" .env
+    fi
+fi
 
 source .env
 
@@ -60,17 +88,17 @@ else
     echo "Image $OP_STACK_IMAGE_TAG already exists, skipping build"
 fi
 
-# Build OP_GETH image if branch name is provided
-if [ -n "$BRANCH_NAME" ]; then
-    echo "Building $OP_GETH_IMAGE_TAG for branch: $BRANCH_NAME..."
-    cd $OP_GETH_DIR
-    docker build -t $OP_GETH_IMAGE_TAG .
-else
-    # Else check if the image exists and build it if it doesn't
+# Build OP_GETH image from submodule if no branch was specified
+if [ -z "$BRANCH_NAME" ]; then
+    # Check if the default image exists and build it if it doesn't
     if [ -z "$(docker images -q $OP_GETH_IMAGE_TAG)" ]; then
-        echo "Building $OP_GETH_IMAGE_TAG..."
+        echo "Building $OP_GETH_IMAGE_TAG from submodule..."
+        cd $OP_GETH_DIR
         docker build -t $OP_GETH_IMAGE_TAG .
+        cd $PWD_DIR
     else
         echo "Image $OP_GETH_IMAGE_TAG already exists, skipping build"
     fi
+else
+    echo "Using branch-specific image: $OP_GETH_IMAGE_TAG"
 fi
