@@ -4,30 +4,14 @@
 detect_leader() {
     echo "Detecting leader conductor..."
     
-    # Check all three conductors to find the leader (with retry)
+    # Check all three conductors to find the leader
     for i in 1 2 3; do
         CONDUCTOR_PORT=$((8546 + i))  # 8547, 8548, 8549
         SEQUENCER_PORT=$((9544 + i))  # 9545, 9546, 9547
         
-        # Retry logic for conductor leader check
-        MAX_RETRIES=10
-        RETRY_DELAY=3
-        for attempt in $(seq 1 $MAX_RETRIES); do
-            IS_LEADER=$(curl -sS -X POST -H "Content-Type: application/json" \
-                --data '{"jsonrpc":"2.0","method":"conductor_leader","params":[],"id":1}' \
-                http://localhost:$CONDUCTOR_PORT 2>/dev/null | jq -r '.result' 2>/dev/null)
-            
-            if [ "$IS_LEADER" == "true" || "$IS_LEADER" == "false" ]; then
-                break  # Got valid response, exit retry loop
-            fi
-            
-            if [ $attempt -lt $MAX_RETRIES ]; then
-                echo "Conductor $i (port $CONDUCTOR_PORT): empty response, retrying in ${RETRY_DELAY}s... ($attempt/$MAX_RETRIES)"
-                sleep $RETRY_DELAY
-            else
-                echo "Conductor $i (port $CONDUCTOR_PORT): no valid response after $MAX_RETRIES attempts"
-            fi
-        done
+        IS_LEADER=$(curl -sS -X POST -H "Content-Type: application/json" \
+            --data '{"jsonrpc":"2.0","method":"conductor_leader","params":[],"id":1}' \
+            http://localhost:$CONDUCTOR_PORT 2>/dev/null | jq -r '.result' 2>/dev/null)
         
         if [ "$IS_LEADER" = "true" ]; then
             LEADER_CONDUCTOR_PORT=$CONDUCTOR_PORT
