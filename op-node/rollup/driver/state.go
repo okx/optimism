@@ -278,8 +278,6 @@ func (s *SyncDeriver) OnEvent(ev event.Event) bool {
 func (s *SyncDeriver) onIncomingP2PBlock(envelope *eth.ExecutionPayloadEnvelope) {
 	// If we are doing CL sync or done with engine syncing, fallback to the unsafe payload queue & CL P2P sync.
 	if s.SyncCfg.SyncMode == sync.CLSync || !s.Engine.IsEngineSyncing() {
-		// For X Layer, realtime
-		s.SetRealtimeXLayer(envelope)
 		s.Log.Info("Optimistically queueing unsafe L2 execution payload", "id", envelope.ExecutionPayload.ID())
 		s.Emitter.Emit(clsync.ReceivedUnsafePayloadEvent{Envelope: envelope})
 	} else if s.SyncCfg.SyncMode == sync.ELSync {
