@@ -18,6 +18,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-node/rollup/engine"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/event"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
+	realtimeKafka "github.com/ethereum/go-ethereum/realtime/kafka"
 )
 
 // sealingDuration defines the expected time it takes to seal the block
@@ -122,6 +123,9 @@ type Sequencer struct {
 
 	// toBlockRef converts a payload to a block-ref, and is only configurable for test-purposes
 	toBlockRef func(rollupCfg *rollup.Config, payload *eth.ExecutionPayload) (eth.L2BlockRef, error)
+
+	// For X Layer, realtime
+	kafkaProducer *realtimeKafka.KafkaProducer
 }
 
 var _ SequencerIface = (*Sequencer)(nil)
@@ -147,6 +151,8 @@ func NewSequencer(driverCtx context.Context, log log.Logger, rollupCfg *rollup.C
 		metrics:          metrics,
 		timeNow:          time.Now,
 		toBlockRef:       derive.PayloadToBlockRef,
+		// For X Layer, realtime
+		kafkaProducer: getRealtimeProducerXLayer(rollupCfg),
 	}
 }
 
@@ -681,6 +687,9 @@ func (d *Sequencer) forceStart() error {
 	d.active.Store(true)
 	d.metrics.SetSequencerState(true)
 	d.log.Info("Sequencer has been started", "next action", d.nextAction)
+
+	// For X Layer, realtime
+	d.SendRealtimeErrorTrigger()
 	return nil
 }
 
@@ -737,6 +746,9 @@ func (d *Sequencer) Stop(ctx context.Context) (common.Hash, error) {
 	d.active.Store(false)
 	d.metrics.SetSequencerState(false)
 	d.log.Info("Sequencer has been stopped")
+
+	// For X Layer, realtime
+	d.SendRealtimeErrorTrigger()
 	return d.latestHead.Hash, nil
 }
 

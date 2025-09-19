@@ -129,6 +129,9 @@ func NewConfig(ctx *cli.Context, log log.Logger) (*node.Config, error) {
 		ExperimentalOPStackAPI: ctx.Bool(flags.ExperimentalOPStackAPI.Name),
 	}
 
+	// For X Layer
+	node.ApplyXLayerFlags(ctx, cfg)
+
 	if err := cfg.LoadPersisted(log); err != nil {
 		return nil, fmt.Errorf("failed to load driver config: %w", err)
 	}

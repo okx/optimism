@@ -162,6 +162,9 @@ type Config struct {
 	// This feature (de)activates by L1 origin timestamp, to keep a consistent L1 block info per L2
 	// epoch.
 	PectraBlobScheduleTime *uint64 `json:"pectra_blob_schedule_time,omitempty"`
+
+	// For X Layer, realtime
+	Realtime *RealtimeConfig `json:"realtime_config,omitempty"`
 }
 
 // ValidateL1Config checks L1 config variables for errors.
