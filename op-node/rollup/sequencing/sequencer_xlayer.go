@@ -9,7 +9,7 @@ import (
 	realtimeKafka "github.com/ethereum/go-ethereum/realtime/kafka"
 )
 
-func getRealtimeProducerXLayer(rollupCfg *rollup.Config) *realtimeKafka.KafkaProducer {
+func RealtimeProducerXLayer(rollupCfg *rollup.Config) *realtimeKafka.KafkaProducer {
 	if rollupCfg != nil && rollupCfg.Realtime != nil && rollupCfg.Realtime.Enable {
 		kafkaProducer, err := realtimeKafka.NewKafkaProducer(rollupCfg.Realtime.Kafka, context.Background(), nil)
 		if err != nil {

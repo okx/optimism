@@ -152,7 +152,7 @@ func NewSequencer(driverCtx context.Context, log log.Logger, rollupCfg *rollup.C
 		timeNow:          time.Now,
 		toBlockRef:       derive.PayloadToBlockRef,
 		// For X Layer, realtime
-		kafkaProducer: getRealtimeProducerXLayer(rollupCfg),
+		kafkaProducer: RealtimeProducerXLayer(rollupCfg),
 	}
 }
 
