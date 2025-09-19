@@ -1,29 +1,16 @@
-
-.PHONY: create-temp-dir
-create-temp-dir:
-	@mkdir -p tmp
-
-.PHONY: cleanup-temp-dir
-cleanup-temp-dir:
-	@echo "Removing temporary directory: tmp"
-	@rm -rf tmp
-
-.PHONY: clean
-clean:
-	@./clean.sh
-
-.PHONY: cleanup
-cleanup:
+.PHONY: stop
+stop:
 	echo "Performing cleanup..."
-	@make cleanup-temp-dir >/dev/null 2>&1
-	@make clean >/dev/null 2>&1 
+	@rm -rf tmp
+	@./clean.sh
 	echo "Cleanup completed"
 
 .PHONY: run
-run: clean create-temp-dir
-	@if [ -n "$(BRANCH)" ]; then \
-		echo "Initializing with branch: $(BRANCH)"; \
-		./init.sh $(BRANCH); \
+run: stop
+	@mkdir -p tmp
+	@if [ -n "$(OP_GETH_BRANCH)" ]; then \
+		echo "Initializing with branch: $(OP_GETH_BRANCH)"; \
+		./init.sh $(OP_GETH_BRANCH); \
 	else \
 		echo "Initializing with default branch"; \
 		./init.sh; \
@@ -33,8 +20,8 @@ run: clean create-temp-dir
 .PHONY: run-test
 run-test:
 	@source .env && \
-	if [ -n "$(BRANCH)" ]; then \
-		echo "Running tests from branch: $(BRANCH)"; \
+	if [ -n "$(OP_GETH_BRANCH)" ]; then \
+		echo "Running tests from branch: $(OP_GETH_BRANCH)"; \
 		cd ./tmp/op-geth && MallocNanoZone=0 go test -count=1 -failfast -race -v -p 1 -timeout 600s ./test/e2e/...; \
 	elif [ -n "$$OP_GETH_LOCAL_DIRECTORY" ]; then \
 		echo "Running tests from custom local directory: $$OP_GETH_LOCAL_DIRECTORY"; \
@@ -45,12 +32,13 @@ run-test:
 	fi
 
 .PHONY: test-e2e
-test-e2e: 
-	@trap 'make cleanup' EXIT ERR INT TERM; \
-	if [ -n "$(BRANCH)" ]; then \
-		echo "Running E2E tests with branch: $(BRANCH)"; \
-		make run BRANCH=$(BRANCH) && sleep 3 && make run-test BRANCH=$(BRANCH); \
+test-e2e: stop
+	@trap 'make stop' EXIT ERR INT TERM; \
+	if [ -n "$(OP_GETH_BRANCH)" ]; then \
+		echo "Running E2E tests with branch: $(OP_GETH_BRANCH)"; \
+		make run OP_GETH_BRANCH=$(OP_GETH_BRANCH) && sleep 3 && make run-test OP_GETH_BRANCH=$(OP_GETH_BRANCH); \
 	else \
 		echo "Running E2E tests with default branch"; \
 		make run && sleep 3 && make run-test; \
 	fi && echo "✅ E2E tests passed ✅"
+
