@@ -268,6 +268,9 @@ type ExecutionPayload struct {
 	ExcessBlobGas *Uint64Quantity `json:"excessBlobGas,omitempty"`
 	// Nil if not present (Bedrock, Canyon, Delta, Ecotone, Fjord, Granite, Holocene)
 	WithdrawalsRoot *common.Hash `json:"withdrawalsRoot,omitempty"`
+
+	// For X Layer, realtime
+	RealtimeEnabled bool `json:"realtimeEnabled,omitempty"`
 }
 
 func (payload *ExecutionPayload) ID() BlockID {
@@ -425,6 +428,9 @@ type PayloadAttributes struct {
 	GasLimit *Uint64Quantity `json:"gasLimit,omitempty"`
 	// EIP-1559 parameters, to be specified only post-Holocene
 	EIP1559Params *Bytes8 `json:"eip1559Params,omitempty"`
+
+	// For X Layer, realtime
+	RealtimeEnabled bool `json:"realtimeEnabled,omitempty"`
 }
 
 // IsDepositsOnly returns whether all transactions of the PayloadAttributes are of Deposit

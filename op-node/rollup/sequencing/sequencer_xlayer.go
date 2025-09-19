@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/ethereum-optimism/optimism/op-node/rollup"
+	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum/go-ethereum/log"
 	realtimeKafka "github.com/ethereum/go-ethereum/realtime/kafka"
 )
@@ -26,5 +27,11 @@ func (s *Sequencer) SendRealtimeErrorTrigger() {
 		if err := s.kafkaProducer.SendKafkaErrorTrigger(0); err != nil {
 			log.Error(fmt.Sprintf("[Realtime] Failed to send kafka error trigger message. error: %v", err))
 		}
+	}
+}
+
+func (s *Sequencer) SetRealtimeXLayer(attrs *eth.PayloadAttributes) {
+	if s.rollupCfg != nil && s.rollupCfg.Realtime != nil {
+		attrs.RealtimeEnabled = s.rollupCfg.Realtime.Enable
 	}
 }

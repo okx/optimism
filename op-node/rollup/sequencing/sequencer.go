@@ -578,6 +578,9 @@ func (d *Sequencer) startBuildingBlock() {
 		d.log.Warn("Sequencing temporarily without user transactions, in recover mode")
 	}
 
+	// For X Layer, realtime
+	d.SetRealtimeXLayer(attrs)
+
 	d.log.Debug("prepared attributes for new block",
 		"num", l2Head.Number+1, "time", uint64(attrs.Timestamp),
 		"origin", l1Origin, "origin_time", l1Origin.Time, "noTxPool", attrs.NoTxPool)
