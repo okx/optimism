@@ -205,8 +205,8 @@ fi
 # Run the reproducible-prestate command
 $DOCKER_CMD \
     -v "$(pwd)/scripts:/scripts" \
-    -v "$(pwd)/config-op/rollup.json:/app/op-program/chainconfig/configs/195-rollup.json" \
-    -v "$(pwd)/config-op/genesis.json.gz:/app/op-program/chainconfig/configs/195-genesis-l2.json" \
+    -v "$(pwd)/config-op/rollup.json:/app/op-program/chainconfig/configs/${CHAIN_ID}-rollup.json" \
+    -v "$(pwd)/config-op/genesis.json.gz:/app/op-program/chainconfig/configs/${CHAIN_ID}-genesis-l2.json" \
     -v "$EXPORT_DIR:/app/op-program/bin" \
     "${OP_STACK_IMAGE_TAG}" \
     bash -c " \
