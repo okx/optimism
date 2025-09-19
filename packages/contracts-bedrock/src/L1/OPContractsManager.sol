@@ -461,7 +461,13 @@ contract OPContractsManagerGameTypeAdder is OPContractsManagerBase {
                 OPContractsManager.Blueprints memory bps = getBlueprints();
 
                 // Determine the contract name and blueprints for the game type.
-                if (gameConfig.disputeGameType.raw() == GameTypes.CANNON.raw()) {
+                if (
+                    gameConfig.disputeGameType.raw() == GameTypes.CANNON.raw()
+                        || (
+                            isDevFeatureEnabled(DevFeatures.CANNON_KONA)
+                                && gameConfig.disputeGameType.raw() == GameTypes.CANNON_KONA.raw()
+                        )
+                ) {
                     gameContractName = "FaultDisputeGame";
                     blueprint1 = bps.permissionlessDisputeGame1;
                     blueprint2 = bps.permissionlessDisputeGame2;
@@ -471,7 +477,13 @@ contract OPContractsManagerGameTypeAdder is OPContractsManagerBase {
                     blueprint1 = bps.permissionedDisputeGame1;
                     blueprint2 = bps.permissionedDisputeGame2;
                     gameL2ChainId = l2ChainId;
-                } else if (gameConfig.disputeGameType.raw() == GameTypes.SUPER_CANNON.raw()) {
+                } else if (
+                    gameConfig.disputeGameType.raw() == GameTypes.SUPER_CANNON.raw()
+                        || (
+                            isDevFeatureEnabled(DevFeatures.CANNON_KONA)
+                                && gameConfig.disputeGameType.raw() == GameTypes.SUPER_CANNON_KONA.raw()
+                        )
+                ) {
                     gameContractName = "SuperFaultDisputeGame";
                     blueprint1 = bps.superPermissionlessDisputeGame1;
                     blueprint2 = bps.superPermissionlessDisputeGame2;
