@@ -1074,7 +1074,7 @@ contract OPContractsManagerDeployer is OPContractsManagerBase {
 
         // If the custom gas token feature was requested, enable the custom gas token feature in the SystemConfig
         // contract.
-        if (_input.useCustomGasToken) {
+        if (isDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN)) {
             output.systemConfigProxy.setFeature(Features.CUSTOM_GAS_TOKEN, true);
         }
 
@@ -1704,7 +1704,6 @@ contract OPContractsManager is ISemver {
         uint32 basefeeScalar;
         uint32 blobBasefeeScalar;
         uint256 l2ChainId;
-        bool useCustomGasToken;
         // The correct type is Proposal memory but OP Deployer does not yet support structs.
         bytes startingAnchorRoot;
         // The salt mixer is used as part of making the resulting salt unique.
@@ -1808,9 +1807,9 @@ contract OPContractsManager is ISemver {
 
     // -------- Constants and Variables --------
 
-    /// @custom:semver 3.3.1
+    /// @custom:semver 3.4.0
     function version() public pure virtual returns (string memory) {
-        return "3.3.1";
+        return "3.4.0";
     }
 
     OPContractsManagerGameTypeAdder public immutable opcmGameTypeAdder;
