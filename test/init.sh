@@ -44,14 +44,13 @@ fi
 
 source .env
 
-
 # TODO: need to further confirm why it fails if we do not add require in this contract
 cp $PWD_DIR/contracts/Transactor.sol $OPTIMISM_DIR/packages/contracts-bedrock/src/periphery/Transactor.sol
 
 cd $OPTIMISM_DIR
 
 # Build OP_CONTRACTS image if not skipping
-if [ $SKIP_OP_CONTRACTS_BUILD = "true" ]; then
+if [ "$SKIP_OP_CONTRACTS_BUILD" = "true" ]; then
     echo "skipping op-contracts build"
 else
     echo "Building $OP_CONTRACTS_IMAGE_TAG..."
@@ -59,7 +58,7 @@ else
 fi
 
 # Build OP_STACK image if not skipping
-if [ $SKIP_OP_STACK_BUILD = "true" ]; then
+if [ "$SKIP_OP_STACK_BUILD" = "true" ]; then
     echo "skipping op-stack build"
 else
     echo "Building $OP_STACK_IMAGE_TAG..."
@@ -68,4 +67,8 @@ fi
 
 echo "Building $OP_GETH_IMAGE_TAG"
 cd $OP_GETH_DIR
-docker build -t $OP_GETH_IMAGE_TAG .
+if [ "$DB_ENGINE" = "rocksdb" ]; then
+    docker build -t $OP_GETH_IMAGE_TAG -f ./Dockerfile.rocksdb .
+else
+    docker build -t $OP_GETH_IMAGE_TAG .
+fi
