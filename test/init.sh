@@ -35,39 +35,11 @@ if [ -n "$BRANCH_NAME" ]; then
     git checkout "$BRANCH_NAME"
     git pull origin "$BRANCH_NAME"
 
-    echo "Performing cleanup for branch-specific build..."
-    docker compose down
-
-    # Create Docker-safe tag by replacing slashes with hyphens
-    BRANCH_TAG=$(echo "$BRANCH_NAME" | sed 's/\//-/g')
-    BRANCH_SPECIFIC_TAG="op-geth:$BRANCH_TAG"
-    echo "Removing existing $BRANCH_SPECIFIC_TAG image..."
-    docker rmi "$BRANCH_SPECIFIC_TAG" 2>/dev/null || true
-
     OP_GETH_DIR="$TEMP_DIR/op-geth"
-
-    # Update OP_GETH_IMAGE_TAG for this session
-    export OP_GETH_IMAGE_TAG="$BRANCH_SPECIFIC_TAG"
 
     cd "$PWD_DIR"
 else
     echo "No branch name provided, using default submodule"
-fi
-
-# Update .env with branch-specific image tag if needed
-if [ -n "$BRANCH_NAME" ]; then
-    # Use branch-specific tag
-    NEW_OP_GETH_IMAGE_TAG="$OP_GETH_IMAGE_TAG"
-else
-    # Extract from example.env
-    NEW_OP_GETH_IMAGE_TAG=$(grep "^OP_GETH_IMAGE_TAG=" example.env | cut -d'=' -f2)
-fi
-
-echo "Setting OP_GETH_IMAGE_TAG: $NEW_OP_GETH_IMAGE_TAG"
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    sed -i '' "s|OP_GETH_IMAGE_TAG=.*|OP_GETH_IMAGE_TAG=$NEW_OP_GETH_IMAGE_TAG|" .env
-else
-    sed -i "s|OP_GETH_IMAGE_TAG=.*|OP_GETH_IMAGE_TAG=$NEW_OP_GETH_IMAGE_TAG|" .env
 fi
 
 source .env
