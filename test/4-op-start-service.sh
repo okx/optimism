@@ -27,6 +27,11 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
 fi
 
 if [ "$LAUNCH_RPC_NODE" = "true" ]; then
+    if [ "$USE_RETH" = "true" ]; then
+        docker compose up -d op-reth-rpc
+    else
+        docker compose up -d op-geth-rpc
+    fi
     docker compose up -d op-rpc
 fi
 
