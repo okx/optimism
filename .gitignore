@@ -65,3 +65,5 @@ test/l1-geth/consensus/genesis.ssz
 test/l1-geth/execution/geth/genesis.json
 test/l1-geth/execution/geth
 test/data
+test/l1-geth/execution/genesis.json
+test/tmp
