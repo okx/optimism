@@ -25,16 +25,16 @@ SyncMode = "full"
 EnableInnerTx = true
 
 [Eth.XLayer.Realtime]
-RealtimeEnable = true
+Enable = true
 RealtimeRpc = true
-RealtimeEnableSubscribe = true
-RealtimeCacheHeightThreshold = 10
+EnableSubscribe = true
+CacheHeightThreshold = 10
 SubscribeKafka = true
 SubscribeWebsocket = false
 CacheDumpPath = "/datadir/cache"
 
 [Eth.XLayer.Realtime.Kafka]
-BootstrapServers = "xlayer-kafka:9092"
+BootstrapServers = ["xlayer-kafka:9092"]
 BlockTopic = "xlayer-header"
 TxTopic = "xlayer-tx"
 ErrorTopic = "xlayer-error"

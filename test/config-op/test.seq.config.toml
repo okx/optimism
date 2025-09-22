@@ -31,16 +31,16 @@ AccountQueue = 10000
 EnableInnerTx = true
 
 [Eth.XLayer.Realtime]
-RealtimeEnable = true
+Enable = true
 RealtimeRpc = false
-RealtimeEnableSubscribe = false
-RealtimeCacheHeightThreshold = 10
+EnableSubscribe = false
+CacheHeightThreshold = 10
 SubscribeKafka = false
 SubscribeWebsocket = false
 CacheDumpPath = "/datadir/cache"
 
 [Eth.XLayer.Realtime.Kafka]
-BootstrapServers = "xlayer-kafka:9092"
+BootstrapServers = ["xlayer-kafka:9092"]
 BlockTopic = "xlayer-header"
 TxTopic = "xlayer-tx"
 ErrorTopic = "xlayer-error"

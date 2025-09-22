@@ -7,7 +7,7 @@ import (
 var (
 	// Realtime feature
 	RealtimeEnableFlag = &cli.BoolFlag{
-		Name:  "realtime.enable-flag",
+		Name:  "realtime.enabled",
 		Usage: "Kafka sync enable flag",
 		Value: true,
 	}

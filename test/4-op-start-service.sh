@@ -16,6 +16,10 @@ PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$PWD_DIR")"
 SCRIPTS_DIR=$ROOT_DIR/test/scripts
 
+if [ "$REALTIME_ENABLED" = "true" ]; then
+    docker compose up -d xlayer-kafka
+    sleep 10
+fi
 docker compose up -d op-batcher
 
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
