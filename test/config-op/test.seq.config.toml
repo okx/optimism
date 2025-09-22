@@ -20,8 +20,10 @@ NoDiscovery = true
 [Eth]
 NetworkId = 901
 SyncMode = "full"
-RollupDisableTxPoolGossip = false
+
+[Eth.XLayer]
 EnableInnerTx = true
+
 
 [Eth.TxPool]
 GlobalSlots = 500000
