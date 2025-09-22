@@ -172,6 +172,7 @@ services:
     volumes:
       - ./data/op-geth-seq:/datadir
       - ./config-op/jwt.txt:/jwt.txt
+      - ./config-op/test.seq.config.toml:/config.toml
     ports:
       - "8123:8545"
       - "7546:7546"
@@ -179,34 +180,11 @@ services:
       - "30303:30303"
       - "30303:30303/udp"
     command:
-      - --datadir
-      - /datadir
+      - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
-      - --http
-      - --http.corsdomain=*
-      - --http.vhosts=*
-      - --http.port=8545
-      - --http.addr=0.0.0.0
-      - --http.api=web3,debug,eth,txpool,net,engine,miner
-      - --ws
-      - --ws.addr=0.0.0.0
-      - --ws.port=7546
-      - --ws.origins=*
-      - --ws.api=debug,eth,txpool,net,engine
-      - --syncmode=full
+      - --config=/config.toml
       - --gcmode=archive
-      - --nodiscover
-      - --maxpeers=0
-      - --networkid=901
-      - --authrpc.vhosts=*
-      - --authrpc.addr=0.0.0.0
-      - --authrpc.port=8552
-      - --authrpc.jwtsecret=/jwt.txt
       - --rollup.disabletxpoolgossip=false
-      - --txpool.globalslots=500000
-      - --txpool.globalqueue=100000
-      - --txpool.accountslots=50000
-      - --txpool.accountqueue=10000
 
   op-geth-rpc:
     image: "${OP_GETH_IMAGE_TAG}"
@@ -215,34 +193,16 @@ services:
     volumes:
       - ./data/op-geth-rpc:/datadir
       - ./config-op/jwt.txt:/jwt.txt
+      - ./config-op/test.rpc.config.toml:/config.toml
     ports:
       - "8124:8545"
     command:
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
-      - --http
-      - --http.corsdomain=*
-      - --http.vhosts=*
-      - --http.port=8545
-      - --http.addr=0.0.0.0
-      - --http.api=web3,debug,eth,txpool,net,engine,miner
-      - --ws
-      - --ws.addr=0.0.0.0
-      - --ws.port=7546
-      - --ws.origins=*
-      - --ws.api=debug,eth,txpool,net,engine
-      - --syncmode=full
+      - --config=/config.toml
       - --gcmode=archive
-      - --nodiscover
-      - --maxpeers=0
-      - --networkid=901
-      - --authrpc.vhosts=*
-      - --authrpc.addr=0.0.0.0
-      - --authrpc.port=8552
-      - --authrpc.jwtsecret=/jwt.txt
       - --rollup.sequencerhttp=http://op-geth-seq:8545
       - --rollup.enabletxpooladmission
-      - --innertx
 
   op-seq:
     image: "${OP_STACK_IMAGE_TAG}"
