@@ -242,6 +242,7 @@ services:
       - --authrpc.jwtsecret=/jwt.txt
       - --rollup.sequencerhttp=http://op-geth-seq:8545
       - --rollup.enabletxpooladmission
+      - --innertx
 
   op-seq:
     image: "${OP_STACK_IMAGE_TAG}"
