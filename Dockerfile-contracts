@@ -21,10 +21,12 @@ COPY . .
 
 # Initialize submodules and build contracts
 WORKDIR /app/packages/contracts-bedrock
+RUN git submodule update --init --recursive || echo "No submodules found"
 RUN forge build
 
 # Build op-deployer
 WORKDIR /app
+COPY go.mod go.sum ./
 RUN go mod download
 RUN go build -o /app/op-deployer/bin/op-deployer ./op-deployer/cmd/op-deployer
 
