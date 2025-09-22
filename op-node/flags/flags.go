@@ -532,7 +532,7 @@ func init() {
 	optionalFlags = append(optionalFlags, altda.CLIFlags(EnvVarPrefix, AltDACategory)...)
 	Flags = append(requiredFlags, optionalFlags...)
 	// For X Layer
-	Flags = append(optionalFlags, XLayerFlags...)
+	Flags = append(requiredFlags, XLayerFlags...)
 }
 
 func CheckRequired(ctx *cli.Context) error {
