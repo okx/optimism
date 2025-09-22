@@ -21,12 +21,28 @@ NoDiscovery = true
 NetworkId = 901
 SyncMode = "full"
 
-[Eth.XLayer]
-EnableInnerTx = true
-
-
 [Eth.TxPool]
 GlobalSlots = 500000
 GlobalQueue = 100000
 AccountSlots = 50000
 AccountQueue = 10000
+
+[Eth.XLayer]
+EnableInnerTx = true
+
+[Eth.XLayer.Realtime]
+RealtimeEnable = true
+RealtimeRpc = false
+RealtimeEnableSubscribe = false
+RealtimeCacheHeightThreshold = 10
+SubscribeKafka = false
+SubscribeWebsocket = false
+CacheDumpPath = "/datadir/cache"
+
+[Eth.XLayer.Realtime.Kafka]
+BootstrapServers = "xlayer-kafka:9092"
+BlockTopic = "xlayer-header"
+TxTopic = "xlayer-tx"
+ErrorTopic = "xlayer-error"
+ClientID = "xlayer-producer-el"
+GroupID = "xlayer-producer-el-1"
