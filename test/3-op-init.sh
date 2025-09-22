@@ -12,12 +12,13 @@ sed_inplace() {
     sed -i "$@"
   fi
 }
-
 FORK_BLOCK_HEX=$(printf "0x%x" "$FORK_BLOCK")
 sed_inplace 's/"number": "0x0"/"number": "'"$FORK_BLOCK_HEX"'"/' ./config-op/genesis.json
 sed_inplace 's/"parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000"/"parentHash": "'"$PARENT_HASH"'"/' ./config-op/genesis.json
 sed_inplace '/"70997970c51812dc3a010c7d01b50e0d17dc79c8": {/,/}/ s/"balance": "[^"]*"/"balance": "0x446c3b15f9926687d2c40534fdb564000000000000"/' config-op/genesis.json
 sed_inplace 's/"number": 0/"number": '"$FORK_BLOCK"'/' ./config-op/rollup.json
+
+
 
 # Extract contract addresses from state.json and update .env file
 echo "🔧 Extracting contract addresses from state.json..."
@@ -104,15 +105,20 @@ OP_GETH_DATADIR="$(pwd)/data/op-geth-seq"
 rm -rf "$OP_GETH_DATADIR"
 mkdir -p "$OP_GETH_DATADIR"
 docker compose run --no-deps \
-  -v "$(pwd)/$CONFIG_DIR/genesis.json:/genesis.json" \
-  op-geth-seq \
+  -v "$(pwd)/$CONFIG_DIR:/config" \
+  -v "/data2/xlayer-erigon-data/chaindata:/chaindata" \
+  op-geth-migrate-seq \
   --datadir "/datadir" \
   --gcmode=archive \
   --db.engine=$DB_ENGINE \
   --log.format json \
-  init \
+  migrate \
   --state.scheme=hash \
-  /genesis.json 2>&1 | tee init.log
+  --ignore-smt-verify \
+  --no-verify \
+  --chaindata=/chaindata \
+  --output /config/geneis.json \
+  /config/genesis.json 2>&1 | tee init.log
 
 # update genesis block hash in rollup.json
 NEW_BLOCK_HASH=$(grep "Successfully wrote genesis state" init.log | jq -r .hash)
@@ -124,16 +130,22 @@ OP_GETH_DATADIR="$(pwd)/data/op-geth-rpc"
 rm -rf "$OP_GETH_DATADIR"
 mkdir -p "$OP_GETH_DATADIR"
 docker compose run --no-deps \
-  -v "$(pwd)/$CONFIG_DIR/genesis.json:/genesis.json" \
-  op-geth-rpc \
+  -v "$(pwd)/$CONFIG_DIR:/config" \
+  -v "/data2/xlayer-erigon-data/chaindata:/chaindata" \
+  op-geth-migrate-rpc \
   --datadir "/datadir" \
   --gcmode=archive \
   --db.engine=$DB_ENGINE \
-  init \
+  migrate \
   --state.scheme=hash \
-  /genesis.json
+  --ignore-smt-verify \
+  --no-verify \
+  --chaindata=/chaindata \
+  --output /config/genesis.json \
+  /config/genesis.json
 
 echo "finished init op-geth-seq and op-geth-rpc"
+
 
 # genesis.json is too large to embed in go, so we compress it now and decompress it in go code
 gzip -c config-op/genesis.json > config-op/genesis.json.gz
