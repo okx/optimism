@@ -10,6 +10,7 @@ import (
 
 	"github.com/ethereum-optimism/optimism/op-devstack/devtest"
 	"github.com/ethereum-optimism/optimism/op-devstack/dsl"
+	"github.com/ethereum-optimism/optimism/op-devstack/presets"
 	"github.com/ethereum-optimism/optimism/op-devstack/shim"
 	"github.com/ethereum-optimism/optimism/op-devstack/stack"
 	"github.com/ethereum-optimism/optimism/op-devstack/stack/match"
@@ -113,17 +114,28 @@ func setupOrchestrator(gt *testing.T, t devtest.T, blk uint64) *sysgo.Orchestrat
 	l.Info("L1_EL_ENDPOINT", "value", l1ELEndpoint)
 	l.Info("TAILSCALE_NETWORKING", "value", os.Getenv("TAILSCALE_NETWORKING"))
 
+	config := stack.ExtNetworkConfig{
+		L2NetworkName:      L2NetworkName,
+		L1ChainID:          L1ChainID,
+		L2ELEndpoint:       L2ELEndpoint,
+		L1CLBeaconEndpoint: L1CLBeaconEndpoint,
+		L1ELEndpoint:       L1ELEndpoint,
+	}
+
 	// Create orchestrator with the same configuration that was in TestMain
-	opt := sysgo.DefaultMinimalExternalELSystemWithEndpointAndSuperchainRegistry(&sysgo.DefaultMinimalExternalELSystemIDs{}, l1CLBeaconEndpoint, l1ELEndpoint, l2ELEndpoint, L1ChainID, L2NetworkName, eth.FCUState{
-		Latest:    blk,
-		Safe:      blk,
-		Finalized: blk,
-	})
+	opt := stack.Combine(
+		presets.WithExternalELWithSuperchainRegistry(config),
+		presets.WithSyncTesterELInitialState(eth.FCUState{
+			Latest:    blk,
+			Safe:      blk,
+			Finalized: blk,
+		}),
+	)
 
-	orch := sysgo.NewOrchestrator(p, stack.SystemHook(opt))
-	stack.ApplyOptionLifecycle[*sysgo.Orchestrator](opt, orch)
+	var orch stack.Orchestrator = sysgo.NewOrchestrator(p, stack.SystemHook(opt))
+	stack.ApplyOptionLifecycle(opt, orch)
 
-	return orch
+	return orch.(*sysgo.Orchestrator)
 }
 
 func SyncTesterHFSExt(gt *testing.T, upgradeName rollup.ForkName) {
