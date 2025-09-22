@@ -28,9 +28,6 @@ if [ -n "$BRANCH_NAME" ]; then
     cd "$PWD_DIR"
 else
     echo "Using op-geth default branch"
-    cd $OP_GETH_DIR
-    git checkout dev
-    cd "$PWD_DIR"
 fi
 
 # TODO: need to further confirm why it fails if we do not add require in this contract
