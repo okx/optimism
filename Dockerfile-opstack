@@ -28,13 +28,19 @@ RUN case ${TARGETARCH} in \
 # Cache go dependencies first
 COPY go.mod go.sum ./
 COPY op-geth/ ./op-geth/
-RUN go mod download
+RUN --mount=type=cache,target=/root/.cache \
+    --mount=type=cache,target=/tmp/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 # Copy source code
 COPY . .
 
 # Build Go binaries
-RUN make build-go
+RUN --mount=type=cache,target=/root/.cache \
+    --mount=type=cache,target=/tmp/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    make build-go
 
 # Copy foundry tools and artifacts from contracts image
 COPY --from=op-contracts:v1.13.4 /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil /usr/local/bin/
