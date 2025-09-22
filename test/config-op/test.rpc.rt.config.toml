@@ -1,0 +1,42 @@
+[Node]
+HTTPHost = "0.0.0.0"
+HTTPPort = 8545
+HTTPCors = ["*"]
+HTTPVirtualHosts = ["*"]
+HTTPModules = ["web3", "debug", "eth", "txpool", "net", "engine", "miner"]
+WSHost = "0.0.0.0"
+WSPort = 7546
+WSOrigins = ["*"]
+WSModules = ["debug", "eth", "txpool", "net", "engine"]
+AuthAddr = "0.0.0.0"
+AuthPort = 8552
+AuthVirtualHosts = ["*"]
+JWTSecret = "/jwt.txt"
+
+[Node.P2P]
+MaxPeers = 0
+NoDiscovery = true
+
+[Eth]
+NetworkId = 901
+SyncMode = "full"
+
+[Eth.XLayer]
+EnableInnerTx = true
+
+[Eth.XLayer.Realtime]
+RealtimeEnable = true
+RealtimeRpc = true
+RealtimeEnableSubscribe = true
+RealtimeCacheHeightThreshold = 10
+SubscribeKafka = true
+SubscribeWebsocket = false
+CacheDumpPath = "/datadir/cache"
+
+[Eth.XLayer.Realtime.Kafka]
+BootstrapServers = "xlayer-kafka:9092"
+BlockTopic = "xlayer-header"
+TxTopic = "xlayer-tx"
+ErrorTopic = "xlayer-error"
+ClientID = "xlayer-consumer-el"
+GroupID = "xlayer-consumer-el-1"

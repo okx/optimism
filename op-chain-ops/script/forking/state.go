@@ -242,6 +242,11 @@ func (fst *ForkableState) Finalise(deleteEmptyObjects bool) {
 	fst.selected.Finalise(deleteEmptyObjects)
 }
 
+// GenerateEntriesSinceSnapshot implements the VMStateDB interface for X Layer realtime functionality
+func (fst *ForkableState) GenerateEntriesSinceSnapshot(revid int) state.Entries {
+	return fst.selected.GenerateEntriesSinceSnapshot(revid)
+}
+
 func (fst *ForkableState) CreateAccount(address common.Address) {
 	fst.stateFor(address).CreateAccount(address)
 }

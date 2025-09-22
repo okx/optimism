@@ -28,6 +28,9 @@ fi
 
 if [ "$LAUNCH_RPC_NODE" = "true" ]; then
     docker compose up -d op-rpc
+    if [ "$REALTIME_ENABLED" = "true" ]; then
+        docker compose up -d op-rpc-rt
+    fi
 fi
 
 sleep 10

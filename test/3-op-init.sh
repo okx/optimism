@@ -137,6 +137,12 @@ echo " 🔄 Copying database from op-geth-seq to op-geth-rpc..."
 rm -rf "$OP_GETH_RPC_DATADIR"
 cp -r "$OP_GETH_DATADIR" "$OP_GETH_RPC_DATADIR"
 
+OP_GETH_RPC_RT_DATADIR="$(pwd)/data/op-geth-rpc-rt"
+
+echo " 🔄 Copying database from op-geth-seq to op-geth-rpc-rt..."
+rm -rf "$OP_GETH_RPC_RT_DATADIR"
+cp -r "$OP_GETH_DATADIR" "$OP_GETH_RPC_RT_DATADIR"
+
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     echo " 🔄 Copying database from op-geth-seq to op-geth-seq2..."
     OP_GETH_SEQ2_DATADIR="$(pwd)/data/op-geth-seq2"
