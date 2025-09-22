@@ -14,6 +14,8 @@ source .env
 if [ "$OP_GETH_LOCAL_DIRECTORY" = "" ]; then
     git submodule update --init --recursive
     OP_GETH_DIR="$OPTIMISM_DIR/op-geth"
+    cd $OP_GETH_DIR
+    git checkout dev
 else
     OP_GETH_DIR="$OP_GETH_LOCAL_DIRECTORY"
 fi
@@ -39,11 +41,8 @@ if [ -n "$BRANCH_NAME" ]; then
 
     cd "$PWD_DIR"
 else
-    echo "No branch name provided, using default submodule"
+    echo "No branch name provided, using dev as submodule"
 fi
-
-source .env
-
 
 # TODO: need to further confirm why it fails if we do not add require in this contract
 cp $PWD_DIR/contracts/Transactor.sol $OPTIMISM_DIR/packages/contracts-bedrock/src/periphery/Transactor.sol
@@ -66,6 +65,11 @@ else
     docker build -t $OP_STACK_IMAGE_TAG -f ./Dockerfile-opstack .
 fi
 
-echo "Building $OP_GETH_IMAGE_TAG"
-cd $OP_GETH_DIR
-docker build -t $OP_GETH_IMAGE_TAG .
+# Build OP_GETH image if not skipping
+if [ $SKIP_OP_GETH_BUILD = "true" ]; then
+    echo "skipping op-geth build"
+else
+    echo "Building $OP_GETH_IMAGE_TAG"
+    cd $OP_GETH_DIR
+    docker build -t $OP_GETH_IMAGE_TAG .
+fi
