@@ -66,3 +66,5 @@ test/data
 
 # ignore local asdf config
 .tool-versions
+test/l1-geth/execution/genesis.json
+test/tmp
