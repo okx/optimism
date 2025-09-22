@@ -21,12 +21,10 @@ COPY . .
 
 # Initialize submodules and build contracts
 WORKDIR /app/packages/contracts-bedrock
-RUN git submodule update --init --recursive || echo "No submodules found"
 RUN forge build
 
 # Build op-deployer
 WORKDIR /app
-COPY go.mod go.sum ./
 RUN go mod download
 RUN go build -o /app/op-deployer/bin/op-deployer ./op-deployer/cmd/op-deployer
 
@@ -41,6 +39,6 @@ COPY --from=contracts-builder /usr/local/bin/forge /usr/local/bin/cast /usr/loca
 COPY --from=contracts-builder /app/op-deployer/bin/ ./op-deployer/bin/
 
 # Copy contract artifacts and config (copy essential files only)
-COPY --from=contracts-builder /app/packages/contracts-bedrock/ ./packages/contracts-bedrock/ 
+COPY --from=contracts-builder /app/packages/contracts-bedrock/ ./packages/contracts-bedrock/
 
-CMD ["echo", "Contracts and op-deployer ready"] 
+CMD ["echo", "Contracts and op-deployer ready"]
