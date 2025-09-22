@@ -24,17 +24,17 @@ WORKDIR /app/packages/contracts-bedrock
 RUN git submodule update --init --recursive || echo "No submodules found"
 RUN --mount=type=cache,target=/root/.foundry \
     --mount=type=cache,target=/root/.cache \
-    forge build --cache-path /root/.cache
+    forge build
 
 # Build op-deployer
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/root/.cache \
-    --mount=type=cache,target=/tmp/go-build \
+    --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     go mod download
 RUN --mount=type=cache,target=/root/.cache \
-    --mount=type=cache,target=/tmp/go-build \
+    --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     go build -o /app/op-deployer/bin/op-deployer ./op-deployer/cmd/op-deployer
 

@@ -29,7 +29,7 @@ RUN case ${TARGETARCH} in \
 COPY go.mod go.sum ./
 COPY op-geth/ ./op-geth/
 RUN --mount=type=cache,target=/root/.cache \
-    --mount=type=cache,target=/tmp/go-build \
+    --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
@@ -38,7 +38,7 @@ COPY . .
 
 # Build Go binaries
 RUN --mount=type=cache,target=/root/.cache \
-    --mount=type=cache,target=/tmp/go-build \
+    --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     make build-go
 
