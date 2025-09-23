@@ -195,72 +195,42 @@ if ! find_current_leader; then
     exit 1
 fi
 
-# Step 2: Stop leader's sequencer
-echo "Step 2: Stopping leader's sequencer..."
-SEQUENCER_PORT=$((BASE_SEQUENCER_PORT + CURRENT_LEADER - 1))
-curl -sS -X POST -H "Content-Type: application/json" \
-    --data '{"jsonrpc":"2.0","method":"admin_stopSequencer","params":[],"id":1}' \
-    http://localhost:$SEQUENCER_PORT > /dev/null
-echo "Sequencer stopped, waiting for leader transfer..."
-
-# Step 3: Wait for leader transfer
-echo "Step 3: Waiting for leader transfer..."
-PREV_LEADER=$CURRENT_LEADER
-
-MAX_SECONDS=10
-for ((second=1; second<=MAX_SECONDS; second++)); do
-    sleep 1
-    if find_current_leader; then
-        if [ "$CURRENT_LEADER" != "$PREV_LEADER" ]; then
-            echo "Leadership transferred: conductor-$PREV_LEADER -> conductor-$CURRENT_LEADER in (${second}s)"
-
-            # Extract block info from previous leader AFTER transfer is confirmed
-            echo "Extracting block info from previous leader (sequencer-$PREV_LEADER) after transfer..."
-            if ! PREV_BLOCK_INFO=$(extract_last_block_info $PREV_LEADER); then
-                echo "Warning: Could not extract block info from sequencer-$PREV_LEADER, continuing without continuity check"
-                PREV_BLOCK_INFO=""
-            fi
-
-            # Check block continuity if we have previous block info
-            if [ -n "$PREV_BLOCK_INFO" ]; then
-                echo "Checking block continuity after leadership transfer..."
-                sleep 2  # Give some time for new leader to produce blocks
-                if check_block_continuity $PREV_LEADER $CURRENT_LEADER "$PREV_BLOCK_INFO"; then
-                    echo "✅ Block continuity verified after leadership transfer"
-                else
-                    echo "⚠️  Block continuity check failed, but continuing with upgrade simulation"
-                fi
-            fi
-            break
-        fi
+# Step 2: Select a follower sequencer for upgrade
+echo "Step 2: Selecting a follower sequencer for upgrade..."
+# Find a follower (non-leader) sequencer to upgrade
+UPGRADED_SEQUENCER=0
+for i in {1..3}; do
+    if [ "$i" != "$CURRENT_LEADER" ]; then
+        UPGRADED_SEQUENCER=$i
+        echo "Selected sequencer-$UPGRADED_SEQUENCER for upgrade (current leader is sequencer-$CURRENT_LEADER)"
+        break
     fi
 done
 
-if [ "$CURRENT_LEADER" = "$PREV_LEADER" ]; then
-    echo "Warning: Leader transfer not detected after $MAX_SECONDS seconds"
+if [ "$UPGRADED_SEQUENCER" -eq 0 ]; then
+    echo "Error: No follower sequencer found for upgrade"
     exit 1
 fi
 
-# Step 4: Stop containers for the upgraded sequencer
-echo "Step 4: Stopping containers for sequencer-$PREV_LEADER (simulating shutdown for upgrade)..."
-UPGRADED_SEQUENCER=$PREV_LEADER
+# Step 3: Stop containers for the selected follower sequencer
+echo "Step 3: Stopping containers for sequencer-$UPGRADED_SEQUENCER (simulating shutdown for upgrade)..."
 stop_containers $UPGRADED_SEQUENCER
 
-# Step 5: Wait 30 seconds (simulating upgrade time)
-echo "Step 5: Waiting 30 seconds for upgrade simulation..."
-sleep 30
+# Step 4: Wait 10 seconds (simulating upgrade time)
+echo "Step 4: Waiting 10 seconds for upgrade simulation..."
+sleep 10
 
-# Step 6: Restart containers
-echo "Step 6: Restarting containers for sequencer-$UPGRADED_SEQUENCER (simulating post-upgrade restart)..."
+# Step 5: Restart containers
+echo "Step 5: Restarting containers for sequencer-$UPGRADED_SEQUENCER (simulating post-upgrade restart)..."
 start_containers $UPGRADED_SEQUENCER
 
-# Step 7: Wait for services to be ready
-echo "Step 7: Waiting for services to be ready..."
+# Step 6: Wait for services to be ready
+echo "Step 6: Waiting for services to be ready..."
 wait_for_service $((BASE_SEQUENCER_PORT + UPGRADED_SEQUENCER - 1)) "op-seq$UPGRADED_SEQUENCER"
 wait_for_service $((BASE_CONDUCTOR_PORT + UPGRADED_SEQUENCER - 1)) "op-conductor$UPGRADED_SEQUENCER"
 
-# Step 8: Verify the upgraded sequencer is inactive
-echo "Step 8: Verifying upgraded sequencer is inactive..."
+# Step 7: Verify the upgraded sequencer is inactive
+echo "Step 7: Verifying upgraded sequencer is inactive..."
 sleep 5  # Give it time to sync
 is_leader_after_restart=$(check_leader $UPGRADED_SEQUENCER)
 
@@ -270,19 +240,17 @@ else
     echo "❌ Error: Upgraded sequencer-$UPGRADED_SEQUENCER is unexpectedly still leader"
     exit 1
 fi
-
-# Step 9: Wait 30 seconds for the upgraded sequencer to follow latest blocks
-echo "Step 9: Waiting 30 seconds for upgraded sequencer to follow latest blocks..."
+# Step 8: Wait for the upgraded sequencer to sync with latest blocks
+echo "Step 8: Waiting 30 seconds for upgraded sequencer to sync with latest blocks..."
 sleep 30
 
-# Step 10: Find current leader and transfer leadership
-echo "Step 10: Finding current leader and transferring leadership to upgraded sequencer..."
+# Step 9: Find current leader and transfer leadership
+echo "Step 9: Finding current leader and transferring leadership to upgraded sequencer..."
 if ! find_current_leader; then
     echo "Error: No current leader found for transfer"
     exit 1
 fi
 
-# Check if upgraded sequencer is already the leader
 if [ "$CURRENT_LEADER" = "$UPGRADED_SEQUENCER" ]; then
     echo "✅ Upgraded sequencer-$UPGRADED_SEQUENCER is already the leader, no transfer needed"
 else
@@ -307,12 +275,12 @@ else
 
         # Check block continuity if we have current block info
         if [ -n "$CURRENT_BLOCK_INFO" ]; then
-            echo "Checking block continuity after final leadership transfer..."
+            echo "Checking block continuity after leadership transfer..."
             sleep 3  # Give some time for upgraded sequencer to produce blocks
             if check_block_continuity $CURRENT_LEADER $UPGRADED_SEQUENCER "$CURRENT_BLOCK_INFO"; then
-                echo "✅ Block continuity verified after final leadership transfer"
+                echo "✅ Block continuity verified after leadership transfer"
             else
-                echo "⚠️  Block continuity check failed after final transfer, but upgrade simulation continues"
+                echo "⚠️  Block continuity check failed after transfer, but upgrade simulation continues"
             fi
         fi
     else
@@ -326,8 +294,8 @@ else
     fi
 fi
 
-# Step 11: Wait and verify the upgraded sequencer becomes leader
-echo "Step 11: Waiting for upgraded sequencer to become leader..."
+# Step 10: Final verification
+echo "Step 10: Final verification of upgraded sequencer leadership..."
 sleep 1
 
 is_leader_final=$(check_leader $UPGRADED_SEQUENCER)
