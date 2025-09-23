@@ -21,7 +21,7 @@ require (
 	github.com/docker/go-connections v0.5.0
 	github.com/ethereum-optimism/go-ethereum-hdwallet v0.1.3
 	github.com/ethereum-optimism/superchain-registry/validation v0.0.0-20250603144016-9c45ca7d4508
-	github.com/ethereum/go-ethereum v1.15.11
+	github.com/ethereum/go-ethereum v1.16.3
 	github.com/fatih/color v1.18.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-task/slim-sprig/v3 v3.0.0
@@ -303,7 +303,7 @@ require (
 	lukechampine.com/blake3 v1.3.0 // indirect
 )
 
-replace github.com/ethereum/go-ethereum => github.com/ethereum-optimism/op-geth v1.101602.4-0.20250922085653-2f0528ba0ed5
+replace github.com/ethereum/go-ethereum => github.com/ethereum-optimism/op-geth v1.101602.4-0.20250922162908-24c89afcd2a6
 
 // replace github.com/ethereum/go-ethereum => ../op-geth
 
