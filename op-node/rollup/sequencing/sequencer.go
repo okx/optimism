@@ -125,7 +125,7 @@ type Sequencer struct {
 	toBlockRef func(rollupCfg *rollup.Config, payload *eth.ExecutionPayload) (eth.L2BlockRef, error)
 
 	// For X Layer, realtime
-	kafkaProducer *realtimeKafka.KafkaProducer
+	realtimeProducer *realtimeKafka.KafkaProducer
 }
 
 var _ SequencerIface = (*Sequencer)(nil)
@@ -152,7 +152,7 @@ func NewSequencer(driverCtx context.Context, log log.Logger, rollupCfg *rollup.C
 		timeNow:          time.Now,
 		toBlockRef:       derive.PayloadToBlockRef,
 		// For X Layer, realtime
-		kafkaProducer: RealtimeProducerXLayer(rollupCfg),
+		realtimeProducer: RealtimeProducerXLayer(rollupCfg),
 	}
 }
 

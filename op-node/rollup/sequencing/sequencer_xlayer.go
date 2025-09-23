@@ -24,7 +24,7 @@ func RealtimeProducerXLayer(rollupCfg *rollup.Config) *realtimeKafka.KafkaProduc
 
 func (s *Sequencer) SendRealtimeErrorTrigger() {
 	if s.rollupCfg != nil && s.rollupCfg.Realtime != nil && s.rollupCfg.Realtime.Enable {
-		if err := s.kafkaProducer.SendKafkaErrorTrigger(0); err != nil {
+		if err := s.realtimeProducer.SendKafkaErrorTrigger(0); err != nil {
 			log.Error(fmt.Sprintf("[Realtime] Failed to send kafka error trigger message. error: %v", err))
 		}
 	}

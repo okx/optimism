@@ -17,7 +17,6 @@ func ApplyXLayerFlags(ctx *cli.Context, cfg *Config) {
 }
 
 func applyRealtimeFlags(ctx *cli.Context, cfg *Config) {
-	// For realtime. Get GroupID from flag
 	groupID := ctx.String(flags.RealtimeKafkaSyncGroupID.Name)
 	if envGroupID := os.Getenv(EnvKafkaConsumerGroupID); envGroupID != "" {
 		// Override consumer group id if env variable is set
