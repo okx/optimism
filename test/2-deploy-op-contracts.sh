@@ -17,6 +17,12 @@ cd $PWD_DIR
 
 source .env
 
+# Derive CHALLENGER address from OP_CHALLENGER_PRIVATE_KEY if not set
+if [ -z "$CHALLENGER" ]; then
+    CHALLENGER=$(cast wallet address $OP_CHALLENGER_PRIVATE_KEY)
+    echo " ✅ Derived CHALLENGER address from private key: $CHALLENGER"
+fi
+
 # Deploy Transactor contract first
 echo "🔧 Deploying Transactor contract..."
 TRANSACTOR_DEPLOY_OUTPUT=$(docker run --rm \
@@ -86,6 +92,7 @@ docker run --rm \
       --superchain-config-proxy $SUPERCHAIN_CONFIG_PROXY \
       --superchain-proxy-admin $PROXY_ADMIN \
       --upgrade-controller $ADMIN_OWNER_ADDRESS \
+      --challenger $CHALLENGER \
       --challenge-period-seconds $CHALLENGE_PERIOD_SECONDS \
       --withdrawal-delay-seconds $WITHDRAWAL_DELAY_SECONDS \
       --proof-maturity-delay-seconds $WITHDRAWAL_DELAY_SECONDS \
