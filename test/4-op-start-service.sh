@@ -18,15 +18,19 @@ SCRIPTS_DIR=$ROOT_DIR/test/scripts
 
 if [ "$REALTIME_ENABLED" = "true" ]; then
     docker compose up -d xlayer-kafka
-    sleep 10
+    sleep 15
 fi
 docker compose up -d op-batcher
 
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
+    docker compose up -d op-seq
+    docker compose up -d op-seq2
+    docker compose up -d op-seq3
+    sleep 5
     docker compose up -d op-conductor
     docker compose up -d op-conductor2
     docker compose up -d op-conductor3
-    sleep 3
+    sleep 5
     $SCRIPTS_DIR/active-sequencer.sh
 fi
 

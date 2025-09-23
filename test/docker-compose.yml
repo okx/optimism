@@ -260,7 +260,7 @@ services:
       - --conductor.rpc=http://op-conductor:8547
       - --realtime.enabled=true
       - --realtime.kafka-sync-bootstrap-servers=xlayer-kafka:9092
-      - --realtime.kafka-sync-error-topic=xlayer-kafka-error
+      - --realtime.kafka-sync-error-topic=xlayer-error
       - --realtime.kafka-sync-client-id=xlayer-producer-cl
       - --realtime.kafka-sync-group-id=xlayer-producer-cl-1
     depends_on:
@@ -310,11 +310,11 @@ services:
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/oprpc_p2p_priv.txt:/opnode_p2p_priv.txt
     ports:
-      - "9555:9545"
+      - "9565:9545"
     command:
       - /app/op-node/bin/op-node
       - --log.level=debug
-      - --l2=http://op-geth-rpc:8552
+      - --l2=http://op-geth-rpc-rt:8552
       - --l2.jwt-secret=/jwt.txt
       - --sequencer.enabled=false
       - --verifier.l1-confs=1
@@ -335,7 +335,7 @@ services:
       - --safedb.path=/data/safedb
       - --realtime.enabled=true
       - --realtime.kafka-sync-bootstrap-servers=xlayer-kafka:9092
-      - --realtime.kafka-sync-error-topic=xlayer-kafka-error
+      - --realtime.kafka-sync-error-topic=xlayer-error
       - --realtime.kafka-sync-client-id=xlayer-consumer-cl
       - --realtime.kafka-sync-group-id=xlayer-consumer-cl-1
     depends_on:
