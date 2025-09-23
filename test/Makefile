@@ -1,3 +1,6 @@
+-include .env
+export
+
 .PHONY: stop
 stop:
 	echo "Performing cleanup..."
@@ -8,6 +11,7 @@ stop:
 .PHONY: run
 run: stop
 	@mkdir -p tmp
+	@echo "OP_GETH_BRANCH: $(OP_GETH_BRANCH)"
 	@if [ -n "$(OP_GETH_BRANCH)" ]; then \
 		echo "Initializing with branch: $(OP_GETH_BRANCH)"; \
 		./init.sh $(OP_GETH_BRANCH); \
@@ -19,7 +23,7 @@ run: stop
 
 .PHONY: run-test
 run-test:
-	@source .env && \
+	@echo "OP_GETH_BRANCH: $(OP_GETH_BRANCH)"
 	if [ -n "$(OP_GETH_BRANCH)" ]; then \
 		echo "Running tests from branch: $(OP_GETH_BRANCH)"; \
 		cd ./tmp/op-geth && MallocNanoZone=0 go test -count=1 -failfast -race -v -p 1 -timeout 600s ./test/e2e/...; \
@@ -33,7 +37,8 @@ run-test:
 
 .PHONY: test-e2e
 test-e2e: stop
-	@trap 'make stop' EXIT ERR INT TERM; \
+	@trap 'make stop' EXIT ERR INT TERM;
+	@echo "OP_GETH_BRANCH: $(OP_GETH_BRANCH)"
 	if [ -n "$(OP_GETH_BRANCH)" ]; then \
 		echo "Running E2E tests with branch: $(OP_GETH_BRANCH)"; \
 		make run OP_GETH_BRANCH=$(OP_GETH_BRANCH) && sleep 3 && make run-test OP_GETH_BRANCH=$(OP_GETH_BRANCH); \

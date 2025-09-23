@@ -45,6 +45,12 @@ WORKDIR /app
 # Copy foundry tools for runtime use
 COPY --from=contracts-builder /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil /usr/local/bin/
 
+# Verify foundry tools integrity
+RUN chmod +x /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil && \
+    /usr/local/bin/forge --version > /dev/null && \
+    /usr/local/bin/cast --version > /dev/null && \
+    /usr/local/bin/anvil --version > /dev/null
+
 # Copy op-deployer binary
 COPY --from=contracts-builder /app/op-deployer/bin/ ./op-deployer/bin/
 
