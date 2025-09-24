@@ -185,6 +185,7 @@ services:
       - --config=/config.toml
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
+      - --verbosity=5
 
   op-geth-rpc:
     image: "${OP_GETH_IMAGE_TAG}"
@@ -203,6 +204,7 @@ services:
       - --gcmode=archive
       - --rollup.sequencerhttp=http://op-geth-seq:8545
       - --rollup.enabletxpooladmission
+      - --verbosity=5
 
   op-geth-rpc-rt:
     image: "${OP_GETH_IMAGE_TAG}"
@@ -221,6 +223,7 @@ services:
       - --gcmode=archive
       - --rollup.sequencerhttp=http://op-geth-seq:8545
       - --rollup.enabletxpooladmission
+      - --verbosity=5
 
   op-seq:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -260,6 +263,7 @@ services:
       - --conductor.rpc=http://op-conductor:8547
       - --realtime.enabled=true
       - --realtime.kafka-sync-bootstrap-servers=xlayer-kafka:9092
+      - --realtime.kafka-sync-block-topic=xlayer-header
       - --realtime.kafka-sync-error-topic=xlayer-error
       - --realtime.kafka-sync-client-id=xlayer-producer-cl
       - --realtime.kafka-sync-group-id=xlayer-producer-cl-1

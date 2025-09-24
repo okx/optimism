@@ -126,7 +126,6 @@ type Sequencer struct {
 	toBlockRef func(rollupCfg *rollup.Config, payload *eth.ExecutionPayload) (eth.L2BlockRef, error)
 
 	// For X Layer, realtime
-	isLeader              bool
 	realtimeProducer      *realtimeKafka.KafkaProducer
 	realtimeBlockInfoChan chan *realtimeTypes.BlockInfo
 }
@@ -704,7 +703,7 @@ func (d *Sequencer) forceStart() error {
 	d.log.Info("Sequencer has been started", "next action", d.nextAction)
 
 	// For X Layer, realtime
-	d.StartRealtimeXLayer()
+	d.SendRealtimeErrorTrigger(0)
 	return nil
 }
 

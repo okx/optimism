@@ -18,7 +18,7 @@ SCRIPTS_DIR=$ROOT_DIR/test/scripts
 
 if [ "$REALTIME_ENABLED" = "true" ]; then
     docker compose up -d xlayer-kafka
-    sleep 15
+    sleep 20
 fi
 docker compose up -d op-batcher
 

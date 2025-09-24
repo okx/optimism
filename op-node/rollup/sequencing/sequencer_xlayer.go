@@ -3,7 +3,6 @@ package sequencing
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"math/big"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/realtime"
 	realtimeKafka "github.com/ethereum/go-ethereum/realtime/kafka"
 	realtimeTypes "github.com/ethereum/go-ethereum/realtime/types"
 	"github.com/ethereum/go-ethereum/trie"
@@ -33,23 +33,15 @@ func (s *Sequencer) InitRealtimeXLayer() {
 		}
 		s.realtimeProducer = kafkaProducer
 		s.realtimeBlockInfoChan = make(chan *realtimeTypes.BlockInfo, realtimeKafka.DefaultKafkaBufferSize)
-	}
-}
 
-func (s *Sequencer) StartRealtimeXLayer() error {
-	isLeader, err := s.conductor.Leader(s.ctx)
-	if err != nil {
-		return fmt.Errorf("sequencer leader check failed: %w", err)
-	} else if !isLeader {
-		return errors.New("sequencer is not the leader, aborting")
+		// start realtime producer loop
+		go realtime.ListenRealtimeProducer(s.ctx, s.realtimeProducer, s.realtimeBlockInfoChan, nil, false)
+		log.Info("[Realtime] Realtime initialized on op-seq")
 	}
-	s.isLeader = isLeader
-	s.SendRealtimeErrorTrigger(0)
-	return nil
 }
 
 func (s *Sequencer) SendRealtimeErrorTrigger(height uint64) {
-	if s.isLeader && s.rollupCfg != nil && s.rollupCfg.Realtime != nil && s.rollupCfg.Realtime.Enable {
+	if s.active.Load() && s.rollupCfg != nil && s.rollupCfg.Realtime != nil && s.rollupCfg.Realtime.Enable {
 		if err := s.realtimeProducer.SendKafkaErrorTrigger(height); err != nil {
 			log.Error(fmt.Sprintf("[Realtime] Failed to send kafka error trigger message. error: %v", err))
 		}
@@ -57,7 +49,7 @@ func (s *Sequencer) SendRealtimeErrorTrigger(height uint64) {
 }
 
 func (s *Sequencer) SendRealtimeConfirmedBlock(envelope *eth.ExecutionPayloadEnvelope) {
-	if s.isLeader && s.rollupCfg != nil && s.rollupCfg.Realtime != nil && s.rollupCfg.Realtime.Enable {
+	if s.active.Load() && s.rollupCfg != nil && s.rollupCfg.Realtime != nil && s.rollupCfg.Realtime.Enable {
 		if s.realtimeBlockInfoChan != nil {
 			payload := envelope.ExecutionPayload
 			hasher := trie.NewStackTrie(nil)
@@ -94,7 +86,7 @@ func (s *Sequencer) SendRealtimeConfirmedBlock(envelope *eth.ExecutionPayloadEnv
 }
 
 func (s *Sequencer) SetRealtimeEnabledXLayer(attrs *eth.PayloadAttributes) {
-	if s.isLeader && s.rollupCfg != nil && s.rollupCfg.Realtime != nil {
+	if s.active.Load() && s.rollupCfg != nil && s.rollupCfg.Realtime != nil {
 		attrs.RealtimeEnabled = s.rollupCfg.Realtime.Enable
 	}
 }
