@@ -5,7 +5,7 @@ echo " 🧹 Cleaning up Optimism test environment..."
 
 echo " 📦 Stopping Docker containers..."
 [ -f .env ] && docker compose down
-[ -f docker-compose-apollo.yml ] && docker-compose -f docker-compose-apollo.yml down
+[ -f docker-compose-apollo.yml ] && docker compose -f docker-compose-apollo.yml down
 
 echo " 🗑️  Removing generated files..."
 rm -rf data
