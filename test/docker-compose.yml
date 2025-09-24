@@ -519,6 +519,7 @@ services:
       - --l2=http://op-geth-seq2:8552
       - --l2.jwt-secret=/jwt.txt
       - --sequencer.enabled
+      - --sequencer.stopped
       - --sequencer.l1-confs=5
       - --verifier.l1-confs=1
       - --rollup.config=/rollup.json
@@ -552,7 +553,7 @@ services:
       - "50051:50050"  # Consensus port
     command:
       - /app/op-conductor/bin/op-conductor
-      - --log.level=info
+      - --log.level=debug
       # already existed service
       - --node.rpc=http://op-seq2:9545
       - --execution.rpc=http://op-geth-seq2:8545
@@ -629,6 +630,7 @@ services:
       - --l2=http://op-geth-seq3:8552
       - --l2.jwt-secret=/jwt.txt
       - --sequencer.enabled
+      - --sequencer.stopped
       - --sequencer.l1-confs=5
       - --verifier.l1-confs=1
       - --rollup.config=/rollup.json
@@ -662,7 +664,7 @@ services:
       - "50052:50050"  # Consensus port
     command:
       - /app/op-conductor/bin/op-conductor
-      - --log.level=info
+      - --log.level=debug
       # already existed service
       - --node.rpc=http://op-seq3:9545
       - --execution.rpc=http://op-geth-seq3:8545
