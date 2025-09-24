@@ -19,6 +19,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-node/rollup/event"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	realtimeKafka "github.com/ethereum/go-ethereum/realtime/kafka"
+	realtimeTypes "github.com/ethereum/go-ethereum/realtime/types"
 )
 
 // sealingDuration defines the expected time it takes to seal the block
@@ -125,7 +126,9 @@ type Sequencer struct {
 	toBlockRef func(rollupCfg *rollup.Config, payload *eth.ExecutionPayload) (eth.L2BlockRef, error)
 
 	// For X Layer, realtime
-	realtimeProducer *realtimeKafka.KafkaProducer
+	isLeader              bool
+	realtimeProducer      *realtimeKafka.KafkaProducer
+	realtimeBlockInfoChan chan *realtimeTypes.BlockInfo
 }
 
 var _ SequencerIface = (*Sequencer)(nil)
@@ -138,7 +141,7 @@ func NewSequencer(driverCtx context.Context, log log.Logger, rollupCfg *rollup.C
 	asyncGossip AsyncGossiper,
 	metrics Metrics,
 ) *Sequencer {
-	return &Sequencer{
+	s := &Sequencer{
 		ctx:              driverCtx,
 		log:              log,
 		rollupCfg:        rollupCfg,
@@ -151,9 +154,10 @@ func NewSequencer(driverCtx context.Context, log log.Logger, rollupCfg *rollup.C
 		metrics:          metrics,
 		timeNow:          time.Now,
 		toBlockRef:       derive.PayloadToBlockRef,
-		// For X Layer, realtime
-		realtimeProducer: RealtimeProducerXLayer(rollupCfg),
 	}
+	// For X Layer, realtime
+	s.InitRealtimeXLayer()
+	return s
 }
 
 func (d *Sequencer) AttachEmitter(em event.Emitter) {
@@ -245,6 +249,9 @@ func (d *Sequencer) onBuildStarted(x engine.BuildStartedEvent) {
 }
 
 func (d *Sequencer) handleInvalid() {
+	// For X Layer, realtime
+	d.SendRealtimeErrorTrigger(d.latest.Onto.Number)
+
 	d.metrics.RecordSequencingError()
 	d.latest = BuildingState{}
 	d.asyncGossip.Clear()
@@ -343,6 +350,9 @@ func (d *Sequencer) onPayloadSuccess(x engine.PayloadSuccessEvent) {
 	// The payload was already published upon sealing.
 	// Now that we have processed it ourselves we don't need it anymore.
 	d.asyncGossip.Clear()
+
+	// For X Layer, realtime
+	d.SendRealtimeConfirmedBlock(x.Envelope)
 }
 
 func (d *Sequencer) onSequencerAction(SequencerActionEvent) {
@@ -421,6 +431,8 @@ func (d *Sequencer) onReset(x rollup.ResetEvent) {
 	// try to cancel any ongoing payload building job
 	if d.latest.Info != (eth.PayloadInfo{}) {
 		d.emitter.Emit(engine.BuildCancelEvent{Info: d.latest.Info})
+		// For X Layer, realtime
+		d.SendRealtimeErrorTrigger(d.latest.Onto.Number)
 	}
 	d.latest = BuildingState{}
 	// no action to perform until we get a reset-confirmation
@@ -579,7 +591,7 @@ func (d *Sequencer) startBuildingBlock() {
 	}
 
 	// For X Layer, realtime
-	d.SetRealtimeXLayer(attrs)
+	d.SetRealtimeEnabledXLayer(attrs)
 
 	d.log.Debug("prepared attributes for new block",
 		"num", l2Head.Number+1, "time", uint64(attrs.Timestamp),
@@ -692,7 +704,7 @@ func (d *Sequencer) forceStart() error {
 	d.log.Info("Sequencer has been started", "next action", d.nextAction)
 
 	// For X Layer, realtime
-	d.SendRealtimeErrorTrigger()
+	d.StartRealtimeXLayer()
 	return nil
 }
 
@@ -751,7 +763,7 @@ func (d *Sequencer) Stop(ctx context.Context) (common.Hash, error) {
 	d.log.Info("Sequencer has been stopped")
 
 	// For X Layer, realtime
-	d.SendRealtimeErrorTrigger()
+	d.SendRealtimeErrorTrigger(0)
 	return d.latestHead.Hash, nil
 }
 
