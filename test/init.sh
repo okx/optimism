@@ -18,31 +18,17 @@ else
     OP_GETH_DIR="$OP_GETH_LOCAL_DIRECTORY"
 fi
 
-# If branch name is provided, clone a separate op-geth repo and set variables
+# Switch to specified branch if provided
 if [ -n "$BRANCH_NAME" ]; then
-    echo "Building op-geth image for branch: $BRANCH_NAME"
-
-    # Create temporary directory outside optimism repo
-    TEMP_DIR=$PWD_DIR/tmp
-    echo "Created temporary directory: $TEMP_DIR"
-
-    # Clone op-geth to temporary directory
-    echo "Cloning op-geth repository..."
-    git clone https://github.com/okx/op-geth.git "$TEMP_DIR/op-geth"
-
-    cd "$TEMP_DIR/op-geth"
+    echo "Switching op-geth to branch: $BRANCH_NAME"
+    cd $OP_GETH_DIR
     git fetch origin
     git checkout "$BRANCH_NAME"
     git pull origin "$BRANCH_NAME"
-
-    OP_GETH_DIR="$TEMP_DIR/op-geth"
-
     cd "$PWD_DIR"
 else
-    echo "No branch name provided, using default submodule"
+    echo "Using op-geth default branch"
 fi
-
-source .env
 
 # TODO: need to further confirm why it fails if we do not add require in this contract
 cp $PWD_DIR/contracts/Transactor.sol $OPTIMISM_DIR/packages/contracts-bedrock/src/periphery/Transactor.sol
@@ -65,10 +51,11 @@ else
     docker build -t $OP_STACK_IMAGE_TAG -f ./Dockerfile-opstack .
 fi
 
-echo "Building $OP_GETH_IMAGE_TAG"
-cd $OP_GETH_DIR
-if [ "$DB_ENGINE" = "rocksdb" ]; then
-    docker build -t $OP_GETH_IMAGE_TAG -f ./Dockerfile.rocksdb .
+# Build OP_GETH image if not skipping
+if [ $SKIP_OP_GETH_BUILD = "true" ]; then
+    echo "skipping op-geth build"
 else
+    echo "Building $OP_GETH_IMAGE_TAG"
+    cd $OP_GETH_DIR
     docker build -t $OP_GETH_IMAGE_TAG .
 fi
