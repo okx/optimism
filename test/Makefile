@@ -23,17 +23,23 @@ run: stop
 
 .PHONY: run-test
 run-test:
+	@echo "OP_GETH_LOCAL_DIRECTORY: $$OP_GETH_LOCAL_DIRECTORY"
 	@echo "OP_GETH_BRANCH: $(OP_GETH_BRANCH)"
-	if [ -n "$(OP_GETH_BRANCH)" ]; then \
-		echo "Running tests from branch: $(OP_GETH_BRANCH)"; \
-		cd ./tmp/op-geth && MallocNanoZone=0 go test -count=1 -failfast -race -v -p 1 -timeout 600s ./test/e2e/...; \
-	elif [ -n "$$OP_GETH_LOCAL_DIRECTORY" ]; then \
-		echo "Running tests from custom local directory: $$OP_GETH_LOCAL_DIRECTORY"; \
-		cd "$$OP_GETH_LOCAL_DIRECTORY" && MallocNanoZone=0 go test -count=1 -failfast -race -v -p 1 -timeout 600s ./test/e2e/...; \
+	@if [ -n "$$OP_GETH_LOCAL_DIRECTORY" ]; then \
+		echo "Using custom local directory: $$OP_GETH_LOCAL_DIRECTORY"; \
+		cd "$$OP_GETH_LOCAL_DIRECTORY"; \
 	else \
-		echo "Running tests from default submodule"; \
-		cd ../op-geth && MallocNanoZone=0 go test -count=1 -failfast -race -v -p 1 -timeout 600s ./test/e2e/...; \
-	fi
+		echo "Using default submodule: ../op-geth"; \
+		cd ../op-geth; \
+	fi && \
+	if [ -n "$(OP_GETH_BRANCH)" ]; then \
+		echo "Switching to branch: $(OP_GETH_BRANCH)"; \
+		git fetch origin && git checkout "$(OP_GETH_BRANCH)" && git pull origin "$(OP_GETH_BRANCH)"; \
+	else \
+		echo "Using current branch"; \
+	fi && \
+	echo "Running E2E tests..."; \
+	MallocNanoZone=0 go test -count=1 -failfast -race -v -p 1 -timeout 600s ./test/e2e/...
 
 .PHONY: test-e2e
 test-e2e: stop
@@ -41,7 +47,7 @@ test-e2e: stop
 	@echo "OP_GETH_BRANCH: $(OP_GETH_BRANCH)"
 	if [ -n "$(OP_GETH_BRANCH)" ]; then \
 		echo "Running E2E tests with branch: $(OP_GETH_BRANCH)"; \
-		make run OP_GETH_BRANCH=$(OP_GETH_BRANCH) && sleep 3 && make run-test OP_GETH_BRANCH=$(OP_GETH_BRANCH); \
+		make run && sleep 3 && make run-test; \
 	else \
 		echo "Running E2E tests with default branch"; \
 		make run && sleep 3 && make run-test; \
