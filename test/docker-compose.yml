@@ -178,6 +178,7 @@ services:
       - "8552:8552"
       - "30303:30303"
       - "30303:30303/udp"
+      - "9090:9090"  # pprof port
     command:
       - --datadir
       - /datadir
@@ -194,7 +195,7 @@ services:
       - --ws.origins=*
       - --ws.api=debug,eth,txpool,net,engine
       - --syncmode=full
-      - --gcmode=archive
+      - --gcmode=full
       - --nodiscover
       - --maxpeers=0
       - --networkid=901
@@ -207,6 +208,10 @@ services:
       - --txpool.globalqueue=100000
       - --txpool.accountslots=50000
       - --txpool.accountqueue=10000
+      - --miner.recommit=500ms
+      - --pprof
+      - --pprof.addr=0.0.0.0
+      - --pprof.port=9090
 
   op-geth-rpc:
     image: "${OP_GETH_IMAGE_TAG}"
@@ -256,6 +261,7 @@ services:
       - "7070:7070"
       - "9223:9223"
       - "9223:9223/udp"
+      - "9091:9091"  # pprof port
     command:
       - /app/op-node/bin/op-node
       - --log.level=debug
@@ -280,6 +286,9 @@ services:
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}    # 默认关闭
       - --conductor.rpc=http://op-conductor:8547
+      - --pprof.enabled
+      - --pprof.addr=0.0.0.0
+      - --pprof.port=9091
     depends_on:
       - op-geth-seq
 
@@ -372,7 +381,7 @@ services:
       - --max-channel-duration=25
       - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
       - --private-key=${OP_BATCHER_PRIVATE_KEY}
-      - --throttle-always-block-size=1300000
+      - --throttle.block-size-upper-limit=1300000
     depends_on:
       - op-seq
 
