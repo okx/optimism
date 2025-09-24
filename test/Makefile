@@ -10,6 +10,10 @@ stop:
 
 .PHONY: run
 run: stop
+	make run2
+
+.PHONY: run2
+run2:
 	@mkdir -p tmp
 	@echo "OP_GETH_BRANCH: $(OP_GETH_BRANCH)"
 	@if [ -n "$(OP_GETH_BRANCH)" ]; then \
@@ -52,4 +56,16 @@ test-e2e: stop
 		echo "Running E2E tests with default branch"; \
 		make run && sleep 3 && make run-test; \
 	fi && echo "✅ E2E tests passed ✅"
+
+
+.PHONY: apollo
+apollo: stop
+	docker compose -f docker-compose-apollo.yml up -d mysql
+	sleep 10
+	docker compose -f docker-compose-apollo.yml up -d apollo-configservice
+	docker compose -f docker-compose-apollo.yml up -d apollo-adminservice
+	sleep 10
+	docker compose -f docker-compose-apollo.yml up -d apollo-portal
+
+	make run2
 
