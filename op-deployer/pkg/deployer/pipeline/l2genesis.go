@@ -102,10 +102,10 @@ func GenerateL2Genesis(pEnv *Env, intent *state.Intent, bundle ArtifactsBundle, 
 		EnableGovernance:                         overrides.EnableGovernance,
 		FundDevAccounts:                          overrides.FundDevAccounts,
 		// Custom Gas Token (CGT) configuration passed to L2Genesis script
-		UseCustomGasToken:          thisIntent.CustomGasToken.Enabled,          // CGT: Enable/disable custom gas token
-		GasPayingTokenName:         thisIntent.CustomGasToken.Name,             // CGT: Token name (e.g., "Custom Gas Token")
-		GasPayingTokenSymbol:       thisIntent.CustomGasToken.Symbol,           // CGT: Token symbol (e.g., "CGT")
-		NativeAssetLiquidityAmount: thisIntent.GetNativeAssetLiquidityAmount(), // CGT: Liquidity amount for NativeAssetLiquidity contract
+		UseCustomGasToken:          thisIntent.CustomGasToken.Enabled, // CGT: Enable/disable custom gas token
+		GasPayingTokenName:         thisIntent.CustomGasToken.Name,    // CGT: Token name (e.g., "Custom Gas Token")
+		GasPayingTokenSymbol:       thisIntent.CustomGasToken.Symbol,  // CGT: Token symbol (e.g., "CGT")
+		NativeAssetLiquidityAmount: thisIntent.GetInitialLiquidity(),  // CGT: Liquidity amount for NativeAssetLiquidity contract
 	}); err != nil {
 		return fmt.Errorf("failed to call L2Genesis script: %w", err)
 	}
@@ -157,10 +157,10 @@ func calculateL2GenesisOverrides(intent *state.Intent, thisIntent *state.ChainIn
 	// If CustomGasToken is not enabled, update it with override values
 	if !thisIntent.CustomGasToken.Enabled {
 		thisIntent.CustomGasToken = state.CustomGasToken{
-			Enabled:                    overrides.UseCustomGasToken,
-			Name:                       overrides.GasPayingTokenName,
-			Symbol:                     overrides.GasPayingTokenSymbol,
-			NativeAssetLiquidityAmount: overrides.NativeAssetLiquidityAmount,
+			Enabled:          overrides.UseCustomGasToken,
+			Name:             overrides.GasPayingTokenName,
+			Symbol:           overrides.GasPayingTokenSymbol,
+			InitialLiquidity: overrides.NativeAssetLiquidityAmount,
 		}
 	}
 
