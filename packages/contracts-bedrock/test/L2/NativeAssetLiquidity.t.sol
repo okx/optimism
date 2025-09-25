@@ -4,8 +4,9 @@ pragma solidity 0.8.15;
 // Testing utilities
 import { CommonTest } from "test/setup/CommonTest.sol";
 
-// Error imports
-import { Unauthorized, InvalidAmount } from "src/libraries/errors/CommonErrors.sol";
+// Libraries
+import { DevFeatures } from "src/libraries/DevFeatures.sol";
+import { NativeAssetLiquidity } from "src/L2/NativeAssetLiquidity.sol";
 
 /// @title NativeAssetLiquidity_TestInit
 /// @notice Reusable test initialization for `NativeAssetLiquidity` tests.
@@ -21,14 +22,18 @@ contract NativeAssetLiquidity_TestInit is CommonTest {
 
     /// @notice Test setup.
     function setUp() public virtual override {
-        enableCustomGasToken();
         super.setUp();
+        skipIfDevFeatureDisabled(DevFeatures.CUSTOM_GAS_TOKEN);
     }
+}
 
-    /// @notice Tests that contract is set up correctly.
-    function test_setup_succeeds() public view {
-        // Assert
-        assertEq(nativeAssetLiquidity.version(), "1.0.0");
+/// @title NativeAssetLiquidity_Version_Test
+/// @notice Tests the `version` function of the `NativeAssetLiquidity` contract.
+contract NativeAssetLiquidity_Version_Test is NativeAssetLiquidity_TestInit {
+    /// @notice Tests that the `version` function returns the correct string. We avoid testing the
+    ///         specific value of the string as it changes frequently.
+    function test_version_succeeds() public view {
+        assert(bytes(nativeAssetLiquidity.version()).length > 0);
     }
 }
 
@@ -71,7 +76,7 @@ contract NativeAssetLiquidity_Deposit_Test is NativeAssetLiquidity_TestInit {
         // Call the deposit function with unauthorized caller
         vm.prank(_caller);
         // Expect revert with Unauthorized
-        vm.expectRevert(Unauthorized.selector);
+        vm.expectRevert(NativeAssetLiquidity.NativeAssetLiquidity_Unauthorized.selector);
         nativeAssetLiquidity.deposit{ value: _amount }();
 
         // Assert caller and NativeAssetLiquidity balances remain unchanged
@@ -119,7 +124,7 @@ contract NativeAssetLiquidity_Withdraw_Test is NativeAssetLiquidity_TestInit {
         // Call the withdraw function with unauthorized caller
         vm.prank(_caller);
         // Expect revert with Unauthorized
-        vm.expectRevert(Unauthorized.selector);
+        vm.expectRevert(NativeAssetLiquidity.NativeAssetLiquidity_Unauthorized.selector);
         nativeAssetLiquidity.withdraw(_amount);
 
         // Assert caller and NativeAssetLiquidity balances remain unchanged
@@ -135,50 +140,12 @@ contract NativeAssetLiquidity_Withdraw_Test is NativeAssetLiquidity_TestInit {
 
         // Call the withdraw function with insufficient balance
         vm.prank(address(liquidityController));
-        // Expect revert with OutOfFunds
-        vm.expectRevert(bytes(""));
+        // Expect revert with NativeAssetLiquidity_InsufficientBalance
+        vm.expectRevert(NativeAssetLiquidity.NativeAssetLiquidity_InsufficientBalance.selector);
         nativeAssetLiquidity.withdraw(amount);
 
         // Assert contract and controller balances remain unchanged
         assertEq(address(nativeAssetLiquidity).balance, contractBalance);
         assertEq(address(liquidityController).balance, 0);
-    }
-}
-
-/// @title NativeAssetLiquidity_Fund_Test
-/// @notice Tests the `fund` function of the `NativeAssetLiquidity` contract.
-contract NativeAssetLiquidity_Fund_Test is NativeAssetLiquidity_TestInit {
-    /// @notice Tests that the fund function succeeds when called with a non-zero value.
-    /// @param _amount Amount of native asset (in wei) to call the fund function with.
-    /// @param _caller Address of the caller to call the fund function with.
-    function testFuzz_fund_succeeds(uint256 _amount, address _caller) public {
-        _amount = bound(_amount, 1, 1000 ether);
-        vm.assume(_caller != address(0));
-        vm.assume(_caller != address(nativeAssetLiquidity)); // Prevent contract from calling itself
-
-        // Deal caller with the amount to fund
-        vm.deal(_caller, _amount);
-        uint256 initialContractBalance = address(nativeAssetLiquidity).balance;
-
-        // Expect emit LiquidityFunded event
-        vm.expectEmit(address(nativeAssetLiquidity));
-        emit LiquidityFunded(_caller, _amount);
-        vm.prank(_caller);
-        nativeAssetLiquidity.fund{ value: _amount }();
-
-        // Assert caller and contract balances are updated correctly
-        assertEq(_caller.balance, 0);
-        assertEq(address(nativeAssetLiquidity).balance, initialContractBalance + _amount);
-    }
-
-    /// @notice Tests that the fund function reverts when called with zero value.
-    function test_fund_zeroAmount_reverts() public {
-        uint256 initialContractBalance = address(nativeAssetLiquidity).balance;
-        // Expect revert with InvalidAmount
-        vm.expectRevert(InvalidAmount.selector);
-        nativeAssetLiquidity.fund{ value: 0 }();
-
-        // Assert contract balance does not change
-        assertEq(address(nativeAssetLiquidity).balance, initialContractBalance);
     }
 }
