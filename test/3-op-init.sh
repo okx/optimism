@@ -16,8 +16,11 @@ FORK_BLOCK_HEX=$(printf "0x%x" "$FORK_BLOCK")
 sed_inplace 's/"number": "0x0"/"number": "'"$FORK_BLOCK_HEX"'"/' ./config-op/genesis.json
 sed_inplace 's/"parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000"/"parentHash": "'"$PARENT_HASH"'"/' ./config-op/genesis.json
 sed_inplace '/"70997970c51812dc3a010c7d01b50e0d17dc79c8": {/,/}/ s/"balance": "[^"]*"/"balance": "0x446c3b15f9926687d2c40534fdb564000000000000"/' config-op/genesis.json
+
 sed_inplace 's/"number": 0/"number": '"$FORK_BLOCK"'/' ./config-op/rollup.json
 
+jq '.alloc["e09CD061594aC075EA8899ECe8BFAAD549e792FD"].balance = "0x446c3b15f9926687d2c40534fdb564000000000000"' config-op/genesis.json > tmp.json 
+mv tmp.json config-op/genesis.json
 
 
 # Extract contract addresses from state.json and update .env file
@@ -117,7 +120,7 @@ docker compose run --no-deps \
   --ignore-smt-verify \
   --no-verify \
   --chaindata=/chaindata \
-  --output /config/geneis.json \
+  --output /config/genesis.json \
   /config/genesis.json 2>&1 | tee init.log
 
 # update genesis block hash in rollup.json
@@ -126,24 +129,24 @@ ROLLUP_CONTENT=$(jq ".genesis.l2.hash = \"$NEW_BLOCK_HASH\"" config-op/rollup.js
 echo $ROLLUP_CONTENT | jq > config-op/rollup.json
 rm -f init.log
 
-OP_GETH_DATADIR="$(pwd)/data/op-geth-rpc"
-rm -rf "$OP_GETH_DATADIR"
-mkdir -p "$OP_GETH_DATADIR"
-docker compose run --no-deps \
-  -v "$(pwd)/$CONFIG_DIR:/config" \
-  -v "/data2/xlayer-erigon-data/chaindata:/chaindata" \
-  op-geth-migrate-rpc \
-  --datadir "/datadir" \
-  --gcmode=archive \
-  --db.engine=$DB_ENGINE \
-  migrate \
-  --state.scheme=hash \
-  --ignore-smt-verify \
-  --no-verify \
-  --chaindata=/chaindata \
-  --output /config/genesis.json \
-  /config/genesis.json
-
+#OP_GETH_DATADIR="$(pwd)/data/op-geth-rpc"
+#rm -rf "$OP_GETH_DATADIR"
+#mkdir -p "$OP_GETH_DATADIR"
+#docker compose run --no-deps \
+#  -v "$(pwd)/$CONFIG_DIR:/config" \
+#  -v "/data2/xlayer-erigon-data/chaindata:/chaindata" \
+#  op-geth-migrate-rpc \
+#  --datadir "/datadir" \
+#  --gcmode=archive \
+#  --db.engine=$DB_ENGINE \
+#  migrate \
+#  --state.scheme=hash \
+#  --ignore-smt-verify \
+#  --no-verify \
+#  --chaindata=/chaindata \
+#  --output /config/genesis.json \
+#  /config/genesis.json
+#
 echo "finished init op-geth-seq and op-geth-rpc"
 
 

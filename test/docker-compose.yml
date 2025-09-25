@@ -168,6 +168,8 @@ services:
   op-geth-seq:
     image: "${OP_GETH_IMAGE_TAG}"
     container_name: op-geth-seq
+    environment:
+      - GOGC=500
     entrypoint: geth
     volumes:
       - ./data/op-geth-seq:/datadir
@@ -178,6 +180,7 @@ services:
       - "8552:8552"
       - "30303:30303"
       - "30303:30303/udp"
+      - "9090:9090"
     command:
       - --datadir
       - /datadir
@@ -194,7 +197,7 @@ services:
       - --ws.origins=*
       - --ws.api=debug,eth,txpool,net,engine
       - --syncmode=full
-      - --gcmode=archive
+      - --gcmode=full
       - --nodiscover
       - --maxpeers=0
       - --networkid=901
@@ -207,11 +210,15 @@ services:
       - --txpool.globalqueue=100000
       - --txpool.accountslots=50000
       - --txpool.accountqueue=10000
-      - --cache=8192          
+      - --cache=64000
       - --cache.database=50          
       - --cache.trie=30               
       - --cache.gc=20                  
       - --cache.snapshot=512            
+      - --pprof
+      - --pprof.addr=0.0.0.0
+      - --pprof.port=9090
+
 
   op-geth-migrate-seq:
     image: "${OP_GETH_MIGRATE_IMAGE_TAG}"
@@ -299,6 +306,8 @@ services:
       - --authrpc.jwtsecret=/jwt.txt
       - --rollup.sequencerhttp=http://op-geth-seq:8545
       - --rollup.enabletxpooladmission
+
+
 
   op-geth-migrate-rpc:
     image: "${OP_GETH_MIGRATE_IMAGE_TAG}"
