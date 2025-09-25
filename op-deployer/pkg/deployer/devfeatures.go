@@ -17,6 +17,9 @@ var (
 
 	// DeployV2DisputeGames enables deployment of V2 dispute game contracts.
 	DeployV2DisputeGames = common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000100")
+
+	// CustomGasToken enables the custom gas token.
+	CustomGasToken = common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000001000")
 )
 
 // IsDevFeatureEnabled checks if a specific development feature is enabled in a feature bitmap.

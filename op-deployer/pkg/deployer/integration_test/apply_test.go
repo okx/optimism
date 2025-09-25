@@ -244,7 +244,7 @@ func TestEndToEndApply(t *testing.T) {
 		}
 		// CGT config for OPCM
 		intent.GlobalDeployOverrides = map[string]interface{}{
-			"devFeatureBitmap": common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000100"),
+			"devFeatureBitmap": deployer.CustomGasToken,
 		}
 
 		require.NoError(t, deployer.ApplyPipeline(ctx, deployer.ApplyPipelineOpts{
