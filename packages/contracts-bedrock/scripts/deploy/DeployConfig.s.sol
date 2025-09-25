@@ -75,10 +75,19 @@ contract DeployConfig is Script {
     uint256 public daResolveWindow;
     uint256 public daBondSize;
     uint256 public daResolverRefundPercentage;
+
+    // Custom Gas Token Configuration
     bool public useCustomGasToken;
     string public gasPayingTokenName;
     string public gasPayingTokenSymbol;
     uint256 public nativeAssetLiquidityAmount;
+
+    // V2 Dispute Game Configuration
+    uint256 public faultGameV2MaxGameDepth;
+    uint256 public faultGameV2SplitDepth;
+    uint256 public faultGameV2ClockExtension;
+    uint256 public faultGameV2MaxClockDuration;
+
     bool public useInterop;
     bool public useUpgradedFork;
     bytes32 public devFeatureBitmap;
@@ -161,6 +170,10 @@ contract DeployConfig is Script {
         useInterop = _readOr(_json, "$.useInterop", false);
         devFeatureBitmap = bytes32(_readOr(_json, "$.devFeatureBitmap", 0));
         useUpgradedFork;
+        faultGameV2MaxGameDepth = _readOr(_json, "$.faultGameV2MaxGameDepth", 73);
+        faultGameV2SplitDepth = _readOr(_json, "$.faultGameV2SplitDepth", 30);
+        faultGameV2ClockExtension = _readOr(_json, "$.faultGameV2ClockExtension", 10800);
+        faultGameV2MaxClockDuration = _readOr(_json, "$.faultGameV2MaxClockDuration", 302400);
     }
 
     function fork() public view returns (Fork fork_) {

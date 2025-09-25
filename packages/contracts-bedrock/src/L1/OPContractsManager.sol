@@ -1580,6 +1580,10 @@ contract OPContractsManagerInteropMigrator is OPContractsManagerBase {
             oldDisputeGameFactory.setImplementation(GameTypes.SUPER_CANNON, IDisputeGame(address(0)));
             oldDisputeGameFactory.setImplementation(GameTypes.PERMISSIONED_CANNON, IDisputeGame(address(0)));
             oldDisputeGameFactory.setImplementation(GameTypes.SUPER_PERMISSIONED_CANNON, IDisputeGame(address(0)));
+            if (isDevFeatureEnabled(DevFeatures.CANNON_KONA)) {
+                oldDisputeGameFactory.setImplementation(GameTypes.CANNON_KONA, IDisputeGame(address(0)));
+                oldDisputeGameFactory.setImplementation(GameTypes.SUPER_CANNON_KONA, IDisputeGame(address(0)));
+            }
 
             // Migrate the portal to the new ETHLockbox and AnchorStateRegistry.
             portals[i].migrateToSuperRoots(newEthLockbox, newAnchorStateRegistry);
