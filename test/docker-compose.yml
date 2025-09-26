@@ -216,6 +216,7 @@ services:
       - ./config-op/test.rpc.rt.config.toml:/config.toml
     ports:
       - "8128:8545"
+      - "7547:7546"
     command:
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
