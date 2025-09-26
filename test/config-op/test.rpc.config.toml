@@ -20,6 +20,4 @@ NoDiscovery = true
 [Eth]
 NetworkId = 901
 SyncMode = "full"
-
-[Eth]
 EnableInnerTx = true
