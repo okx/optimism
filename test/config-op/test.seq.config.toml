@@ -28,7 +28,7 @@ AccountSlots = 50000
 AccountQueue = 10000
 
 [Eth.XLayer]
-EnableInnerTx = true
+EnableInnerTx = false
 
 [Eth.XLayer.Realtime]
 Enable = true
