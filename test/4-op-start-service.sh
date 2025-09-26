@@ -35,9 +35,11 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
 fi
 
 if [ "$LAUNCH_RPC_NODE" = "true" ]; then
-    docker compose up -d op-rpc
     if [ "$REALTIME_ENABLED" = "true" ]; then
-        docker compose up -d op-rpc-rt
+        CONFIG_FILE=config.rt.toml docker compose up -d op-rpc
+        docker compose up -d op-rpc-2
+    else
+    docker compose up -d op-rpc
     fi
 fi
 
