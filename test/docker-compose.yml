@@ -18,7 +18,9 @@ services:
       - ./l1-geth/consensus:/consensus
 
   l1-create-beacon-chain-genesis:
-    image: "gcr.io/prysmaticlabs/prysm/cmd/prysmctl:HEAD-aec349"
+    build:
+      context: .
+      dockerfile: Dockerfile.prysmctl
     container_name: l1-create-beacon-chain-genesis
     command:
       - testnet
@@ -112,7 +114,9 @@ services:
       retries: 5
 
   l1-beacon-chain:
-    image: "gcr.io/prysmaticlabs/prysm/beacon-chain:v4.1.1"
+    build:
+      context: .
+      dockerfile: Dockerfile.beacon-chain
     container_name: l1-beacon-chain
     command:
       - --datadir=/consensus/beacondata
@@ -149,7 +153,9 @@ services:
       - ./l1-geth/execution/jwtsecret:/execution/jwtsecret
 
   l1-validator:
-    image: "gcr.io/prysmaticlabs/prysm/validator:v4.1.1"
+    build:
+      context: .
+      dockerfile: Dockerfile.validator
     container_name: l1-validator
     command:
       - --beacon-rpc-provider=l1-beacon-chain:4000

@@ -1,0 +1,42 @@
+# Multi-stage Docker build for validator binary
+# Stage 1: Build the Go binary
+FROM golang:1.20.9-alpine AS builder
+
+# Install git, ca-certificates and build dependencies for CGO
+RUN apk add --no-cache git ca-certificates gcc musl-dev g++
+
+# Set working directory
+WORKDIR /app
+
+# Clone source code from GitHub
+ARG GIT_COMMIT=v4.1.1
+RUN git clone https://github.com/prysmaticlabs/prysm.git . && \
+    git checkout $GIT_COMMIT
+
+# Download dependencies
+RUN go mod download
+
+# Build the validator binary with CGO enabled
+RUN CGO_ENABLED=1 GOOS=linux go build \
+    -a -installsuffix cgo \
+    -ldflags="-w -s" \
+    -o validator \
+    ./cmd/validator
+
+# Stage 2: Create the final minimal image
+FROM alpine:latest
+
+# Install ca-certificates and libstdc++ for HTTPS requests and C++ runtime
+RUN apk --no-cache add ca-certificates libstdc++
+
+# Set working directory
+WORKDIR /root
+
+# Copy the binary from builder stage
+COPY --from=builder /app/validator /usr/local/bin/
+
+# Set the entrypoint
+ENTRYPOINT ["validator"]
+
+# Default command shows help
+CMD ["--help"]
