@@ -57,5 +57,9 @@ if [ $SKIP_OP_GETH_BUILD = "true" ]; then
 else
     echo "Building $OP_GETH_IMAGE_TAG"
     cd $OP_GETH_DIR
-    docker build -t $OP_GETH_IMAGE_TAG .
+    if [ $DB_ENGINE = "rocksdb" ]; then
+      docker build -t $OP_GETH_IMAGE_TAG -f ./Dockerfile.rocksdb .
+    else
+      docker build -t $OP_GETH_IMAGE_TAG .
+    fi
 fi
