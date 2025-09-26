@@ -60,6 +60,7 @@ test-e2e: stop
 
 .PHONY: apollo
 apollo: stop
+	@trap 'make stop' EXIT ERR INT TERM;
 	docker compose -f docker-compose-apollo.yml up -d mysql
 	sleep 10
 	docker compose -f docker-compose-apollo.yml up -d apollo-configservice

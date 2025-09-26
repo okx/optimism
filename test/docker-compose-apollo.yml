@@ -1,3 +1,7 @@
+networks:
+  default:
+    name: ${DOCKER_NETWORK:-dev-op}
+
 name: apollo
 
 services:
