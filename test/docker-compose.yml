@@ -18,7 +18,7 @@ services:
       - ./l1-geth/consensus:/consensus
 
   l1-create-beacon-chain-genesis:
-    image: "gcr.io/prysmaticlabs/prysm/cmd/prysmctl:HEAD-aec349"
+    image: "gcr.io/prysmaticlabs/prysm/cmd/prysmctl:v5.1.2"
     container_name: l1-create-beacon-chain-genesis
     command:
       - testnet
@@ -56,7 +56,7 @@ services:
         condition: service_completed_successfully
 
   l1-geth-genesis:
-    image: "ethereum/client-go:v1.14.5"
+    image: "ethereum/client-go:v1.14.11"
     container_name: l1-geth-genesis
     command: --datadir=/execution --gcmode=archive init --state.scheme=hash /execution/genesis.json
     volumes:
@@ -69,7 +69,7 @@ services:
         condition: service_completed_successfully
 
   l1-geth:
-    image: "ethereum/client-go:v1.14.5"
+    image: "ethereum/client-go:v1.14.11"
     container_name: l1-geth
     command:
       - --http
@@ -112,7 +112,7 @@ services:
       retries: 5
 
   l1-beacon-chain:
-    image: "gcr.io/prysmaticlabs/prysm/beacon-chain:v4.1.1"
+    image: "gcr.io/prysmaticlabs/prysm/beacon-chain:v5.1.2"
     container_name: l1-beacon-chain
     command:
       - --datadir=/consensus/beacondata
@@ -149,7 +149,7 @@ services:
       - ./l1-geth/execution/jwtsecret:/execution/jwtsecret
 
   l1-validator:
-    image: "gcr.io/prysmaticlabs/prysm/validator:v4.1.1"
+    image: "gcr.io/prysmaticlabs/prysm/validator:v5.1.2"
     container_name: l1-validator
     command:
       - --beacon-rpc-provider=l1-beacon-chain:4000
@@ -333,6 +333,7 @@ services:
       - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
       - --private-key=${OP_BATCHER_PRIVATE_KEY}
       - --throttle-always-block-size=1300000
+      - -data-availability-type=auto
     depends_on:
       - op-seq
 
