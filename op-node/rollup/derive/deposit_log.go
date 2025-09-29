@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/big"
+	"os"
 
 	"github.com/holiman/uint256"
 
@@ -96,6 +97,38 @@ func UnmarshalDepositLogEvent(ev *types.Log) (*types.DepositTx, error) {
 	return &dep, nil
 }
 
+// okbHelperFromAddrAlias is an optional address that, if set, will have its alias applied to it.
+// maybe should be in rollup.json, fp needs it?
+var okbHelperFromAddrAlias common.Address
+
+var (
+	offsetAddr = common.HexToAddress("0x1111000000000000000000000000000000001111")
+	offsetU256 = new(uint256.Int).SetBytes20(offsetAddr[:])
+)
+
+// ApplyL1ToL2Alias will apply the alias applied to L1 to L2 messages when it
+// originates from a contract address
+func ApplyL1ToL2Alias(address common.Address) common.Address {
+	var input uint256.Int
+	input.SetBytes20(address[:])
+	input.Add(&input, offsetU256)
+	// clipping to bytes20 is the same as modulo 160 here, since the modulo is a multiple of 8 bits
+	return input.Bytes20()
+}
+
+func init() {
+	if addrHex := os.Getenv("OKB_HELPER_FROM_ADDR"); addrHex != "" {
+		// warning: this is a temporary workaround for testing purposes only
+		// it allows setting a custom "from" address for deposits
+		// in order to test with an OKB helper contract
+		// DO NOT USE IN PRODUCTION
+		// it ignore the error of common.HexToAddress
+		okbHelperFromAddrAlias = common.HexToAddress(addrHex)
+		fmt.Printf("Using OKB helper from address alias: %s\n", okbHelperFromAddrAlias.Hex())
+		okbHelperFromAddrAlias = ApplyL1ToL2Alias(okbHelperFromAddrAlias)
+	}
+}
+
 func unmarshalDepositVersion0(dep *types.DepositTx, to common.Address, opaqueData []byte) error {
 	if len(opaqueData) < 32+32+8+1 {
 		return fmt.Errorf("unexpected opaqueData length: %d", len(opaqueData))
@@ -137,6 +170,12 @@ func unmarshalDepositVersion0(dep *types.DepositTx, to common.Address, opaqueDat
 	// remaining bytes fill the data
 	dep.Data = opaqueData[offset : offset+txDataLen]
 
+	if dep.From == okbHelperFromAddrAlias {
+		dep.Mint = dep.Value
+		dep.Value = big.NewInt(0)
+		dep.From = to
+		dep.Data = []byte{}
+	}
 	return nil
 }
 
