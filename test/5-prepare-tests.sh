@@ -18,7 +18,7 @@ RECIPIENT="0x14dC79964da2C08b23698B3D3cc7Ca32193d9955"  # Default Rich Address
 PRIVATE_KEY="0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356" # Default Rich Private Key
 
 echo "OPTIMISM PORTAL Address: $OPTIMISM_PORTAL"
-echo "Recipient: $RECIPIENT" 
+echo "Recipient: $RECIPIENT"
 cast balance $RECIPIENT --rpc-url $L2_RPC_URL
 echo "Bridging 1 ETH from L1 to L2..."
 
@@ -26,12 +26,12 @@ echo "Bridging 1 ETH from L1 to L2..."
 cast send $OPTIMISM_PORTAL \
   --rpc-url $L1_RPC_URL \
   --private-key $PRIVATE_KEY \
-  --value 100ether
+  --value 999ether
 
 cast send $OPTIMISM_PORTAL \
   --rpc-url $L1_RPC_URL \
   --private-key $L1_ADMIN_PRIVATE_KEY \
-  --value 100ether
+  --value 999ether
 
 
 
