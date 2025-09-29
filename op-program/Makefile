@@ -47,8 +47,8 @@ check-custom-chains: op-program-host
 	./bin/op-program configs check-custom-chains
 
 reproducible-prestate: check-custom-chains
-	@docker build --build-arg GO_VERSION=1.24.2-alpine3.21 --build-arg EXPORT_TARGET=next  --output ./bin/ --progress plain -f Dockerfile.repro ../
-	@docker build --build-arg GO_VERSION=1.23.8-alpine3.21 --build-arg EXPORT_TARGET=current --output ./bin/ --progress plain -f Dockerfile.repro ../
+	@docker build --build-arg GO_VERSION=1.24.7-alpine3.21 --build-arg EXPORT_TARGET=next  --output ./bin/ --progress plain -f Dockerfile.repro ../
+	@docker build --build-arg GO_VERSION=1.24.7-alpine3.21 --build-arg EXPORT_TARGET=current --output ./bin/ --progress plain -f Dockerfile.repro ../
 	@echo "-------------------- Production Prestates --------------------"
 	@echo "\nCannon64 Absolute prestate hash: "
 	@cat ./bin/prestate-proof-mt64.json | jq -r .pre
@@ -141,8 +141,8 @@ analyze-op-program-client-next:
 	./scripts/run-static-analysis.sh ./vm-profiles/cannon-multithreaded-64-next.yaml ./compatibility-test/baseline-cannon-multithreaded-64-next.json
 
 run-vm-compat:
-	@docker build --build-arg GO_VERSION=1.23.8-alpine3.21 --build-arg VM_TARGET=current --progress plain -f Dockerfile.vmcompat ../
-	@docker build --build-arg GO_VERSION=1.24.2-alpine3.21 --build-arg VM_TARGET=next --progress plain -f Dockerfile.vmcompat ../
+	@docker build --build-arg GO_VERSION=1.24.7-alpine3.21 --build-arg VM_TARGET=current --progress plain -f Dockerfile.vmcompat ../
+	@docker build --build-arg GO_VERSION=1.24.7-alpine3.21 --build-arg VM_TARGET=next --progress plain -f Dockerfile.vmcompat ../
 
 .PHONY: \
 	op-program \
