@@ -2,11 +2,16 @@
 FROM go-builder:latest as builder
 WORKDIR /root
 COPY . .
+RUN cd packages/contracts-bedrock && forge build
 
 # Build Go binaries with user-provided metadata
-RUN cd op-deployer && just
+RUN cd - && cd op-deployer && just
 FROM alpine:latest
+WORKDIR /root
+# Copy foundry tools
+COPY --from=builder  /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil /usr/local/bin/
 # Copy op-deployer binary
 COPY --from=builder  /root/op-deployer/bin/op-deployer /usr/local/bin/op-deployer
-WORKDIR /root
+# Copy contracts artifacts
+COPY --from=builder  /root/packages/contracts-bedrock/ ./packages/contracts-bedrock/
 CMD ["op-deployer"]

@@ -17,4 +17,8 @@ RUN case ${TARGETARCH} in \
         esac && \
         curl -sSL "https://github.com/casey/just/releases/download/1.36.0/just-1.36.0-${JUST_ARCH}-unknown-linux-musl.tar.gz" | tar -xz -C /usr/local/bin just && \
         chmod +x /usr/local/bin/just
+RUN curl -L https://foundry.paradigm.xyz | bash && \
+    /root/.foundry/bin/foundryup && \
+    mv /root/.foundry/bin/* /usr/local/bin/ && \
+    rm -rf /root/.foundry
 
