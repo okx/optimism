@@ -6,19 +6,14 @@ import (
 
 var (
 	// Realtime feature
-	RealtimeEnableFlag = &cli.BoolFlag{
-		Name:  "realtime.enabled",
+	RealtimeSequencerEnableFlag = &cli.BoolFlag{
+		Name:  "realtime.sequencer-enabled",
 		Usage: "Kafka sync enable flag",
 		Value: true,
 	}
 	RealtimeKafkaSyncBootstrapServers = &cli.StringFlag{
 		Name:  "realtime.kafka-sync-bootstrap-servers",
 		Usage: "Kafka sync bootstrap servers",
-		Value: "",
-	}
-	RealtimeKafkaSyncBlockTopic = &cli.StringFlag{
-		Name:  "realtime.kafka-sync-block-topic",
-		Usage: "Kafka block topic",
 		Value: "",
 	}
 	RealtimeKafkaSyncErrorTopic = &cli.StringFlag{
@@ -39,9 +34,8 @@ var (
 
 	// XLayerFlags are the default flags for X Layer features
 	XLayerFlags = []cli.Flag{
-		RealtimeEnableFlag,
+		RealtimeSequencerEnableFlag,
 		RealtimeKafkaSyncBootstrapServers,
-		RealtimeKafkaSyncBlockTopic,
 		RealtimeKafkaSyncErrorTopic,
 		RealtimeKafkaSyncClientID,
 		RealtimeKafkaSyncGroupID,

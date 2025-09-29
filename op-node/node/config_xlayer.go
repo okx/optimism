@@ -23,10 +23,9 @@ func applyRealtimeFlags(ctx *cli.Context, cfg *Config) {
 		groupID = envGroupID
 	}
 	realtimeCfg := rollup.DefaultRealtimeConfig
-	realtimeCfg.Enable = ctx.Bool(flags.RealtimeEnableFlag.Name)
+	realtimeCfg.SequencerEnable = ctx.Bool(flags.RealtimeSequencerEnableFlag.Name)
 	realtimeCfg.Kafka = realtimeKafka.KafkaConfig{
 		BootstrapServers: strings.Split(ctx.String(flags.RealtimeKafkaSyncBootstrapServers.Name), ","),
-		BlockTopic:       ctx.String(flags.RealtimeKafkaSyncBlockTopic.Name),
 		ErrorTopic:       ctx.String(flags.RealtimeKafkaSyncErrorTopic.Name),
 		ClientID:         ctx.String(flags.RealtimeKafkaSyncClientID.Name),
 		GroupID:          groupID,

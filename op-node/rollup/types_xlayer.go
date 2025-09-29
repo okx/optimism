@@ -5,11 +5,11 @@ import (
 )
 
 type RealtimeConfig struct {
-	Enable bool
-	Kafka  realtimeKafka.KafkaConfig
+	SequencerEnable bool
+	Kafka           realtimeKafka.KafkaConfig
 }
 
 var DefaultRealtimeConfig = RealtimeConfig{
-	Enable: false,
-	Kafka:  realtimeKafka.KafkaConfig{},
+	SequencerEnable: false,
+	Kafka:           realtimeKafka.KafkaConfig{},
 }
