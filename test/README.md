@@ -162,8 +162,8 @@ Each conductor node uses three ports:
 
 - **Consensus Port**: Raft protocol
   - Node 1: 50050
-  - Node 2: 50051
-  - Node 3: 50052
+  - Node 2: 50052
+  - Node 3: 50053
 
 - **Sequencer Port**: L2 execution
   - Node 1: 9545
