@@ -39,7 +39,7 @@ if [ "$LAUNCH_RPC_NODE" = "true" ]; then
         CONFIG_FILE=config.rt.toml docker compose up -d op-rpc
         docker compose up -d op-rpc-2
     else
-    docker compose up -d op-rpc
+        docker compose up -d op-rpc
     fi
 fi
 
