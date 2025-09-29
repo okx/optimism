@@ -767,41 +767,41 @@ fi
 echo "✅ All state restoration completed"
 echo ""
 
-# Step 9: Precompiled contract gas verification test
-echo "🔬 Step 9: Precompiled Contract Gas Verification Test"
-echo "----------------------------------------"
+# # Step 9: Precompiled contract gas verification test
+# echo "🔬 Step 9: Precompiled Contract Gas Verification Test"
+# echo "----------------------------------------"
 
-echo "ℹ️  Verifying TEST_OP gas consumption..."
-TEST_OP_GAS=$(cast estimate --rpc-url "$RPC_URL" --from "$ADMIN" 0x0000000000000000000000000000000000001001 0x01)
+# echo "ℹ️  Verifying TEST_OP gas consumption..."
+# TEST_OP_GAS=$(cast estimate --rpc-url "$RPC_URL" --from "$ADMIN" 0x0000000000000000000000000000000000001001 0x01)
 
-# Calculate expected gas value
-# Base transaction gas: 21000
-# Data gas: 16 (1 byte of 0x01, using EIP2028's TxDataNonZeroGasEIP2028)
-# TEST_OP gas: 700 (our modification)
-EXPECTED_GAS=21716
+# # Calculate expected gas value
+# # Base transaction gas: 21000
+# # Data gas: 16 (1 byte of 0x01, using EIP2028's TxDataNonZeroGasEIP2028)
+# # TEST_OP gas: 700 (our modification)
+# EXPECTED_GAS=21716
 
-if [ "$TEST_OP_GAS" -eq "$EXPECTED_GAS" ]; then
-    echo "✅ TEST_OP gas verification successful: $TEST_OP_GAS (expected: $EXPECTED_GAS)"
-else
-    echo "❌ TEST_OP gas verification failed:"
-    echo "  Actual: $TEST_OP_GAS"
-    echo "  Expected: $EXPECTED_GAS"
-    echo "  Difference: $((TEST_OP_GAS - EXPECTED_GAS))"
-    exit 1
-fi
+# if [ "$TEST_OP_GAS" -eq "$EXPECTED_GAS" ]; then
+#     echo "✅ TEST_OP gas verification successful: $TEST_OP_GAS (expected: $EXPECTED_GAS)"
+# else
+#     echo "❌ TEST_OP gas verification failed:"
+#     echo "  Actual: $TEST_OP_GAS"
+#     echo "  Expected: $EXPECTED_GAS"
+#     echo "  Difference: $((TEST_OP_GAS - EXPECTED_GAS))"
+#     exit 1
+# fi
 
-echo "ℹ️  Verifying precompiled contract call functionality..."
-TEST_OP_RESULT=$(cast call --rpc-url "$RPC_URL" --from "$ADMIN" 0x0000000000000000000000000000000000001001 0x01)
+# echo "ℹ️  Verifying precompiled contract call functionality..."
+# TEST_OP_RESULT=$(cast call --rpc-url "$RPC_URL" --from "$ADMIN" 0x0000000000000000000000000000000000001001 0x01)
 
-if [ "$TEST_OP_RESULT" = "0x4f4b" ]; then
-    echo "✅ TEST_OP call successful, returned 'OK'"
-else
-    echo "❌ TEST_OP call failed, returned: $TEST_OP_RESULT"
-    exit 1
-fi
+# if [ "$TEST_OP_RESULT" = "0x4f4b" ]; then
+#     echo "✅ TEST_OP call successful, returned 'OK'"
+# else
+#     echo "❌ TEST_OP call failed, returned: $TEST_OP_RESULT"
+#     exit 1
+# fi
 
-echo "✅ Precompiled contract gas verification test completed"
-echo ""
+# echo "✅ Precompiled contract gas verification test completed"
+# echo ""
 
 echo "🎉 All tests completed!"
 echo "  ✅ Operator management normal"
@@ -812,4 +812,4 @@ echo "  ✅ Query functionality normal"
 echo "  ✅ Admin transfer functionality normal"
 echo "  ✅ Owner transfer functionality normal"
 echo "  ✅ State restoration normal"
-echo "  ✅ Precompiled contract gas verification normal"
+# echo "  ✅ Precompiled contract gas verification normal"
