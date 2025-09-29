@@ -242,6 +242,8 @@ services:
   op-seq:
     image: "${OP_STACK_IMAGE_TAG}"
     container_name: op-seq
+    environment:
+      - OKB_HELPER_FROM_ADDR=0x332Fb35767182F8ac9F9C1405db626105F6694E0
     volumes:
       - ./config-op/rollup.json:/rollup.json
       - ./config-op/jwt.txt:/jwt.txt
