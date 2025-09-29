@@ -1,0 +1,13 @@
+# Single stage build with Go
+FROM go-builder:latest as builder
+WORKDIR /root
+COPY . .
+
+# Build Go binaries with user-provided metadata
+RUN cd op-validator && just
+
+FROM alpine:latest
+# Copy op-validator binary
+COPY --from=builder  /root/op-validator/bin/op-validator /usr/local/bin/op-validator
+WORKDIR /root
+CMD ["op-validator"]

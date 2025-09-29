@@ -1,0 +1,13 @@
+# Single stage build with Go
+FROM go-builder:latest as builder
+WORKDIR /root
+COPY . .
+
+# Build Go binaries with user-provided metadata
+RUN cd op-challenger && just
+
+FROM alpine:latest
+# Copy op-challenger binary
+COPY --from=builder  /root/op-challenger/bin/op-challenger /usr/local/bin/op-challenger
+WORKDIR /root
+CMD ["op-challenger"]

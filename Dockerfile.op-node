@@ -1,0 +1,12 @@
+# Single stage build with Go
+FROM go-builder:latest as builder
+WORKDIR /root
+COPY . .
+
+# Build Go binaries with user-provided metadata
+RUN cd op-node && just
+FROM alpine:latest
+# Copy op-node binary
+COPY --from=builder  /root/op-node/bin/op-node /usr/local/bin/op-node
+WORKDIR /root
+CMD ["op-node"]

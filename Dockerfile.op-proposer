@@ -1,0 +1,12 @@
+# Single stage build with Go
+FROM go-builder:latest as builder
+WORKDIR /root
+COPY . .
+
+# Build Go binaries with user-provided metadata
+RUN cd op-proposer && just
+FROM alpine:latest
+# Copy op-proposer binary
+COPY --from=builder  /root/op-proposer/bin/op-proposer /usr/local/bin/op-proposer
+WORKDIR /root
+CMD ["op-proposer"]

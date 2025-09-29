@@ -1,0 +1,12 @@
+# Single stage build with Go
+FROM go-builder:latest as builder
+WORKDIR /root
+COPY . .
+
+# Build Go binaries with user-provided metadata
+RUN cd op-batcher && just
+FROM alpine:latest
+
+COPY --from=builder  /root/op-batcher/bin/op-batcher /usr/local/bin/op-batcher
+WORKDIR /root
+CMD ["op-batcher"]

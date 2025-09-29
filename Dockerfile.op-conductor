@@ -1,0 +1,13 @@
+# Single stage build with Go
+FROM go-builder:latest as builder
+WORKDIR /root
+COPY . .
+
+# Build Go binaries with user-provided metadata
+RUN cd op-conductor && just
+
+FROM alpine:latest
+# Copy op-conductor binary
+COPY --from=builder  /root/op-conductor/bin/op-conductor /usr/local/bin/op-conductor
+WORKDIR /root
+CMD ["op-conductor"]
