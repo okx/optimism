@@ -20,10 +20,10 @@ if [ -z "$FORK_BLOCK" ]; then
 fi
 
 FORK_BLOCK_HEX=$(printf "0x%x" "$FORK_BLOCK")
-sed_inplace 's/"number": "0x0"/"number": "'"$FORK_BLOCK_HEX"'"/' ./config-op/genesis.json
+sed_inplace '/"config": {/,/}/ s/"optimism": {/"legacyXLayerBlock": '"$((FORK_BLOCK + 1))"',\n    "optimism": {/' ./config-op/genesis.json
 sed_inplace 's/"parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000"/"parentHash": "'"$PARENT_HASH"'"/' ./config-op/genesis.json
 sed_inplace '/"70997970c51812dc3a010c7d01b50e0d17dc79c8": {/,/}/ s/"balance": "[^"]*"/"balance": "0x446c3b15f9926687d2c40534fdb564000000000000"/' config-op/genesis.json
-sed_inplace 's/"number": 0/"number": '"$FORK_BLOCK"'/' ./config-op/rollup.json
+sed_inplace 's/"number": 0/"number": '"$((FORK_BLOCK + 1))"'/' ./config-op/rollup.json
 
 # Extract contract addresses from state.json and update .env file
 echo "🔧 Extracting contract addresses from state.json..."
@@ -120,13 +120,33 @@ docker compose run --no-deps --rm \
   --state.scheme=hash \
   /genesis.json 2>&1 | tee init.log
 
-# update genesis block hash in rollup.json
-NEW_BLOCK_HASH=$(grep "Successfully wrote genesis state" init.log | jq -r .hash)
-if [ -z "$NEW_BLOCK_HASH" ] || [ "$NEW_BLOCK_HASH" = "null" ]; then
-    echo " ❌ Failed to extract genesis block hash from init.log"
-    echo "Please check if op-geth-seq initialization was successful"
+# Start op-geth-seq to get the block hash at FORK_BLOCK+1
+echo "🚀 Starting op-geth-seq to get block hash at FORK_BLOCK+1..."
+docker compose up -d op-geth-seq
+
+# Wait for op-geth-seq to be ready
+echo "⏳ Waiting for op-geth-seq to be ready..."
+sleep 20
+set +x
+# Get the block hash at FORK_BLOCK+1
+TARGET_BLOCK=$((FORK_BLOCK + 1))
+echo "🔍 Getting block hash at block number: $TARGET_BLOCK"
+NEW_BLOCK_HASH=$(curl -s -X POST -H "Content-Type: application/json" --data "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x$(printf "%x" $TARGET_BLOCK)\",false],\"id\":1}" http://localhost:8123 | jq -r '.result.hash' 2>/dev/null)
+echo "New block hash: $NEW_BLOCK_HASH"
+if [ -z "$NEW_BLOCK_HASH" ] || [ "$NEW_BLOCK_HASH" = "null" ] || [ "$NEW_BLOCK_HASH" = "undefined" ]; then
+    echo " ❌ Failed to get block hash at block $TARGET_BLOCK"
+    echo "Please check if op-geth-seq is running and has produced enough blocks"
+    docker compose logs op-geth-seq --tail=20
     exit 1
 fi
+set -x
+
+echo " ✅ Got block hash at block $TARGET_BLOCK: $NEW_BLOCK_HASH"
+
+# Stop op-geth-seq after getting the hash
+docker compose stop op-geth-seq
+
+# update genesis block hash in rollup.json
 jq ".genesis.l2.hash = \"$NEW_BLOCK_HASH\"" config-op/rollup.json > config-op/rollup.json.tmp
 mv config-op/rollup.json.tmp config-op/rollup.json
 
