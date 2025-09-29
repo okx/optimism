@@ -234,6 +234,8 @@ type PayloadInfo struct {
 type ExecutionPayloadEnvelope struct {
 	ParentBeaconBlockRoot *common.Hash      `json:"parentBeaconBlockRoot,omitempty"`
 	ExecutionPayload      *ExecutionPayload `json:"executionPayload"`
+	// For X Layer, realtime
+	Changeset *realtimeTypes.Changeset `json:"changeset,omitempty"`
 }
 
 func (env *ExecutionPayloadEnvelope) ID() BlockID {
@@ -269,8 +271,6 @@ type ExecutionPayload struct {
 	ExcessBlobGas *Uint64Quantity `json:"excessBlobGas,omitempty"`
 	// Nil if not present (Bedrock, Canyon, Delta, Ecotone, Fjord, Granite, Holocene)
 	WithdrawalsRoot *common.Hash `json:"withdrawalsRoot,omitempty"`
-	// For X Layer, realtime
-	Changeset *realtimeTypes.Changeset `json:"changeset,omitempty"`
 }
 
 func (payload *ExecutionPayload) ID() BlockID {
