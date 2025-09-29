@@ -312,7 +312,7 @@ services:
     image: "${OP_STACK_IMAGE_TAG}"
     container_name: op-rpc-2
     volumes:
-      - ./data/op-rpc:/data
+      - ./data/op-rpc-2:/data
       - ./config-op/rollup.json:/rollup.json
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/oprpc_p2p_priv.txt:/opnode_p2p_priv.txt
@@ -330,7 +330,7 @@ services:
       - --rpc.port=9545
       - --p2p.listen.tcp=9223
       - --p2p.listen.udp=9223
-      - --p2p.priv.raw=604557d042fbea9ed42f46c0c95c346a932b6a5ef0c0dd07a00dbf95801a2510
+      - --p2p.priv.raw=096648ce9102985f9a57a12fa8138c4892a881f7b99dc7e84ede99b7ba24ffe7
       - --p2p.peerstore.path=/data/p2p/opnode_peerstore_db
       - --p2p.discovery.path=/data/p2p/opnode_discovery_db
       - --p2p.static=/dns4/op-seq/tcp/9223/p2p/16Uiu2HAkzHdkbmS2VrCsccLibsu7MvGHpmFUMJnMTkKifrtS5m65
