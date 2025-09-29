@@ -79,7 +79,7 @@ func (s *Sequencer) SendRealtimeConfirmedBlock(envelope *eth.ExecutionPayloadEnv
 				},
 				TxCount:   int64(len(envelope.ExecutionPayload.Transactions)),
 				Hash:      envelope.ExecutionPayload.BlockHash,
-				Changeset: envelope.ExecutionPayload.Changeset,
+				Changeset: envelope.Changeset,
 			}
 		}
 	}
