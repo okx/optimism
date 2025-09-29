@@ -19,6 +19,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-node/rollup/event"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	realtimeKafka "github.com/ethereum/go-ethereum/realtime/kafka"
+	realtimeTypes "github.com/ethereum/go-ethereum/realtime/types"
 )
 
 // sealingDuration defines the expected time it takes to seal the block
@@ -125,7 +126,8 @@ type Sequencer struct {
 	toBlockRef func(rollupCfg *rollup.Config, payload *eth.ExecutionPayload) (eth.L2BlockRef, error)
 
 	// For X Layer, realtime
-	realtimeProducer *realtimeKafka.KafkaProducer
+	realtimeProducer      *realtimeKafka.KafkaProducer
+	realtimeBlockInfoChan chan *realtimeTypes.BlockInfo
 }
 
 var _ SequencerIface = (*Sequencer)(nil)
@@ -303,6 +305,9 @@ func (d *Sequencer) onBuildSealed(x engine.BuildSealedEvent) {
 	})
 	d.latest.Ref = x.Ref
 	d.latestSealed = x.Ref
+
+	// For X Layer, realtime
+	d.SendRealtimeConfirmedBlock(x.Envelope)
 }
 
 func (d *Sequencer) onPayloadSealInvalid(x engine.PayloadSealInvalidEvent) {
@@ -585,7 +590,7 @@ func (d *Sequencer) startBuildingBlock() {
 	}
 
 	// For X Layer, realtime
-	attrs.RealtimeEnabled = d.isRealtimeEnabled()
+	d.SetRealtimeEnabledXLayer(attrs)
 
 	d.log.Debug("prepared attributes for new block",
 		"num", l2Head.Number+1, "time", uint64(attrs.Timestamp),

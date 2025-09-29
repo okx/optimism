@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
+	realtimeTypes "github.com/ethereum/go-ethereum/realtime/types"
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/holiman/uint256"
 )
@@ -269,7 +270,7 @@ type ExecutionPayload struct {
 	// Nil if not present (Bedrock, Canyon, Delta, Ecotone, Fjord, Granite, Holocene)
 	WithdrawalsRoot *common.Hash `json:"withdrawalsRoot,omitempty"`
 	// For X Layer, realtime
-	RealtimeEnabled bool `json:"realtimeEnabled,omitempty"`
+	Changeset *realtimeTypes.Changeset `json:"changeset,omitempty"`
 }
 
 func (payload *ExecutionPayload) ID() BlockID {
