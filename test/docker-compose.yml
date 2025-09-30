@@ -240,6 +240,11 @@ services:
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}    # 默认关闭
       - --conductor.rpc=http://op-conductor:8547
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:9545"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     depends_on:
       - op-geth-seq
 
@@ -310,8 +315,10 @@ services:
       - --healthcheck.min-peer-count=1
       - --rollup.config=/rollup.json
     depends_on:
-      - op-seq
-      - op-geth-seq
+      op-seq:
+        condition: service_healthy
+      op-geth-seq:
+        condition: service_started
 
   op-batcher:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -477,6 +484,11 @@ services:
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor2:8547
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:9545"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     depends_on:
       - op-geth-seq2
 
@@ -512,8 +524,10 @@ services:
       - --healthcheck.min-peer-count=1
       - --rollup.config=/rollup.json
     depends_on:
-      - op-seq2
-      - op-geth-seq2
+      op-seq2:
+        condition: service_healthy
+      op-geth-seq2:
+        condition: service_started
 
 
   op-geth-seq3:
@@ -588,6 +602,11 @@ services:
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor3:8547
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:9545"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     depends_on:
       - op-geth-seq3
 
@@ -624,6 +643,8 @@ services:
       - --healthcheck.min-peer-count=1
       - --rollup.config=/rollup.json
     depends_on:
-      - op-seq3
-      - op-geth-seq3
+      op-seq3:
+        condition: service_healthy
+      op-geth-seq3:
+        condition: service_started
 
