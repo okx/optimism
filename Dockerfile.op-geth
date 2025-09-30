@@ -1,0 +1,12 @@
+# Single stage build with Go
+FROM go-builder:latest as builder
+WORKDIR /root
+COPY . .
+
+# Build Go binaries with user-provided metadata
+RUN go run build/ci.go install -static ./cmd/geth
+FROM alpine:latest
+# Copy geth binary
+COPY --from=builder /root/build/bin/geth /usr/local/bin/
+WORKDIR /root
+CMD ["geth"]
