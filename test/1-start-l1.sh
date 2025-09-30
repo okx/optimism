@@ -3,7 +3,7 @@ set -e
 source .env
 docker compose up -d l1-validator
 
-sleep 3
+sleep 30
 
 # Calculate addresses for all actors
 OP_BATCHER_ADDR=$(cast wallet a $OP_BATCHER_PRIVATE_KEY)
