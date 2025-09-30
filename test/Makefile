@@ -61,6 +61,7 @@ test-e2e: stop
 .PHONY: apollo
 apollo: stop
 	@trap 'make stop' EXIT ERR INT TERM;
+	@echo "Starting with Apollo enabled..."
 	docker compose -f docker-compose-apollo.yml up -d mysql
 	sleep 10
 	docker compose -f docker-compose-apollo.yml up -d apollo-configservice
@@ -68,5 +69,5 @@ apollo: stop
 	sleep 10
 	docker compose -f docker-compose-apollo.yml up -d apollo-portal
 
-	make run2
+	APOLLO_ENABLED=true make run2
 

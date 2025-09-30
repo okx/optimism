@@ -169,6 +169,12 @@ services:
     image: "${OP_GETH_IMAGE_TAG}"
     container_name: op-geth-seq
     entrypoint: geth
+    environment:
+      - APOLLO_ENABLED=${APOLLO_ENABLED:-false}
+      - APOLLO_APP_ID=XLayerSeq
+      - APOLLO_IP=http://apollo-configservice:8085
+      - APOLLO_CLUSTER=default
+      - APOLLO_NAMESPACE=sequencer-config,l2gaspricer-config,pool-config
     volumes:
       - ./data/op-geth-seq:/datadir
       - ./config-op/jwt.txt:/jwt.txt
@@ -185,6 +191,11 @@ services:
       - --config=/config.toml
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
+      - --apollo.enabled=${APOLLO_ENABLED:-false}
+      - --apollo.app-id=${APOLLO_APP_ID:-XLayerSeq}
+      - --apollo.ip=${APOLLO_IP:-http://apollo-configservice:8085}
+      - --apollo.cluster=${APOLLO_CLUSTER:-default}
+      - --apollo.namespace=${APOLLO_NAMESPACE:-sequencer-config,l2gaspricer-config,pool-config}
 
   op-geth-rpc:
     image: "${OP_GETH_IMAGE_TAG}"
@@ -240,11 +251,6 @@ services:
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}    # 默认关闭
       - --conductor.rpc=http://op-conductor:8547
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:9545"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     depends_on:
       - op-geth-seq
 
@@ -315,10 +321,8 @@ services:
       - --healthcheck.min-peer-count=1
       - --rollup.config=/rollup.json
     depends_on:
-      op-seq:
-        condition: service_healthy
-      op-geth-seq:
-        condition: service_started
+      - op-seq
+      - op-geth-seq
 
   op-batcher:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -484,11 +488,6 @@ services:
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor2:8547
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:9545"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     depends_on:
       - op-geth-seq2
 
@@ -524,10 +523,8 @@ services:
       - --healthcheck.min-peer-count=1
       - --rollup.config=/rollup.json
     depends_on:
-      op-seq2:
-        condition: service_healthy
-      op-geth-seq2:
-        condition: service_started
+      - op-seq2
+      - op-geth-seq2
 
 
   op-geth-seq3:
@@ -602,11 +599,6 @@ services:
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor3:8547
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:9545"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     depends_on:
       - op-geth-seq3
 
@@ -643,8 +635,6 @@ services:
       - --healthcheck.min-peer-count=1
       - --rollup.config=/rollup.json
     depends_on:
-      op-seq3:
-        condition: service_healthy
-      op-geth-seq3:
-        condition: service_started
+      - op-seq3
+      - op-geth-seq3
 
