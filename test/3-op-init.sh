@@ -157,17 +157,9 @@ echo " 🔄 Copying database from op-geth-seq to op-geth-rpc..."
 rm -rf "$OP_GETH_RPC_DATADIR"
 cp -r "$OP_GETH_DATADIR" "$OP_GETH_RPC_DATADIR"
 
-if [ "$CONDUCTOR_ENABLED" = "true" ]; then
-    echo " 🔄 Copying database from op-geth-seq to op-geth-seq2..."
-    OP_GETH_SEQ2_DATADIR="$(pwd)/data/op-geth-seq2"
-    rm -rf "$OP_GETH_SEQ2_DATADIR"
-    cp -r "$OP_GETH_DATADIR" "$OP_GETH_SEQ2_DATADIR"
-
-    echo " 🔄 Copying database from op-geth-seq to op-geth-seq3..."
-    OP_GETH_SEQ3_DATADIR="$(pwd)/data/op-geth-seq3"
-    rm -rf "$OP_GETH_SEQ3_DATADIR"
-    cp -r "$OP_GETH_DATADIR" "$OP_GETH_SEQ3_DATADIR"
-fi
+# Remove nodekey to ensure op-geth-rpc generates a unique node ID
+echo " 🔑 Removing nodekey to generate unique node ID for op-geth-rpc..."
+rm -f "$OP_GETH_RPC_DATADIR/geth/nodekey"
 
 
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
