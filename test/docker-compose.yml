@@ -250,6 +250,11 @@ services:
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}    # 默认关闭
       - --conductor.rpc=http://op-conductor:8547
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:9545"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     depends_on:
       op-geth-seq:
         condition: service_healthy
@@ -486,6 +491,11 @@ services:
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor2:8547
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:9545"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     depends_on:
       op-geth-seq2:
         condition: service_healthy
@@ -597,6 +607,11 @@ services:
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor3:8547
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:9545"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     depends_on:
       op-geth-seq3:
         condition: service_healthy
