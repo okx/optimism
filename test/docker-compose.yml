@@ -169,6 +169,12 @@ services:
     image: "${OP_GETH_IMAGE_TAG}"
     container_name: op-geth-seq
     entrypoint: geth
+    environment:
+      - APOLLO_ENABLED=${APOLLO_ENABLED:-false}
+      - APOLLO_APP_ID=XLayerSeq
+      - APOLLO_IP=http://apollo-configservice:8085
+      - APOLLO_CLUSTER=default
+      - APOLLO_NAMESPACE=sequencer-config,l2gaspricer-config,pool-config
     volumes:
       - ./data/op-geth-seq:/datadir
       - ./config-op/jwt.txt:/jwt.txt

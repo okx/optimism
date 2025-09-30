@@ -22,12 +22,6 @@ NetworkId = 901
 SyncMode = "full"
 EnableInnerTx = true
 
-[Eth.XLayer.Apollo]
-Enable = true
-AppID = "XLayerSeq"
-IP = "http://apollo-configservice:8085"
-Cluster = "default"
-NamespaceName = "sequencer-config.txt,l2gaspricer-config.txt,pool-config.txt"
 
 
 [Eth.TxPool]
