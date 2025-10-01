@@ -28,7 +28,7 @@ func (s *Sequencer) InitRealtimeXLayer() {
 		s.realtimeBlockInfoChan = make(chan *realtimeTypes.BlockInfo, realtimeKafka.DefaultKafkaBufferSize)
 
 		// start realtime producer loop
-		go realtime.ListenRealtimeProducer(s.ctx, s.realtimeProducer, nil, s.realtimeBlockInfoChan, nil, false)
+		go realtime.ListenRealtimeProducer(s.ctx, s.realtimeProducer, s.realtimeBlockInfoChan, nil, false)
 		log.Info("[Realtime] Realtime initialized on op-node sequencer")
 	}
 }
