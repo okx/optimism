@@ -28,7 +28,7 @@ func (s *Sequencer) InitRealtimeXLayer() {
 		s.realtimeBlockInfoChan = make(chan *realtimeTypes.BlockInfo, realtimeKafka.DefaultKafkaBufferSize)
 
 		// start realtime producer loop
-		go realtime.ListenRealtimeProducer(s.ctx, s.realtimeProducer, s.realtimeBlockInfoChan, nil, false)
+		go realtime.ListenRealtimeProducer(s.ctx, s.realtimeProducer, nil, s.realtimeBlockInfoChan, nil, false)
 		log.Info("[Realtime] Realtime initialized on op-node sequencer")
 	}
 }
@@ -51,10 +51,11 @@ func (s *Sequencer) SendRealtimeConfirmedBlock(envelope *eth.ExecutionPayloadEnv
 			}
 			// Calculate transaction hash using the same method as geth
 			s.realtimeBlockInfoChan <- &realtimeTypes.BlockInfo{
-				Header:    header,
-				TxCount:   int64(len(envelope.ExecutionPayload.Transactions)),
-				Hash:      envelope.ExecutionPayload.BlockHash,
-				Changeset: envelope.Changeset,
+				Header:      header,
+				Withdrawals: envelope.ExecutionPayload.Withdrawals,
+				TxCount:     int64(len(envelope.ExecutionPayload.Transactions)),
+				Hash:        envelope.ExecutionPayload.BlockHash,
+				Changeset:   envelope.Changeset,
 			}
 		}
 	}
@@ -118,6 +119,5 @@ func (s *Sequencer) ExecutionPayloadToBlockHeader(envelope *eth.ExecutionPayload
 	if header.Hash() != payload.BlockHash {
 		return nil, fmt.Errorf("block hash mismatch: %s != %s", header.Hash(), payload.BlockHash)
 	}
-
 	return header, nil
 }

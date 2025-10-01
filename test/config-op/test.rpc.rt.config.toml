@@ -35,7 +35,8 @@ CacheDumpPath = "/datadir/cache"
 
 [Eth.XLayer.Realtime.Kafka]
 BootstrapServers = ["xlayer-kafka:9092"]
-BlockTopic = "xlayer-header"
+HeaderTopic = "xlayer-header"
+BlockTopic = "xlayer-block"
 TxTopic = "xlayer-tx"
 ErrorTopic = "xlayer-error"
 ClientID = "xlayer-consumer-el"

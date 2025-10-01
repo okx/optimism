@@ -265,7 +265,7 @@ services:
       - --conductor.rpc=http://op-conductor:8547
       - --realtime.sequencer-enabled=true
       - --realtime.kafka-sync-bootstrap-servers=xlayer-kafka:9092
-      - --realtime.kafka-sync-block-topic=xlayer-header
+      - --realtime.kafka-sync-block-topic=xlayer-block
       - --realtime.kafka-sync-error-topic=xlayer-error
       - --realtime.kafka-sync-client-id=xlayer-producer-cl
       - --realtime.kafka-sync-group-id=xlayer-producer-cl-1

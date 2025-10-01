@@ -16,6 +16,11 @@ var (
 		Usage: "Kafka sync bootstrap servers",
 		Value: "",
 	}
+	RealtimeKafkaSyncHeaderTopic = &cli.StringFlag{
+		Name:  "realtime.kafka-sync-header-topic",
+		Usage: "Kafka header topic",
+		Value: "",
+	}
 	RealtimeKafkaSyncBlockTopic = &cli.StringFlag{
 		Name:  "realtime.kafka-sync-block-topic",
 		Usage: "Kafka block topic",
@@ -41,6 +46,7 @@ var (
 	XLayerFlags = []cli.Flag{
 		RealtimeSequencerEnableFlag,
 		RealtimeKafkaSyncBootstrapServers,
+		RealtimeKafkaSyncHeaderTopic,
 		RealtimeKafkaSyncBlockTopic,
 		RealtimeKafkaSyncErrorTopic,
 		RealtimeKafkaSyncClientID,
