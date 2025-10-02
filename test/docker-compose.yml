@@ -232,6 +232,12 @@ services:
       - "7070:7070"
       - "9223:9223"
       - "9223:9223/udp"
+    environment:
+      - APOLLO_ENABLED=${APOLLO_ENABLED:-false}
+      - APOLLO_APP_ID=XLayerSeq
+      - APOLLO_IP=http://apollo-configservice:8085
+      - APOLLO_CLUSTER=default
+      - APOLLO_NAMESPACE=sequencer-config.txt,l2gaspricer-config.txt,pool-config.txt
     command:
       - /app/op-node/bin/op-node
       - --log.level=debug
@@ -281,6 +287,12 @@ services:
       - ./config-op/oprpc_p2p_priv.txt:/opnode_p2p_priv.txt
     ports:
       - "9555:9545"
+    environment:
+      - APOLLO_ENABLED=${APOLLO_ENABLED:-false}
+      - APOLLO_APP_ID=XLayerSeq
+      - APOLLO_IP=http://apollo-configservice:8085
+      - APOLLO_CLUSTER=default
+      - APOLLO_NAMESPACE=sequencer-config.txt,l2gaspricer-config.txt,pool-config.txt
     command:
       - /app/op-node/bin/op-node
       - --log.level=debug
@@ -303,6 +315,11 @@ services:
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
       - --safedb.path=/data/safedb
+      - --apollo.enabled=${APOLLO_ENABLED:-false}
+      - --apollo.app-id=${APOLLO_APP_ID:-XLayerSeq}
+      - --apollo.ip=${APOLLO_IP:-http://apollo-configservice:8085}
+      - --apollo.cluster=${APOLLO_CLUSTER:-default}
+      - --apollo.namespace=${APOLLO_NAMESPACE:-sequencer-config.txt,l2gaspricer-config.txt,pool-config.txt}
     depends_on:
       - op-geth-rpc
 
@@ -471,6 +488,12 @@ services:
 #      - "7070:7070"
       - "9224:9223"
       - "9224:9223/udp"
+    environment:
+      - APOLLO_ENABLED=${APOLLO_ENABLED:-false}
+      - APOLLO_APP_ID=XLayerSeq
+      - APOLLO_IP=http://apollo-configservice:8085
+      - APOLLO_CLUSTER=default
+      - APOLLO_NAMESPACE=sequencer-config.txt,l2gaspricer-config.txt,pool-config.txt
     command:
       - /app/op-node/bin/op-node
       - --log.level=info
@@ -587,6 +610,12 @@ services:
 #      - "7070:7070"
       - "9225:9223"
       - "9225:9223/udp"
+    environment:
+      - APOLLO_ENABLED=${APOLLO_ENABLED:-false}
+      - APOLLO_APP_ID=XLayerSeq
+      - APOLLO_IP=http://apollo-configservice:8085
+      - APOLLO_CLUSTER=default
+      - APOLLO_NAMESPACE=sequencer-config.txt,l2gaspricer-config.txt,pool-config.txt
     command:
       - /app/op-node/bin/op-node
       - --log.level=info
