@@ -535,7 +535,7 @@ services:
       - "9224:9223/udp"
     command:
       - /app/op-node/bin/op-node
-      - --log.level=info
+      - --log.level=debug
       - --l2=http://op-geth-seq2:8552
       - --l2.jwt-secret=/jwt.txt
       - --sequencer.enabled
@@ -655,7 +655,7 @@ services:
       - "9225:9223/udp"
     command:
       - /app/op-node/bin/op-node
-      - --log.level=info
+      - --log.level=debug
       - --l2=http://op-geth-seq3:8552
       - --l2.jwt-secret=/jwt.txt
       - --sequencer.enabled
