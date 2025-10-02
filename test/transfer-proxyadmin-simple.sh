@@ -11,6 +11,7 @@ echo "Current ProxyAdmin owner:"
 cast call $PROXY_ADMIN "owner()" --rpc-url $L1_RPC_URL
 
 # 3. Verify Transactor contract owner (should be deployer)
+echo "Transactor contract address: $TRANSACTOR"
 echo "Current Transactor owner:"
 cast call $TRANSACTOR "owner()" --rpc-url $L1_RPC_URL
 
