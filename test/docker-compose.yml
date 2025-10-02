@@ -174,7 +174,7 @@ services:
       - APOLLO_APP_ID=XLayerSeq
       - APOLLO_IP=http://apollo-configservice:8085
       - APOLLO_CLUSTER=default
-      - APOLLO_NAMESPACE=sequencer-config,l2gaspricer-config,pool-config
+      - APOLLO_NAMESPACE=sequencer-config.txt,l2gaspricer-config.txt,pool-config.txt
     volumes:
       - ./data/op-geth-seq:/datadir
       - ./config-op/jwt.txt:/jwt.txt
@@ -195,7 +195,7 @@ services:
       - --apollo.app-id=${APOLLO_APP_ID:-XLayerSeq}
       - --apollo.ip=${APOLLO_IP:-http://apollo-configservice:8085}
       - --apollo.cluster=${APOLLO_CLUSTER:-default}
-      - --apollo.namespace=${APOLLO_NAMESPACE:-sequencer-config,l2gaspricer-config,pool-config}
+      - --apollo.namespace=${APOLLO_NAMESPACE:-sequencer-config.txt,l2gaspricer-config.txt,pool-config.txt}
 
   op-geth-rpc:
     image: "${OP_GETH_IMAGE_TAG}"
