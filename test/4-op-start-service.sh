@@ -9,6 +9,14 @@ sed_inplace() {
   fi
 }
 
+get_config_file() {
+    if [ "$REALTIME_ENABLED" = "true" ]; then
+        echo "config.rt.toml"
+    else
+        echo "config.toml"
+    fi
+}
+
 # Load environment variables early
 source .env
 
@@ -23,9 +31,9 @@ fi
 docker compose up -d op-batcher
 
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
-    docker compose up -d op-seq
-    docker compose up -d op-seq2
-    docker compose up -d op-seq3
+    CONFIG_FILE=$(get_config_file) docker compose up -d op-seq
+    CONFIG_FILE=$(get_config_file) docker compose up -d op-seq2
+    CONFIG_FILE=$(get_config_file) docker compose up -d op-seq3
     sleep 5
     docker compose up -d op-conductor
     docker compose up -d op-conductor2
@@ -35,7 +43,7 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
 fi
 
 if [ "$LAUNCH_RPC_NODE" = "true" ]; then
-    CONFIG_FILE=$([ "$REALTIME_ENABLED" = "true" ] && echo "config.rt.toml") docker compose up -d op-rpc
+    CONFIG_FILE=$(get_config_file) docker compose up -d op-rpc
     docker compose up -d op-rpc-2
 fi
 

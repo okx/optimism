@@ -348,9 +348,9 @@ The `scripts/show-dev-accounts.sh` script displays all development accounts with
 | op-conductor | 8547 | Conductor 1 RPC |
 | op-conductor | 50050 | Conductor 1 Consensus |
 | op-conductor2 | 8548 | Conductor 2 RPC |
-| op-conductor2 | 50051 | Conductor 2 Consensus |
+| op-conductor2 | 50052 | Conductor 2 Consensus |
 | op-conductor3 | 8549 | Conductor 3 RPC |
-| op-conductor3 | 50052 | Conductor 3 Consensus |
+| op-conductor3 | 50053 | Conductor 3 Consensus |
 | **Other Services** | | |
 | op-batcher | 8548 | Batcher RPC |
 | op-proposer | 8560 | Proposer RPC |

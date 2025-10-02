@@ -31,18 +31,4 @@ AccountQueue = 10000
 EnableInnerTx = false
 
 [Eth.XLayer.Realtime]
-Enable = true
-RealtimeRpc = false
-EnableSubscribe = false
-CacheHeightThreshold = 10
-SubscribeKafka = false
-SubscribeWebsocket = false
-CacheDumpPath = "/datadir/cache"
-
-[Eth.XLayer.Realtime.Kafka]
-BootstrapServers = ["xlayer-kafka:9092"]
-BlockTopic = "xlayer-header"
-TxTopic = "xlayer-tx"
-ErrorTopic = "xlayer-error"
-ClientID = "xlayer-producer-el"
-GroupID = "xlayer-producer-el-1"
+Enable = false

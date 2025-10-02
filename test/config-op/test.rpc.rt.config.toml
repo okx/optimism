@@ -38,5 +38,3 @@ BootstrapServers = ["xlayer-kafka:9092"]
 BlockTopic = "xlayer-header"
 TxTopic = "xlayer-tx"
 ErrorTopic = "xlayer-error"
-ClientID = "xlayer-consumer-el"
-GroupID = "xlayer-consumer-el-1"

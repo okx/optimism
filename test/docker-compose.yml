@@ -173,6 +173,7 @@ services:
       - ./data/op-geth-seq:/datadir
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/test.seq.config.toml:/config.toml
+      - ./config-op/test.seq.rt.config.toml:/config.rt.toml
     ports:
       - "8123:8545"
       - "7546:7546"
@@ -183,10 +184,12 @@ services:
       - --verbosity=3
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
-      - --config=/config.toml
+      - --config=${CONFIG_FILE:-/config.toml}
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
       - --verbosity=5
+      - --realtime.kafka-sync-client-id=xlayer-producer-el-1
+      - --realtime.kafka-sync-group-id=xlayer-producer-el-1
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
       interval: 3s
@@ -205,17 +208,19 @@ services:
       - ./config-op/test.rpc.rt.config.toml:/config.rt.toml
     ports:
       - "8124:8545"
+      - "7547:7546"
       - "30304:30303"
       - "30304:30303/udp"
-      - "7547:7546"
     command:
+      - --verbosity=5
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
       - --config=${CONFIG_FILE:-/config.toml}
       - --gcmode=archive
-      - --rollup.sequencerhttp=http://op-geth-seq:8545
+      # - --rollup.sequencerhttp=http://op-geth-seq:8545
       - --rollup.enabletxpooladmission
-      - --verbosity=5
+      - --realtime.kafka-sync-client-id=xlayer-consumer-el-1
+      - --realtime.kafka-sync-group-id=xlayer-consumer-el-1
 
   op-geth-rpc-2:
     image: "${OP_GETH_IMAGE_TAG}"
@@ -235,7 +240,6 @@ services:
       - --gcmode=archive
       # - --rollup.sequencerhttp=http://op-geth-seq:8545
       - --rollup.enabletxpooladmission
-      - --verbosity=5
 
   op-seq:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -277,7 +281,7 @@ services:
       - --realtime.kafka-sync-bootstrap-servers=xlayer-kafka:9092
       - --realtime.kafka-sync-block-topic=xlayer-header
       - --realtime.kafka-sync-error-topic=xlayer-error
-      - --realtime.kafka-sync-client-id=xlayer-producer-cl
+      - --realtime.kafka-sync-client-id=xlayer-producer-cl-1
       - --realtime.kafka-sync-group-id=xlayer-producer-cl-1
     depends_on:
       op-geth-seq:
@@ -496,6 +500,7 @@ services:
       - ./data/op-geth-seq2:/datadir
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/test.seq.config.toml:/config.toml
+      - ./config-op/test.seq.rt.config.toml:/config.rt.toml
     ports:
       - "8223:8545"
       - "30305:30303"
@@ -504,9 +509,11 @@ services:
       - --verbosity=3
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
-      - --config=/config.toml
+      - --config=${CONFIG_FILE:-/config.toml}
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
+      - --realtime.kafka-sync-client-id=xlayer-producer-el-2
+      - --realtime.kafka-sync-group-id=xlayer-producer-el-2
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
       interval: 3s
@@ -552,6 +559,12 @@ services:
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor2:8547
+      - --realtime.sequencer-enabled=true
+      - --realtime.kafka-sync-bootstrap-servers=xlayer-kafka:9092
+      - --realtime.kafka-sync-block-topic=xlayer-header
+      - --realtime.kafka-sync-error-topic=xlayer-error
+      - --realtime.kafka-sync-client-id=xlayer-producer-cl-2
+      - --realtime.kafka-sync-group-id=xlayer-producer-cl-2
     depends_on:
       op-geth-seq2:
         condition: service_healthy
@@ -607,6 +620,7 @@ services:
       - ./data/op-geth-seq3:/datadir
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/test.seq.config.toml:/config.toml
+      - ./config-op/test.seq.rt.config.toml:/config.rt.toml
     ports:
       - "8323:8545"
       - "30306:30303"
@@ -615,9 +629,11 @@ services:
       - --verbosity=3
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
-      - --config=/config.toml
+      - --config=${CONFIG_FILE:-/config.toml}
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
+      - --realtime.kafka-sync-client-id=xlayer-producer-el-3
+      - --realtime.kafka-sync-group-id=xlayer-producer-el-3
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
       interval: 3s
@@ -663,6 +679,12 @@ services:
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor3:8547
+      - --realtime.sequencer-enabled=true
+      - --realtime.kafka-sync-bootstrap-servers=xlayer-kafka:9092
+      - --realtime.kafka-sync-block-topic=xlayer-header
+      - --realtime.kafka-sync-error-topic=xlayer-error
+      - --realtime.kafka-sync-client-id=xlayer-producer-cl-3
+      - --realtime.kafka-sync-group-id=xlayer-producer-cl-3
     depends_on:
       op-geth-seq3:
         condition: service_healthy

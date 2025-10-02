@@ -21,8 +21,26 @@ DiscoveryV5 = true
 NetworkId = 901
 SyncMode = "full"
 
+[Eth.TxPool]
+GlobalSlots = 500000
+GlobalQueue = 100000
+AccountSlots = 50000
+AccountQueue = 10000
+
 [Eth.XLayer]
-EnableInnerTx = true
+EnableInnerTx = false
 
 [Eth.XLayer.Realtime]
-Enable = false
+Enable = true
+RealtimeRpc = false
+EnableSubscribe = false
+CacheHeightThreshold = 10
+SubscribeKafka = false
+SubscribeWebsocket = false
+CacheDumpPath = "/datadir/cache"
+
+[Eth.XLayer.Realtime.Kafka]
+BootstrapServers = ["xlayer-kafka:9092"]
+BlockTopic = "xlayer-header"
+TxTopic = "xlayer-tx"
+ErrorTopic = "xlayer-error"
