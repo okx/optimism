@@ -30,7 +30,7 @@ func loadTestConfig(ctx *cli.Context) {
 		log.Warn("Apollo config is nil, skipping L2GasPricer config load")
 		return
 	}
-	loadNodeTestConfig(ctx, &UnsafeGetApolloConfig().NodeCfg)
+	loadNodeTestConfig(ctx, UnsafeGetApolloConfig().NodeCfg)
 }
 
 func loadNodeTestConfig(ctx *cli.Context, nodeCfg *node.Config) {
