@@ -13,7 +13,7 @@ import (
 // ApolloConfig holds the global Apollo configuration state
 type ApolloConfigImpl struct {
 	sync.RWMutex
-	NodeCfg node.Config
+	NodeCfg *node.Config
 }
 
 // Global Apollo configuration instance
@@ -29,7 +29,7 @@ func UnsafeGetApolloConfig() *ApolloConfigImpl {
 }
 
 // SetApolloConfig sets the global Apollo configuration
-func SetApolloConfig(nodeCfg node.Config) {
+func SetApolloConfig(nodeCfg *node.Config) {
 	configMutex.Lock()
 	defer configMutex.Unlock()
 
