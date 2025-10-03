@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/apolloconfig/agollo/v4/env/config"
 	"github.com/urfave/cli/v2"
 
 	"github.com/ethereum/go-ethereum/log"
 
 	opnode "github.com/ethereum-optimism/optimism/op-node"
 	"github.com/ethereum-optimism/optimism/op-node/chaincfg"
+	opnodeApollo "github.com/ethereum-optimism/optimism/op-node/cmd/apollo"
 	"github.com/ethereum-optimism/optimism/op-node/cmd/genesis"
 	"github.com/ethereum-optimism/optimism/op-node/cmd/interop"
 	"github.com/ethereum-optimism/optimism/op-node/cmd/networks"
@@ -24,6 +26,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-service/ctxinterrupt"
 	oplog "github.com/ethereum-optimism/optimism/op-service/log"
 	"github.com/ethereum-optimism/optimism/op-service/metrics/doc"
+	"github.com/ethereum/go-ethereum/xlayer/apollo"
 )
 
 var (
@@ -86,6 +89,33 @@ func RollupNodeMain(ctx *cli.Context, closeApp context.CancelCauseFunc) (cliapp.
 		return nil, fmt.Errorf("unable to create the rollup node config: %w", err)
 	}
 	cfg.Cancel = closeApp
+
+	if cfg.Apollo.Enable && cfg != nil {
+		opnodeApollo.SetApolloConfig(cfg)
+		// Create geth-specific config handler
+		handler := opnodeApollo.NewOpNodeConfigHandler()
+
+		// Create flags for Apollo config context (exclude Apollo connection flags)
+		flags := append(flags.Flags)
+
+		client, err := apollo.GetInstance(&config.AppConfig{
+			AppID:         cfg.Apollo.AppID,
+			IP:            cfg.Apollo.IP,
+			Cluster:       cfg.Apollo.Cluster,
+			NamespaceName: cfg.Apollo.Namespace,
+		}, flags)
+
+		log.Info("Apollo client initialized, apollo config: %+v", cfg.Apollo)
+
+		client.AddHandler(handler)
+
+		if err != nil {
+			log.Error("Failed to initialize Apollo configuration: %v", err)
+		} else {
+			log.Info("Apollo client initialized")
+		}
+		client.LoadConfig()
+	}
 
 	// Only pretty-print the banner if it is a terminal log. Otherwise log it as key-value pairs.
 	if logCfg.Format == "terminal" {
