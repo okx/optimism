@@ -203,6 +203,18 @@ There are two ways to trigger leader transfer:
 
 This method simulates a sequencer failure scenario, enabling comprehensive testing of automatic failover mechanisms. Each execution stops the current leader's sequencer and triggers a transfer to another node, allowing you to test different leadership scenarios by running the script multiple times. The cluster maintains high availability through dynamic role switching - when a sequencer stops producing blocks, it transitions to follower status while another node assumes leadership. The system remains resilient as any follower can automatically promote to leader if the current leader encounters issues.
 
+3. Gray upgrade using op-conductor:
+```bash
+# Emulate the whole gray upgrade process to achieve 0 downtime
+./scripts/gray-upgrade-simulation.sh
+# Meanwhile, open another terminal window to load test
+polycli loadtest --rpc-url http://localhost:8124 \
+  --private-key "0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356" \
+  --verbosity 700 --requests 50000  -c 1 --rate-limit -1
+```
+
+The `scripts/gray-upgrade-simulation.sh` script simulates a rolling upgrade process for the sequencer cluster managed by op-conductor. It upgrades a follower sequencer while keeping the leader running, then transfers leadership to the upgraded node. This approach ensures service continuity and validates the cluster's resilience during upgrades.
+
 ## Utility Scripts
 
 ### L1 to L2 Deposit Script

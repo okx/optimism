@@ -18,7 +18,7 @@ services:
       - ./l1-geth/consensus:/consensus
 
   l1-create-beacon-chain-genesis:
-    image: "gcr.io/prysmaticlabs/prysm/cmd/prysmctl:HEAD-aec349"
+    image: "gcr.io/prysmaticlabs/prysm/cmd/prysmctl:v5.1.2"
     container_name: l1-create-beacon-chain-genesis
     command:
       - testnet
@@ -56,7 +56,7 @@ services:
         condition: service_completed_successfully
 
   l1-geth-genesis:
-    image: "ethereum/client-go:v1.14.5"
+    image: "ethereum/client-go:v1.14.11"
     container_name: l1-geth-genesis
     command: --datadir=/execution --gcmode=archive init --state.scheme=hash /execution/genesis.json
     volumes:
@@ -69,7 +69,7 @@ services:
         condition: service_completed_successfully
 
   l1-geth:
-    image: "ethereum/client-go:v1.14.5"
+    image: "ethereum/client-go:v1.14.11"
     container_name: l1-geth
     command:
       - --http
@@ -112,7 +112,7 @@ services:
       retries: 5
 
   l1-beacon-chain:
-    image: "gcr.io/prysmaticlabs/prysm/beacon-chain:v4.1.1"
+    image: "gcr.io/prysmaticlabs/prysm/beacon-chain:v5.1.2"
     container_name: l1-beacon-chain
     command:
       - --datadir=/consensus/beacondata
@@ -149,7 +149,7 @@ services:
       - ./l1-geth/execution/jwtsecret:/execution/jwtsecret
 
   l1-validator:
-    image: "gcr.io/prysmaticlabs/prysm/validator:v4.1.1"
+    image: "gcr.io/prysmaticlabs/prysm/validator:v5.1.2"
     container_name: l1-validator
     command:
       - --beacon-rpc-provider=l1-beacon-chain:4000
@@ -172,6 +172,7 @@ services:
     volumes:
       - ./data/op-geth-seq:/datadir
       - ./config-op/jwt.txt:/jwt.txt
+      - ./config-op/test.seq.config.toml:/config.toml
     ports:
       - "8123:8545"
       - "7546:7546"
@@ -180,38 +181,18 @@ services:
       - "30303:30303/udp"
       - "9090:9090"  # pprof port
     command:
-      - --datadir
-      - /datadir
+      - --verbosity=3
+      - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
-      - --http
-      - --http.corsdomain=*
-      - --http.vhosts=*
-      - --http.port=8545
-      - --http.addr=0.0.0.0
-      - --http.api=web3,debug,eth,txpool,net,engine,miner
-      - --ws
-      - --ws.addr=0.0.0.0
-      - --ws.port=7546
-      - --ws.origins=*
-      - --ws.api=debug,eth,txpool,net,engine
-      - --syncmode=full
-      - --gcmode=full
-      - --nodiscover
-      - --maxpeers=0
-      - --networkid=901
-      - --authrpc.vhosts=*
-      - --authrpc.addr=0.0.0.0
-      - --authrpc.port=8552
-      - --authrpc.jwtsecret=/jwt.txt
+      - --config=/config.toml
+      - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
-      - --txpool.globalslots=500000
-      - --txpool.globalqueue=100000
-      - --txpool.accountslots=50000
-      - --txpool.accountqueue=10000
-      - --miner.recommit=500ms
-      - --pprof
-      - --pprof.addr=0.0.0.0
-      - --pprof.port=9090
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
 
   op-geth-rpc:
     image: "${OP_GETH_IMAGE_TAG}"
@@ -220,34 +201,19 @@ services:
     volumes:
       - ./data/op-geth-rpc:/datadir
       - ./config-op/jwt.txt:/jwt.txt
+      - ./config-op/test.rpc.config.toml:/config.toml
     ports:
       - "8124:8545"
+      - "30304:30303"
+      - "30304:30303/udp"
     command:
+      - --verbosity=3
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
-      - --http
-      - --http.corsdomain=*
-      - --http.vhosts=*
-      - --http.port=8545
-      - --http.addr=0.0.0.0
-      - --http.api=web3,debug,eth,txpool,net,engine,miner
-      - --ws
-      - --ws.addr=0.0.0.0
-      - --ws.port=7546
-      - --ws.origins=*
-      - --ws.api=debug,eth,txpool,net,engine
-      - --syncmode=full
+      - --config=/config.toml
       - --gcmode=archive
-      - --nodiscover
-      - --maxpeers=0
-      - --networkid=901
-      - --authrpc.vhosts=*
-      - --authrpc.addr=0.0.0.0
-      - --authrpc.port=8552
-      - --authrpc.jwtsecret=/jwt.txt
-      - --rollup.sequencerhttp=http://op-geth-seq:8545
+      # - --rollup.sequencerhttp=http://op-geth-seq:8545
       - --rollup.enabletxpooladmission
-      - --innertx
 
   op-seq:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -290,7 +256,14 @@ services:
       - --pprof.addr=0.0.0.0
       - --pprof.port=9091
     depends_on:
-      - op-geth-seq
+      op-geth-seq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9545"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
 
   op-rpc:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -359,8 +332,10 @@ services:
       - --healthcheck.min-peer-count=1
       - --rollup.config=/rollup.json
     depends_on:
-      - op-seq
-      - op-geth-seq
+      op-seq:
+        condition: service_healthy
+      op-geth-seq:
+        condition: service_healthy
 
   op-batcher:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -382,6 +357,7 @@ services:
       - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
       - --private-key=${OP_BATCHER_PRIVATE_KEY}
       - --throttle.block-size-upper-limit=1300000
+      - -data-availability-type=auto
     depends_on:
       - op-seq
 
@@ -451,8 +427,6 @@ services:
       - --game-window=${GAME_WINDOW}s
       - --honest-actors=${PROPOSER_ADDRESS}
 
-
-
   op-geth-seq2:
     image: "${OP_GETH_IMAGE_TAG}"
     container_name: op-geth-seq2
@@ -460,32 +434,24 @@ services:
     volumes:
       - ./data/op-geth-seq2:/datadir
       - ./config-op/jwt.txt:/jwt.txt
+      - ./config-op/test.seq.config.toml:/config.toml
     ports:
       - "8223:8545"
+      - "30305:30303"
+      - "30305:30303/udp"
     command:
+      - --verbosity=3
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
-      - --http
-      - --http.corsdomain=*
-      - --http.vhosts=*
-      - --http.port=8545
-      - --http.addr=0.0.0.0
-      - --http.api=web3,debug,eth,txpool,net,engine,miner
-      - --ws
-      - --ws.addr=0.0.0.0
-      - --ws.port=7546
-      - --ws.origins=*
-      - --ws.api=debug,eth,txpool,net,engine
-      - --syncmode=full
+      - --config=/config.toml
       - --gcmode=archive
-      - --nodiscover
-      - --maxpeers=0
-      - --networkid=901
-      - --authrpc.vhosts=*
-      - --authrpc.addr=0.0.0.0
-      - --authrpc.port=8552
-      - --authrpc.jwtsecret=/jwt.txt
       - --rollup.disabletxpoolgossip=false
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
 
   op-seq2:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -505,6 +471,7 @@ services:
       - --l2=http://op-geth-seq2:8552
       - --l2.jwt-secret=/jwt.txt
       - --sequencer.enabled
+      - --sequencer.stopped
       - --sequencer.l1-confs=5
       - --verifier.l1-confs=1
       - --rollup.config=/rollup.json
@@ -525,7 +492,14 @@ services:
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor2:8547
     depends_on:
-      - op-geth-seq2
+      op-geth-seq2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9545"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
 
   op-conductor2:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -538,7 +512,7 @@ services:
       - "50051:50050"  # Consensus port
     command:
       - /app/op-conductor/bin/op-conductor
-      - --log.level=info
+      - --log.level=debug
       # already existed service
       - --node.rpc=http://op-seq2:9545
       - --execution.rpc=http://op-geth-seq2:8545
@@ -559,9 +533,10 @@ services:
       - --healthcheck.min-peer-count=1
       - --rollup.config=/rollup.json
     depends_on:
-      - op-seq2
-      - op-geth-seq2
-
+      op-seq2:
+        condition: service_healthy
+      op-geth-seq2:
+        condition: service_healthy
 
   op-geth-seq3:
     image: "${OP_GETH_IMAGE_TAG}"
@@ -570,32 +545,24 @@ services:
     volumes:
       - ./data/op-geth-seq3:/datadir
       - ./config-op/jwt.txt:/jwt.txt
+      - ./config-op/test.seq.config.toml:/config.toml
     ports:
       - "8323:8545"
+      - "30306:30303"
+      - "30306:30303/udp"
     command:
+      - --verbosity=3
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
-      - --http
-      - --http.corsdomain=*
-      - --http.vhosts=*
-      - --http.port=8545
-      - --http.addr=0.0.0.0
-      - --http.api=web3,debug,eth,txpool,net,engine,miner
-      - --ws
-      - --ws.addr=0.0.0.0
-      - --ws.port=7546
-      - --ws.origins=*
-      - --ws.api=debug,eth,txpool,net,engine
-      - --syncmode=full
+      - --config=/config.toml
       - --gcmode=archive
-      - --nodiscover
-      - --maxpeers=0
-      - --networkid=901
-      - --authrpc.vhosts=*
-      - --authrpc.addr=0.0.0.0
-      - --authrpc.port=8552
-      - --authrpc.jwtsecret=/jwt.txt
       - --rollup.disabletxpoolgossip=false
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
 
   op-seq3:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -615,6 +582,7 @@ services:
       - --l2=http://op-geth-seq3:8552
       - --l2.jwt-secret=/jwt.txt
       - --sequencer.enabled
+      - --sequencer.stopped
       - --sequencer.l1-confs=5
       - --verifier.l1-confs=1
       - --rollup.config=/rollup.json
@@ -635,8 +603,14 @@ services:
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor3:8547
     depends_on:
-      - op-geth-seq3
-
+      op-geth-seq3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9545"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
 
   op-conductor3:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -649,7 +623,7 @@ services:
       - "50052:50050"  # Consensus port
     command:
       - /app/op-conductor/bin/op-conductor
-      - --log.level=info
+      - --log.level=debug
       # already existed service
       - --node.rpc=http://op-seq3:9545
       - --execution.rpc=http://op-geth-seq3:8545
@@ -670,6 +644,7 @@ services:
       - --healthcheck.min-peer-count=1
       - --rollup.config=/rollup.json
     depends_on:
-      - op-seq3
-      - op-geth-seq3
-
+      op-seq3:
+        condition: service_healthy
+      op-geth-seq3:
+        condition: service_healthy
