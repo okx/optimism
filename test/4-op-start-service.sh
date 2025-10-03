@@ -35,9 +35,9 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     CONFIG_FILE=$(get_config_file) docker compose up -d op-seq2
     CONFIG_FILE=$(get_config_file) docker compose up -d op-seq3
     sleep 5
-    docker compose up -d op-conductor
-    docker compose up -d op-conductor2
-    docker compose up -d op-conductor3
+    CONFIG_FILE=$(get_config_file) docker compose up -d op-conductor
+    CONFIG_FILE=$(get_config_file) docker compose up -d op-conductor2
+    CONFIG_FILE=$(get_config_file) docker compose up -d op-conductor3
     sleep 5
     $SCRIPTS_DIR/active-sequencer.sh
 fi
