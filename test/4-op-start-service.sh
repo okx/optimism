@@ -170,7 +170,7 @@ L2_CHAIN_ID=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME "l2ChainId()")
 "$SCRIPTS_DIR/add-game-type.sh" 1 true $TEMP_CLOCK_EXTENSION $TEMP_MAX_CLOCK_DURATION $ABSOLUTE_PRESTATE
 
 export GAME_TYPE=1
-docker compose up -d op-proposer
+CONFIG_FILE=$(get_config_file) docker compose up -d op-proposer
 
 echo "Waiting for op-proposer to create a game..."
 GAME_CREATED=false
@@ -268,4 +268,4 @@ ANCHOR_STATE_REGISTRY=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME "anch
 export GAME_TYPE=0
 
 sleep $TEMP_GAME_WINDOW
-docker compose up -d --remove-orphans op-proposer op-challenger op-dispute-mon
+CONFIG_FILE=$(get_config_file) docker compose up -d --remove-orphans op-proposer op-challenger op-dispute-mon
