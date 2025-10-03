@@ -107,7 +107,7 @@ func RollupNodeMain(ctx *cli.Context, closeApp context.CancelCauseFunc) (cliapp.
 
 		log.Info("Apollo client initialized, apollo config: %+v", cfg.Apollo)
 
-		client.Listener.Handler = handler
+		client.AddHandler(handler)
 
 		if err != nil {
 			log.Error("Failed to initialize Apollo configuration: %v", err)
