@@ -21,7 +21,7 @@ require (
 	github.com/docker/go-connections v0.5.0
 	github.com/ethereum-optimism/go-ethereum-hdwallet v0.1.3
 	github.com/ethereum-optimism/superchain-registry/validation v0.0.0-20250603144016-9c45ca7d4508
-	github.com/ethereum/go-ethereum v1.15.11
+	github.com/ethereum/go-ethereum v1.16.3
 	github.com/fatih/color v1.18.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-task/slim-sprig/v3 v3.0.0
@@ -109,6 +109,7 @@ require (
 	github.com/crate-crypto/go-eth-kzg v1.3.0 // indirect
 	github.com/crate-crypto/go-ipa v0.0.0-20240724233137-53bbb0ceb27a // indirect
 	github.com/davidlazar/go-crypto v0.0.0-20200604182044-b73af7476f6c // indirect
+	github.com/dchest/siphash v1.2.3 // indirect
 	github.com/deckarep/golang-set/v2 v2.6.0 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.0.1 // indirect
 	github.com/deepmap/oapi-codegen v1.8.2 // indirect
@@ -220,6 +221,7 @@ require (
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
 	github.com/peterh/liner v1.1.1-0.20190123174540-a2c9a5303de7 // indirect
 	github.com/pierrec/lz4 v2.6.1+incompatible // indirect
+	github.com/pierrec/lz4/v4 v4.1.15 // indirect
 	github.com/pion/datachannel v1.5.8 // indirect
 	github.com/pion/dtls/v2 v2.2.12 // indirect
 	github.com/pion/ice/v2 v2.3.34 // indirect
@@ -251,6 +253,7 @@ require (
 	github.com/rs/cors v1.11.0 // indirect
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
+	github.com/segmentio/kafka-go v0.4.47 // indirect
 	github.com/sethvargo/go-envconfig v1.1.0 // indirect
 	github.com/shirou/gopsutil v3.21.11+incompatible // indirect
 	github.com/shirou/gopsutil/v4 v4.24.6 // indirect
@@ -302,7 +305,7 @@ require (
 	lukechampine.com/blake3 v1.3.0 // indirect
 )
 
-//replace github.com/ethereum/go-ethereum => github.com/ethereum-optimism/op-geth v1.101602.3-rc.1.0.20250917151430-fa03b2609443
+//replace github.com/ethereum/go-ethereum => github.com/ethereum-optimism/op-geth v1.101603.1-rc.1
 
 replace github.com/ethereum/go-ethereum => ./op-geth
 
