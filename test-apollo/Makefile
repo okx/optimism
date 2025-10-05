@@ -8,7 +8,7 @@ stop:
 	@echo "Performing cleanup..."
 	@rm -rf tmp
 	@cd ../test && ./clean.sh
-	@docker compose --project-directory $(TEST_DIR) -f $(CURDIR)/docker-compose-apollo.yml down
+	@docker compose -f $(CURDIR)/docker-compose-apollo.yml down
 	@echo "Cleanup completed"
 
 .PHONY: run  
@@ -30,13 +30,11 @@ run:
 apollo: stop
 	@trap 'make stop' EXIT ERR INT TERM;
 	@echo "Starting with Apollo enabled..."
-	@echo "Starting Apollo MySQL database..."
-	docker compose --project-directory $(TEST_DIR) -f $(CURDIR)/docker-compose-apollo.yml up -d mysql
-	@echo "Waiting for MySQL to be ready..."
+	docker compose -f $(CURDIR)/docker-compose-apollo.yml up -d mysql
 	sleep 10
-	docker compose --project-directory $(TEST_DIR) -f $(CURDIR)/docker-compose-apollo.yml up -d apollo-configservice
-	docker compose --project-directory $(TEST_DIR) -f $(CURDIR)/docker-compose-apollo.yml up -d apollo-adminservice
+	docker compose -f $(CURDIR)/docker-compose-apollo.yml up -d apollo-configservice
+	docker compose -f $(CURDIR)/docker-compose-apollo.yml up -d apollo-adminservice
 	sleep 5
 	@echo "Starting Apollo portal..."
-	docker compose --project-directory $(TEST_DIR) -f $(CURDIR)/docker-compose-apollo.yml up -d apollo-portal
+	docker compose -f $(CURDIR)/docker-compose-apollo.yml up -d apollo-portal
 	@APOLLO_ENABLED=true $(MAKE) run
