@@ -174,7 +174,7 @@ services:
       - APOLLO_APP_ID=XLayerSeq
       - APOLLO_IP=http://apollo-configservice:8085
       - APOLLO_CLUSTER=default
-      - APOLLO_NAMESPACE=sequencer-config.txt,l2gaspricer-config.txt,pool-config.txt
+      - APOLLO_NAMESPACE=opnode_sequencer-config.txt,opgeth_l2gaspricer-config.txt,opgeth_pool-config.txt
     volumes:
       - ./data/op-geth-seq:/datadir
       - ./config-op/jwt.txt:/jwt.txt
@@ -195,7 +195,7 @@ services:
       - --apollo.app-id=${APOLLO_APP_ID:-XLayerSeq}
       - --apollo.ip=${APOLLO_IP:-http://apollo-configservice:8085}
       - --apollo.cluster=${APOLLO_CLUSTER:-default}
-      - --apollo.namespace=${APOLLO_NAMESPACE:-sequencer-config.txt,l2gaspricer-config.txt,pool-config.txt}
+      - --apollo.namespace=${APOLLO_NAMESPACE:-opnode_sequencer-config.txt,opgeth_l2gaspricer-config.txt,opgeth_pool-config.txt}
 
   op-geth-rpc:
     image: "${OP_GETH_IMAGE_TAG}"
@@ -232,7 +232,7 @@ services:
       - APOLLO_APP_ID=XLayerSeq
       - APOLLO_IP=http://apollo-configservice:8085
       - APOLLO_CLUSTER=default
-      - APOLLO_NAMESPACE=sequencer-config.txt,l2gaspricer-config.txt,pool-config.txt
+      - APOLLO_NAMESPACE=opnode_sequencer-config.txt,opgeth_l2gaspricer-config.txt,opgeth_pool-config.txt
     command:
       - /app/op-node/bin/op-node
       - --log.level=debug
@@ -261,7 +261,7 @@ services:
       - --apollo.app-id=${APOLLO_APP_ID:-XLayerSeq}
       - --apollo.ip=${APOLLO_IP:-http://apollo-configservice:8085}
       - --apollo.cluster=${APOLLO_CLUSTER:-default}
-      - --apollo.namespace=${APOLLO_NAMESPACE:-sequencer-config.txt,l2gaspricer-config.txt,pool-config.txt}
+      - --apollo.namespace=${APOLLO_NAMESPACE:-opnode_sequencer-config.txt,opgeth_l2gaspricer-config.txt,opgeth_pool-config.txt}
     depends_on:
       - op-geth-seq
 
@@ -280,7 +280,7 @@ services:
       - APOLLO_APP_ID=XLayerSeq
       - APOLLO_IP=http://apollo-configservice:8085
       - APOLLO_CLUSTER=default
-      - APOLLO_NAMESPACE=sequencer-config.txt,l2gaspricer-config.txt,pool-config.txt
+      - APOLLO_NAMESPACE=opnode_sequencer-config.txt,opgeth_l2gaspricer-config.txt,opgeth_pool-config.txt
     command:
       - /app/op-node/bin/op-node
       - --log.level=debug
@@ -307,7 +307,7 @@ services:
       - --apollo.app-id=${APOLLO_APP_ID:-XLayerSeq}
       - --apollo.ip=${APOLLO_IP:-http://apollo-configservice:8085}
       - --apollo.cluster=${APOLLO_CLUSTER:-default}
-      - --apollo.namespace=${APOLLO_NAMESPACE:-sequencer-config.txt,l2gaspricer-config.txt,pool-config.txt}
+      - --apollo.namespace=${APOLLO_NAMESPACE:-opnode_sequencer-config.txt,opgeth_l2gaspricer-config.txt,opgeth_pool-config.txt}
     depends_on:
       - op-geth-rpc
 
