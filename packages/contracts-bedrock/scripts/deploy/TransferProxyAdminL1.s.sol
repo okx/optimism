@@ -36,16 +36,19 @@ struct SecurityCouncilConfig {
     LivenessModuleConfig livenessModuleConfig;
 }
 
-/// @title TransferProxyAdmin
-/// @notice Standalone script to deploy a security council governance structure and transfer ProxyAdmin ownership.
-///         This script assumes ProxyAdmin and Transactor already exist from a previous deployment.
-///         It performs the following:
+/// @title TransferProxyAdminL1AndL2
+/// @notice Comprehensive script to deploy security council governance and transfer L1 ProxyAdmin ownership.
+///         This script performs the following:
 ///         1. Deploys FoundationUpgradeSafe (5/7 multisig)
-///         2. Deploys SecurityCouncilSafe (10/13 multisig)
-///         3. Configures LivenessModule and LivenessGuard on SecurityCouncilSafe
-///         4. Deploys a 2/2 multisig with the two safes as owners (ProxyAdminOwnerSafe)
-///         5. Transfers ProxyAdmin ownership to the 2/2 multisig via Transactor
-contract TransferProxyAdmin is Script {
+///         2. Deploys SecurityCouncilSafe (10/13 multisig) with LivenessModule and LivenessGuard
+///         3. Deploys a 2/2 multisig (ProxyAdminOwnerSafe) with:
+///            - SecurityCouncilSafe
+///            - FoundationUpgradeSafe
+///         4. Transfers L1 ProxyAdmin ownership to the 2/2 multisig via Transactor
+///
+/// @dev For L2 ProxyAdmin ownership transfer, use the separate TransferProxyAdminL2.s.sol script
+///      which should be executed directly on L2 after this script completes.
+contract TransferProxyAdminL1AndL2 is Script {
     // Deployed contract addresses (stored as state variables)
     address public foundationUpgradeSafe;
     address public securityCouncilSafe;
@@ -64,9 +67,9 @@ contract TransferProxyAdmin is Script {
 
     /// @notice Main execution function.
     function run() public {
-        console.log("========================================");
-        console.log("Starting ProxyAdmin Ownership Transfer");
-        console.log("========================================\n");
+        console.log("====================================================");
+        console.log("Starting L1 ProxyAdmin Ownership Transfer");
+        console.log("====================================================\n");
 
         // Step 1: Deploy FoundationUpgradeSafe (needed as fallback owner for LivenessModule)
         console.log("Step 1: Deploying FoundationUpgradeSafe...");
@@ -92,16 +95,14 @@ contract TransferProxyAdmin is Script {
         console.log("  ProxyAdminOwnerSafe deployed at:", proxyAdminOwnerSafe);
         console.log();
 
-        // Step 5: Transfer ProxyAdmin ownership to the 2/2 multisig
-        console.log("Step 5: Transferring ProxyAdmin ownership...");
-        transferProxyAdminOwnership(proxyAdminOwnerSafe);
+        // Step 5: Transfer L1 ProxyAdmin ownership to the 2/2 multisig
+        console.log("Step 5: Transferring L1 ProxyAdmin ownership...");
+        transferL1ProxyAdminOwnership(proxyAdminOwnerSafe);
         console.log();
 
-        console.log("========================================");
-        console.log("ProxyAdmin Ownership Transfer Complete");
-        console.log("========================================\n");
-
-        printDeploymentSummary();
+        console.log("====================================================");
+        console.log("L1 ProxyAdmin Ownership Transfer Complete");
+        console.log("====================================================\n");
     }
 
     /// @notice Returns a SafeConfig similar to that of the Foundation Safe on Mainnet.
@@ -206,7 +207,7 @@ contract TransferProxyAdmin is Script {
         address[] memory owners = safe.getOwners();
         require(
             safe.getThreshold() == LivenessModule(module).getRequiredThreshold(owners.length),
-            "TransferProxyAdmin: safe threshold must be equal to the LivenessModule's required threshold"
+            "TransferProxyAdminL1AndL2: safe threshold must be equal to the LivenessModule's required threshold"
         );
     }
 
@@ -331,15 +332,15 @@ contract TransferProxyAdmin is Script {
 
         // Verify the safe configuration
         Safe safe = Safe(payable(addr_));
-        require(safe.getThreshold() == 2, "TransferProxyAdmin: threshold must be 2");
-        require(safe.getOwners().length == 2, "TransferProxyAdmin: must have 2 owners");
+        require(safe.getThreshold() == 2, "TransferProxyAdminL1AndL2: threshold must be 2");
+        require(safe.getOwners().length == 2, "TransferProxyAdminL1AndL2: must have 2 owners");
 
-        console.log("  Safe threshold: %d/2", safe.getThreshold());
+        console.log("  Safe threshold: 2/2");
     }
 
-    /// @notice Transfer ProxyAdmin ownership to the ProxyAdminOwnerSafe via Transactor.
+    /// @notice Transfer L1 ProxyAdmin ownership to the ProxyAdminOwnerSafe via Transactor.
     /// @param _newOwner The address of the new ProxyAdmin owner (ProxyAdminOwnerSafe).
-    function transferProxyAdminOwnership(address _newOwner) internal broadcast {
+    function transferL1ProxyAdminOwnership(address _newOwner) internal broadcast {
         // Read addresses from environment variables
         address proxyAdminAddr = vm.envAddress("PROXY_ADMIN");
         address transactorAddr = vm.envAddress("TRANSACTOR");
@@ -354,14 +355,10 @@ contract TransferProxyAdmin is Script {
 
         // Get current owner
         address currentOwner = proxyAdmin.owner();
-        console.log("  Current ProxyAdmin owner: %s", currentOwner);
-        console.log("  New ProxyAdmin owner:     %s", _newOwner);
+        console.log("  Current L1 ProxyAdmin owner: %s", currentOwner);
+        console.log("  New L1 ProxyAdmin owner:     %s", _newOwner);
 
-        require(currentOwner != _newOwner, "TransferProxyAdmin: new owner is already the owner");
-
-        // Verify that msg.sender owns the Transactor
-        // The Transactor should be owned by the deployer to execute this
-        console.log("  Calling transferOwnership through Transactor...");
+        require(currentOwner != _newOwner, "TransferProxyAdminL1AndL2: new owner is already the owner");
 
         // Generate calldata for transferOwnership(address)
         bytes memory transferOwnershipCalldata = abi.encodeCall(IProxyAdmin.transferOwnership, (_newOwner));
@@ -370,60 +367,12 @@ contract TransferProxyAdmin is Script {
         // Call transferOwnership through Transactor.CALL
         // Transactor.CALL(address _target, bytes memory _data, uint256 _value)
         (bool success,) = transactor.CALL(proxyAdminAddr, transferOwnershipCalldata, 0);
-        require(success, "TransferProxyAdmin: Transactor.CALL failed");
+        require(success, "TransferProxyAdminL1AndL2: Transactor.CALL failed");
 
         // Verify the transfer
         address actualOwner = proxyAdmin.owner();
-        require(actualOwner == _newOwner, "TransferProxyAdmin: ownership transfer failed");
+        require(actualOwner == _newOwner, "TransferProxyAdminL1AndL2: L1 ownership transfer failed");
 
-        console.log("  ProxyAdmin ownership successfully transferred via Transactor!");
-    }
-
-    /// @notice Print a summary of the deployment.
-    function printDeploymentSummary() internal view {
-        // Read ProxyAdmin address from environment
-        address proxyAdminAddr = vm.envAddress("PROXY_ADMIN");
-
-        console.log("Deployment Summary");
-        console.log("==================");
-        console.log();
-        console.log("Core Governance Contracts:");
-        console.log("  SecurityCouncilSafe:      %s", securityCouncilSafe);
-        console.log("  FoundationUpgradeSafe:    %s", foundationUpgradeSafe);
-        console.log("  ProxyAdminOwnerSafe:      %s (2/2 multisig)", proxyAdminOwnerSafe);
-        console.log();
-        console.log("Liveness Protection:");
-        console.log("  LivenessGuard:            %s", livenessGuard);
-        console.log("  LivenessModule:           %s", livenessModule);
-        console.log();
-        console.log("Safe Factory:");
-        console.log("  SafeProxyFactory:         %s", safeProxyFactory);
-        console.log("  SafeSingleton:            %s", safeSingleton);
-        console.log();
-        console.log("ProxyAdmin:");
-        console.log("  ProxyAdmin:               %s", proxyAdminAddr);
-        console.log("  ProxyAdmin Owner:         %s", IProxyAdmin(proxyAdminAddr).owner());
-        console.log();
-        console.log("Governance Structure:");
-        console.log("  ProxyAdmin");
-        console.log("      |");
-        console.log("      v (owned by)");
-        console.log("  ProxyAdminOwnerSafe (2/2 multisig)");
-        console.log("      |");
-        console.log("      +-- SecurityCouncilSafe (owner 1/2)");
-        console.log("      |       |");
-        console.log("      |       +-- LivenessGuard (monitors activity)");
-        console.log("      |       +-- LivenessModule (removes inactive owners)");
-        console.log("      |");
-        console.log("      +-- FoundationUpgradeSafe (owner 2/2)");
-        console.log();
-        console.log("Security Council Safe Configuration:");
-        Safe safe = Safe(payable(securityCouncilSafe));
-        LivenessModule module = LivenessModule(livenessModule);
-        console.log("  Current owners:           %d", safe.getOwners().length);
-        console.log("  Current threshold:        %d", safe.getThreshold());
-        console.log("  Liveness interval:        %d seconds", module.livenessInterval());
-        console.log("  Min owners required:      %d", module.minOwners());
-        console.log();
+        console.log("  L1 ProxyAdmin ownership successfully transferred");
     }
 }
