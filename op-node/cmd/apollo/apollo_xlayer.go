@@ -1,6 +1,7 @@
 package apollo
 
 import (
+	"strings"
 	"sync"
 
 	"github.com/apolloconfig/agollo/v4/storage"
@@ -52,6 +53,13 @@ type OpNodeConfigHandler struct{}
 
 // HandleConfigChange implements geth-specific configuration change logic
 func (g *OpNodeConfigHandler) HandleConfigChange(prefix string, ctx *cli.Context, key string, value *storage.ConfigChange) {
+	component := getComponentFromNamespace(prefix)
+
+	// Validate that this is for op-node component
+	if component != apollo.OpNodeComponent {
+		log.Warn("OpNode received config load request for non-opnode namespace, ignoring", "component", component, "prefix", prefix)
+		return
+	}
 	switch prefix {
 	case apollo.Sequencer:
 		log.Info("apollo sequencer", "key", key, "value", value.NewValue)
@@ -62,15 +70,32 @@ func (g *OpNodeConfigHandler) HandleConfigChange(prefix string, ctx *cli.Context
 	}
 }
 
-// LoadConfig implements geth-specific configuration loading logic
+// LoadConfig implements op-node-specific configuration loading logic
 func (g *OpNodeConfigHandler) LoadConfig(prefix string, ctx *cli.Context) {
+	component := getComponentFromNamespace(prefix)
+	// Validate that this is for op-node component
+	if component != apollo.OpNodeComponent {
+		log.Warn("OpNode received config load request for non-opnode namespace, ignoring", "component", component, "prefix", prefix)
+		return
+	}
+
 	switch prefix {
 	// TODO: update when configs to be updated by apollo is decided
-	case apollo.L2GasPricer:
+	case apollo.Sequencer:
 		g.loadTest(ctx)
 	default:
 		log.Info("OpNode unknown config prefix for loading", "prefix", prefix)
 	}
+}
+
+// getComponentFromNamespace extracts the component prefix from namespace
+// e.g. "opnode_sequencer" -> "opnode"
+func getComponentFromNamespace(namespace string) string {
+	parts := strings.Split(namespace, "_")
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return ""
 }
 
 // NewOpNodeConfigHandler creates a new geth-specific config handler

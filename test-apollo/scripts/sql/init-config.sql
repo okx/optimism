@@ -5,43 +5,43 @@ VALUES ('XLayerSeq', 'XLayerSeq', 'default', 'Default', 'apollo', 'apollo@exampl
        ('XLayerRpc', 'XLayerRpc', 'default', 'Default', 'apollo', 'apollo@example.com');
 
 INSERT INTO `AppNamespace` (`Name`, `AppId`, `Format`, `IsPublic`, `Comment`)
-VALUES ('jsonrpc-config.txt', 'XLayerSeq', 'txt', 0, 'jsonrpc config for seq'),
-       ('sequencer-config.txt', 'XLayerSeq', 'txt', 0, 'sequencer config for seq'),
-       ('l2gaspricer-config.txt', 'XLayerSeq', 'txt', 0, 'l2 gas pricer config for seq'),
-       ('pool-config.txt', 'XLayerSeq', 'txt', 0, 'pool config for seq'),
-       ('jsonrpc-rpc-config.txt', 'XLayerRpc', 'txt', 0, 'jsonrpc config for rpc');
+VALUES ('opgeth_jsonrpc-config.txt', 'XLayerSeq', 'txt', 0, 'opgeth jsonrpc config for seq'),
+       ('opnode_sequencer-config.txt', 'XLayerSeq', 'txt', 0, 'opnode sequencer config for seq'),
+       ('opgeth_l2gaspricer-config.txt', 'XLayerSeq', 'txt', 0, 'opgeth l2 gas pricer config for seq'),
+       ('opgeth_pool-config.txt', 'XLayerSeq', 'txt', 0, 'opgeth pool config for seq'),
+       ('opgeth_jsonrpc-rpc-config.txt', 'XLayerRpc', 'txt', 0, 'opgeth jsonrpc config for rpc');
 
 INSERT INTO `Permission` (`Id`, `PermissionType`, `TargetId`)
 VALUES (1, 'CreateCluster', 'XLayerSeq'),
        (2, 'CreateNamespace', 'XLayerSeq'),
        (3, 'AssignRole', 'XLayerSeq'),
-       (4, 'ModifyNamespace', 'XLayerSeq+jsonrpc-config.txt'),
-       (5, 'ReleaseNamespace', 'XLayerSeq+jsonrpc-config.txt'),
-       (6, 'ModifyNamespace', 'XLayerSeq+sequencer-config.txt'),
-       (7, 'ReleaseNamespace', 'XLayerSeq+sequencer-config.txt'),
-       (8, 'ModifyNamespace', 'XLayerSeq+l2gaspricer-config.txt'),
-       (9, 'ReleaseNamespace', 'XLayerSeq+l2gaspricer-config.txt'),
-       (10, 'ModifyNamespace', 'XLayerSeq+pool-config.txt'),
-       (11, 'ReleaseNamespace', 'XLayerSeq+pool-config.txt'),
+       (4, 'ModifyNamespace', 'XLayerSeq+opgeth_jsonrpc-config.txt'),
+       (5, 'ReleaseNamespace', 'XLayerSeq+opgeth_jsonrpc-config.txt'),
+       (6, 'ModifyNamespace', 'XLayerSeq+opnode_sequencer-config.txt'),
+       (7, 'ReleaseNamespace', 'XLayerSeq+opnode_sequencer-config.txt'),
+       (8, 'ModifyNamespace', 'XLayerSeq+opgeth_l2gaspricer-config.txt'),
+       (9, 'ReleaseNamespace', 'XLayerSeq+opgeth_l2gaspricer-config.txt'),
+       (10, 'ModifyNamespace', 'XLayerSeq+opgeth_pool-config.txt'),
+       (11, 'ReleaseNamespace', 'XLayerSeq+opgeth_pool-config.txt'),
        (12, 'CreateCluster', 'XLayerRpc'),
        (13, 'CreateNamespace', 'XLayerRpc'),
        (14, 'AssignRole', 'XLayerRpc'),
-       (15, 'ModifyNamespace', 'XLayerRpc+jsonrpc-rpc-config.txt'),
-       (16, 'ReleaseNamespace', 'XLayerRpc+jsonrpc-rpc-config.txt');
+       (15, 'ModifyNamespace', 'XLayerRpc+opgeth_jsonrpc-rpc-config.txt'),
+       (16, 'ReleaseNamespace', 'XLayerRpc+opgeth_jsonrpc-rpc-config.txt');
 
 INSERT INTO `Role` (`Id`, `RoleName`)
 VALUES (1, 'Master+XLayerSeq'),
-       (2, 'ModifyNamespace+XLayerSeq+jsonrpc-config.txt'),
-       (3, 'ReleaseNamespace+XLayerSeq+jsonrpc-config.txt'),
-       (4, 'ModifyNamespace+XLayerSeq+sequencer-config.txt'),
-       (5, 'ReleaseNamespace+XLayerSeq+sequencer-config.txt'),
-       (6, 'ModifyNamespace+XLayerSeq+l2gaspricer-config.txt'),
-       (7, 'ReleaseNamespace+XLayerSeq+l2gaspricer-config.txt'),
-       (8, 'ModifyNamespace+XLayerSeq+pool-config.txt'),
-       (9, 'ReleaseNamespace+XLayerSeq+pool-config.txt'),
+       (2, 'ModifyNamespace+XLayerSeq+opgeth_jsonrpc-config.txt'),
+       (3, 'ReleaseNamespace+XLayerSeq+opgeth_jsonrpc-config.txt'),
+       (4, 'ModifyNamespace+XLayerSeq+opnode_sequencer-config.txt'),
+       (5, 'ReleaseNamespace+XLayerSeq+opnode_sequencer-config.txt'),
+       (6, 'ModifyNamespace+XLayerSeq+opgeth_l2gaspricer-config.txt'),
+       (7, 'ReleaseNamespace+XLayerSeq+opgeth_l2gaspricer-config.txt'),
+       (8, 'ModifyNamespace+XLayerSeq+opgeth_pool-config.txt'),
+       (9, 'ReleaseNamespace+XLayerSeq+opgeth_pool-config.txt'),
        (10, 'Master+XLayerRpc'),
-       (11, 'ModifyNamespace+XLayerRpc+jsonrpc-rpc-config.txt'),
-       (12, 'ReleaseNamespace+XLayerRpc+jsonrpc-rpc-config.txt');
+       (11, 'ModifyNamespace+XLayerRpc+opgeth_jsonrpc-rpc-config.txt'),
+       (12, 'ReleaseNamespace+XLayerRpc+opgeth_jsonrpc-rpc-config.txt');
 
 INSERT INTO `RolePermission` (`RoleId`, `PermissionId`)
 VALUES (1, 1),
@@ -86,18 +86,18 @@ VALUES ('default', 'XLayerSeq', 0),
        ('default', 'XLayerRpc', 0);
 
 INSERT INTO `AppNamespace` (`Name`, `AppId`, `Format`, `IsPublic`, `Comment`)
-VALUES ('jsonrpc-config.txt', 'XLayerSeq', 'txt', 0, 'jsonrpc config for seq'),
-       ('sequencer-config.txt', 'XLayerSeq', 'txt', 0, 'sequencer config for seq'),
-       ('l2gaspricer-config.txt', 'XLayerSeq', 'txt', 0, 'l2 gas pricer config for seq'),
-       ('pool-config.txt', 'XLayerSeq', 'txt', 0, 'pool config for seq'),
-       ('jsonrpc-rpc-config.txt', 'XLayerRpc', 'txt', 0, 'jsonrpc config for rpc');
+VALUES ('opgeth_jsonrpc-config.txt', 'XLayerSeq', 'txt', 0, 'opgeth jsonrpc config for seq'),
+       ('opnode_sequencer-config.txt', 'XLayerSeq', 'txt', 0, 'opnode sequencer config for seq'),
+       ('opgeth_l2gaspricer-config.txt', 'XLayerSeq', 'txt', 0, 'opgeth l2 gas pricer config for seq'),
+       ('opgeth_pool-config.txt', 'XLayerSeq', 'txt', 0, 'opgeth pool config for seq'),
+       ('opgeth_jsonrpc-rpc-config.txt', 'XLayerRpc', 'txt', 0, 'opgeth jsonrpc config for rpc');
 
 INSERT INTO `Namespace` (`AppId`, `ClusterName`, `NamespaceName`, `IsDeleted`)
-VALUES ('XLayerSeq', 'default', 'jsonrpc-config.txt', 0),
-       ('XLayerSeq', 'default', 'sequencer-config.txt', 0),
-       ('XLayerSeq', 'default', 'l2gaspricer-config.txt', 0),
-       ('XLayerSeq', 'default', 'pool-config.txt', 0),
-       ('XLayerRpc', 'default', 'jsonrpc-rpc-config.txt', 0);
+VALUES ('XLayerSeq', 'default', 'opgeth_jsonrpc-config.txt', 0),
+       ('XLayerSeq', 'default', 'opnode_sequencer-config.txt', 0),
+       ('XLayerSeq', 'default', 'opgeth_l2gaspricer-config.txt', 0),
+       ('XLayerSeq', 'default', 'opgeth_pool-config.txt', 0),
+       ('XLayerRpc', 'default', 'opgeth_jsonrpc-rpc-config.txt', 0);
 
 INSERT INTO `Item` (`NamespaceId`, `Key`, `Type`, `Value`, `IsDeleted`)
 VALUES ('2', 'content', 0, '', 0),
