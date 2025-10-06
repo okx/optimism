@@ -69,12 +69,6 @@ test/l1-geth/execution/genesis.json
 test/tmp
 
 # Ignore test apollo files
-test-apollo/l1-geth/consensus/beacondata
-test-apollo/l1-geth/consensus/validatordata
+test-apollo/l1-geth
 test-apollo/config-op
-test-apollo/config-op/superchain.json
-test-apollo/l1-geth/consensus/genesis.ssz
-test-apollo/l1-geth/execution/geth/genesis.json
-test-apollo/l1-geth/execution/geth
 test-apollo/data
-test-apollo/l1-geth/execution/genesis.json

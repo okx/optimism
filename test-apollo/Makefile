@@ -13,8 +13,10 @@ stop:
 
 .PHONY: run  
 run:
-	@ln -sf ../test/data data 2>/dev/null || true  
-	@ln -sf ../test/l1-geth l1-geth 2>/dev/null || true
+	@rm -rf l1-geth config-op data
+	@ln -sf ../test/config-op config-op
+	@ln -sf ../test/l1-geth l1-geth
+	@ln -sf ../test/data data
 	@echo "OP_GETH_BRANCH: $(OP_GETH_BRANCH)"
 	@if [ -n "$(OP_GETH_BRANCH)" ]; then \
 		echo "Initializing with branch: $(OP_GETH_BRANCH)"; \
