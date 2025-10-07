@@ -452,33 +452,6 @@ var (
 		EnvVars:  prefixEnvVars("EXPERIMENTAL_SEQUENCER_API"),
 		Category: MiscCategory,
 	}
-
-	// For X Layer
-	ApolloEnabledFlag = &cli.BoolFlag{
-		Name:  "apollo.enabled",
-		Usage: "Enable Apollo configuration service",
-		Value: false,
-	}
-	ApolloAppIDFlag = &cli.StringFlag{
-		Name:  "apollo.app-id",
-		Usage: "Apollo app ID",
-		Value: "",
-	}
-	ApolloIPFlag = &cli.StringFlag{
-		Name:  "apollo.ip",
-		Usage: "Apollo IP",
-		Value: "",
-	}
-	ApolloClusterFlag = &cli.StringFlag{
-		Name:  "apollo.cluster",
-		Usage: "Apollo cluster name",
-		Value: "default",
-	}
-	ApolloNamespaceFlag = &cli.StringFlag{
-		Name:  "apollo.namespace",
-		Usage: "Apollo namespace",
-		Value: "application",
-	}
 )
 
 var requiredFlags = []cli.Flag{
@@ -535,11 +508,6 @@ var optionalFlags = []cli.Flag{
 	InteropDependencySet,
 	IgnoreMissingPectraBlobSchedule,
 	ExperimentalOPStackAPI,
-	ApolloEnabledFlag,
-	ApolloAppIDFlag,
-	ApolloIPFlag,
-	ApolloClusterFlag,
-	ApolloNamespaceFlag,
 }
 
 var DeprecatedFlags = []cli.Flag{
@@ -563,6 +531,8 @@ func init() {
 	optionalFlags = append(optionalFlags, opflags.CLIFlags(EnvVarPrefix, RollupCategory)...)
 	optionalFlags = append(optionalFlags, altda.CLIFlags(EnvVarPrefix, AltDACategory)...)
 	Flags = append(requiredFlags, optionalFlags...)
+	// For X Layer
+	Flags = append(Flags, XLayerFlags...)
 }
 
 func CheckRequired(ctx *cli.Context) error {

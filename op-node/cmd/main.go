@@ -98,6 +98,8 @@ func RollupNodeMain(ctx *cli.Context, closeApp context.CancelCauseFunc) (cliapp.
 		// Create flags for Apollo config context (exclude Apollo connection flags)
 		flags := append(flags.Flags)
 
+		flags = apollo.SanitizeFlags(flags)
+
 		client, err := apollo.GetInstance(&config.AppConfig{
 			AppID:         cfg.Apollo.AppID,
 			IP:            cfg.Apollo.IP,

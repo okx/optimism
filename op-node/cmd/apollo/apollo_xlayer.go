@@ -19,21 +19,15 @@ type ApolloConfigImpl struct {
 
 // Global Apollo configuration instance
 var globalApolloConfig *ApolloConfigImpl
-var configMutex sync.RWMutex
 
-// UnsafeGetApolloConfig returns the global Apollo configuration
+// TryUnsafeGetApolloConfig returns the global Apollo configuration
 // This is unsafe and should be used carefully
-func UnsafeGetApolloConfig() *ApolloConfigImpl {
-	configMutex.RLock()
-	defer configMutex.RUnlock()
+func TryUnsafeGetApolloConfig() *ApolloConfigImpl {
 	return globalApolloConfig
 }
 
 // SetApolloConfig sets the global Apollo configuration
 func SetApolloConfig(nodeCfg *node.Config) {
-	configMutex.Lock()
-	defer configMutex.Unlock()
-
 	if globalApolloConfig == nil {
 		globalApolloConfig = &ApolloConfigImpl{}
 	}
@@ -43,8 +37,6 @@ func SetApolloConfig(nodeCfg *node.Config) {
 
 // IsApolloConfigSet checks if Apollo configuration has been set
 func IsApolloConfigSet() bool {
-	configMutex.RLock()
-	defer configMutex.RUnlock()
 	return globalApolloConfig != nil
 }
 
@@ -61,10 +53,12 @@ func (g *OpNodeConfigHandler) HandleConfigChange(prefix string, ctx *cli.Context
 		return
 	}
 	switch prefix {
+	// TODO: update when configs to be updated by apollo is decided
+	case apollo.JsonRPC:
 	case apollo.Sequencer:
-		log.Info("apollo sequencer", "key", key, "value", value.NewValue)
-		// TODO: update when configs to be updated by apollo is decided
-		fireTest(ctx, value)
+	case apollo.L2GasPricer:
+	case apollo.Pool:
+	case apollo.Halt:
 	default:
 		log.Info("unknown config prefix", "prefix", prefix, "key", key, "value", value.NewValue)
 	}
@@ -81,8 +75,11 @@ func (g *OpNodeConfigHandler) LoadConfig(prefix string, ctx *cli.Context) {
 
 	switch prefix {
 	// TODO: update when configs to be updated by apollo is decided
+	case apollo.JsonRPC:
 	case apollo.Sequencer:
-		g.loadTest(ctx)
+	case apollo.L2GasPricer:
+	case apollo.Pool:
+	case apollo.Halt:
 	default:
 		log.Info("OpNode unknown config prefix for loading", "prefix", prefix)
 	}

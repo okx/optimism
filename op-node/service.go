@@ -128,6 +128,7 @@ func NewConfig(ctx *cli.Context, log log.Logger) (*node.Config, error) {
 
 		ExperimentalOPStackAPI: ctx.Bool(flags.ExperimentalOPStackAPI.Name),
 
+		// For X Layer
 		Apollo: node.ApolloConfig{
 			Enable:    ctx.Bool(flags.ApolloEnabledFlag.Name),
 			AppID:     ctx.String(flags.ApolloAppIDFlag.Name),
