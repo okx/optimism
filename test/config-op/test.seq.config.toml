@@ -21,6 +21,9 @@ DiscoveryV5 = true
 NetworkId = 901
 SyncMode = "full"
 
+[Eth.Miner]
+Recommit = 50000000
+
 [Eth.TxPool]
 GlobalSlots = 500000
 GlobalQueue = 100000
