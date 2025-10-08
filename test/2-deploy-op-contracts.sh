@@ -27,7 +27,7 @@ TRANSACTOR_DEPLOY_OUTPUT=$(docker run --rm \
   forge create --json --broadcast \
     --rpc-url $L1_RPC_URL_IN_DOCKER \
     --private-key $DEPLOYER_PRIVATE_KEY \
-    src/periphery/Transactor.sol:Transactor.0.8.30 \
+    src/periphery/Transactor.sol:Transactor \
     --constructor-args $ADMIN_OWNER_ADDRESS)
 
 # Extract contract address from deployment output
