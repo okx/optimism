@@ -9,19 +9,21 @@ import { ProxyAdminOwnedBase } from "src/L1/ProxyAdminOwnedBase.sol";
 // Libraries
 import { Storage } from "src/libraries/Storage.sol";
 import { Features } from "src/libraries/Features.sol";
+import { GasPayingToken } from "src/libraries/GasPayingToken.sol";
 
 // Interfaces
 import { ISemver } from "interfaces/universal/ISemver.sol";
 import { IResourceMetering } from "interfaces/L1/IResourceMetering.sol";
 import { IOptimismPortal2 } from "interfaces/L1/IOptimismPortal2.sol";
 import { ISuperchainConfig } from "interfaces/L1/ISuperchainConfig.sol";
+import { IGasToken } from "src/libraries/GasPayingToken.sol";
 
 /// @custom:proxied true
 /// @title SystemConfig
 /// @notice The SystemConfig contract is used to manage configuration of an Optimism network.
 ///         All configuration is stored on L1 and picked up by L2 as part of the derviation of
 ///         the L2 chain.
-contract SystemConfig is ProxyAdminOwnedBase, OwnableUpgradeable, ReinitializableBase, ISemver {
+contract SystemConfig is ProxyAdminOwnedBase, OwnableUpgradeable, ReinitializableBase, ISemver, IGasToken {
     /// @notice Enum representing different types of updates.
     /// @custom:value BATCHER              Represents an update to the batcher hash.
     /// @custom:value FEE_SCALARS          Represents an update to l1 data fee scalars.
@@ -38,7 +40,8 @@ contract SystemConfig is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitializabl
         UNSAFE_BLOCK_SIGNER,
         EIP_1559_PARAMS,
         OPERATOR_FEE_PARAMS,
-        MIN_BASE_FEE
+        MIN_BASE_FEE,
+        GAS_PAYING_TOKEN
     }
 
     /// @notice Struct representing the addresses of L1 system contracts. These should be the
@@ -571,5 +574,45 @@ contract SystemConfig is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitializabl
     /// @return bool True if the custom gas token feature is enabled, false otherwise.
     function isCustomGasToken() public view returns (bool) {
         return isFeatureEnabled[Features.CUSTOM_GAS_TOKEN];
+    }
+
+    /// @notice Getter for the ERC20 token address that is used to pay for gas and its decimals.
+    /// @return address_ Address of the gas paying token.
+    /// @return decimals_ Decimals of the gas paying token.
+    function gasPayingToken() public view returns (address address_, uint8 decimals_) {
+        (address_, decimals_) = GasPayingToken.getToken();
+    }
+
+    /// @notice Returns the gas token name.
+    /// @return name_ Name of the gas paying token.
+    function gasPayingTokenName() public view returns (string memory name_) {
+        name_ = GasPayingToken.getName();
+    }
+
+    /// @notice Returns the gas token symbol.
+    /// @return symbol_ Symbol of the gas paying token.
+    function gasPayingTokenSymbol() public view returns (string memory symbol_) {
+        symbol_ = GasPayingToken.getSymbol();
+    }
+
+    /// @notice Sets the gas paying token and its metadata. Can only be called by the owner.
+    /// @param _token The address of the gas paying token.
+    /// @param _decimals The decimals of the gas paying token.
+    /// @param _name The name of the gas paying token as a bytes32.
+    /// @param _symbol The symbol of the gas paying token as a bytes32.
+    function setGasPayingToken(address _token, uint8 _decimals, bytes32 _name, bytes32 _symbol) external onlyOwner {
+        _setGasPayingToken(_token, _decimals, _name, _symbol);
+    }
+
+    /// @notice Internal function for setting the gas paying token.
+    /// @param _token The address of the gas paying token.
+    /// @param _decimals The decimals of the gas paying token.
+    /// @param _name The name of the gas paying token as a bytes32.
+    /// @param _symbol The symbol of the gas paying token as a bytes32.
+    function _setGasPayingToken(address _token, uint8 _decimals, bytes32 _name, bytes32 _symbol) internal {
+        GasPayingToken.set(_token, _decimals, _name, _symbol);
+
+        bytes memory data = abi.encode(_token, _decimals, _name, _symbol);
+        emit ConfigUpdate(VERSION, UpdateType.GAS_PAYING_TOKEN, data);
     }
 }

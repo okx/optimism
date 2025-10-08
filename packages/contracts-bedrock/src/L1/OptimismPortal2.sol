@@ -556,13 +556,6 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
         }
     }
 
-    /// @notice Returns the gas paying token address and decimals. Must be 18 decimals for CGT.
-    /// @return address_ The gas paying token address.
-    /// @return decimals_ The gas paying token decimals (always 18 for CGT).
-    function gasPayingToken() public view returns (address address_, uint8 decimals_) {
-        (address_, decimals_) = GasPayingToken.getToken();
-    }
-
     /// @notice Accepts deposits of ERC20 (custom gas token) and data, and emits a TransactionDeposited
     ///         event for use in deriving deposit transactions. This function is specifically for depositing
     ///         the custom gas token on CGT-enabled chains. Users must approve this contract to spend their
@@ -590,7 +583,7 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
         }
 
         // Transfer the custom gas token from the caller to this contract
-        (address token,) = gasPayingToken();
+        (address token,) = systemConfig.gasPayingToken();
         if (token != Constants.ETHER && _mint > 0) {
             IERC20(token).transferFrom(msg.sender, address(this), _mint);
         }
