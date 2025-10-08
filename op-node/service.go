@@ -127,15 +127,6 @@ func NewConfig(ctx *cli.Context, log log.Logger) (*node.Config, error) {
 		FetchWithdrawalRootFromState:    ctx.Bool(flags.FetchWithdrawalRootFromState.Name),
 
 		ExperimentalOPStackAPI: ctx.Bool(flags.ExperimentalOPStackAPI.Name),
-
-		// For X Layer
-		Apollo: node.ApolloConfig{
-			Enable:    ctx.Bool(flags.ApolloEnabledFlag.Name),
-			AppID:     ctx.String(flags.ApolloAppIDFlag.Name),
-			IP:        ctx.String(flags.ApolloIPFlag.Name),
-			Cluster:   ctx.String(flags.ApolloClusterFlag.Name),
-			Namespace: ctx.String(flags.ApolloNamespaceFlag.Name),
-		},
 	}
 
 	// For X Layer

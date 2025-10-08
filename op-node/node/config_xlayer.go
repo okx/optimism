@@ -12,8 +12,27 @@ import (
 
 const EnvKafkaConsumerGroupID = "REALTIME_KAFKA_CONSUMER_GROUP_ID"
 
+type ApolloConfig struct {
+	Enable    bool
+	AppID     string
+	IP        string
+	Cluster   string
+	Namespace string
+}
+
 func ApplyXLayerFlags(ctx *cli.Context, cfg *Config) {
+	applyApolloFlags(ctx, cfg)
 	applyRealtimeFlags(ctx, cfg)
+}
+
+func applyApolloFlags(ctx *cli.Context, cfg *Config) {
+	cfg.Apollo = ApolloConfig{
+		Enable:    ctx.Bool(flags.ApolloEnabledFlag.Name),
+		AppID:     ctx.String(flags.ApolloAppIDFlag.Name),
+		IP:        ctx.String(flags.ApolloIPFlag.Name),
+		Cluster:   ctx.String(flags.ApolloClusterFlag.Name),
+		Namespace: ctx.String(flags.ApolloNamespaceFlag.Name),
+	}
 }
 
 func applyRealtimeFlags(ctx *cli.Context, cfg *Config) {
