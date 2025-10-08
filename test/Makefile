@@ -79,9 +79,9 @@ test-realtime-e2e: stop
 	@echo "OP_GETH_BRANCH: $(OP_GETH_BRANCH)"
 	if [ -n "$(OP_GETH_BRANCH)" ]; then \
 		echo "Running E2E tests with branch: $(OP_GETH_BRANCH)"; \
-		make run && sleep 10 && make run-realtime-test; \
+		make run && sleep 20 && make run-realtime-test; \
 	else \
 		echo "Running E2E tests with default branch"; \
-		make run && sleep 10 && make run-realtime-test; \
+		make run && sleep 20 && make run-realtime-test; \
 	fi && echo "✅ E2E tests passed ✅"
 
