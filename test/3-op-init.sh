@@ -38,18 +38,21 @@ if [ -f "$STATE_JSON" ]; then
             L2OO_ADDRESS=$(jq -r '.opChainDeployments.L2OutputOracleProxy // empty' "$STATE_JSON")
             OPCM_IMPL_ADDRESS=$(jq -r '.appliedIntent.opcmAddress // empty' "$STATE_JSON")
             SYSTEM_CONFIG_PROXY_ADDRESS=$(jq -r '.opChainDeployments.SystemConfigProxy // empty' "$STATE_JSON")
+            OPTIMISM_PORTAL_PROXY_ADDRESS=$(jq -r '.opChainDeployments.OptimismPortalProxy // empty' "$STATE_JSON")
             PROXY_ADMIN=$(jq -r '.superchainContracts.SuperchainProxyAdminImpl // empty' "$STATE_JSON")
         elif [ "$OPCD_TYPE" = "array" ]; then
             DISPUTE_GAME_FACTORY_ADDRESS=$(jq -r '.opChainDeployments[0].DisputeGameFactoryProxy // empty' "$STATE_JSON")
             L2OO_ADDRESS=$(jq -r '.opChainDeployments[0].L2OutputOracleProxy // empty' "$STATE_JSON")
             OPCM_IMPL_ADDRESS=$(jq -r '.appliedIntent.opcmAddress // empty' "$STATE_JSON")
             SYSTEM_CONFIG_PROXY_ADDRESS=$(jq -r '.opChainDeployments[0].SystemConfigProxy // empty' "$STATE_JSON")
+            OPTIMISM_PORTAL_PROXY_ADDRESS=$(jq -r '.opChainDeployments[0].OptimismPortalProxy // empty' "$STATE_JSON")
             PROXY_ADMIN=$(jq -r '.superchainContracts.SuperchainProxyAdminImpl // empty' "$STATE_JSON")
         else
             DISPUTE_GAME_FACTORY_ADDRESS=""
             L2OO_ADDRESS=""
             OPCM_IMPL_ADDRESS=""
             SYSTEM_CONFIG_PROXY_ADDRESS=""
+            OPTIMISM_PORTAL_PROXY_ADDRESS=""
             PROXY_ADMIN=""
         fi
 
@@ -82,6 +85,13 @@ if [ -f "$STATE_JSON" ]; then
             echo " ⚠️ SystemConfigProxy address not found in opChainDeployments"
         fi
 
+        if [ -n "$OPTIMISM_PORTAL_PROXY_ADDRESS" ]; then
+            echo " ✅ Found OptimismPortalProxy address: $OPTIMISM_PORTAL_PROXY_ADDRESS"
+            sed_inplace "s/OPTIMISM_PORTAL_PROXY_ADDRESS=.*/OPTIMISM_PORTAL_PROXY_ADDRESS=$OPTIMISM_PORTAL_PROXY_ADDRESS/" .env
+        else
+            echo " ⚠️ OptimismPortalProxy address not found in opChainDeployments"
+        fi
+
         if [ -n "$PROXY_ADMIN" ]; then
             echo " ✅ Found ProxyAdmin address: $PROXY_ADMIN"
             sed_inplace "s/PROXY_ADMIN=.*/PROXY_ADMIN=$PROXY_ADMIN/" .env
@@ -95,6 +105,7 @@ if [ -f "$STATE_JSON" ]; then
         echo "   L2OO_ADDRESS=$L2OO_ADDRESS"
         echo "   OPCM_IMPL_ADDRESS=$OPCM_IMPL_ADDRESS"
         echo "   SYSTEM_CONFIG_PROXY_ADDRESS=$SYSTEM_CONFIG_PROXY_ADDRESS"
+        echo "   OPTIMISM_PORTAL_PROXY_ADDRESS=$OPTIMISM_PORTAL_PROXY_ADDRESS"
         echo "   PROXY_ADMIN=$PROXY_ADMIN"
     else
         echo " ❌ $STATE_JSON is not a valid JSON object"
