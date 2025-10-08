@@ -6,6 +6,7 @@ import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 // Interfaces
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 import { IOptimismPortal2 } from "interfaces/L1/IOptimismPortal2.sol";
 
 /// @title DepositedOKBAdapter
@@ -24,6 +25,7 @@ import { IOptimismPortal2 } from "interfaces/L1/IOptimismPortal2.sol";
 ///         - Generic lock-and-mint pattern for custom gas tokens
 ///         - OKB burning to maintain strict supply constraints
 ///         - Seamless integration with existing OP Stack infrastructure
+/// @dev This token is set as the gasPayingToken on SystemConfig.
 contract DepositedOKBAdapter is ERC20 {
     /// @notice Address of the OptimismPortal2 contract that this adapter works with.
     IOptimismPortal2 public immutable PORTAL;
@@ -32,10 +34,10 @@ contract DepositedOKBAdapter is ERC20 {
     IERC20 public immutable OKB;
 
     /// @notice Address where burned OKB tokens are sent (address(0)).
-    address private constant BURN_ADDRESS = address(0);
+    address public constant BURN_ADDRESS = address(0x1111111111111111111111111111111111111111);
 
     /// @notice Default gas limit for L2 transactions.
-    uint64 private constant DEFAULT_GAS_LIMIT = 100_000;
+    uint64 public constant DEFAULT_GAS_LIMIT = 100_000;
 
     /// @notice Emitted when a user deposits OKB and initiates an L2 transaction.
     /// @param from   Address that deposited the OKB.
@@ -80,7 +82,7 @@ contract DepositedOKBAdapter is ERC20 {
         // Transfer OKB from user to this contract
         OKB.transferFrom(msg.sender, address(this), _amount);
 
-        // Burn the OKB by sending to address(0)
+        // Burn the OKB
         OKB.transfer(BURN_ADDRESS, _amount);
 
         // Mint deposit tokens to this contract
@@ -120,7 +122,6 @@ contract DepositedOKBAdapter is ERC20 {
     /// @param amount Amount to transfer.
     /// @return bool  True if transfer succeeds.
     function transfer(address to, uint256 amount) public virtual override returns (bool) {
-        // Only allow transfers from portal back to this contract (for refunds/failures)
         if (msg.sender == address(PORTAL) && to != address(PORTAL)) {
             revert DepositedOKBAdapter_TransferNotAllowed();
         }
