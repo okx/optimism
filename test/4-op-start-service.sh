@@ -132,6 +132,7 @@ fi
 # Setup RPC node to connect to all sequencer nodes
 echo "🔗 Setting up RPC node to connect to all sequencer nodes..."
 add_peer "op-geth-rpc" "$OP_GETH_SEQ_ENODE"
+add_peer "op-geth-rpc-2" "$OP_GETH_SEQ_ENODE"
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     add_peer "op-geth-rpc" "$OP_GETH_SEQ2_ENODE"
     add_peer "op-geth-rpc" "$OP_GETH_SEQ3_ENODE"

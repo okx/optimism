@@ -24,7 +24,6 @@ SyncMode = "full"
 [Eth.Miner]
 Recommit = 50000000
 
-
 [Eth.TxPool]
 GlobalSlots = 500000
 GlobalQueue = 100000

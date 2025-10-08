@@ -27,9 +27,6 @@ EnableInnerTx = true
 [Eth.XLayer.Realtime]
 Enable = false
 
-[Eth.XLayer.Realtime]
-Enable = false
-
 [Eth.GPO]
 Blocks = 20
 Percentile = 60
