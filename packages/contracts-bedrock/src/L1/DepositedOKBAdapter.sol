@@ -52,7 +52,7 @@ contract DepositedOKBAdapter is ERC20 {
     /// @notice Constructor sets up the adapter with references to OKB and OptimismPortal.
     /// @param _okb    Address of the OKB token contract.
     /// @param _portal Address of the OptimismPortal2 contract.
-    constructor(address _okb, address _portal) ERC20("Deposited OKB", "dOKB") {
+    constructor(address _okb, address payable _portal) ERC20("Deposited OKB", "dOKB") {
         require(_okb != address(0), "DepositedOKBAdapter: OKB address cannot be zero");
         require(_portal != address(0), "DepositedOKBAdapter: Portal address cannot be zero");
 
