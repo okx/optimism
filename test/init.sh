@@ -18,6 +18,13 @@ else
     OP_GETH_DIR="$OP_GETH_LOCAL_DIRECTORY"
 fi
 
+if [ "$OP_RETH_LOCAL_DIRECTORY" = "" ]; then
+    git submodule update --init --recursive
+    OP_RETH_DIR="$OPTIMISM_DIR/op-reth"
+else
+    OP_RETH_DIR="$OP_RETH_LOCAL_DIRECTORY"
+fi
+
 # Switch to specified branch if provided
 if [ -n "$BRANCH_NAME" ]; then
     echo "Switching op-geth to branch: $BRANCH_NAME"
@@ -58,4 +65,14 @@ else
     echo "Building $OP_GETH_IMAGE_TAG"
     cd $OP_GETH_DIR
     docker build -t $OP_GETH_IMAGE_TAG .
+fi
+
+# Build OP_RETH image if not skipping
+if [ $SKIP_OP_RETH_BUILD = "true" ]; then
+    echo "skipping op-reth build"
+else
+    echo "Building $OP_RETH_IMAGE_TAG"
+    cd $OP_RETH_DIR
+    docker build -t $OP_RETH_IMAGE_TAG -f ./DockerfileOp .
+    cd $OPTIMISM_DIR
 fi
