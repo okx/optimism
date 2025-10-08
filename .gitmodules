@@ -35,4 +35,8 @@
 [submodule "op-geth"]
 	path = op-geth
 	url = https://github.com/okx/op-geth
-  branch = dev
+	branch = dev
+[submodule "op-reth"]
+	path = op-reth
+	url = https://github.com/okx/reth.git
+	branch = feature/reth-rpc
