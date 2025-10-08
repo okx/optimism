@@ -39,7 +39,7 @@ run-test:
 		echo "Using current branch"; \
 	fi && \
 	echo "Running E2E tests..."; \
-	MallocNanoZone=0 go test -count=1 -failfast -race -v -p 1 -timeout 600s -tags=skip_stress_realtime,skip_smoke_realtime ./test/e2e/...
+	MallocNanoZone=0 go test -count=1 -failfast -race -v -p 1 -timeout 600s -tags=skip_smoke_realtime ./test/e2e/...
 
 .PHONY: run-realtime-test
 run-realtime-test:
@@ -59,7 +59,7 @@ run-realtime-test:
 		echo "Using current branch"; \
 	fi && \
 	echo "Running realtime E2E tests..."; \
-	MallocNanoZone=0 go test -count=1 -failfast -race -v -p 1 -timeout 1200s -tags=skip_stress_realtime ./test/e2e/... ./realtime/test/...
+	MallocNanoZone=0 go test -count=1 -failfast -race -v -p 1 -timeout 1200s ./test/e2e/... ./realtime/test/...
 
 .PHONY: test-e2e
 test-e2e: stop
