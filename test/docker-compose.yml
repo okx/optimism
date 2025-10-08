@@ -214,6 +214,39 @@ services:
       # - --rollup.sequencerhttp=http://op-geth-seq:8545
       - --rollup.enabletxpooladmission
 
+  op-reth-rpc:
+    image: "${OP_RETH_IMAGE_TAG}"
+    container_name: op-reth-rpc
+    entrypoint: op-reth
+    volumes:
+      - ./data/op-reth-rpc:/datadir
+      - ./config-op/jwt.txt:/jwt.txt
+      - ./config-op/genesis.json:/genesis.json
+    ports:
+      - "9123:8545"
+    command:
+      - node
+      - --datadir=/datadir
+      - --chain=/genesis.json
+      - --http
+      - --http.corsdomain=*
+      - --http.port=8545
+      - --http.addr=0.0.0.0
+      - --http.api=web3,debug,eth,txpool,net,miner
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=7546
+      - --ws.origins=*
+      - --ws.api=debug,eth,txpool,net
+      - --disable-discovery
+      - --max-outbound-peers=0
+      - --max-inbound-peers=0
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.port=8552
+      - --authrpc.jwtsecret=/jwt.txt
+      - --rollup.sequencer-http=http://op-geth-seq:8545
+      - --rollup.disable-tx-pool-gossip
+
   op-seq:
     image: "${OP_STACK_IMAGE_TAG}"
     container_name: op-seq
@@ -293,7 +326,7 @@ services:
       - --l1.rpckind=standard
       - --safedb.path=/data/safedb
     depends_on:
-      - op-geth-rpc
+      - ${RPC_TYPE:-op-geth-rpc}
 
   op-conductor:
     image: "${OP_STACK_IMAGE_TAG}"
