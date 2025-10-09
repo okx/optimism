@@ -23,6 +23,7 @@ var (
 	SystemConfigUpdateUnsafeBlockSigner = common.Hash{31: 3}
 	SystemConfigUpdateEIP1559Params     = common.Hash{31: 4}
 	SystemConfigUpdateOperatorFeeParams = common.Hash{31: 5}
+	SystemConfigUpdateGasPayingToken    = common.Hash{31: 6} // not implemented
 )
 
 var (
@@ -176,6 +177,9 @@ func ProcessSystemConfigUpdateLogEvent(destSysCfg *eth.SystemConfig, ev *types.L
 		return nil
 	case SystemConfigUpdateUnsafeBlockSigner:
 		// Ignored in derivation. This configurable applies to runtime configuration outside of the derivation.
+		return nil
+	case SystemConfigUpdateGasPayingToken:
+		// Not implemented
 		return nil
 	default:
 		return fmt.Errorf("unrecognized L1 sysCfg update type: %s", updateType)
