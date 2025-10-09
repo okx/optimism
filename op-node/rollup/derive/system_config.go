@@ -24,6 +24,7 @@ var (
 	SystemConfigUpdateEIP1559Params     = common.Hash{31: 4}
 	SystemConfigUpdateOperatorFeeParams = common.Hash{31: 5}
 	SystemConfigUpdateMinBaseFee        = common.Hash{31: 6}
+	SystemConfigUpdateGasPayingToken    = common.Hash{31: 7} // not implemented
 )
 
 var (
@@ -193,6 +194,9 @@ func ProcessSystemConfigUpdateLogEvent(destSysCfg *eth.SystemConfig, ev *types.L
 			return NewCriticalError(errors.New("too many bytes"))
 		}
 		destSysCfg.MinBaseFee = minBaseFee
+		return nil
+	case SystemConfigUpdateGasPayingToken:
+		// Not implemented
 		return nil
 	default:
 		return fmt.Errorf("unrecognized L1 sysCfg update type: %s", updateType)
