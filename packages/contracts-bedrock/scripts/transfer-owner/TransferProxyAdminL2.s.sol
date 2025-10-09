@@ -14,7 +14,7 @@ import { Predeploys } from "src/libraries/Predeploys.sol";
 ///
 /// @dev Usage:
 ///      PROXY_ADMIN_OWNER_SAFE=<l1_safe_address> \
-///      forge script scripts/deploy/TransferProxyAdminL2.s.sol:TransferProxyAdminL2 \
+///      forge script scripts/transfer-owner/TransferProxyAdminL2.s.sol:TransferProxyAdminL2 \
 ///        --rpc-url $L2_RPC_URL \
 ///        --private-key $DEPLOYER_PRIVATE_KEY \
 ///        --broadcast
