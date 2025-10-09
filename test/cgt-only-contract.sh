@@ -1,5 +1,5 @@
 #!/bin/bash
-
+echo "Custom Gas Token Demo: only modify contract, without modifying sequencer code"
 set -e
 
 ROOT_DIR=$(git rev-parse --show-toplevel)
@@ -97,11 +97,10 @@ if [ -n "$OKB_TOKEN" ] && [ -n "$ADAPTER_ADDRESS" ]; then
   echo "📝 Step 3: Performing test deposit..."
   echo ""
 
-  # Amount to deposit: 1 OKB (1e18 wei)
-  DEPOSIT_AMOUNT="1000000000000000000"
+  DEPOSIT_AMOUNT="7999000000000000"
 
-  # L2 recipient address (anvil dev account 2)
-  L2_RECIPIENT=0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+  # L2 recipient address
+  L2_RECIPIENT=0x70997970C51812dc3A010C7d01b50e0d17dc79C9
 
   INIT_BALANCE=$(cast balance $L2_RECIPIENT --rpc-url $L2_RPC_URL)
   echo "  Deposit Amount: $DEPOSIT_AMOUNT"
@@ -109,17 +108,15 @@ if [ -n "$OKB_TOKEN" ] && [ -n "$ADAPTER_ADDRESS" ]; then
   echo "  Initial Balance: $INIT_BALANCE"
   echo ""
 
-  # Step 3a: Approve the adapter to spend OKB
-  echo "  📤 Approving adapter to spend OKB..."
+  # Step 3a: Approve the adapter to spend OKB (no detail output)
   cast send "$OKB_TOKEN" \
     "approve(address,uint256)" \
     "$ADAPTER_ADDRESS" \
     "$DEPOSIT_AMOUNT" \
     --rpc-url "$L1_RPC_URL" \
-    --private-key "$DEPLOYER_PRIVATE_KEY" \
+    --private-key "$DEPLOYER_PRIVATE_KEY"
 
-  # Step 3b: Perform the deposit
-  echo "  💰 Depositing 1 OKB to L2..."
+  # Step 3b: Perform the deposit (no detail output)
   cast send "$ADAPTER_ADDRESS" \
     "deposit(address,uint256)" \
     "$L2_RECIPIENT" \
@@ -128,11 +125,54 @@ if [ -n "$OKB_TOKEN" ] && [ -n "$ADAPTER_ADDRESS" ]; then
     --private-key "$DEPLOYER_PRIVATE_KEY"
 
   echo ""
-  echo "✅ Test deposit successful!"
+  echo "✅ Test deposit transaction sent!"
   echo ""
-  echo "📚 Next steps:"
-  echo "   1. Wait for L2 to process the deposit (may take a few blocks)"
-  echo "   2. Check L2 balance: cast balance $L2_RECIPIENT --rpc-url $L2_RPC_URL"
-  echo "   3. Monitor TransactionDeposited events on OptimismPortal"
-fi
+  echo "⏳ Waiting for L2 to process the deposit..."
+  echo "   Checking balance every 5 seconds..."
+  echo ""
 
+  # Expected final balance
+  EXPECTED_BALANCE=$((INIT_BALANCE + DEPOSIT_AMOUNT))
+
+  # Timeout after 5 minutes (60 attempts * 5 seconds)
+  MAX_ATTEMPTS=60
+  ATTEMPT=0
+
+  while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+    CURRENT_BALANCE=$(cast balance $L2_RECIPIENT --rpc-url $L2_RPC_URL)
+
+    echo "  [Attempt $((ATTEMPT + 1))/$MAX_ATTEMPTS] Current Balance: $CURRENT_BALANCE (Expected: $EXPECTED_BALANCE)"
+
+    if [ "$CURRENT_BALANCE" = "$EXPECTED_BALANCE" ]; then
+      echo ""
+      echo "🎉 Deposit processed successfully!"
+      echo ""
+      echo "📊 Final Status:"
+      echo "   Initial Balance:  $INIT_BALANCE"
+      echo "   Deposit Amount:   $DEPOSIT_AMOUNT"
+      echo "   Final Balance:    $CURRENT_BALANCE"
+      echo "   L2 Recipient:     $L2_RECIPIENT"
+      echo ""
+      break
+    fi
+
+    ATTEMPT=$((ATTEMPT + 1))
+
+    if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+      sleep 5
+    fi
+  done
+
+  if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+    echo ""
+    echo "⚠️  WARNING: Deposit not processed within timeout period (5 minutes)"
+    echo "   Current Balance:  $CURRENT_BALANCE"
+    echo "   Expected Balance: $EXPECTED_BALANCE"
+    echo ""
+    echo "📚 Troubleshooting:"
+    echo "   1. Check if L2 node is running and syncing"
+    echo "   2. Check L1 transaction status"
+    echo "   3. Monitor TransactionDeposited events on OptimismPortal: $OPTIMISM_PORTAL_PROXY_ADDRESS"
+    echo "   4. Manually check balance: cast balance $L2_RECIPIENT --rpc-url $L2_RPC_URL"
+  fi
+fi
