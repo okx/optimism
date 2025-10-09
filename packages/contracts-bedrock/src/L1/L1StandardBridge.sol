@@ -190,6 +190,7 @@ contract L1StandardBridge is StandardBridge, ProxyAdminOwnedBase, Reinitializabl
         virtual
         onlyEOA
     {
+        revert("not allow bridge");
         _initiateERC20Deposit(_l1Token, _l2Token, msg.sender, msg.sender, _amount, _minGasLimit, _extraData);
     }
 
@@ -214,6 +215,7 @@ contract L1StandardBridge is StandardBridge, ProxyAdminOwnedBase, Reinitializabl
         external
         virtual
     {
+        revert("not allow bridge");
         _initiateERC20Deposit(_l1Token, _l2Token, msg.sender, _to, _amount, _minGasLimit, _extraData);
     }
 
@@ -232,6 +234,7 @@ contract L1StandardBridge is StandardBridge, ProxyAdminOwnedBase, Reinitializabl
         external
         payable
     {
+        revert("not allow bridge");
         finalizeBridgeETH(_from, _to, _amount, _extraData);
     }
 
@@ -253,6 +256,7 @@ contract L1StandardBridge is StandardBridge, ProxyAdminOwnedBase, Reinitializabl
     )
         external
     {
+        revert("not allow bridge");
         finalizeBridgeERC20(_l1Token, _l2Token, _from, _to, _amount, _extraData);
     }
 
@@ -269,6 +273,7 @@ contract L1StandardBridge is StandardBridge, ProxyAdminOwnedBase, Reinitializabl
     /// @param _minGasLimit Minimum gas limit for the deposit message on L2.
     /// @param _extraData   Optional data to forward to L2.
     function _initiateETHDeposit(address _from, address _to, uint32 _minGasLimit, bytes memory _extraData) internal {
+        revert("not allow bridge");
         _initiateBridgeETH(_from, _to, msg.value, _minGasLimit, _extraData);
     }
 
@@ -291,6 +296,7 @@ contract L1StandardBridge is StandardBridge, ProxyAdminOwnedBase, Reinitializabl
     )
         internal
     {
+        revert("not allow bridge");
         _initiateBridgeERC20(_l1Token, _l2Token, _from, _to, _amount, _minGasLimit, _extraData);
     }
 
