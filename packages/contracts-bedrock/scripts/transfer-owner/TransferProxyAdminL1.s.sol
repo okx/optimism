@@ -12,6 +12,9 @@ import { GuardManager } from "safe-contracts/base/GuardManager.sol";
 import { Enum as SafeOps } from "safe-contracts/common/Enum.sol";
 
 import { IProxyAdmin } from "interfaces/universal/IProxyAdmin.sol";
+import { ISuperchainConfig } from "interfaces/L1/ISuperchainConfig.sol";
+import { SuperchainConfig } from "src/L1/SuperchainConfig.sol";
+import { Storage } from "src/libraries/Storage.sol";
 import { LivenessGuard } from "src/safe/LivenessGuard.sol";
 import { LivenessModule } from "src/safe/LivenessModule.sol";
 import { Transactor } from "src/periphery/Transactor.sol";
@@ -36,19 +39,20 @@ struct SecurityCouncilConfig {
     LivenessModuleConfig livenessModuleConfig;
 }
 
-/// @title TransferProxyAdminL1AndL2
+/// @title TransferProxyAdminL1
 /// @notice Comprehensive script to deploy security council governance and transfer L1 ProxyAdmin ownership.
 ///         This script performs the following:
 ///         1. Deploys FoundationUpgradeSafe (5/7 multisig)
 ///         2. Deploys SecurityCouncilSafe (10/13 multisig) with LivenessModule and LivenessGuard
-///         3. Deploys a 2/2 multisig (ProxyAdminOwnerSafe) with:
+///         3. Updates SuperchainConfig guardian address to Guardian EOA
+///         4. Deploys a 2/2 multisig (ProxyAdminOwnerSafe) with:
 ///            - SecurityCouncilSafe
 ///            - FoundationUpgradeSafe
-///         4. Transfers L1 ProxyAdmin ownership to the 2/2 multisig via Transactor
+///         5. Transfers L1 ProxyAdmin ownership to the 2/2 multisig via Transactor
 ///
 /// @dev For L2 ProxyAdmin ownership transfer, use the separate TransferProxyAdminL2.s.sol script
 ///      which should be executed directly on L2 after this script completes.
-contract TransferProxyAdminL1AndL2 is Script {
+contract TransferProxyAdminL1 is Script {
     // Deployed contract addresses (stored as state variables)
     address public foundationUpgradeSafe;
     address public securityCouncilSafe;
@@ -89,14 +93,20 @@ contract TransferProxyAdminL1AndL2 is Script {
         console.log("  SecurityCouncilSafe configured successfully");
         console.log();
 
-        // Step 4: Deploy 2/2 multisig with SecurityCouncilSafe and FoundationUpgradeSafe as owners
-        console.log("Step 4: Deploying 2/2 ProxyAdminOwnerSafe...");
+        // Step 4: Update SuperchainConfig guardian address to Guardian EOA
+        console.log("Step 4: Updating SuperchainConfig guardian address...");
+        updateSuperchainConfigGuardian();
+        console.log("  SuperchainConfig guardian updated successfully");
+        console.log();
+
+        // Step 5: Deploy 2/2 multisig with SecurityCouncilSafe and FoundationUpgradeSafe as owners
+        console.log("Step 5: Deploying 2/2 ProxyAdminOwnerSafe...");
         proxyAdminOwnerSafe = deployProxyAdminOwnerSafe();
         console.log("  ProxyAdminOwnerSafe deployed at:", proxyAdminOwnerSafe);
         console.log();
 
-        // Step 5: Transfer L1 ProxyAdmin ownership to the 2/2 multisig
-        console.log("Step 5: Transferring L1 ProxyAdmin ownership...");
+        // Step 6: Transfer L1 ProxyAdmin ownership to the 2/2 multisig
+        console.log("Step 6: Transferring L1 ProxyAdmin ownership...");
         transferL1ProxyAdminOwnership(proxyAdminOwnerSafe);
         console.log();
 
@@ -117,7 +127,7 @@ contract TransferProxyAdminL1AndL2 is Script {
     /// @notice Deploys a Safe with a configuration similar to that of the Foundation Safe on Mainnet.
     function deployFoundationUpgradeSafe() public broadcast returns (address addr_) {
         SafeConfig memory exampleFoundationConfig = _getExampleFoundationConfig();
-        addr_ = deploySafe({
+        addr_ = _deploySafe({
             _name: "FoundationUpgradeSafe",
             _owners: exampleFoundationConfig.owners,
             _threshold: exampleFoundationConfig.threshold,
@@ -148,7 +158,7 @@ contract TransferProxyAdminL1AndL2 is Script {
         // Deploy the safe with the extra deployer key, and keep the threshold at 1 to allow for further setup.
         SecurityCouncilConfig memory exampleCouncilConfig = _getExampleCouncilConfig();
         addr_ = payable(
-            deploySafe({
+            _deploySafe({
                 _name: "SecurityCouncilSafe",
                 _owners: exampleCouncilConfig.safeConfig.owners,
                 _threshold: 1,
@@ -157,18 +167,18 @@ contract TransferProxyAdminL1AndL2 is Script {
         );
     }
 
+
     /// @notice Deploy a LivenessGuard for use on the Security Council Safe.
     ///         Note this function does not have the broadcast modifier.
-    function deployLivenessGuard() internal returns (address) {
+    function _deployLivenessGuard() internal returns (address) {
         Safe councilSafe = Safe(payable(securityCouncilSafe));
         livenessGuard = address(new LivenessGuard(councilSafe));
-        console.log("  New LivenessGuard deployed at %s", livenessGuard);
         return livenessGuard;
     }
 
     /// @notice Deploy a LivenessModule for use on the Security Council Safe
     ///         Note this function does not have the broadcast modifier.
-    function deployLivenessModule() internal returns (address) {
+    function _deployLivenessModule() internal returns (address) {
         Safe councilSafe = Safe(payable(securityCouncilSafe));
         LivenessModuleConfig memory livenessModuleConfig = _getExampleCouncilConfig().livenessModuleConfig;
 
@@ -182,33 +192,81 @@ contract TransferProxyAdminL1AndL2 is Script {
                 _fallbackOwner: livenessModuleConfig.fallbackOwner
             })
         );
-        console.log("  New LivenessModule deployed at %s", livenessModule);
         return livenessModule;
     }
 
+
     /// @notice Configure the Security Council Safe with the LivenessModule and LivenessGuard.
-    function configureSecurityCouncilSafe() internal broadcast {
+    function configureSecurityCouncilSafe() public broadcast {
         SecurityCouncilConfig memory exampleCouncilConfig = _getExampleCouncilConfig();
         Safe safe = Safe(payable(securityCouncilSafe));
 
         // Deploy and add the Liveness Guard.
-        address guard = deployLivenessGuard();
+        address guard = _deployLivenessGuard();
         _callViaSafe({ _safe: safe, _target: address(safe), _data: abi.encodeCall(GuardManager.setGuard, (guard)) });
-        console.log("  LivenessGuard setup on SecurityCouncilSafe");
 
         // Deploy and add the Liveness Module.
-        address module = deployLivenessModule();
+        address module = _deployLivenessModule();
         _callViaSafe({ _safe: safe, _target: address(safe), _data: abi.encodeCall(ModuleManager.enableModule, (module)) });
-        console.log("  LivenessModule enabled on SecurityCouncilSafe");
 
         // Finalize configuration by removing the additional deployer key.
-        removeDeployerFromSafe({ _safe: safe, _newThreshold: exampleCouncilConfig.safeConfig.threshold });
+        _removeDeployerFromSafe({ _safe: safe, _newThreshold: exampleCouncilConfig.safeConfig.threshold });
 
         address[] memory owners = safe.getOwners();
         require(
             safe.getThreshold() == LivenessModule(module).getRequiredThreshold(owners.length),
-            "TransferProxyAdminL1AndL2: safe threshold must be equal to the LivenessModule's required threshold"
+            "TransferProxyAdminL1: safe threshold must be equal to the LivenessModule's required threshold"
         );
+    }
+
+
+    /// @notice Update the SuperchainConfig guardian address to the new Guardian EOA.
+    ///         This deploys a custom SuperchainConfig implementation that sets the new guardian during upgrade.
+    function updateSuperchainConfigGuardian() public broadcast {
+        // Read addresses from environment variables
+        address proxyAdminAddr = vm.envAddress("PROXY_ADMIN");
+        address superchainConfigProxyAddr = vm.envAddress("SUPERCHAIN_CONFIG_PROXY");
+        address transactorAddr = vm.envAddress("TRANSACTOR");
+        address newGuardianEOA = vm.envAddress("GUARDIAN_EOA");
+
+        console.log("  Reading addresses from environment:");
+        console.log("    PROXY_ADMIN:            %s", proxyAdminAddr);
+        console.log("    SUPERCHAIN_CONFIG_PROXY: %s", superchainConfigProxyAddr);
+        console.log("    TRANSACTOR:             %s", transactorAddr);
+        console.log("    GUARDIAN_EOA:           %s", newGuardianEOA);
+        console.log();
+
+        ISuperchainConfig superchainConfigProxy = ISuperchainConfig(superchainConfigProxyAddr);
+        Transactor transactor = Transactor(transactorAddr);
+
+        // Get current guardian
+        address currentGuardian = superchainConfigProxy.guardian();
+        console.log("  Current SuperchainConfig guardian: %s", currentGuardian);
+        console.log("  New SuperchainConfig guardian:     %s", newGuardianEOA);
+
+        require(currentGuardian != newGuardianEOA, "TransferProxyAdminL1: new guardian is already the guardian");
+
+        // Deploy a custom SuperchainConfig implementation that sets the new guardian during upgrade
+        address newSuperchainConfigImpl = address(new SuperchainConfigWithNewGuardian(newGuardianEOA));
+        console.log("  Custom SuperchainConfig implementation deployed at: %s", newSuperchainConfigImpl);
+
+        // Generate calldata for upgradeAndCall to call initialize with the new guardian
+        bytes memory upgradeCalldata = abi.encodeCall(ISuperchainConfig.initialize, (newGuardianEOA));
+        bytes memory upgradeAndCallCalldata = abi.encodeCall(
+            IProxyAdmin.upgradeAndCall,
+            (payable(superchainConfigProxyAddr), newSuperchainConfigImpl, upgradeCalldata)
+        );
+        console.log("  upgradeAndCall calldata generated");
+
+        // Call upgradeAndCall through Transactor.CALL
+        (bool success,) = transactor.CALL(proxyAdminAddr, upgradeAndCallCalldata, 0);
+        require(success, "TransferProxyAdminL1: Transactor.CALL for guardian update failed");
+
+        // Verify the guardian update
+        address actualGuardian = superchainConfigProxy.guardian();
+        require(actualGuardian == newGuardianEOA, "TransferProxyAdminL1: SuperchainConfig guardian update failed");
+
+        console.log("  SuperchainConfig guardian successfully updated to Guardian EOA");
     }
 
     /// @notice Make a call from the Safe contract to an arbitrary address with arbitrary data
@@ -232,7 +290,7 @@ contract TransferProxyAdminL1AndL2 is Script {
 
     /// @notice If the keepDeployer option was used with deploySafe(), this function can be used to remove the deployer.
     ///         Note this function does not have the broadcast modifier.
-    function removeDeployerFromSafe(Safe _safe, uint256 _newThreshold) internal {
+    function _removeDeployerFromSafe(Safe _safe, uint256 _newThreshold) internal {
         // The sentinel address is used to mark the start and end of the linked list of owners in the Safe.
         address sentinelOwners = address(0x1);
 
@@ -283,7 +341,7 @@ contract TransferProxyAdminL1AndL2 is Script {
     /// @param _owners The owners of the Safe.
     /// @param _threshold The threshold of the Safe.
     /// @param _keepDeployer Whether or not the deployer address will be added as an owner of the Safe.
-    function deploySafe(
+    function _deploySafe(
         string memory _name,
         address[] memory _owners,
         uint256 _threshold,
@@ -317,7 +375,7 @@ contract TransferProxyAdminL1AndL2 is Script {
 
     /// @notice Deploy a 2/2 multisig Safe with SecurityCouncilSafe and FoundationUpgradeSafe as owners.
     /// @return addr_ The address of the deployed ProxyAdminOwnerSafe.
-    function deployProxyAdminOwnerSafe() internal broadcast returns (address addr_) {
+    function deployProxyAdminOwnerSafe() public broadcast returns (address addr_) {
         console.log("  Creating 2/2 multisig with owners:");
         console.log("    - SecurityCouncilSafe:    %s", securityCouncilSafe);
         console.log("    - FoundationUpgradeSafe:  %s", foundationUpgradeSafe);
@@ -328,19 +386,19 @@ contract TransferProxyAdminL1AndL2 is Script {
         owners[1] = foundationUpgradeSafe;
 
         // Deploy the 2/2 multisig
-        addr_ = deploySafe({ _name: "ProxyAdminOwnerSafe", _owners: owners, _threshold: 2, _keepDeployer: false });
+        addr_ = _deploySafe({ _name: "ProxyAdminOwnerSafe", _owners: owners, _threshold: 2, _keepDeployer: false });
 
         // Verify the safe configuration
         Safe safe = Safe(payable(addr_));
-        require(safe.getThreshold() == 2, "TransferProxyAdminL1AndL2: threshold must be 2");
-        require(safe.getOwners().length == 2, "TransferProxyAdminL1AndL2: must have 2 owners");
+        require(safe.getThreshold() == 2, "TransferProxyAdminL1: threshold must be 2");
+        require(safe.getOwners().length == 2, "TransferProxyAdminL1: must have 2 owners");
 
         console.log("  Safe threshold: 2/2");
     }
 
     /// @notice Transfer L1 ProxyAdmin ownership to the ProxyAdminOwnerSafe via Transactor.
     /// @param _newOwner The address of the new ProxyAdmin owner (ProxyAdminOwnerSafe).
-    function transferL1ProxyAdminOwnership(address _newOwner) internal broadcast {
+    function transferL1ProxyAdminOwnership(address _newOwner) public broadcast {
         // Read addresses from environment variables
         address proxyAdminAddr = vm.envAddress("PROXY_ADMIN");
         address transactorAddr = vm.envAddress("TRANSACTOR");
@@ -358,7 +416,7 @@ contract TransferProxyAdminL1AndL2 is Script {
         console.log("  Current L1 ProxyAdmin owner: %s", currentOwner);
         console.log("  New L1 ProxyAdmin owner:     %s", _newOwner);
 
-        require(currentOwner != _newOwner, "TransferProxyAdminL1AndL2: new owner is already the owner");
+        require(currentOwner != _newOwner, "TransferProxyAdminL1: new owner is already the owner");
 
         // Generate calldata for transferOwnership(address)
         bytes memory transferOwnershipCalldata = abi.encodeCall(IProxyAdmin.transferOwnership, (_newOwner));
@@ -367,12 +425,38 @@ contract TransferProxyAdminL1AndL2 is Script {
         // Call transferOwnership through Transactor.CALL
         // Transactor.CALL(address _target, bytes memory _data, uint256 _value)
         (bool success,) = transactor.CALL(proxyAdminAddr, transferOwnershipCalldata, 0);
-        require(success, "TransferProxyAdminL1AndL2: Transactor.CALL failed");
+        require(success, "TransferProxyAdminL1: Transactor.CALL failed");
 
         // Verify the transfer
         address actualOwner = proxyAdmin.owner();
-        require(actualOwner == _newOwner, "TransferProxyAdminL1AndL2: L1 ownership transfer failed");
+        require(actualOwner == _newOwner, "TransferProxyAdminL1: L1 ownership transfer failed");
 
         console.log("  L1 ProxyAdmin ownership successfully transferred");
+    }
+}
+
+/// @notice Custom SuperchainConfig implementation that allows setting a new guardian during upgrade
+contract SuperchainConfigWithNewGuardian is SuperchainConfig {
+    address private immutable _NEW_GUARDIAN;
+
+    constructor(address _newGuardian) ReinitializableBase(3) {
+        _NEW_GUARDIAN = _newGuardian;
+        _disableInitializers();
+    }
+
+    /// @notice Custom upgrade function that sets the new guardian
+    function upgradeWithNewGuardian() external reinitializer(initVersion()) {
+        // Upgrade transactions must come from the ProxyAdmin or its owner.
+        _assertOnlyProxyAdminOrProxyAdminOwner();
+
+        // Perform standard upgrade logic first - migrate from old storage slots and clear them
+        bytes32 guardianSlot = bytes32(uint256(keccak256("superchainConfig.guardian")) - 1);
+        Storage.setBytes32(guardianSlot, bytes32(0));
+
+        bytes32 pausedSlot = bytes32(uint256(keccak256("superchainConfig.paused")) - 1);
+        Storage.setBytes32(pausedSlot, bytes32(0));
+
+        // Set the new guardian (different from standard upgrade which reads from old slot)
+        _setGuardian(_NEW_GUARDIAN);
     }
 }
