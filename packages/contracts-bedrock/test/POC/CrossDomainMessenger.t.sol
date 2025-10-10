@@ -134,14 +134,11 @@ contract POC_CrossDomainMessenger_Test is Test {
         }
     }
 
-    /// @notice Setup L1 contracts (placeholder addresses for now)
+    /// @notice Setup L1 contracts (read addresses from state.json)
     function setupL1Contracts() internal {
-        // In a real fork test, these would be the actual deployed contract addresses
-        // For now, we'll use placeholder addresses
-        l1CrossDomainMessenger = IL1CrossDomainMessenger(address(vm.parseAddress("0x504a0094f9492894243a8ea14b33ed7eeb619e84")));
-
-        // If we're on a real fork, we should use the actual deployed addresses
-        // These would typically be retrieved from a deployment registry or config
+        string memory stateJson = vm.readFile("../../test/config-op/state.json");
+        address l1CrossDomainMessengerProxy = vm.parseJsonAddress(stateJson, ".opChainDeployments[0].L1CrossDomainMessengerProxy");
+        l1CrossDomainMessenger = IL1CrossDomainMessenger(l1CrossDomainMessengerProxy);
     }
 
     /// @notice Setup L2 contracts using Predeploys

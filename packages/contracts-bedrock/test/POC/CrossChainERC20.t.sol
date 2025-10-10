@@ -103,8 +103,14 @@ contract CrossChainERC20_Test is Test {
     /// @notice Setup L1 contracts (assuming they're deployed on the forked network)
     function setupL1Contracts() internal {
 
-        l1StandardBridge = IL1StandardBridge(payable(vm.parseAddress("0xf209c8f3cb9872bf49c3bbdb0948ed059b806c6c")));
-        l1CrossDomainMessenger = IL1CrossDomainMessenger(vm.parseAddress("0x504a0094f9492894243a8ea14b33ed7eeb619e84"));
+        // Read addresses from state.json file
+        string memory stateJson = vm.readFile("../../test/config-op/state.json");
+
+        address l1StandardBridgeProxy = vm.parseJsonAddress(stateJson, ".opChainDeployments[0].L1StandardBridgeProxy");
+        address l1CrossDomainMessengerProxy = vm.parseJsonAddress(stateJson, ".opChainDeployments[0].L1CrossDomainMessengerProxy");
+
+        l1StandardBridge = IL1StandardBridge(payable(l1StandardBridgeProxy));
+        l1CrossDomainMessenger = IL1CrossDomainMessenger(l1CrossDomainMessengerProxy);
 
     }
 
