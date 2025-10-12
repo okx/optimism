@@ -18,7 +18,7 @@ RECIPIENT="0x14dC79964da2C08b23698B3D3cc7Ca32193d9955"  # Default Rich Address
 PRIVATE_KEY="0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356" # Default Rich Private Key
 
 echo "OPTIMISM PORTAL Address: $OPTIMISM_PORTAL"
-echo "Recipient: $RECIPIENT" 
+echo "Recipient: $RECIPIENT"
 cast balance $RECIPIENT --rpc-url $L2_RPC_URL
 echo "Bridging 1 ETH from L1 to L2..."
 
@@ -41,13 +41,17 @@ echo "Checking L2 balance for $RECIPIENT:"
 BALANCE=$(cast balance $RECIPIENT --rpc-url $L2_RPC_URL)
 ADMIN_BALANCE=$(cast balance $L1_ADMIN_ADDRESS --rpc-url $L2_RPC_URL)
 
+WAIT_COUNT=0
 while [ $BALANCE == 0 ] || [ $ADMIN_BALANCE == 0 ]; do
-    echo "L2 account not funded or L1 admin account not funded"
+    WAIT_COUNT=$((WAIT_COUNT + 1))
+    echo " ⏳ Waiting for bridge transactions to finalize... (${WAIT_COUNT})"
+    echo "    Current L2 balance: $(cast --to-unit $BALANCE ether) ETH"
+    echo "    Current Admin balance: $(cast --to-unit $ADMIN_BALANCE ether) ETH"
     sleep 5
     BALANCE=$(cast balance $RECIPIENT --rpc-url $L2_RPC_URL)
-    echo "Balance after additional wait: $(cast --to-unit $BALANCE ether) ETH"
     ADMIN_BALANCE=$(cast balance $L1_ADMIN_ADDRESS --rpc-url $L2_RPC_URL)
-    echo "Admin balance after additional wait: $(cast --to-unit $ADMIN_BALANCE ether) ETH"
 done
 
-echo "Bridging complete"
+echo " ✅ Bridging complete!"
+echo "    Final L2 balance: $(cast --to-unit $BALANCE ether) ETH"
+echo "    Final Admin balance: $(cast --to-unit $ADMIN_BALANCE ether) ETH"

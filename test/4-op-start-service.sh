@@ -215,6 +215,7 @@ sleep $DISPUTE_GAME_FINALITY_DELAY_SECONDS
 
 echo "3. Claiming credit for proposer using cast command..."
 TX_OUTPUT=$(cast send --json \
+    --legacy \
     --rpc-url $L1_RPC_URL \
     --private-key $OP_CHALLENGER_PRIVATE_KEY \
     $GAME_ADDRESS \

@@ -30,7 +30,7 @@ TRANSACTOR_DEPLOY_OUTPUT=$(docker run --rm \
   -v "$(pwd)/$CONFIG_DIR:/deployments" \
   -w /app/packages/contracts-bedrock \
   "${OP_CONTRACTS_IMAGE_TAG}" \
-  forge create --json --broadcast \
+  forge create --json --broadcast --legacy \
     --rpc-url $L1_RPC_URL_IN_DOCKER \
     --private-key $DEPLOYER_PRIVATE_KEY \
     src/periphery/Transactor.sol:Transactor.0.8.30 \

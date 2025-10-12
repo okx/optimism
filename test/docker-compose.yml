@@ -44,11 +44,16 @@ services:
       - /bin/sh
       - -c
       - |
+        apk add --no-cache jq
         echo "Fixing genesis.json fork times..."
         sed -i 's/"shanghaiTime": [0-9]*/"shanghaiTime": 0/g' /execution/genesis.json
         sed -i 's/"cancunTime": [0-9]*/"cancunTime": 0/g' /execution/genesis.json
-        echo "Genesis.json: shanghai=0, cancun=0 (MCOPY enabled)"
-        cat /execution/genesis.json | grep -E "(shanghaiTime|cancunTime)"
+        echo "Adding blobSchedule for Cancun..."
+        jq '.config.blobSchedule = {"cancun": {"target": 3, "max": 6, "baseFeeUpdateFraction": 3338477}}' /execution/genesis.json > /tmp/genesis.json && mv /tmp/genesis.json /execution/genesis.json
+        echo "Removing terminalTotalDifficultyPassed for op-node compatibility..."
+        jq 'del(.config.terminalTotalDifficultyPassed)' /execution/genesis.json > /tmp/genesis.json && mv /tmp/genesis.json /execution/genesis.json
+        echo "Genesis.json: shanghai=0, cancun=0 (MCOPY enabled), blobSchedule added, terminalTotalDifficultyPassed removed"
+        cat /execution/genesis.json | jq '.config | {shanghaiTime, cancunTime, terminalTotalDifficulty, blobSchedule}'
     volumes:
       - ./l1-geth/execution:/execution
     depends_on:
@@ -56,7 +61,7 @@ services:
         condition: service_completed_successfully
 
   l1-geth-genesis:
-    image: "ethereum/client-go:v1.14.11"
+    image: "ethereum/client-go:v1.15.11"
     container_name: l1-geth-genesis
     command: --datadir=/execution --gcmode=archive init --state.scheme=hash /execution/genesis.json
     volumes:
@@ -69,7 +74,7 @@ services:
         condition: service_completed_successfully
 
   l1-geth:
-    image: "ethereum/client-go:v1.14.11"
+    image: "ethereum/client-go:v1.15.11"
     container_name: l1-geth
     command:
       - --http
@@ -380,7 +385,7 @@ services:
       - --proposal-interval=1m
       - --private-key=${OP_PROPOSER_PRIVATE_KEY}
       - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
-      - --game-type=${GAME_TYPE}
+      - --game-type=${GAME_TYPE:-0}
       - --allow-non-finalized
       - --genesis-height=${FORK_BLOCK}
     depends_on:
