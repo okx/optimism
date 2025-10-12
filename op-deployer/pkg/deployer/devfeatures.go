@@ -15,8 +15,11 @@ var (
 	// CannonKonaDevFlag enables Kona as the default cannon prover.
 	CannonKonaDevFlag = common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000010")
 
-	// DeployV2DisputeGamesDevFlag enables deployment of V2 dispute game contracts.
-	DeployV2DisputeGamesDevFlag = common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000100")
+	// DeployV2DisputeGames enables deployment of V2 dispute game contracts.
+	DeployV2DisputeGames = common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000100")
+
+	// CustomGasToken enables the custom gas token.
+	CustomGasToken = common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000001000")
 )
 
 // IsDevFeatureEnabled checks if a specific development feature is enabled in a feature bitmap.
