@@ -68,3 +68,8 @@ test/data
 .tool-versions
 test/l1-geth/execution/genesis.json
 test/tmp
+
+# Ignore test apollo files
+test-apollo/l1-geth
+test-apollo/config-op
+test-apollo/data
