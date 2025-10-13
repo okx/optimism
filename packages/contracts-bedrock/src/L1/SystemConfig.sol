@@ -156,6 +156,9 @@ contract SystemConfig is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitializabl
     ///         respectively.
     error SystemConfig_InvalidFeatureState();
 
+    /// @notice Thrown when attempting to set a value that has already been set
+    error SystemConfig_ValueAlreadySet();
+
     /// @notice Semantic version.
     /// @custom:semver 3.8.0
     function version() public pure virtual returns (string memory) {
@@ -552,6 +555,10 @@ contract SystemConfig is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitializabl
     /// @param _name The name of the gas paying token as a bytes32.
     /// @param _symbol The symbol of the gas paying token as a bytes32.
     function setGasPayingToken(address _token, uint8 _decimals, bytes32 _name, bytes32 _symbol) external onlyOwner {
+        (address gasToken,) = gasPayingToken();
+        if (gasToken != Constants.ETHER) {
+            revert SystemConfig_ValueAlreadySet();
+        }
         _setGasPayingToken(_token, _decimals, _name, _symbol);
     }
 
