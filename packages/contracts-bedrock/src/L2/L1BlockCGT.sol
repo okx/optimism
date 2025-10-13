@@ -5,7 +5,9 @@ pragma solidity 0.8.15;
 import { Constants } from "src/libraries/Constants.sol";
 import { Predeploys } from "src/libraries/Predeploys.sol";
 import { L1Block } from "src/L2/L1Block.sol";
-import { GasPayingToken } from "src/libraries/GasPayingToken.sol";
+
+// Interfaces
+import { ILiquidityController } from "interfaces/L2/ILiquidityController.sol";
 
 /// @custom:proxied true
 /// @custom:predeploy 0x4200000000000000000000000000000000000015
@@ -42,14 +44,16 @@ contract L1BlockCGT is L1Block {
     ///         If nothing is set in state, then it means ether is used.
     ///         This function cannot be removed because WETH depends on it.
     function gasPayingTokenName() public view override returns (string memory name_) {
-        name_ = GasPayingToken.getName();
+        name_ =
+            isCustomGasToken() ? ILiquidityController(Predeploys.LIQUIDITY_CONTROLLER).gasPayingTokenName() : "Ether";
     }
 
     /// @notice Returns the gas paying token symbol.
     ///         If nothing is set in state, then it means ether is used.
     ///         This function cannot be removed because WETH depends on it.
     function gasPayingTokenSymbol() public view override returns (string memory symbol_) {
-        symbol_ = GasPayingToken.getSymbol();
+        symbol_ =
+            isCustomGasToken() ? ILiquidityController(Predeploys.LIQUIDITY_CONTROLLER).gasPayingTokenSymbol() : "ETH";
     }
 
     /// @notice Set chain to use custom gas token (callable by depositor account)
