@@ -128,10 +128,9 @@ contract SetupCustomGasToken is Script {
 
     /// @notice Deploy OKBBurner implementation contract
     function deployBurnerImplementation() internal {
-        burnerImplementation = new OKBBurner(address(okbToken), address(0)); // adapter address will be set later
+        burnerImplementation = new OKBBurner(address(okbToken)); // adapter address will be set later
         console.log("  OKBBurner Implementation deployed at:", address(burnerImplementation));
         console.log("  Burner OKB token:", address(burnerImplementation.OKB()));
-        console.log("  Burner adapter (placeholder):", address(burnerImplementation.ADAPTER()));
     }
 
     /// @notice Deploy DepositedOKBAdapter
@@ -192,7 +191,6 @@ contract SetupCustomGasToken is Script {
         // Check 5: OKBBurner Implementation configuration
         console.log("  [CHECK 5] OKBBurner Implementation configuration:");
         console.log("    OKB Token:", address(burnerImplementation.OKB()));
-        console.log("    Adapter Address:", address(burnerImplementation.ADAPTER()));
         require(address(burnerImplementation.OKB()) == address(okbToken), "FAILED: Burner OKB mismatch");
 
         // Check 6: Adapter burner implementation reference
