@@ -43,7 +43,7 @@ RUN --mount=type=cache,target=/root/.cache \
     make build-go
 
 # Copy foundry tools and artifacts from contracts image
-COPY --from=op-contracts:v1.13.4 /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil /usr/local/bin/
+COPY --from=op-contracts:latest /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil /usr/local/bin/
 
 # Verify installations
 RUN echo "🔍 Verifying installations:" && \
