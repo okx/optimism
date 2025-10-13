@@ -10,7 +10,7 @@ import { ProxyAdminOwnedBase } from "src/L1/ProxyAdminOwnedBase.sol";
 import { Storage } from "src/libraries/Storage.sol";
 import { Features } from "src/libraries/Features.sol";
 import { GasPayingToken } from "src/libraries/GasPayingToken.sol";
-
+import { Constants } from "src/libraries/Constants.sol";
 // Interfaces
 import { ISemver } from "interfaces/universal/ISemver.sol";
 import { IResourceMetering } from "interfaces/L1/IResourceMetering.sol";
