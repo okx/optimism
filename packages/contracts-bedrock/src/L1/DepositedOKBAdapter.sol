@@ -3,10 +3,11 @@ pragma solidity 0.8.15;
 
 // Contracts
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
+import { OKBBurner } from "src/L1/OKBBurner.sol";
 
 // Interfaces
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-
+import { IOKB } from "interfaces/L1/IOKB.sol";
 import { IOptimismPortal2 } from "interfaces/L1/IOptimismPortal2.sol";
 
 /// @title DepositedOKBAdapter
@@ -31,10 +32,13 @@ contract DepositedOKBAdapter is ERC20 {
     IOptimismPortal2 public immutable PORTAL;
 
     /// @notice Address of the OKB token contract.
-    IERC20 public immutable OKB;
+    IOKB public immutable OKB;
 
-    /// @notice Address where burned OKB tokens are sent (address(0)).
-    address public constant BURN_ADDRESS = address(0x1111111111111111111111111111111111111111);
+    /// @notice Address of the OKBBurner implementation contract.
+    address public immutable BURNER_IMPLEMENTATION;
+
+    /// @notice Counter for creating unique burner addresses.
+    uint256 private _burnerNonce;
 
     /// @notice Default gas limit for L2 transactions.
     uint64 public constant DEFAULT_GAS_LIMIT = 100_000;
@@ -46,20 +50,31 @@ contract DepositedOKBAdapter is ERC20 {
     event Deposited(address indexed from, address indexed to, uint256 amount);
 
     /// @notice Thrown when transfer is attempted outside of portal operations.
-    error DepositedOKBAdapter_TransferNotAllowed();
+    /// @param to     The attempted recipient address.
+    /// @param amount The attempted transfer amount.
+    error DepositedOKBAdapter_TransferNotAllowed(address to, uint256 amount);
 
     /// @notice Thrown when trying to transfer to an address other than the portal.
     error DepositedOKBAdapter_OnlyPortalTransfer();
 
-    /// @notice Constructor sets up the adapter with references to OKB and OptimismPortal.
-    /// @param _okb    Address of the OKB token contract.
-    /// @param _portal Address of the OptimismPortal2 contract.
-    constructor(address _okb, address payable _portal) ERC20("Deposited OKB", "dOKB") {
+    /// @notice Thrown when burner creation fails.
+    error DepositedOKBAdapter_BurnerCreationFailed();
+
+    /// @notice Thrown when OKB transfer to burner fails.
+    error DepositedOKBAdapter_TransferToBurnerFailed();
+
+    /// @notice Constructor sets up the adapter with references to OKB, OptimismPortal, and OKBBurner.
+    /// @param _okb                 Address of the OKB token contract.
+    /// @param _portal              Address of the OptimismPortal2 contract.
+    /// @param _burnerImplementation Address of the OKBBurner implementation contract.
+    constructor(address _okb, address payable _portal, address _burnerImplementation) ERC20("Deposited OKB", "dOKB") {
         require(_okb != address(0), "DepositedOKBAdapter: OKB address cannot be zero");
         require(_portal != address(0), "DepositedOKBAdapter: Portal address cannot be zero");
+        require(_burnerImplementation != address(0), "DepositedOKBAdapter: Burner implementation cannot be zero");
 
-        OKB = IERC20(_okb);
+        OKB = IOKB(_okb);
         PORTAL = IOptimismPortal2(_portal);
+        BURNER_IMPLEMENTATION = _burnerImplementation;
 
         // Approve the portal to pull deposit tokens
         _approve(address(this), _portal, type(uint256).max);
@@ -68,9 +83,11 @@ contract DepositedOKBAdapter is ERC20 {
     /// @notice Allows users to burn OKB and deposit into L2.
     ///         This function:
     ///         1. Transfers OKB from the user to this contract
-    ///         2. Burns the OKB by sending it to address(0)
-    ///         3. Mints deposit tokens to this contract
-    ///         4. Initiates an L2 deposit transaction via the portal
+    ///         2. Creates a minimal proxy burner contract
+    ///         3. Transfers the exact amount of OKB to the burner
+    ///         4. Burns the OKB via the burner (which self-destructs)
+    ///         5. Mints deposit tokens to this contract
+    ///         6. Initiates an L2 deposit transaction via the portal
     /// @param _to         Target address on L2 to receive the tokens.
     /// @param _amount     Amount of OKB to burn and deposit.
     /// @param _gasLimit   Gas limit for the L2 transaction.
@@ -79,57 +96,68 @@ contract DepositedOKBAdapter is ERC20 {
     function deposit(address _to, uint256 _amount, uint64 _gasLimit, bool _isCreation, bytes memory _data) external {
         require(_amount > 0, "DepositedOKBAdapter: amount must be greater than zero");
 
-        // Transfer OKB from user to this contract
-        OKB.transferFrom(msg.sender, address(this), _amount);
+        // Create a unique salt for deterministic burner address
+        bytes32 salt = keccak256(abi.encode(msg.sender, _amount, block.timestamp, _burnerNonce++));
 
-        // Burn the OKB
-        OKB.transfer(BURN_ADDRESS, _amount);
+        // Create minimal proxy burner contract
+        address burner = Clones.cloneDeterministic(BURNER_IMPLEMENTATION, salt);
+        if (burner == address(0)) {
+            revert DepositedOKBAdapter_BurnerCreationFailed();
+        }
+
+        // Transfer OKB from user to this contract first
+        bool transferFromUserSuccess = OKB.transferFrom(msg.sender, address(this), _amount);
+        if (!transferFromUserSuccess) {
+            revert DepositedOKBAdapter_TransferToBurnerFailed();
+        }
+
+        // Transfer the exact amount of OKB from this contract to the burner
+        bool transferToBurnerSuccess = OKB.transfer(burner, _amount);
+        if (!transferToBurnerSuccess) {
+            revert DepositedOKBAdapter_TransferToBurnerFailed();
+        }
+
+        // Burn the OKB via the burner (burner will self-destruct)
+        OKBBurner(burner).burnAndDestruct();
 
         // Mint deposit tokens to this contract
         _mint(address(this), _amount);
 
-        // Initiate the deposit transaction on L2
+        // Portal will call transferFrom to pull the deposit tokens
         PORTAL.depositERC20Transaction(_to, _amount, _amount, _gasLimit, _isCreation, _data);
 
         emit Deposited(msg.sender, _to, _amount);
     }
 
-    /// @notice Convenience function for simple deposits with default parameters.
-    /// @param _to     Target address on L2 to receive the tokens.
-    /// @param _amount Amount of OKB to burn and deposit.
-    function deposit(address _to, uint256 _amount) external {
-        require(_amount > 0, "DepositedOKBAdapter: amount must be greater than zero");
-
-        // Transfer OKB from user to this contract
-        OKB.transferFrom(msg.sender, address(this), _amount);
-
-        // Burn the OKB by sending to address(0)
-        OKB.transfer(BURN_ADDRESS, _amount);
-
-        // Mint deposit tokens to this contract
-        _mint(address(this), _amount);
-
-        // Initiate the deposit transaction on L2 with default gas limit
-        PORTAL.depositERC20Transaction(_to, _amount, _amount, DEFAULT_GAS_LIMIT, false, bytes(""));
-
-        emit Deposited(msg.sender, _to, _amount);
+    /// @notice Returns the current burner nonce for creating unique addresses.
+    /// @return nonce Current nonce value.
+    function getBurnerNonce() external view returns (uint256 nonce) {
+        return _burnerNonce;
     }
 
-    /// @notice Override transfer to restrict transfers to only portal operations.
+    /// @notice Predicts the address of the next burner contract.
+    /// @param _user   User address.
+    /// @param _amount Amount to be burned.
+    /// @return burner Predicted burner address.
+    function predictBurnerAddress(address _user, uint256 _amount) external view returns (address burner) {
+        bytes32 salt = keccak256(abi.encode(_user, _amount, block.timestamp, _burnerNonce));
+        return Clones.predictDeterministicAddress(BURNER_IMPLEMENTATION, salt, address(this));
+    }
+
+    /// @notice Override transfer to disable transfers
     ///         This ensures that deposit tokens can only be used by the portal
     ///         and cannot be transferred or traded elsewhere.
-    /// @param to     Recipient address.
-    /// @param amount Amount to transfer.
+    /// @param _to     Recipient address.
+    /// @param _amount Amount to transfer.
     /// @return bool  True if transfer succeeds.
-    function transfer(address to, uint256 amount) public virtual override returns (bool) {
-        if (msg.sender == address(PORTAL) && to != address(PORTAL)) {
-            revert DepositedOKBAdapter_TransferNotAllowed();
-        }
-
-        return super.transfer(to, amount);
+    function transfer(address _to, uint256 _amount) public virtual override returns (bool) {
+        // Do not allow any transfers
+        revert DepositedOKBAdapter_TransferNotAllowed(_to, _amount);
     }
 
-    /// @notice Override transferFrom to restrict transfers to only portal operations.
+    /// @notice Override transferFrom to disable transfers
+    ///         This ensures that deposit tokens can only be used by the portal
+    ///         and cannot be transferred or traded elsewhere.
     /// @param from   Sender address.
     /// @param to     Recipient address.
     /// @param amount Amount to transfer.
@@ -140,6 +168,6 @@ contract DepositedOKBAdapter is ERC20 {
             return super.transferFrom(from, to, amount);
         }
 
-        revert DepositedOKBAdapter_TransferNotAllowed();
+        revert DepositedOKBAdapter_TransferNotAllowed(to, amount);
     }
 }
