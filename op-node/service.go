@@ -134,7 +134,7 @@ func NewConfig(ctx *cli.Context, log log.Logger) (*config.Config, error) {
 	}
 
 	// For X Layer
-	node.ApplyXLayerFlags(ctx, cfg)
+	config.ApplyXLayerFlags(ctx, cfg)
 
 	if err := cfg.LoadPersisted(log); err != nil {
 		return nil, fmt.Errorf("failed to load driver config: %w", err)
