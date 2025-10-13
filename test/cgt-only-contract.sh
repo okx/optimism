@@ -34,6 +34,12 @@ echo "$FORGE_OUTPUT"
 OKB_TOKEN=$(echo "$FORGE_OUTPUT" | grep "MockOKB deployed at:" | awk '{print $NF}')
 ADAPTER_ADDRESS=$(echo "$FORGE_OUTPUT" | grep "DepositedOKBAdapter deployed at:" | awk '{print $NF}')
 
+# Query initial OKB total supply
+INIT_TOTAL_SUPPLY=$(cast call "$OKB_TOKEN" "totalSupply()(uint256)" --rpc-url "$L1_RPC_URL")
+INIT_TOTAL_SUPPLY_FORMATTED=$((INIT_TOTAL_SUPPLY / 10**18))
+echo ""
+echo "📊 Initial OKB Total Supply: $INIT_TOTAL_SUPPLY ($INIT_TOTAL_SUPPLY_FORMATTED OKB)"
+
 echo ""
 echo "✅ L1 Custom Gas Token setup complete!"
 echo ""
@@ -147,11 +153,27 @@ if [ -n "$OKB_TOKEN" ] && [ -n "$ADAPTER_ADDRESS" ]; then
       echo ""
       echo "🎉 Deposit processed successfully!"
       echo ""
+
+      # Query OKB total supply after successful deposit
+      DEPOSIT_FINAL_TOTAL_SUPPLY=$(cast call "$OKB_TOKEN" "totalSupply()(uint256)" --rpc-url "$L1_RPC_URL")
+      DEPOSIT_FINAL_TOTAL_SUPPLY_FORMATTED=$((DEPOSIT_FINAL_TOTAL_SUPPLY / 10**18))
+      DEPOSIT_BURNED_AMOUNT=$((INIT_TOTAL_SUPPLY - DEPOSIT_FINAL_TOTAL_SUPPLY))
+      DEPOSIT_BURNED_AMOUNT_FORMATTED=$((DEPOSIT_BURNED_AMOUNT / 10**18))
+
       echo "📊 Final Status:"
       echo "   Initial Balance:  $INIT_BALANCE"
       echo "   Deposit Amount:   $DEPOSIT_AMOUNT"
       echo "   Final Balance:    $CURRENT_BALANCE"
       echo "   L2 Recipient:     $L2_RECIPIENT"
+      echo ""
+      echo "🔥 OKB Token Supply Status:"
+      echo "   Initial Total Supply: $INIT_TOTAL_SUPPLY ($INIT_TOTAL_SUPPLY_FORMATTED OKB)"
+      echo "   Final Total Supply:   $DEPOSIT_FINAL_TOTAL_SUPPLY ($DEPOSIT_FINAL_TOTAL_SUPPLY_FORMATTED OKB)"
+      if [ "$DEPOSIT_BURNED_AMOUNT" -gt 0 ]; then
+        echo "   Tokens Burned:        $DEPOSIT_BURNED_AMOUNT ($DEPOSIT_BURNED_AMOUNT_FORMATTED OKB)"
+      else
+        echo "   Tokens Burned:        0 (0 OKB)"
+      fi
       echo ""
       break
     fi
