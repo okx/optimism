@@ -306,7 +306,7 @@ services:
     command:
       - /app/op-node/bin/op-node
       - --log.level=debug
-      - --l2=http://op-geth-rpc:8552
+      - --l2=http://${RPC_TYPE:-op-geth-rpc}:8552
       - --l2.jwt-secret=/jwt.txt
       - --sequencer.enabled=false
       - --verifier.l1-confs=1
