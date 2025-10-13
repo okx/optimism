@@ -23,33 +23,39 @@ if [ -z "$CHALLENGER" ]; then
     echo " ✅ Derived CHALLENGER address from private key: $CHALLENGER"
 fi
 
-# Deploy Transactor contract first
-echo "🔧 Deploying Transactor contract..."
-TRANSACTOR_DEPLOY_OUTPUT=$(docker run --rm \
+# Deploy Gnosis Safe for l1ProxyAdminOwner
+echo "🔧 Deploying Gnosis Safe for l1ProxyAdminOwner..."
+
+# Deploy Safe using the DeploySimpleSafe script
+SAFE_DEPLOY_OUTPUT=$(docker run --rm \
   --network "$DOCKER_NETWORK" \
   -v "$(pwd)/$CONFIG_DIR:/deployments" \
+  -e DEPLOYER_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY" \
   -w /app/packages/contracts-bedrock \
   "${OP_CONTRACTS_IMAGE_TAG}" \
-  forge create --json --broadcast --legacy \
+  forge script --json --broadcast \
     --rpc-url $L1_RPC_URL_IN_DOCKER \
     --private-key $DEPLOYER_PRIVATE_KEY \
-    src/periphery/Transactor.sol:Transactor.0.8.30 \
-    --constructor-args $ADMIN_OWNER_ADDRESS)
+    scripts/deploy/DeploySimpleSafe.s.sol:DeploySimpleSafe)
 
-# Extract contract address from deployment output
-TRANSACTOR_ADDRESS=$(echo "$TRANSACTOR_DEPLOY_OUTPUT" | jq -r '.deployedTo // empty')
-if [ -z "$TRANSACTOR_ADDRESS" ] || [ "$TRANSACTOR_ADDRESS" = "null" ]; then
-  echo " ❌ Failed to extract Transactor contract address from deployment output"
-  echo "Deployment output: $TRANSACTOR_DEPLOY_OUTPUT"
+# Extract Safe address from deployment output
+echo "🔍 Parsing deployment output..."
+
+# Use a more robust approach to extract Safe address
+SAFE_ADDRESS=$(echo "$SAFE_DEPLOY_OUTPUT" | jq -r '.logs[] | select(contains("New Safe L1ProxyAdminSafe deployed at:")) | split(": ")[1]' 2>/dev/null | head -1)
+
+if [ -z "$SAFE_ADDRESS" ] || [ "$SAFE_ADDRESS" = "null" ]; then
+  echo " ❌ Failed to extract Safe address from deployment output"
+  echo "Deployment output: $SAFE_DEPLOY_OUTPUT"
   exit 1
 fi
 
-echo " ✅ Transactor contract deployed at: $TRANSACTOR_ADDRESS"
+echo " ✅ Gnosis Safe deployed at: $SAFE_ADDRESS"
 
-# Update .env file with Transactor address
-sed_inplace "s/TRANSACTOR=.*/TRANSACTOR=$TRANSACTOR_ADDRESS/" .env
+# Update .env file with Safe address
+sed_inplace "s/SAFE_ADDRESS=.*/SAFE_ADDRESS=$SAFE_ADDRESS/" .env
 source .env
-echo " ✅ Updated TRANSACTOR address in .env: $TRANSACTOR_ADDRESS"
+echo " ✅ Updated SAFE_ADDRESS in .env: $SAFE_ADDRESS"
 
 echo "🔧 Bootstrapping superchain with op-deployer..."
 
@@ -63,7 +69,7 @@ docker run --rm \
       --l1-rpc-url $L1_RPC_URL_IN_DOCKER \
       --private-key $DEPLOYER_PRIVATE_KEY \
       --artifacts-locator file:///app/packages/contracts-bedrock/forge-artifacts \
-      --superchain-proxy-admin-owner $TRANSACTOR_ADDRESS \
+      --superchain-proxy-admin-owner $SAFE_ADDRESS \
       --protocol-versions-owner $ADMIN_OWNER_ADDRESS \
       --guardian $ADMIN_OWNER_ADDRESS \
       --outfile /deployments/superchain.json
@@ -105,9 +111,9 @@ CHAIN_ID_UINT256=$(cast to-uint256 $CHAIN_ID)
 sed_inplace 's/id = .*/id = "'"$CHAIN_ID_UINT256"'"/' ./config-op/intent.toml
 echo " ✅ Updated chain id in intent.toml: $CHAIN_ID_UINT256"
 
-# Update intent.toml with Transactor address for l1ProxyAdminOwner
-sed_inplace "s/l1ProxyAdminOwner = \".*\"/l1ProxyAdminOwner = \"$TRANSACTOR_ADDRESS\"/" ./config-op/intent.toml
-echo " ✅ Updated l1ProxyAdminOwner in intent.toml: $TRANSACTOR_ADDRESS"
+# Update intent.toml with Safe address for l1ProxyAdminOwner
+sed_inplace "s/l1ProxyAdminOwner = \".*\"/l1ProxyAdminOwner = \"$SAFE_ADDRESS\"/" ./config-op/intent.toml
+echo " ✅ Updated l1ProxyAdminOwner in intent.toml: $SAFE_ADDRESS"
 
 # Read opcmAddress from implementations.json and write it into intent.toml
 OPCM_ADDRESS=$(jq -r '.opcmAddress' ./config-op/implementations.json)

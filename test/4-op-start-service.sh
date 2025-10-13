@@ -143,7 +143,7 @@ VM="0x${VM_RAW: -40}"
 ANCHOR_STATE_REGISTRY=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME "anchorStateRegistry()")
 L2_CHAIN_ID=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME "l2ChainId()")
 
-# Call the function to add game type 1 (permissioned) via Transactor
+# Call the function to add game type 1 (permissioned) via Safe
 "$SCRIPTS_DIR/add-game-type.sh" 1 true $TEMP_CLOCK_EXTENSION $TEMP_MAX_CLOCK_DURATION $ABSOLUTE_PRESTATE
 
 export GAME_TYPE=1
@@ -240,7 +240,7 @@ PERMISSIONED_GAME=$(cast call --rpc-url $L1_RPC_URL $DISPUTE_GAME_FACTORY_ADDRES
 ABSOLUTE_PRESTATE=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME "absolutePrestate()")
 ANCHOR_STATE_REGISTRY=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME "anchorStateRegistry()")
 
-# Call the function to add game type 0 (permissionless) via Transactor
+# Call the function to add game type 0 (permissionless) via Safe
 "$SCRIPTS_DIR/add-game-type.sh" 0 false $CLOCK_EXTENSION $MAX_CLOCK_DURATION $ABSOLUTE_PRESTATE
 
 export GAME_TYPE=0

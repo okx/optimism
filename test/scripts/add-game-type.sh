@@ -56,13 +56,13 @@ set_respected_game_type() {
     fi
 }
 
-# Function to add game type via Transactor
-add_game_type_via_transactor() {
+# Function to add game type via Safe
+add_game_type_via_safe() {
     # Check parameter count
     if [ $# -ne 5 ]; then
-        echo "Error: add_game_type_via_transactor requires exactly 5 parameters"
-        echo "Usage: add_game_type_via_transactor <GAME_TYPE> <IS_PERMISSIONED> <CLOCK_EXTENSION> <MAX_CLOCK_DURATION> <ABSOLUTE_PRESTATE>"
-        echo "Example: add_game_type_via_transactor 2 true 600 1800 0x..."
+        echo "Error: add_game_type_via_safe requires exactly 5 parameters"
+        echo "Usage: add_game_type_via_safe <GAME_TYPE> <IS_PERMISSIONED> <CLOCK_EXTENSION> <MAX_CLOCK_DURATION> <ABSOLUTE_PRESTATE>"
+        echo "Example: add_game_type_via_safe 2 true 600 1800 0x..."
         return 1
     fi
 
@@ -72,7 +72,7 @@ add_game_type_via_transactor() {
     local MAX_CLOCK_DURATION_VAL=$4
     local ABSOLUTE_PRESTATE_VAL=$5
 
-    echo "=== Adding Game Type $GAME_TYPE via Transactor ==="
+    echo "=== Adding Game Type $GAME_TYPE via Safe ==="
     echo "  Game Type: $GAME_TYPE"
     echo "  Is Permissioned: $IS_PERMISSIONED"
     echo "  Clock Extension: $CLOCK_EXTENSION_VAL"
@@ -88,7 +88,7 @@ add_game_type_via_transactor() {
     echo "  System Config: $SYSTEM_CONFIG_PROXY_ADDRESS"
     echo "  Proxy Admin: $PROXY_ADMIN"
     echo "  OPCM: $OPCM_IMPL_ADDRESS"
-    echo "  Transactor: $TRANSACTOR"
+    echo "  Safe: $SAFE_ADDRESS"
     echo "  RPC URL: $L1_RPC_URL"
     echo "  Sender: $(cast wallet address --private-key $DEPLOYER_PRIVATE_KEY)"
     echo ""
@@ -129,26 +129,63 @@ add_game_type_via_transactor() {
 
     echo "Parameters prepared for addGameType"
 
-    # Execute the transaction through Transactor
-    echo "Executing transaction via Transactor..."
-    echo "Target: $TRANSACTOR"
+    # Execute the transaction through Safe
+    echo "Executing transaction via Safe..."
+    echo "Target: $SAFE_ADDRESS"
     echo "From: $(cast wallet address --private-key $DEPLOYER_PRIVATE_KEY)"
 
     # Simplified DELEGATECALL - build calldata first, then call
     ADDGAMETYPE_CALLDATA=$(cast calldata 'addGameType((string,address,address,address,uint32,bytes32,uint256,uint256,uint64,uint64,uint256,address,bool)[])' "$GAME_PARAMS")
 
-    # Execute transaction and capture output
-    # Use --legacy to force Type 0 transactions, avoiding EIP-1559 gas estimation issues on local testnet
+
+    # Execute transaction via Safe's execTransaction with proper signature
+    echo "Executing transaction via Safe with signature..."
+    DEPLOYER_ADDRESS=$(cast wallet address --private-key $DEPLOYER_PRIVATE_KEY)
+
+    # Use the calldata we built earlier
+    echo "Using calldata: $ADDGAMETYPE_CALLDATA"
+
+    # Get Safe nonce
+    SAFE_NONCE=$(cast call --rpc-url $L1_RPC_URL $SAFE_ADDRESS 'nonce()(uint256)')
+    echo "Safe nonce: $SAFE_NONCE"
+
+    # Build signature exactly like DeployOwnership.s.sol _callViaSafe method
+    # abi.encodePacked(uint256(uint160(msg.sender)), bytes32(0), uint8(1))
+    echo "Building signature like DeployOwnership.s.sol _callViaSafe..."
+
+    # Convert deployer address to uint256(uint160(address)) format
+    # This is equivalent to: uint256(uint160(msg.sender))
+    DEPLOYER_ADDRESS_NO_PREFIX=${DEPLOYER_ADDRESS#0x}
+    DEPLOYER_ADDRESS_PADDED=$(printf "%064s" $DEPLOYER_ADDRESS_NO_PREFIX)
+
+    # Build signature: uint256(uint160(msg.sender)) + bytes32(0) + uint8(1)
+    # This is exactly what abi.encodePacked(uint256(uint160(msg.sender)), bytes32(0), uint8(1)) produces
+    PACKED_SIGNATURE="0x${DEPLOYER_ADDRESS_PADDED}000000000000000000000000000000000000000000000000000000000000000001"
+
+    echo "Deployer address: $DEPLOYER_ADDRESS"
+    echo "Signature (abi.encodePacked format): $PACKED_SIGNATURE"
+    echo "Signature length: $((${#PACKED_SIGNATURE} - 2)) hex chars = $(((${#PACKED_SIGNATURE} - 2) / 2)) bytes"
+
+    # Execute transaction via Safe's execTransaction
+    echo "Executing execTransaction on Safe..."
     TX_OUTPUT=$(cast send \
         --json \
         --legacy \
         --rpc-url $L1_RPC_URL \
         --private-key $DEPLOYER_PRIVATE_KEY \
-        --from $(cast wallet address --private-key $DEPLOYER_PRIVATE_KEY) \
-        $TRANSACTOR \
-        'DELEGATECALL(address,bytes)' \
+        --from $DEPLOYER_ADDRESS \
+        $SAFE_ADDRESS \
+        'execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)' \
         $OPCM_IMPL_ADDRESS \
-        $ADDGAMETYPE_CALLDATA)
+        0 \
+        $ADDGAMETYPE_CALLDATA \
+        1 \
+        0 \
+        0 \
+        0 \
+        0x0000000000000000000000000000000000000000 \
+        0x0000000000000000000000000000000000000000 \
+        $PACKED_SIGNATURE)
 
     # Extract transaction hash and status
     TX_HASH=$(echo "$TX_OUTPUT" | jq -r '.transactionHash // empty')
@@ -171,7 +208,7 @@ add_game_type_via_transactor() {
     echo "Verifying new game type was added..."
     NEW_GAME_IMPL=$(cast call --rpc-url $L1_RPC_URL $DISPUTE_GAME_FACTORY 'gameImpls(uint32)(address)' $GAME_TYPE)
 
-    if [ "$NEW_GAME_IMPL" != "0x0000000000000000000000000000000000000000" ]; then
+    if [ "$NEW_GAME_IMPL" != "0x0000000000000000000000000000000000000000" ] && [ "$NEW_GAME_IMPL" != "$PERMISSIONED_GAME" ]; then
         echo " ✅ Success! New game type $GAME_TYPE added."
         echo "Game Type $GAME_TYPE Implementation: $NEW_GAME_IMPL"
     else
@@ -188,5 +225,5 @@ add_game_type_via_transactor() {
 # Main execution
 if [ "${BASH_SOURCE[0]}" == "${0}" ]; then
     # Script is being executed directly - call the function
-    add_game_type_via_transactor "$@"
+    add_game_type_via_safe "$@"
 fi
