@@ -17,6 +17,12 @@ cd $PWD_DIR
 
 source .env
 
+# Derive CHALLENGER address from OP_CHALLENGER_PRIVATE_KEY if not set
+if [ -z "$CHALLENGER" ]; then
+    CHALLENGER=$(cast wallet address $OP_CHALLENGER_PRIVATE_KEY)
+    echo " ✅ Derived CHALLENGER address from private key: $CHALLENGER"
+fi
+
 # Deploy Transactor contract first
 echo "🔧 Deploying Transactor contract..."
 TRANSACTOR_DEPLOY_OUTPUT=$(docker run --rm \
@@ -24,7 +30,7 @@ TRANSACTOR_DEPLOY_OUTPUT=$(docker run --rm \
   -v "$(pwd)/$CONFIG_DIR:/deployments" \
   -w /app/packages/contracts-bedrock \
   "${OP_CONTRACTS_IMAGE_TAG}" \
-  forge create --json --broadcast \
+  forge create --json --broadcast --legacy \
     --rpc-url $L1_RPC_URL_IN_DOCKER \
     --private-key $DEPLOYER_PRIVATE_KEY \
     src/periphery/Transactor.sol:Transactor.0.8.30 \
@@ -86,6 +92,7 @@ docker run --rm \
       --superchain-config-proxy $SUPERCHAIN_CONFIG_PROXY \
       --superchain-proxy-admin $PROXY_ADMIN \
       --upgrade-controller $ADMIN_OWNER_ADDRESS \
+      --challenger $CHALLENGER \
       --challenge-period-seconds $CHALLENGE_PERIOD_SECONDS \
       --withdrawal-delay-seconds $WITHDRAWAL_DELAY_SECONDS \
       --proof-maturity-delay-seconds $WITHDRAWAL_DELAY_SECONDS \

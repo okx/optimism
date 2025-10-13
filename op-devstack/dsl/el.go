@@ -47,7 +47,7 @@ func (el *elNode) WaitForBlockNumber(targetBlock uint64) eth.BlockRef {
 
 		newRef = eth.InfoToL1BlockRef(newBlock)
 		if newBlock.NumberU64() >= targetBlock {
-			el.log.Info("Target block reached", "block", newRef)
+			el.log.Info("Target block reached", "chain", el.ChainID(), "block", newRef)
 			return true, nil
 		}
 		return false, nil
@@ -103,6 +103,42 @@ func (el *elNode) waitForNextBlock(blocksFromNow uint64) eth.BlockRef {
 	return newRef
 }
 
+// WaitForTime waits until the chain has reached or surpassed the given timestamp.
+func (el *elNode) WaitForTime(timestamp uint64) eth.BlockRef {
+	for range time.Tick(500 * time.Millisecond) {
+		ref, err := el.inner.EthClient().BlockRefByLabel(el.ctx, eth.Unsafe)
+		el.require.NoError(err)
+		if ref.Time >= timestamp {
+			return ref
+		}
+	}
+	return eth.BlockRef{} // Should never be reached.
+}
+
 func (el *elNode) stackEL() stack.ELNode {
 	return el.inner
+}
+
+// WaitForFinalization waits for the current block height to be finalized. Note that it does not
+// ensure that the finalized block is the same as the current unsafe block (i.e., it is not
+// reorg-aware).
+func (el *elNode) WaitForFinalization() eth.BlockRef {
+	// Get current block and wait for it to be finalized
+	currentBlock, err := el.inner.EthClient().InfoByLabel(el.ctx, eth.Unsafe)
+	el.require.NoError(err, "Expected to get current block from execution client")
+
+	var finalizedBlock eth.BlockRef
+	el.require.Eventually(func() bool {
+		el.log.Info("Waiting for finalization")
+		block, err := el.inner.EthClient().InfoByLabel(el.ctx, eth.Finalized)
+		if err != nil {
+			return false
+		}
+		if block.NumberU64() >= currentBlock.NumberU64() {
+			finalizedBlock = eth.InfoToL1BlockRef(block)
+			return true
+		}
+		return false
+	}, 5*time.Minute, 500*time.Millisecond, "Expected to be online")
+	return finalizedBlock
 }

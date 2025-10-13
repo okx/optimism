@@ -36,8 +36,8 @@ Applies to Solidity files.
 - Contracts should be built assuming upgradeability by default
 - Extend OpenZeppelin's `Initializable` or base contract
 - Use the `ReinitializableBase` contract
-- Include an `initialize` function with the `reinitializer(initValue())` modifier
-- If including an `upgrade` function, use the `reinitializer(initValue())` modifier
+- Include an `initialize` function with the `reinitializer(initVersion())` modifier
+- If including an `upgrade` function, use the `reinitializer(initVersion())` modifier
 - In the constructor:
   - Call `_disableInitializers()`
   - Set any immutables (though generally avoid immutables)
@@ -63,7 +63,7 @@ Applies to Solidity files.
   - `method`: `test`, `testFuzz`, or `testDiff`
   - `status`: `succeeds`, `reverts`, `works`, `fails`, or `benchmark`
 - Test contract naming:
-  - `TargetContract_Init`: for basic setup contracts
+  - `TargetContract_TestInit`: for basic setup contracts
   - `TargetContract_FunctionName_Test`: for happy path tests
   - `TargetContract_FunctionName_TestFail`: for sad path tests
   - `TargetContract_Harness`: for harness contracts

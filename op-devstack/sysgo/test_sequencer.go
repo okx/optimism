@@ -6,6 +6,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rpc"
 
@@ -80,8 +81,13 @@ func WithTestSequencer(testSequencerID stack.TestSequencerID, l1CLID stack.L1CLN
 
 		logger := p.Logger()
 
+		orch.writeDefaultJWT()
 		l1EL, ok := orch.l1ELs.Get(l1ELID)
 		require.True(ok, "l1 EL node required")
+		l1ELClient, err := ethclient.DialContext(p.Ctx(), l1EL.UserRPC())
+		require.NoError(err)
+		engineCl, err := dialEngine(p.Ctx(), l1EL.AuthRPC(), orch.jwtSecret)
+		require.NoError(err)
 
 		l1CL, ok := orch.l1CLs.Get(l1CLID)
 		require.True(ok, "l1 CL node required")
@@ -109,24 +115,30 @@ func WithTestSequencer(testSequencerID stack.TestSequencerID, l1CLID stack.L1CLN
 		l2SequencerID := seqtypes.SequencerID(fmt.Sprintf("test-seq-%s", l2CLID.ChainID()))
 		l1SequencerID := seqtypes.SequencerID(fmt.Sprintf("test-seq-%s", l1ELID.ChainID()))
 
+		l1Net, ok := orch.l1Nets.Get(l1ELID.ChainID())
+		require.True(ok, "l1 net required")
+
 		v := &config.Ensemble{
 			Builders: map[seqtypes.BuilderID]*config.BuilderEntry{
 				bid_L2: {
 					Standard: &standardbuilder.Config{
+						L1ChainConfig: l1Net.genesis.Config,
 						L1EL: endpoint.MustRPC{
-							Value: endpoint.HttpURL(l1EL.userRPC),
+							Value: endpoint.HttpURL(l1EL.UserRPC()),
 						},
 						L2EL: endpoint.MustRPC{
-							Value: endpoint.HttpURL(l2EL.userRPC),
+							Value: endpoint.HttpURL(l2EL.UserRPC()),
 						},
 						L2CL: endpoint.MustRPC{
-							Value: endpoint.HttpURL(l2CL.userRPC),
+							Value: endpoint.HttpURL(l2CL.UserRPC()),
 						},
 					},
 				},
 				bid_L1: {
 					L1: &fakepos.Config{
-						GethBackend:       l1EL.l1Geth.Backend,
+						ChainConfig:       orch.wb.outL1Genesis.Config,
+						EngineAPI:         engineCl,
+						Backend:           l1ELClient,
 						Beacon:            l1CL.beacon,
 						FinalizedDistance: 20,
 						SafeDistance:      10,
@@ -149,7 +161,7 @@ func WithTestSequencer(testSequencerID stack.TestSequencerID, l1CLID stack.L1CLN
 				cid_L2: {
 					Standard: &standardcommitter.Config{
 						RPC: endpoint.MustRPC{
-							Value: endpoint.HttpURL(l2CL.userRPC),
+							Value: endpoint.HttpURL(l2CL.UserRPC()),
 						},
 					},
 				},
@@ -161,7 +173,7 @@ func WithTestSequencer(testSequencerID stack.TestSequencerID, l1CLID stack.L1CLN
 				pid_L2: {
 					Standard: &standardpublisher.Config{
 						RPC: endpoint.MustRPC{
-							Value: endpoint.HttpURL(l2CL.userRPC),
+							Value: endpoint.HttpURL(l2CL.UserRPC()),
 						},
 					},
 				},
