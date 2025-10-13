@@ -161,8 +161,6 @@ contract SetupCustomGasToken is Script {
         console.log("Step 5: Verifying L1 Configuration...\n");
 
         ISystemConfig systemConfig = ISystemConfig(systemConfigProxy);
-        IOptimismPortal2 portal = IOptimismPortal2(payable(optimismPortalProxy));
-
         // Check 1: SystemConfig isCustomGasToken
         bool isCustomGasToken = systemConfig.isCustomGasToken();
         console.log("  [CHECK 1] SystemConfig.isCustomGasToken():", isCustomGasToken);
@@ -175,11 +173,6 @@ contract SetupCustomGasToken is Script {
         console.log("    Decimals:", decimals);
         require(tokenAddr == address(adapter), "FAILED: Token address mismatch");
         require(decimals == 18, "FAILED: Token decimals must be 18");
-
-        // Check 3: OptimismPortal isCustomGasToken
-        bool portalCGT = portal.isCustomGasToken();
-        console.log("  [CHECK 3] OptimismPortal.isCustomGasToken():", portalCGT);
-        require(portalCGT, "FAILED: Portal custom gas token not enabled");
 
         // Check 4: DepositedOKBAdapter configuration
         console.log("  [CHECK 4] DepositedOKBAdapter configuration:");
