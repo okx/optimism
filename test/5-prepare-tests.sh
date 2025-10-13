@@ -8,7 +8,7 @@ source .env
 echo "=== Preparing test; Funding L1 Admin Address==="
 L1_ADMIN_ADDRESS="0x8f8E2d6cF621f30e9a11309D6A56A876281Fd534"
 L1_ADMIN_PRIVATE_KEY="0x815405dddb0e2a99b12af775fd2929e526704e1d1aea6a0b4e74dc33e2f7fcd2"
-cast send --rpc-url $L1_RPC_URL $L1_ADMIN_ADDRESS --private-key $RICH_L1_PRIVATE_KEY --value 2000ether
+cast send --rpc-url $L1_RPC_URL $L1_ADMIN_ADDRESS --private-key $RICH_L1_PRIVATE_KEY --value 1000ether
 
 echo "=== Bridging ETH from L1 to L2 ==="
 
@@ -20,18 +20,20 @@ PRIVATE_KEY="0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356"
 echo "OPTIMISM PORTAL Address: $OPTIMISM_PORTAL"
 echo "Recipient: $RECIPIENT"
 cast balance $RECIPIENT --rpc-url $L2_RPC_URL
-echo "Bridging ETH from L1 to L2..."
+echo "Bridging 1 ETH from L1 to L2..."
 
-# Bridge ETH to L2
+# Bridge 1 ETH to L2
 cast send $OPTIMISM_PORTAL \
   --rpc-url $L1_RPC_URL \
   --private-key $PRIVATE_KEY \
-  --value 1000ether
+  --value 100ether
 
 cast send $OPTIMISM_PORTAL \
   --rpc-url $L1_RPC_URL \
   --private-key $L1_ADMIN_PRIVATE_KEY \
-  --value 1000ether
+  --value 100ether
+
+
 
 echo -e "\nWaiting for bridging to complete..."
 
@@ -43,13 +45,13 @@ WAIT_COUNT=0
 while [ $BALANCE == 0 ] || [ $ADMIN_BALANCE == 0 ]; do
     WAIT_COUNT=$((WAIT_COUNT + 1))
     echo " ⏳ Waiting for bridge transactions to finalize... (${WAIT_COUNT})"
-    echo "    Current L2 balance: $(cast --to-unit $BALANCE ether --rpc-url $L2_RPC_URL) ETH"
-    echo "    Current Admin balance: $(cast --to-unit $ADMIN_BALANCE ether --rpc-url $L2_RPC_URL) ETH"
+    echo "    Current L2 balance: $(cast --to-unit $BALANCE ether) ETH"
+    echo "    Current Admin balance: $(cast --to-unit $ADMIN_BALANCE ether) ETH"
     sleep 5
     BALANCE=$(cast balance $RECIPIENT --rpc-url $L2_RPC_URL)
     ADMIN_BALANCE=$(cast balance $L1_ADMIN_ADDRESS --rpc-url $L2_RPC_URL)
 done
 
 echo " ✅ Bridging complete!"
-echo "    Final L2 balance: $(cast --to-unit $BALANCE ether --rpc-url $L2_RPC_URL) ETH"
-echo "    Final Admin balance: $(cast --to-unit $ADMIN_BALANCE ether --rpc-url $L2_RPC_URL) ETH"
+echo "    Final L2 balance: $(cast --to-unit $BALANCE ether) ETH"
+echo "    Final Admin balance: $(cast --to-unit $ADMIN_BALANCE ether) ETH"
