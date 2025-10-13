@@ -29,8 +29,10 @@ set_respected_game_type() {
 
     # Execute transaction and capture output
     echo "Setting respected game type to $GAME_TYPE..."
+    # Use --legacy to force Type 0 transactions, avoiding EIP-1559 gas estimation issues on local testnet
     TX_OUTPUT=$(cast send \
         --json \
+        --legacy \
         --rpc-url $L1_RPC_URL \
         --private-key $DEPLOYER_PRIVATE_KEY \
         --from $(cast wallet address --private-key $DEPLOYER_PRIVATE_KEY) \
@@ -136,8 +138,10 @@ add_game_type_via_transactor() {
     ADDGAMETYPE_CALLDATA=$(cast calldata 'addGameType((string,address,address,address,uint32,bytes32,uint256,uint256,uint64,uint64,uint256,address,bool)[])' "$GAME_PARAMS")
 
     # Execute transaction and capture output
+    # Use --legacy to force Type 0 transactions, avoiding EIP-1559 gas estimation issues on local testnet
     TX_OUTPUT=$(cast send \
         --json \
+        --legacy \
         --rpc-url $L1_RPC_URL \
         --private-key $DEPLOYER_PRIVATE_KEY \
         --from $(cast wallet address --private-key $DEPLOYER_PRIVATE_KEY) \

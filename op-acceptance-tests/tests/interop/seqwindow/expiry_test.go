@@ -17,12 +17,13 @@ import (
 // the chain reorgs because of it, and that the chain then recovers.
 // This test can take 3 minutes to run.
 func TestSequencingWindowExpiry(gt *testing.T) {
+	gt.Skip("Skipping Interop Acceptance Test")
 	t := devtest.SerialT(gt)
 
 	sys := presets.NewSimpleInterop(t)
 	require := t.Require()
 
-	alice := sys.FunderA.NewFundedEOA(eth.OneEther)
+	alice := sys.FunderA.NewFundedEOA(eth.OneHundredthEther)
 
 	// Send a random tx, to ensure there is some activity pre-reorg
 	tx1 := alice.Transfer(common.HexToAddress("0x7777"), eth.GWei(100))

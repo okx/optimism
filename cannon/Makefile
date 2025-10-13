@@ -39,9 +39,10 @@ cannon: cannon-embeds
 clean:
 	rm -rf bin multicannon/embeds/cannon*
 
-elf: elf-go-123
+elf:
+	make -C ./testdata elf
 
-elf-go-123:
+elf-go-current:
 	make -C ./testdata/go-1-23 elf
 
 sanitize-program:
@@ -60,7 +61,7 @@ test: elf contract
 	go test -v ./...
 
 
-diff-%-cannon: cannon elf
+diff-%-cannon: cannon elf-go-current
 	# Load an elf file to create a prestate, and check that both cannon versions generate the same prestate
 	@VM=$*; \
 	echo "Running diff for VM type $${VM}"; \
@@ -90,9 +91,9 @@ cannon-stf-verify:
 
 fuzz:
 	printf "%s\n" \
-		"go test $(FUZZLDFLAGS) -run NOTAREALTEST -v -fuzztime $(CANNON64_FUZZTIME) -fuzz=FuzzStateConsistencyMulOp ./mipsevm/tests" \
-		"go test $(FUZZLDFLAGS) -run NOTAREALTEST -v -fuzztime $(CANNON64_FUZZTIME) -fuzz=FuzzStateConsistencyMultOp ./mipsevm/tests" \
-		"go test $(FUZZLDFLAGS) -run NOTAREALTEST -v -fuzztime $(CANNON64_FUZZTIME) -fuzz=FuzzStateConsistencyMultuOp ./mipsevm/tests" \
+		"go test $(FUZZLDFLAGS) -run NOTAREALTEST -v -fuzztime $(CANNON64_FUZZTIME) -fuzz=FuzzMulOp ./mipsevm/tests" \
+		"go test $(FUZZLDFLAGS) -run NOTAREALTEST -v -fuzztime $(CANNON64_FUZZTIME) -fuzz=FuzzMultOp ./mipsevm/tests" \
+		"go test $(FUZZLDFLAGS) -run NOTAREALTEST -v -fuzztime $(CANNON64_FUZZTIME) -fuzz=FuzzMultuOp ./mipsevm/tests" \
 		"go test $(FUZZLDFLAGS) -run NOTAREALTEST -v -fuzztime $(CANNON64_FUZZTIME) -fuzz=FuzzStateSyscallBrk ./mipsevm/tests" \
 		"go test $(FUZZLDFLAGS) -run NOTAREALTEST -v -fuzztime $(CANNON64_FUZZTIME) -fuzz=FuzzStateSyscallMmap ./mipsevm/tests" \
 		"go test $(FUZZLDFLAGS) -run NOTAREALTEST -v -fuzztime $(CANNON64_FUZZTIME) -fuzz=FuzzStateSyscallExitGroup ./mipsevm/tests" \
@@ -110,7 +111,7 @@ fuzz:
 	cannon \
 	clean \
 	elf \
-	elf-go-123 \
+	elf-go-current \
 	test \
 	lint \
 	fuzz \

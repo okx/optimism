@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum-optimism/optimism/op-devstack/stack"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/wait"
+	"github.com/ethereum-optimism/optimism/op-node/node/safedb"
 	"github.com/ethereum-optimism/optimism/op-service/apis"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/retry"
@@ -29,6 +30,10 @@ func NewL2CLNode(inner stack.L2CLNode, control stack.ControlPlane) *L2CLNode {
 		inner:      inner,
 		control:    control,
 	}
+}
+
+func (cl *L2CLNode) ID() stack.L2CLNodeID {
+	return cl.inner.ID()
 }
 
 func (cl *L2CLNode) String() string {
@@ -117,6 +122,16 @@ func (cl *L2CLNode) HeadBlockRef(lvl types.SafetyLevel) eth.L2BlockRef {
 
 func (cl *L2CLNode) ChainID() eth.ChainID {
 	return cl.inner.ID().ChainID()
+}
+
+func (cl *L2CLNode) AwaitMinL1Processed(minL1 uint64) {
+	ctx, cancel := context.WithTimeout(cl.ctx, DefaultTimeout)
+	defer cancel()
+	// Wait for CurrentL1 to be at least one block _past_ minL1 since CurrentL1 may not yet be fully processed.
+	err := wait.For(ctx, 1*time.Second, func() (bool, error) {
+		return cl.SyncStatus().CurrentL1.Number > minL1, nil
+	})
+	cl.require.NoErrorf(err, "CurrentL1 did not reach %v", minL1+1)
 }
 
 // AdvancedFn returns a lambda that checks the L2CL chain head with given safety level advanced more than delta block number
@@ -237,6 +252,15 @@ func (cl *L2CLNode) ChainSyncStatus(chainID eth.ChainID, lvl types.SafetyLevel) 
 	return cl.HeadBlockRef(lvl).ID()
 }
 
+func (cl *L2CLNode) safeHeadAtL1Block(l1BlockNum uint64) *eth.SafeHeadResponse {
+	resp, err := cl.inner.RollupAPI().SafeHeadAtL1Block(cl.ctx, l1BlockNum)
+	if errors.Is(err, safedb.ErrNotFound) {
+		return nil
+	}
+	cl.require.NoErrorf(err, "failed to get safe head at l1 block %v", l1BlockNum)
+	return resp
+}
+
 // LaggedFn returns a lambda that checks the L2CL chain head with given safety level is lagged with the reference chain sync status provider
 // Composable with other lambdas to wait in parallel
 func (cl *L2CLNode) LaggedFn(refNode SyncStatusProvider, lvl types.SafetyLevel, attempts int, allowMatch bool) CheckFunc {
@@ -290,4 +314,64 @@ func (cl *L2CLNode) ConnectPeer(peer *L2CLNode) {
 		return cl.inner.P2PAPI().ConnectPeer(cl.ctx, peerInfo.Addresses[0])
 	})
 	cl.require.NoError(err, "failed to connect peer")
+}
+
+func (cl *L2CLNode) IsP2PConnected(peer *L2CLNode) {
+	myInfo := cl.PeerInfo()
+	strategy := &retry.ExponentialStrategy{Min: 10 * time.Second, Max: 30 * time.Second, MaxJitter: 250 * time.Millisecond}
+	err := retry.Do0(cl.ctx, 5, strategy, func() error {
+		for _, p := range peer.Peers().Peers {
+			if p.PeerID == myInfo.PeerID {
+				return nil
+			}
+		}
+		return errors.New("peer not connected yet")
+	})
+	cl.require.NoError(err, "peer not connected")
+}
+
+type safeHeadDbMatchOpts struct {
+	minRequiredL2Block *uint64
+}
+
+func WithMinRequiredL2Block(blockNum uint64) func(opts *safeHeadDbMatchOpts) {
+	return func(opts *safeHeadDbMatchOpts) {
+		opts.minRequiredL2Block = &blockNum
+	}
+}
+
+func (cl *L2CLNode) VerifySafeHeadDatabaseMatches(sourceOfTruth *L2CLNode, args ...func(opts *safeHeadDbMatchOpts)) {
+	opts := applyOpts(safeHeadDbMatchOpts{}, args...)
+	l1Block := cl.SyncStatus().CurrentL1.Number
+	cl.log.Info("Verifying safe head database matches", "maxL1Block", l1Block)
+	cl.AwaitMinL1Processed(l1Block) // Ensure this block is fully processed before checking safe head db
+	sourceOfTruth.AwaitMinL1Processed(l1Block)
+	checkSafeHeadConsistent(cl.t, l1Block, cl, sourceOfTruth, opts.minRequiredL2Block)
+}
+
+func (cl *L2CLNode) WaitForNonZeroUnsafeTime(ctx context.Context) *eth.SyncStatus {
+	require := cl.require
+
+	var ss *eth.SyncStatus
+	err := retry.Do0(ctx, 10, retry.Fixed(2*time.Second), func() error {
+		ss = cl.SyncStatus()
+		require.NotNil(ss, "L2CL should have sync status")
+		if ss.UnsafeL2.Time == 0 {
+			return fmt.Errorf("L2CL unsafe time is still zero")
+		}
+		return nil
+	})
+	require.NoError(err, "L2CL unsafe time should be set within retry limit")
+	require.NotZero(ss.UnsafeL2.Time, "L2CL unsafe time should not be zero")
+
+	return ss
+}
+
+func (cl *L2CLNode) SignalTarget(el *L2ELNode, targetNum uint64) {
+	cl.log.Info("Signaling L2CL", "target", targetNum)
+	payload := el.PayloadByNumber(targetNum)
+	err := retry.Do0(cl.ctx, 3, retry.Fixed(2*time.Second), func() error {
+		return cl.inner.RollupAPI().PostUnsafePayload(cl.ctx, payload)
+	})
+	cl.require.NoErrorf(err, "failed to post unsafe payload via admin API: target %d", targetNum)
 }
