@@ -36,11 +36,11 @@ enum Fork {
     GRANITE,
     HOLOCENE,
     ISTHMUS,
-    INTEROP,
-    JOVIAN
+    JOVIAN,
+    INTEROP
 }
 
-Fork constant LATEST_FORK = Fork.JOVIAN;
+Fork constant LATEST_FORK = Fork.INTEROP;
 
 library ForkUtils {
     function toString(Fork _fork) internal pure returns (string memory) {
@@ -234,5 +234,20 @@ library Config {
     /// @notice Returns true if the fork is a test fork.
     function forkTest() internal view returns (bool) {
         return vm.envOr("FORK_TEST", false);
+    }
+
+    /// @notice Returns true if the development feature interop is enabled.
+    function devFeatureInterop() internal view returns (bool) {
+        return vm.envOr("DEV_FEATURE__OPTIMISM_PORTAL_INTEROP", false);
+    }
+
+    /// @notice Returns true if the development feature cannon_kona is enabled.
+    function devFeatureCannonKona() internal view returns (bool) {
+        return vm.envOr("DEV_FEATURE__CANNON_KONA", false);
+    }
+
+    /// @notice Returns true if the development feature deploy_v2_dispute_games is enabled.
+    function devFeatureDeployV2DisputeGames() internal view returns (bool) {
+        return vm.envOr("DEV_FEATURE__DEPLOY_V2_DISPUTE_GAMES", false);
     }
 }

@@ -11,11 +11,11 @@ shellcheck = "0.10.0"
 direnv = "2.35.0"
 just = "1.37.0"
 
-# Cargo dependencies
-"cargo:svm-rs" = "0.5.8"
+svm-rs = "0.5.19"
 
 # Go dependencies
 "go:github.com/ethereum/go-ethereum/cmd/abigen" = "1.15.10"
+"go:github.com/ethereum/go-ethereum/cmd/geth" = "1.16.4" # Osaka release.
 "go:gotest.tools/gotestsum" = "1.12.1"
 "go:github.com/vektra/mockery/v2" = "2.46.0"
 "go:github.com/golangci/golangci-lint/cmd/golangci-lint" = "1.64.8"
@@ -36,9 +36,9 @@ anvil = "1.1.0"
 
 # Other dependencies
 codecov-uploader = "0.8.0"
-goreleaser-pro = "2.3.2-pro"
+goreleaser-pro = "2.11.2"
 kurtosis = "1.8.1"
-op-acceptor = "op-acceptor/v0.4.1"
+op-acceptor = "op-acceptor/v3.5.0"
 
 # Fake dependencies
 # Put things here if you need to track versions of tools or projects that can't
@@ -57,6 +57,7 @@ codecov-uploader = "ubi:codecov/uploader"
 goreleaser-pro = "ubi:goreleaser/goreleaser-pro[exe=goreleaser]"
 kurtosis = "ubi:kurtosis-tech/kurtosis-cli-release-artifacts[exe=kurtosis]"
 op-acceptor = "ubi:ethereum-optimism/infra[exe=op-acceptor,tag_prefix=op-acceptor/]"
+svm-rs = "ubi:alloy-rs/svm-rs[exe=svm]"
 
 [settings]
 experimental = true

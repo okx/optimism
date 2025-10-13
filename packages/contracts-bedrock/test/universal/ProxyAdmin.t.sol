@@ -3,7 +3,7 @@ pragma solidity 0.8.15;
 
 // Testing
 import { Test } from "forge-std/Test.sol";
-import { SimpleStorage } from "test/universal/Proxy.t.sol";
+import { Proxy_SimpleStorage_Harness } from "test/universal/Proxy.t.sol";
 
 // Interfaces
 import { IAddressManager } from "interfaces/legacy/IAddressManager.sol";
@@ -27,7 +27,7 @@ contract ProxyAdmin_TestInit is Test {
 
     IProxyAdmin admin;
 
-    SimpleStorage implementation;
+    Proxy_SimpleStorage_Harness implementation;
 
     function setUp() external {
         // Deploy the proxy admin
@@ -87,7 +87,7 @@ contract ProxyAdmin_TestInit is Test {
         admin.setProxyType(address(resolved), IProxyAdmin.ProxyType.RESOLVED);
         vm.stopPrank();
 
-        implementation = new SimpleStorage();
+        implementation = new Proxy_SimpleStorage_Harness();
     }
 }
 
@@ -269,12 +269,12 @@ contract ProxyAdmin_Upgrade_Test is ProxyAdmin_TestInit {
 contract ProxyAdmin_UpgradeAndCall_Test is ProxyAdmin_TestInit {
     function upgradeAndCall(address payable _proxy) internal {
         vm.prank(alice);
-        admin.upgradeAndCall(_proxy, address(implementation), abi.encodeCall(SimpleStorage.set, (1, 1)));
+        admin.upgradeAndCall(_proxy, address(implementation), abi.encodeCall(Proxy_SimpleStorage_Harness.set, (1, 1)));
 
         address impl = admin.getProxyImplementation(_proxy);
         assertEq(impl, address(implementation));
 
-        uint256 got = SimpleStorage(address(_proxy)).get(1);
+        uint256 got = Proxy_SimpleStorage_Harness(address(_proxy)).get(1);
         assertEq(got, 1);
     }
 
@@ -291,10 +291,10 @@ contract ProxyAdmin_UpgradeAndCall_Test is ProxyAdmin_TestInit {
     }
 }
 
-/// @title ProxyAdmin_Unclassified_Test
+/// @title ProxyAdmin_Uncategorized_Test
 /// @notice General tests that are not testing any function directly or that test multiple
 ///         functions of the `ProxyAdmin` contract.
-contract ProxyAdmin_Unclassified_Test is ProxyAdmin_TestInit {
+contract ProxyAdmin_Uncategorized_Test is ProxyAdmin_TestInit {
     function test_owner_succeeds() external view {
         assertEq(admin.owner(), alice);
     }

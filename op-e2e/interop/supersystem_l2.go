@@ -14,7 +14,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/opnode"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/services"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/setuputils"
-	"github.com/ethereum-optimism/optimism/op-node/node"
+	"github.com/ethereum-optimism/optimism/op-node/config"
 	"github.com/ethereum-optimism/optimism/op-node/p2p"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/derive"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/driver"
@@ -25,6 +25,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-service/dial"
 	"github.com/ethereum-optimism/optimism/op-service/endpoint"
 	oplog "github.com/ethereum-optimism/optimism/op-service/log"
+	oprpc "github.com/ethereum-optimism/optimism/op-service/rpc"
 	opsigner "github.com/ethereum-optimism/optimism/op-service/signer"
 	"github.com/ethereum-optimism/optimism/op-service/sources"
 	"github.com/ethereum-optimism/optimism/op-service/testlog"
@@ -33,6 +34,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/log"
 	gn "github.com/ethereum/go-ethereum/node"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/require"
 )
@@ -75,7 +77,7 @@ func (s *interopE2ESystem) L2GethClient(id string, name string) *ethclient.Clien
 		rpcEndpoint,
 		func(v string) *rpc.Client {
 			logger := testlog.Logger(s.t, log.LevelInfo).New("node", id)
-			cl, err := dial.DialRPCClientWithTimeout(context.Background(), 30*time.Second, logger, v)
+			cl, err := dial.DialRPCClientWithTimeout(context.Background(), logger, v)
 			require.NoError(s.t, err, "failed to dial eth node instance %s", id)
 			return cl
 		})
@@ -97,9 +99,9 @@ func (s *interopE2ESystem) L2RollupClient(id string, name string) *sources.Rollu
 	}
 	rollupClA, err := dial.DialRollupClientWithTimeout(
 		context.Background(),
-		time.Second*15,
 		s.logger,
-		node.opNode.UserRPC().RPC())
+		node.opNode.UserRPC().RPC(),
+	)
 	require.NoError(s.t, err, "failed to dial rollup client")
 	node.rollupClient = rollupClA
 	return node.rollupClient
@@ -111,7 +113,7 @@ func (s *interopE2ESystem) L2RollupClient(id string, name string) *sources.Rollu
 func (s *interopE2ESystem) newL2(id string, l2Out *interopgen.L2Output, depSet depset.DependencySet) l2Net {
 	operatorKeys := s.newOperatorKeysForL2(l2Out)
 	l2Geth := s.newGethForL2(id, "sequencer", l2Out)
-	opNode := s.newNodeForL2(id, "sequencer", l2Out, depSet, operatorKeys, l2Geth, true)
+	opNode := s.newNodeForL2(id, "sequencer", l2Out, depSet, operatorKeys, l2Geth, true, s.l1.Backend.BlockChain().Config())
 	proposer := s.newProposerForL2(id, operatorKeys)
 	batcher := s.newBatcherForL2(id, operatorKeys, l2Geth, opNode)
 
@@ -130,7 +132,7 @@ func (s *interopE2ESystem) newL2(id string, l2Out *interopgen.L2Output, depSet d
 func (s *interopE2ESystem) AddNode(id string, name string) {
 	l2 := s.l2s[id]
 	l2Geth := s.newGethForL2(id, name, l2.l2Out)
-	opNode := s.newNodeForL2(id, name, l2.l2Out, s.DependencySet(), l2.operatorKeys, l2Geth, false)
+	opNode := s.newNodeForL2(id, name, l2.l2Out, s.DependencySet(), l2.operatorKeys, l2Geth, false, s.l1.Backend.BlockChain().Config())
 	l2.nodes[name] = &l2Node{name: name, opNode: opNode, l2Geth: l2Geth}
 
 	endpoint, secret := l2.nodes[name].opNode.InteropRPC()
@@ -147,21 +149,23 @@ func (s *interopE2ESystem) newNodeForL2(
 	operatorKeys map[devkeys.ChainOperatorRole]ecdsa.PrivateKey,
 	l2Geth *geth.GethInstance,
 	isSequencer bool,
+	l1ChainConfig *params.ChainConfig,
 ) *opnode.Opnode {
 	logger := s.logger.New("role", "op-node-"+id+"-"+name)
 	p2pKey := operatorKeys[devkeys.SequencerP2PRole]
-	nodeCfg := &node.Config{
-		L1: &node.PreparedL1Endpoint{
+	nodeCfg := &config.Config{
+		L1: &config.PreparedL1Endpoint{
 			Client: client.NewBaseRPCClient(
 				endpoint.DialRPC(endpoint.PreferAnyRPC, s.l1.UserRPC(), mustDial(s.t, logger))),
 			TrustRPC:        false,
 			RPCProviderKind: sources.RPCKindDebugGeth,
 		},
-		L2: &node.L2EndpointConfig{
+		L1ChainConfig: l1ChainConfig,
+		L2: &config.L2EndpointConfig{
 			L2EngineAddr:      l2Geth.AuthRPC().RPC(),
 			L2EngineJWTSecret: testingJWTSecret,
 		},
-		Beacon: &node.L1BeaconEndpointConfig{
+		Beacon: &config.L1BeaconEndpointConfig{
 			BeaconAddr: s.beacon.BeaconAddr(),
 		},
 		Driver: driver.Config{
@@ -171,7 +175,7 @@ func (s *interopE2ESystem) newNodeForL2(
 		DependencySet: depSet,
 		P2PSigner: &p2p.PreparedSigner{
 			Signer: opsigner.NewLocalSigner(&p2pKey)},
-		RPC: node.RPCConfig{
+		RPC: oprpc.CLIConfig{
 			ListenAddr:  "127.0.0.1",
 			ListenPort:  0,
 			EnableAdmin: true,
@@ -191,7 +195,7 @@ func (s *interopE2ESystem) newNodeForL2(
 			SkipSyncStartCheck:             false,
 			SupportsPostFinalizationELSync: false,
 		},
-		ConfigPersistence: node.DisabledConfigPersistence{},
+		ConfigPersistence: config.DisabledConfigPersistence{},
 	}
 	opNode, err := opnode.NewOpnode(logger.New("service", "op-node"),
 		nodeCfg, func(err error) {
@@ -268,6 +272,10 @@ func (s *interopE2ESystem) newBatcherForL2(
 ) *bss.BatcherService {
 	batcherSecret := operatorKeys[devkeys.BatcherRole]
 	logger := s.logger.New("role", "batcher"+id)
+	daType := batcherFlags.CalldataType
+	if s.config.BatcherUsesBlobs {
+		daType = batcherFlags.BlobsType
+	}
 	batcherCLIConfig := &bss.CLIConfig{
 		L1EthRpc:                 s.l1.UserRPC().RPC(),
 		L2EthRpc:                 []string{l2Geth.UserRPC().RPC()},
@@ -288,7 +296,7 @@ func (s *interopE2ESystem) newBatcherForL2(
 		Stopped:               false,
 		BatchType:             derive.SpanBatchType,
 		MaxBlocksPerSpanBatch: 10,
-		DataAvailabilityType:  batcherFlags.CalldataType,
+		DataAvailabilityType:  daType,
 		CompressionAlgo:       derive.Brotli,
 	}
 	batcher, err := bss.BatcherServiceFromCLIConfig(

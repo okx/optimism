@@ -29,14 +29,13 @@ import (
 	"github.com/ethereum-optimism/optimism/op-chain-ops/devkeys"
 	"github.com/ethereum-optimism/optimism/op-chain-ops/foundry"
 	"github.com/ethereum-optimism/optimism/op-chain-ops/interopgen"
-	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils"
+	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/blobstore"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/contracts/bindings/emit"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/contracts/bindings/inbox"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/fakebeacon"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/geth"
 	"github.com/ethereum-optimism/optimism/op-e2e/system/helpers"
 	l2os "github.com/ethereum-optimism/optimism/op-proposer/proposer"
-	"github.com/ethereum-optimism/optimism/op-service/client"
 	"github.com/ethereum-optimism/optimism/op-service/clock"
 	"github.com/ethereum-optimism/optimism/op-service/dial"
 	"github.com/ethereum-optimism/optimism/op-service/endpoint"
@@ -88,6 +87,7 @@ type SuperSystem interface {
 	// L2 level
 	ChainID(network string) *big.Int
 	RollupConfig(network string) *rollup.Config
+	L1Genesis() *core.Genesis
 	L2Genesis(network string) *core.Genesis
 	UserKey(network, username string) ecdsa.PrivateKey
 	L2OperatorKey(network string, role devkeys.ChainOperatorRole) ecdsa.PrivateKey
@@ -107,6 +107,7 @@ type SuperSystem interface {
 type SuperSystemConfig struct {
 	mempoolFiltering  bool
 	SupportTimeTravel bool
+	BatcherUsesBlobs  bool
 }
 
 // NewSuperSystem creates a new SuperSystem from a recipe. It creates an interopE2ESystem.
@@ -175,6 +176,7 @@ func (s *interopE2ESystem) prepareWorld(w WorldResourcePaths) (*interopgen.World
 
 	for _, l2Cfg := range worldCfg.L2s {
 		require.NotNil(s.t, l2Cfg.L2GenesisIsthmusTimeOffset, "expecting isthmus fork to be enabled for interop deployments")
+		require.NotNil(s.t, l2Cfg.L2GenesisIsthmusTimeOffset, "expecting jovian fork to be enabled for interop deployments")
 	}
 
 	// create a logger for the world configuration
@@ -199,7 +201,7 @@ func (s *interopE2ESystem) prepareL1() (*fakebeacon.FakeBeacon, *geth.GethInstan
 	blockTimeL1 := uint64(6)
 	blobPath := s.t.TempDir()
 	bcn := fakebeacon.NewBeacon(s.logger.New("role", "l1_cl"),
-		e2eutils.NewBlobStore(), genesisTimestampL1, blockTimeL1)
+		blobstore.New(), genesisTimestampL1, blockTimeL1)
 	s.t.Cleanup(func() {
 		_ = bcn.Close()
 	})
@@ -324,9 +326,8 @@ func (s *interopE2ESystem) SupervisorClient() *sources.SupervisorClient {
 	if s.superClient != nil {
 		return s.superClient
 	}
-	cl, err := client.NewRPC(context.Background(), s.logger, s.supervisor.RPC())
+	superClient, err := dial.DialSupervisorClientWithTimeout(context.Background(), s.logger, s.supervisor.RPC())
 	require.NoError(s.t, err, "failed to dial supervisor RPC")
-	superClient := sources.NewSupervisorClient(cl)
 	s.superClient = superClient
 	return superClient
 }
@@ -431,7 +432,7 @@ func (s *interopE2ESystem) L1GethClient() *ethclient.Client {
 		rpcEndpoint,
 		func(v string) *rpc.Client {
 			logger := testlog.Logger(s.t, log.LevelInfo)
-			cl, err := dial.DialRPCClientWithTimeout(context.Background(), 30*time.Second, logger, v)
+			cl, err := dial.DialRPCClientWithTimeout(context.Background(), logger, v)
 			require.NoError(s.t, err, "failed to dial L1 eth node instance")
 			return cl
 		})
@@ -446,6 +447,14 @@ func (s *interopE2ESystem) Batcher(id string) *bss.BatcherService     { return s
 func (s *interopE2ESystem) Proposer(id string) *l2os.ProposerService  { return s.l2s[id].proposer }
 func (s *interopE2ESystem) L2OperatorKey(id string, role devkeys.ChainOperatorRole) ecdsa.PrivateKey {
 	return s.l2s[id].operatorKeys[role]
+}
+
+func (s *interopE2ESystem) L1ID() string {
+	return s.worldOutput.L1.Genesis.Config.ChainID.String()
+}
+
+func (s *interopE2ESystem) L1Genesis() *core.Genesis {
+	return s.worldOutput.L1.Genesis
 }
 
 // L2IDs returns the list of L2 IDs, which are the keys of the L2s map
@@ -588,7 +597,7 @@ func (s *interopE2ESystem) DependencySet() *depset.StaticConfigDependencySet {
 
 func mustDial(t *testing.T, logger log.Logger) func(v string) *rpc.Client {
 	return func(v string) *rpc.Client {
-		cl, err := dial.DialRPCClientWithTimeout(context.Background(), 30*time.Second, logger, v)
+		cl, err := dial.DialRPCClientWithTimeout(context.Background(), logger, v)
 		require.NoError(t, err, "failed to dial")
 		return cl
 	}

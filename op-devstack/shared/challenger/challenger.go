@@ -52,7 +52,7 @@ func WithPrivKey(key *ecdsa.PrivateKey) Option {
 	}
 }
 
-func applyCannonConfig(c *config.Config, rollupCfgs []*rollup.Config, l2Geneses []*core.Genesis, prestateVariant PrestateVariant) error {
+func applyCannonConfig(c *config.Config, rollupCfgs []*rollup.Config, l1Genesis *core.Genesis, l2Geneses []*core.Genesis, prestateVariant PrestateVariant) error {
 	root, err := findMonorepoRoot()
 	if err != nil {
 		return err
@@ -79,6 +79,17 @@ func applyCannonConfig(c *config.Config, rollupCfgs []*rollup.Config, l2Geneses 
 		c.Cannon.L2GenesisPaths = append(c.Cannon.L2GenesisPaths, genesisFile)
 	}
 
+	l1GenesisBytes, err := json.Marshal(l1Genesis)
+	if err != nil {
+		return fmt.Errorf("marshall l1 genesis config: %w", err)
+	}
+	l1GenesisFile := filepath.Join(c.Datadir, fmt.Sprintf("l1-genesis-%v.json", l1Genesis.Config.ChainID))
+	err = os.WriteFile(l1GenesisFile, l1GenesisBytes, 0o644)
+	if err != nil {
+		return fmt.Errorf("write l1 genesis config: %w", err)
+	}
+	c.Cannon.L1GenesisPath = l1GenesisFile
+
 	for _, rollupCfg := range rollupCfgs {
 		rollupBytes, err := json.Marshal(rollupCfg)
 		if err != nil {
@@ -101,9 +112,9 @@ func WithFactoryAddress(addr common.Address) Option {
 	}
 }
 
-func WithCannonConfig(rollupCfgs []*rollup.Config, l2Geneses []*core.Genesis, prestateVariant PrestateVariant) Option {
+func WithCannonConfig(rollupCfgs []*rollup.Config, l1Genesis *core.Genesis, l2Geneses []*core.Genesis, prestateVariant PrestateVariant) Option {
 	return func(c *config.Config) error {
-		return applyCannonConfig(c, rollupCfgs, l2Geneses, prestateVariant)
+		return applyCannonConfig(c, rollupCfgs, l1Genesis, l2Geneses, prestateVariant)
 	}
 }
 
@@ -186,19 +197,19 @@ func applyCommonChallengerOpts(cfg *config.Config, options ...Option) error {
 	if cfg.Cannon.VmBin != "" {
 		_, err := os.Stat(cfg.Cannon.VmBin)
 		if err != nil {
-			return errors.New("cannon should be built. Make sure you've run make cannon-prestate")
+			return errors.New("cannon should be built. Make sure you've run make cannon-prestates")
 		}
 	}
 	if cfg.Cannon.Server != "" {
 		_, err := os.Stat(cfg.Cannon.Server)
 		if err != nil {
-			return errors.New("op-program should be built. Make sure you've run make cannon-prestate")
+			return errors.New("op-program should be built. Make sure you've run make cannon-prestates")
 		}
 	}
 	if cfg.CannonAbsolutePreState != "" {
 		_, err := os.Stat(cfg.CannonAbsolutePreState)
 		if err != nil {
-			return errors.New("cannon pre-state should be built. Make sure you've run make cannon-prestate")
+			return errors.New("cannon pre-state should be built. Make sure you've run make cannon-prestates")
 		}
 	}
 
