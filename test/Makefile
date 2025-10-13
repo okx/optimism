@@ -72,3 +72,15 @@ test-e2e: stop
 		echo "Running E2E tests with default branch"; \
 		make run && sleep 10 && make run-test; \
 	fi && echo "✅ E2E tests passed ✅"
+
+.PHONY: test-realtime-e2e
+test-realtime-e2e: stop
+	@trap 'make stop' EXIT ERR INT TERM;
+	@echo "OP_GETH_BRANCH: $(OP_GETH_BRANCH)"
+	if [ -n "$(OP_GETH_BRANCH)" ]; then \
+		echo "Running realtime E2E tests with branch: $(OP_GETH_BRANCH)"; \
+		make run && sleep 10 && make run-realtime-test; \
+	else \
+		echo "Running realtime E2E tests with default branch"; \
+		make run && sleep 10 && make run-realtime-test; \
+	fi && echo "✅ realtime E2E tests passed ✅"
