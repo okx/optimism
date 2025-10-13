@@ -169,6 +169,12 @@ services:
     image: "${OP_GETH_IMAGE_TAG}"
     container_name: op-geth-seq
     entrypoint: geth
+    environment:
+      - APOLLO_ENABLED=${APOLLO_ENABLED:-true}
+      - APOLLO_APP_ID=XLayerSeq
+      - APOLLO_IP=http://apollo-configservice:8085
+      - APOLLO_CLUSTER=default
+      - APOLLO_NAMESPACE=opnode_sequencer-config.txt,opgeth_l2gaspricer-config.txt,opgeth_pool-config.txt
     volumes:
       - ./data/op-geth-seq:/datadir
       - ./config-op/jwt.txt:/jwt.txt
@@ -180,18 +186,16 @@ services:
       - "30303:30303"
       - "30303:30303/udp"
     command:
-      - --verbosity=3
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
       - --config=/config.toml
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
-      interval: 3s
-      timeout: 3s
-      retries: 10
-      start_period: 3s
+      - --apollo.enabled=${APOLLO_ENABLED:-true}
+      - --apollo.app-id=${APOLLO_APP_ID:-XLayerSeq}
+      - --apollo.ip=${APOLLO_IP:-http://apollo-configservice:8085}
+      - --apollo.cluster=${APOLLO_CLUSTER:-default}
+      - --apollo.namespace=${APOLLO_NAMESPACE:-opnode_sequencer-config.txt,opgeth_l2gaspricer-config.txt,opgeth_pool-config.txt}
 
   op-geth-rpc:
     image: "${OP_GETH_IMAGE_TAG}"
@@ -203,15 +207,12 @@ services:
       - ./config-op/test.rpc.config.toml:/config.toml
     ports:
       - "8124:8545"
-      - "30304:30303"
-      - "30304:30303/udp"
     command:
-      - --verbosity=3
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
       - --config=/config.toml
       - --gcmode=archive
-      # - --rollup.sequencerhttp=http://op-geth-seq:8545
+      - --rollup.sequencerhttp=http://op-geth-seq:8545
       - --rollup.enabletxpooladmission
 
   op-seq:
@@ -226,6 +227,12 @@ services:
       - "7070:7070"
       - "9223:9223"
       - "9223:9223/udp"
+    environment:
+      - APOLLO_ENABLED=${APOLLO_ENABLED:-true}
+      - APOLLO_APP_ID=XLayerSeq
+      - APOLLO_IP=http://apollo-configservice:8085
+      - APOLLO_CLUSTER=default
+      - APOLLO_NAMESPACE=opnode_sequencer-config.txt,opgeth_l2gaspricer-config.txt,opgeth_pool-config.txt
     command:
       - /app/op-node/bin/op-node
       - --log.level=debug
@@ -250,15 +257,13 @@ services:
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}    # 默认关闭
       - --conductor.rpc=http://op-conductor:8547
+      - --apollo.enabled=${APOLLO_ENABLED:-true}
+      - --apollo.app-id=${APOLLO_APP_ID:-XLayerSeq}
+      - --apollo.ip=${APOLLO_IP:-http://apollo-configservice:8085}
+      - --apollo.cluster=${APOLLO_CLUSTER:-default}
+      - --apollo.namespace=${APOLLO_NAMESPACE:-opnode_sequencer-config.txt,opgeth_l2gaspricer-config.txt,opgeth_pool-config.txt}
     depends_on:
-      op-geth-seq:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9545"]
-      interval: 3s
-      timeout: 3s
-      retries: 10
-      start_period: 3s
+      - op-geth-seq
 
   op-rpc:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -270,6 +275,12 @@ services:
       - ./config-op/oprpc_p2p_priv.txt:/opnode_p2p_priv.txt
     ports:
       - "9555:9545"
+    environment:
+      - APOLLO_ENABLED=${APOLLO_ENABLED:-true}
+      - APOLLO_APP_ID=XLayerSeq
+      - APOLLO_IP=http://apollo-configservice:8085
+      - APOLLO_CLUSTER=default
+      - APOLLO_NAMESPACE=opnode_sequencer-config.txt,opgeth_l2gaspricer-config.txt,opgeth_pool-config.txt
     command:
       - /app/op-node/bin/op-node
       - --log.level=debug
@@ -292,6 +303,11 @@ services:
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
       - --safedb.path=/data/safedb
+      - --apollo.enabled=${APOLLO_ENABLED:-true}
+      - --apollo.app-id=${APOLLO_APP_ID:-XLayerSeq}
+      - --apollo.ip=${APOLLO_IP:-http://apollo-configservice:8085}
+      - --apollo.cluster=${APOLLO_CLUSTER:-default}
+      - --apollo.namespace=${APOLLO_NAMESPACE:-opnode_sequencer-config.txt,opgeth_l2gaspricer-config.txt,opgeth_pool-config.txt}
     depends_on:
       - op-geth-rpc
 
@@ -327,10 +343,8 @@ services:
       - --healthcheck.min-peer-count=1
       - --rollup.config=/rollup.json
     depends_on:
-      op-seq:
-        condition: service_healthy
-      op-geth-seq:
-        condition: service_healthy
+      - op-seq
+      - op-geth-seq
 
   op-batcher:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -422,6 +436,8 @@ services:
       - --game-window=${GAME_WINDOW}s
       - --honest-actors=${PROPOSER_ADDRESS}
 
+
+
   op-geth-seq2:
     image: "${OP_GETH_IMAGE_TAG}"
     container_name: op-geth-seq2
@@ -429,24 +445,32 @@ services:
     volumes:
       - ./data/op-geth-seq2:/datadir
       - ./config-op/jwt.txt:/jwt.txt
-      - ./config-op/test.seq.config.toml:/config.toml
     ports:
       - "8223:8545"
-      - "30305:30303"
-      - "30305:30303/udp"
     command:
-      - --verbosity=3
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
-      - --config=/config.toml
+      - --http
+      - --http.corsdomain=*
+      - --http.vhosts=*
+      - --http.port=8545
+      - --http.addr=0.0.0.0
+      - --http.api=web3,debug,eth,txpool,net,engine,miner
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=7546
+      - --ws.origins=*
+      - --ws.api=debug,eth,txpool,net,engine
+      - --syncmode=full
       - --gcmode=archive
+      - --nodiscover
+      - --maxpeers=0
+      - --networkid=901
+      - --authrpc.vhosts=*
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.port=8552
+      - --authrpc.jwtsecret=/jwt.txt
       - --rollup.disabletxpoolgossip=false
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
-      interval: 3s
-      timeout: 3s
-      retries: 10
-      start_period: 3s
 
   op-seq2:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -460,6 +484,12 @@ services:
 #      - "7070:7070"
       - "9224:9223"
       - "9224:9223/udp"
+    environment:
+      - APOLLO_ENABLED=${APOLLO_ENABLED:-true}
+      - APOLLO_APP_ID=XLayerSeq
+      - APOLLO_IP=http://apollo-configservice:8085
+      - APOLLO_CLUSTER=default
+      - APOLLO_NAMESPACE=sequencer-config.txt,l2gaspricer-config.txt,pool-config.txt
     command:
       - /app/op-node/bin/op-node
       - --log.level=info
@@ -486,15 +516,13 @@ services:
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor2:8547
+      - --apollo.enabled=${APOLLO_ENABLED:-true}
+      - --apollo.app-id=${APOLLO_APP_ID:-XLayerSeq}
+      - --apollo.ip=${APOLLO_IP:-http://apollo-configservice:8085}
+      - --apollo.cluster=${APOLLO_CLUSTER:-default}
+      - --apollo.namespace=${APOLLO_NAMESPACE:-sequencer-config.txt,l2gaspricer-config.txt,pool-config.txt}
     depends_on:
-      op-geth-seq2:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9545"]
-      interval: 3s
-      timeout: 3s
-      retries: 10
-      start_period: 3s
+      - op-geth-seq2
 
   op-conductor2:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -528,10 +556,9 @@ services:
       - --healthcheck.min-peer-count=1
       - --rollup.config=/rollup.json
     depends_on:
-      op-seq2:
-        condition: service_healthy
-      op-geth-seq2:
-        condition: service_healthy
+      - op-seq2
+      - op-geth-seq2
+
 
   op-geth-seq3:
     image: "${OP_GETH_IMAGE_TAG}"
@@ -540,24 +567,32 @@ services:
     volumes:
       - ./data/op-geth-seq3:/datadir
       - ./config-op/jwt.txt:/jwt.txt
-      - ./config-op/test.seq.config.toml:/config.toml
     ports:
       - "8323:8545"
-      - "30306:30303"
-      - "30306:30303/udp"
     command:
-      - --verbosity=3
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
-      - --config=/config.toml
+      - --http
+      - --http.corsdomain=*
+      - --http.vhosts=*
+      - --http.port=8545
+      - --http.addr=0.0.0.0
+      - --http.api=web3,debug,eth,txpool,net,engine,miner
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=7546
+      - --ws.origins=*
+      - --ws.api=debug,eth,txpool,net,engine
+      - --syncmode=full
       - --gcmode=archive
+      - --nodiscover
+      - --maxpeers=0
+      - --networkid=901
+      - --authrpc.vhosts=*
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.port=8552
+      - --authrpc.jwtsecret=/jwt.txt
       - --rollup.disabletxpoolgossip=false
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
-      interval: 3s
-      timeout: 3s
-      retries: 10
-      start_period: 3s
 
   op-seq3:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -571,6 +606,12 @@ services:
 #      - "7070:7070"
       - "9225:9223"
       - "9225:9223/udp"
+    environment:
+      - APOLLO_ENABLED=${APOLLO_ENABLED:-true}
+      - APOLLO_APP_ID=XLayerSeq
+      - APOLLO_IP=http://apollo-configservice:8085
+      - APOLLO_CLUSTER=default
+      - APOLLO_NAMESPACE=sequencer-config.txt,l2gaspricer-config.txt,pool-config.txt
     command:
       - /app/op-node/bin/op-node
       - --log.level=info
@@ -597,15 +638,14 @@ services:
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor3:8547
+      - --apollo.enabled=${APOLLO_ENABLED:-true}
+      - --apollo.app-id=${APOLLO_APP_ID:-XLayerSeq}
+      - --apollo.ip=${APOLLO_IP:-http://apollo-configservice:8085}
+      - --apollo.cluster=${APOLLO_CLUSTER:-default}
+      - --apollo.namespace=${APOLLO_NAMESPACE:-sequencer-config.txt,l2gaspricer-config.txt,pool-config.txt}
     depends_on:
-      op-geth-seq3:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9545"]
-      interval: 3s
-      timeout: 3s
-      retries: 10
-      start_period: 3s
+      - op-geth-seq3
+
 
   op-conductor3:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -639,7 +679,57 @@ services:
       - --healthcheck.min-peer-count=1
       - --rollup.config=/rollup.json
     depends_on:
-      op-seq3:
-        condition: service_healthy
-      op-geth-seq3:
-        condition: service_healthy
+      - op-seq3
+      - op-geth-seq3
+
+  apollo-configservice:
+    container_name: apollo-configservice
+    image: apolloconfig/apollo-configservice:latest
+    ports:
+      - "8085:8085"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/ApolloConfigDB?characterEncoding=utf8
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=${MYSQL_ROOT_PASSWORD:-password}
+      - SERVER_PORT=8085
+    depends_on:
+      - mysql
+
+  apollo-adminservice:
+    container_name: apollo-adminservice
+    image: apolloconfig/apollo-adminservice:latest
+    ports:
+      - "8095:8095"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/ApolloConfigDB?characterEncoding=utf8
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=${MYSQL_ROOT_PASSWORD:-password}
+      - SERVER_PORT=8095
+    depends_on:
+      - mysql
+
+  apollo-portal:
+    container_name: apollo-portal
+    image: apolloconfig/apollo-portal:latest
+    ports:
+      - "8070:8070"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/ApolloPortalDB?characterEncoding=utf8
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=${MYSQL_ROOT_PASSWORD:-password}
+      - APOLLO_PORTAL_ENVS=DEV
+      - DEV_META=http://apollo-configservice:8085
+    depends_on:
+      - apollo-adminservice
+
+  mysql:
+    container_name: mysql
+    image: mysql:8.0
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-password}
+      - MYSQL_USER=apollo
+      - MYSQL_PASSWORD=${MYSQL_APOLLO_PASSWORD:-password2}
+    volumes:
+      - ./scripts/init-apollo.sh:/docker-entrypoint-initdb.d/init-apollo.sh
+      - ./scripts/sql/:/docker-entrypoint-initdb.d/sql
+    command: ["mysqld", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
