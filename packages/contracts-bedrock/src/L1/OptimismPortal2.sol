@@ -212,6 +212,9 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
     /// @notice Thrown when trying to use depositERC20Transaction on a non-CGT chain.
     error OptimismPortal_OnlyCustomGasToken();
 
+    /// @notice Thrown when trying to use depositERC20Transaction but gas token not set.
+    error OptimismPortal_InvalidGasToken();
+
     /// @notice Semantic version.
     /// @custom:semver 5.2.0
     function version() public pure virtual returns (string memory) {
@@ -584,7 +587,11 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
 
         // Transfer the custom gas token from the caller to this contract
         (address token,) = systemConfig.gasPayingToken();
-        if (token != Constants.ETHER && _mint > 0) {
+        if (token == Constants.ETHER) {
+            revert OptimismPortal_InvalidGasToken();
+        }
+
+        if ( _mint > 0) {
             IERC20(token).transferFrom(msg.sender, address(this), _mint);
         }
 
