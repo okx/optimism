@@ -351,6 +351,7 @@ services:
       - ./config-op/rollup.json:/rollup.json
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/oprpc_p2p_priv.txt:/opnode_p2p_priv.txt
+      - ./l1-geth/execution/genesis.json:/l1-genesis.json
     ports:
       - "9565:9545"
     command:
@@ -374,6 +375,7 @@ services:
       - --l1=${L1_RPC_URL_IN_DOCKER}
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
+      - --rollup.l1-chain-config=/l1-genesis.json
       - --safedb.path=/data/safedb
       - --realtime.sequencer-enabled=false
     depends_on:
