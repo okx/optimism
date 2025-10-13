@@ -164,7 +164,6 @@ if [ -n "$OKB_TOKEN" ] && [ -n "$ADAPTER_ADDRESS" ]; then
 
       # Query OKB total supply after successful deposit
       DEPOSIT_FINAL_TOTAL_SUPPLY=$(cast call "$OKB_TOKEN" "totalSupply()(uint256)" --rpc-url "$L1_RPC_URL")
-      DEPOSIT_BURNED_AMOUNT=$((INIT_TOTAL_SUPPLY - DEPOSIT_FINAL_TOTAL_SUPPLY))
 
       echo "📊 Final Status:"
       echo "   Initial Balance:  $INIT_BALANCE"
@@ -175,11 +174,6 @@ if [ -n "$OKB_TOKEN" ] && [ -n "$ADAPTER_ADDRESS" ]; then
       echo "🔥 OKB Token Supply Status:"
       echo "   Initial Total Supply: $INIT_TOTAL_SUPPLY"
       echo "   Final Total Supply:   $DEPOSIT_FINAL_TOTAL_SUPPLY"
-      if [ "$DEPOSIT_BURNED_AMOUNT" -gt 0 ]; then
-        echo "   Tokens Burned:        $DEPOSIT_BURNED_AMOUNT"
-      else
-        echo "   Tokens Burned:        0 (0 OKB)"
-      fi
       echo ""
       break
     fi
