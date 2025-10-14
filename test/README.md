@@ -2,6 +2,7 @@
 
 ## run on local
 ```bash
+# git submodule update --recursive --force
 # ./build_images.sh --all # build all images. add --force if want to force rebuild
 make clean
 cp local.env .env
