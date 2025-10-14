@@ -473,6 +473,7 @@ services:
       - ./config-op/rollup.json:/rollup.json
       - ./config-op/jwt.txt:/jwt.txt
       - ./data/op-seq:/data
+      - ./l1-geth/execution/:/l1/
     ports:
       - "9545:9545"
       - "7070:7070"
@@ -500,7 +501,7 @@ services:
       - --l1=${L1_RPC_URL_IN_DOCKER}
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
-      - --rollup.l1-chain-config=/l1-genesis.json
+      - --rollup.l1-chain-config=/l1/genesis.json
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}    # 默认关闭
       - --conductor.rpc=http://op-conductor:8547
@@ -525,6 +526,7 @@ services:
       - ./config-op/rollup.json:/rollup.json
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/oprpc_p2p_priv.txt:/opnode_p2p_priv.txt
+      - ./l1-geth/execution/:/l1
     ports:
       - "9555:9545"
     command:
@@ -548,7 +550,7 @@ services:
       - --l1=${L1_RPC_URL_IN_DOCKER}
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
-      - --rollup.l1-chain-config=/l1-genesis.json
+      - --rollup.l1-chain-config=/l1/genesis.json
       - --safedb.path=/data/safedb
     depends_on:
       - op-geth-rpc
@@ -713,6 +715,7 @@ services:
       - ./config-op/rollup.json:/rollup.json
       - ./config-op/jwt.txt:/jwt.txt
       - ./data/op-seq2:/data
+      - ./l1-geth/execution/:/l1/
     ports:
       - "9546:9545"
       #      - "7070:7070"
@@ -741,7 +744,7 @@ services:
       - --l1=${L1_RPC_URL_IN_DOCKER}
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
-      - --rollup.l1-chain-config=/l1-genesis.json
+      - --rollup.l1-chain-config=/l1/genesis.json
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor2:8547
@@ -825,6 +828,7 @@ services:
       - ./config-op/rollup.json:/rollup.json
       - ./config-op/jwt.txt:/jwt.txt
       - ./data/op-seq3:/data
+      - ./l1-geth/execution/:/l1/
     ports:
       - "9547:9545"
       #      - "7070:7070"
@@ -853,7 +857,7 @@ services:
       - --l1=${L1_RPC_URL_IN_DOCKER}
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
-      - --rollup.l1-chain-config=/l1-genesis.json
+      - --rollup.l1-chain-config=/l1/genesis.json
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor3:8547

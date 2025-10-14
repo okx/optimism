@@ -44,6 +44,7 @@ source .env
 ARCH=linux/arm64
 BUILD_CDK_ERIGON=false
 BUILD_OP_GETH=false
+BUILD_OP_GETH_MIGRATE=false
 BUILD_OP_STACK=false
 BUILD_OP_CONTRACT=false
 BUILD_BRIDGE=false
@@ -60,6 +61,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --op-geth)
       BUILD_OP_GETH=true
+      shift
+      ;;
+    --op-geth-migrate)
+      BUILD_OP_GETH_MIGRATE=true
       shift
       ;;
     --op-stack)
@@ -96,6 +101,7 @@ while [[ $# -gt 0 ]]; do
       echo "Options:"
       echo "  --cdk-erigon     Build cdk-erigon image only"
       echo "  --op-geth     Build op-geth image only"
+      echo "  --op-geth-migrate     Build op-geth-migrate image only"
       echo "  --op-stack    Build op-stack images"
       echo "  --op-contract    Build op contract image"
       echo "  --bridge      Build bridge service image only"
@@ -114,7 +120,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # If no specific options provided, build all
-if [ "$BUILD_OP_GETH" = false ] && [ "$BUILD_CDK_ERIGON" = false ] && [ "$BUILD_OP_STACK" = false ] && [ "$BUILD_OP_CONTRACT" = false ] && [ "$BUILD_BRIDGE" = false ] && [ "$BUILD_AGGKIT" = false ] && [ "$BUILD_ALL" = false ]; then
+if [ "$BUILD_OP_GETH" = false ] && [ "$BUILD_CDK_ERIGON" = false ] && [ "$BUILD_OP_STACK" = false ] && [ "$BUILD_OP_CONTRACT" = false ] && [ "$BUILD_BRIDGE" = false ] && [ "$BUILD_AGGKIT" = false ] && [ "$BUILD_OP_GETH_MIGRATE" = false ] && [ "$BUILD_ALL" = false ]; then
   BUILD_ALL=true
 fi
 
@@ -122,6 +128,7 @@ fi
 if [ "$BUILD_ALL" = true ]; then
   BUILD_CDK_ERIGON=true
   BUILD_OP_GETH=true
+  BUILD_OP_GETH_MIGRATE=true
   BUILD_OP_STACK=true
   BUILD_OP_CONTRACT=true
   BUILD_BRIDGE=true
@@ -181,24 +188,11 @@ build_cdk_erigon_image() {
 build_op_stack_contract() {
   echo "build op stack image"
     PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    rm -rf $PWD_DIR/tmp/optimism
-    mkdir -p $PWD_DIR/tmp
-    cd $PWD_DIR/tmp/
-    if [ ! -d "$PWD_DIR/tmp/optimism" ]; then
-      rm -rf $PWD_DIR/tmp/optimism
-      mkdir -p $PWD_DIR/tmp
-      cd $PWD_DIR/tmp/
-      echo "Cloning Optimism repository..."
-      git clone --recurse-submodules -b pre-release https://github.com/okx/optimism.git
-    else
-      echo "Optimism repository already exists, using existing clone"
-      cd $PWD_DIR/tmp/optimism
-    fi
 
     # cp Transactor.sol to optimism, which is used for addGameType
     cp $PWD_DIR/contracts/Transactor.sol optimism/packages/contracts-bedrock/src/periphery/Transactor.sol
 
-    cd optimism
+    cd ..
     docker build --platform $ARCH -t $OP_CONTRACTS_IMAGE_TAG -f Dockerfile-contracts .
 
     cd $PWD_DIR
@@ -208,35 +202,37 @@ build_op_stack_contract() {
 build_op_stack_image() {
   echo "build op stack image"
   PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-#  rm -rf $PWD_DIR/tmp/optimism
-#  mkdir -p $PWD_DIR/tmp
-#  cd $PWD_DIR/tmp/
-#  echo "Cloning Optimism repository..."
-#  git clone --recurse-submodules -b pre-release https://github.com/okx/optimism.git
-#
-#  cd optimism
+
   cd ..
   docker build --platform $ARCH -t $OP_STACK_IMAGE_TAG -f Dockerfile-opstack .
 
   cd $PWD_DIR
 }
 
-build_op_geth_image() {
+build_op_geth_migrate_image() {
   echo "build op-geth image"
   PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   PROJECT_ROOT="$(git rev-parse --show-toplevel)"
-#
-#   # If tmp/optimism doesn't exist, clone it
-#  if [ ! -d "$PWD_DIR/tmp/op-geth" ]; then
-#    rm -rf $PWD_DIR/tmp/op-geth
-#    mkdir -p $PWD_DIR/tmp
-#    cd $PWD_DIR/tmp/
-#    echo "Cloning op-geth repository..."
-#    git clone --recurse-submodules -b sync/optimism https://github.com/okx/op-geth.git
-#    cd $PWD_DIR
-#  fi
 
-#  cd "$PWD_DIR/tmp/op-geth"
+   # If tmp/optimism doesn't exist, clone it
+  if [ ! -d "$PWD_DIR/tmp/op-geth" ]; then
+    rm -rf $PWD_DIR/tmp/op-geth
+    mkdir -p $PWD_DIR/tmp
+    cd $PWD_DIR/tmp/
+    echo "Cloning op-geth repository..."
+    git clone --recurse-submodules -b dev-op https://github.com/okx/op-geth.git
+    cd $PWD_DIR
+  fi
+
+  cd "$PWD_DIR/tmp/op-geth"
+  docker build --platform $ARCH -t $OP_GETH_MIGRATION_IMAGE_TAG .
+  cd $PWD_DIR
+}
+
+build_op_geth_image() {
+  echo "build op-geth image"
+  PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
   cd ../op-geth
   docker build --platform $ARCH -t $OP_GETH_IMAGE_TAG .
   cd $PWD_DIR
@@ -273,6 +269,10 @@ fi
 
 if [ "$BUILD_OP_GETH" = true ]; then
   build_if_needed "$OP_GETH_IMAGE_TAG" "build_op_geth_image" "OP-Geth image"
+fi
+
+if [ "$BUILD_OP_GETH_MIGRATE" = true ]; then
+  build_if_needed "$OP_GETH_MIGRATION_IMAGE_TAG" "build_op_geth_migrate_image" "OP-Geth migrate image"
 fi
 
 if [ "$BUILD_CDK_ERIGON" = true ]; then

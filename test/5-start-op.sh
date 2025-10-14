@@ -27,9 +27,9 @@ start_sequencer() {
 
 
   if [ "$CONDUCTOR_ENABLED" = "true" ]; then
-      docker compose up -d op-conductor
-      docker compose up -d op-conductor2
-      docker compose up -d op-conductor3
+      ${DOCKER_COMPOSE_CMD} up -d op-conductor
+      ${DOCKER_COMPOSE_CMD} up -d op-conductor2
+      ${DOCKER_COMPOSE_CMD} up -d op-conductor3
       sleep 3
       $SCRIPTS_DIR/active-sequencer.sh
   fi
