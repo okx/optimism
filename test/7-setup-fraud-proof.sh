@@ -304,8 +304,7 @@ set_game_type_permissionless() {
   export GAME_TYPE=0
 }
 
-# add_permissioned_game_type
-export GAME_TYPE=1
+add_permissioned_game_type
 wait_op_proposer_create_game
 #
 #echo "⏰ Sleeping for ($TEMP_MAX_CLOCK_DURATION seconds)..."
