@@ -41,7 +41,6 @@ contract SystemConfig is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitializabl
         EIP_1559_PARAMS,
         OPERATOR_FEE_PARAMS,
         MIN_BASE_FEE,
-        GAS_PAYING_TOKEN
     }
 
     /// @notice Struct representing the addresses of L1 system contracts. These should be the
@@ -618,8 +617,5 @@ contract SystemConfig is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitializabl
     /// @param _symbol The symbol of the gas paying token as a bytes32.
     function _setGasPayingToken(address _token, uint8 _decimals, bytes32 _name, bytes32 _symbol) internal {
         GasPayingToken.set(_token, _decimals, _name, _symbol);
-
-        bytes memory data = abi.encode(_token, _decimals, _name, _symbol);
-        emit ConfigUpdate(VERSION, UpdateType.GAS_PAYING_TOKEN, data);
     }
 }
