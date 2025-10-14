@@ -13,6 +13,7 @@ import {OKBBurner} from "src/L1/OKBBurner.sol";
 // Interfaces
 import {IOKB} from "interfaces/L1/IOKB.sol";
 import {ISystemConfig} from "interfaces/L1/ISystemConfig.sol";
+import {Constants} from "src/libraries/Constants.sol";
 import {IOptimismPortal2} from "interfaces/L1/IOptimismPortal2.sol";
 import {IL1Block} from "interfaces/L2/IL1Block.sol";
 
@@ -96,6 +97,7 @@ contract SetupCustomGasToken is Script {
         console.log("    Decimals:", decimals);
         console.log("    Name:", name);
         console.log("    Symbol:", symbol);
+        require(tokenAddr == Constants.ETHER, "FAILED: GasPayingToken already set");
     }
 
     /// @notice Deploy OKBBurner implementation contract
