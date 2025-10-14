@@ -243,7 +243,7 @@ build_op_geth_image() {
   PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
   cd ../op-geth
-  docker build --platform $ARCH -t $OP_GETH_IMAGE_TAG .
+  docker build $( [ "$FORCE" = true ] && echo --no-cache ) --platform $ARCH -t $OP_GETH_IMAGE_TAG .
   cd $PWD_DIR
 }
 
