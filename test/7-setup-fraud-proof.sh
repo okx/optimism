@@ -304,8 +304,9 @@ set_game_type_permissionless() {
   export GAME_TYPE=0
 }
 
-add_permissioned_game_type
-# wait_op_proposer_create_game
+# add_permissioned_game_type
+export GAME_TYPE=1
+wait_op_proposer_create_game
 #
 #echo "⏰ Sleeping for ($TEMP_MAX_CLOCK_DURATION seconds)..."
 #sleep $TEMP_MAX_CLOCK_DURATION
@@ -319,5 +320,5 @@ add_permissioned_game_type
 #
 #set_game_type_permissionless
 #
-#sleep $TEMP_GAME_WINDOW
-#${DOCKER_COMPOSE_CMD} up -d op-proposer op-challenger op-dispute-mon
+sleep $TEMP_GAME_WINDOW
+${DOCKER_COMPOSE_CMD} up -d op-proposer op-challenger op-dispute-mon
