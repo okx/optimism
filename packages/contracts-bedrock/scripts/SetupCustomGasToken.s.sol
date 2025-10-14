@@ -29,7 +29,7 @@ import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC2
 /// @notice Mock OKB token for testing custom gas token setup
 contract MockOKB is ERC20, ERC20Burnable {
     constructor() ERC20("Mock OKB", "OKB") {
-        _mint(msg.sender, 21000000 * 10 ** decimals());
+        _mint(msg.sender, 660000 * 10 ** decimals());
     }
 
     function decimals() public pure override returns (uint8) {
