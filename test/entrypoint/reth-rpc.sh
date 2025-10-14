@@ -4,7 +4,7 @@ set -e
 
 L2_RPC_URL_IN_DOCKER="${L2_RPC_URL_IN_DOCKER:-http://op-geth-seq:8545}"
 
-exec op-reth node \
+exec op-reth node -vvvvv \
     --datadir=/datadir \
     --chain=/genesis.json \
     --http \
@@ -18,5 +18,4 @@ exec op-reth node \
     --authrpc.addr=0.0.0.0 \
     --authrpc.port=8552 \
     --authrpc.jwtsecret=/jwt.txt \
-    --rollup.sequencer-http="$L2_RPC_URL_IN_DOCKER" \
-    --with-unused-ports
+    --rollup.sequencer-http="$L2_RPC_URL_IN_DOCKER"

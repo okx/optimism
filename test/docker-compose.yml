@@ -233,7 +233,7 @@ services:
       - ./config-op/genesis.json:/genesis.json
       - ./entrypoint:/entrypoint
     ports:
-      - "9124:8545"
+      - "9123:8545"
 
   op-seq:
     image: "${OP_STACK_IMAGE_TAG}"
