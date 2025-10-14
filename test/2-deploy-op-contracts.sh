@@ -6,6 +6,8 @@ source .env
 source tools.sh
 source utils.sh
 
+ROOT_DIR=$(git rev-parse --show-toplevel)
+
 if [ "$ENV" = "local" ]; then
     DOCKER_NETWORK_ARG="$DOCKER_NETWORK"
 else
@@ -56,7 +58,7 @@ deploy_transactor_contract() {
   FORGE_CMD="forge create --json --broadcast --legacy \
     --rpc-url $L1_RPC_URL_IN_DOCKER \
     --private-key $DEPLOYER_PRIVATE_KEY \
-    src/periphery/Transactor.sol:Transactor.0.8.30 \
+    src/periphery/Transactor.sol:Transactor \
     --constructor-args $ADMIN_OWNER_ADDRESS"
 
   echo "🔧 Executing Docker command..."
@@ -191,6 +193,53 @@ deploy_op_stack_contracts() {
   echo "🎉 OP Stack deployment preparation completed!"
 }
 
+deploy_custom_gas_token() {
+  echo "🔧 Setting up Custom Gas Token (CGT) configuration..."
+  echo ""
+
+  SYSTEM_CONFIG_PROXY_ADDRESS=$(jq -r '.opChainDeployments[0].SystemConfigProxy' "$CONFIG_DIR/state.json")
+  OPTIMISM_PORTAL_PROXY_ADDRESS=$(jq -r '.opChainDeployments[0].OptimismPortalProxy' "$CONFIG_DIR/state.json")
+
+  if [ -z "$SYSTEM_CONFIG_PROXY_ADDRESS" ] || [ "$SYSTEM_CONFIG_PROXY_ADDRESS" = "null" ]; then
+    echo "❌ Failed to read systemConfigProxyAddress from state.json"
+    exit 1
+  fi
+  if [ -z "$OPTIMISM_PORTAL_PROXY_ADDRESS" ] || [ "$OPTIMISM_PORTAL_PROXY_ADDRESS" = "null" ]; then
+    echo "❌ Failed to read optimismPortalProxyAddress from state.json"
+    exit 1
+  fi
+  echo "📝 Running Foundry setup script for Custom Gas Token..."
+
+  cd $ROOT_DIR/packages/contracts-bedrock
+  export SYSTEM_CONFIG_PROXY_ADDRESS=$SYSTEM_CONFIG_PROXY_ADDRESS
+  export OPTIMISM_PORTAL_PROXY_ADDRESS=$OPTIMISM_PORTAL_PROXY_ADDRESS
+
+  FORGE_OUTPUT=$(forge script scripts/SetupCustomGasToken.s.sol:SetupCustomGasToken \
+    --rpc-url "$L1_RPC_URL" \
+    --private-key "$DEPLOYER_PRIVATE_KEY" \
+    --broadcast 2>&1)
+
+  echo "$FORGE_OUTPUT"
+
+  # Extract contract addresses from forge output
+  OKB_TOKEN=$(echo "$FORGE_OUTPUT" | grep "MockOKB deployed at:" | awk '{print $NF}')
+  ADAPTER_ADDRESS=$(echo "$FORGE_OUTPUT" | grep "DepositedOKBAdapter deployed at:" | awk '{print $NF}')
+
+  # Query initial OKB total supply
+  INIT_TOTAL_SUPPLY=$(cast call "$OKB_TOKEN" "totalSupply()(uint256)" --rpc-url "$L1_RPC_URL")
+  echo ""
+  echo "📊 Initial OKB Total Supply: $INIT_TOTAL_SUPPLY"
+
+  echo ""
+  echo "✅ L1 Custom Gas Token setup complete!"
+  echo ""
+  echo "📋 Deployed Contract Addresses:"
+  echo "   OKB Token:          $OKB_TOKEN"
+  echo "   Adapter:            $ADAPTER_ADDRESS"
+  echo ""
+
+}
+
 cp ./config-op/intent.${ENV}.toml.bak ./config-op/intent.toml
 cp ./config-op/state.json.bak ./config-op/state.json
 
@@ -202,3 +251,5 @@ deploy_transactor_contract
 deploy_op_stack_bootstrap_superchain
 deploy_op_stack_bootstrap_implementations
 deploy_op_stack_contracts
+
+deploy_custom_gas_token
