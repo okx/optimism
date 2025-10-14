@@ -201,10 +201,19 @@ build_op_stack_contract() {
 
 build_op_stack_image() {
   echo "build op stack image"
+   # Check if op_contract image exists
+  if ! image_exists "$OP_CONTRACTS_IMAGE_TAG"; then
+    echo "Error: OP contracts image ($OP_CONTRACTS_IMAGE_TAG) does not exist."
+    echo "Please build the contracts image first using --op-contract or --all"
+    exit 1
+  fi
+
   PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
   cd ..
+  docker tag "$OP_CONTRACTS_IMAGE_TAG" "op-contracts:latest"
   docker build --platform $ARCH -t $OP_STACK_IMAGE_TAG -f Dockerfile-opstack .
+  docker tag "op-contracts:latest" "$OP_CONTRACTS_IMAGE_TAG"
 
   cd $PWD_DIR
 }
