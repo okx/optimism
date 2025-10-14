@@ -40,7 +40,7 @@ contract SystemConfig is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitializabl
         UNSAFE_BLOCK_SIGNER,
         EIP_1559_PARAMS,
         OPERATOR_FEE_PARAMS,
-        MIN_BASE_FEE,
+        MIN_BASE_FEE
     }
 
     /// @notice Struct representing the addresses of L1 system contracts. These should be the
