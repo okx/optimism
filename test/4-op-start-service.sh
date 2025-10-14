@@ -55,7 +55,10 @@ echo "📡 Getting enode addresses..."
 
 # Get enodes
 OP_GETH_SEQ_ENODE=$(get_enode "op-geth-seq" "8545")
-OP_GETH_RPC_ENODE=$(get_enode "op-geth-rpc" "8545")
+
+if [ "$LAUNCH_RPC_NODE" = "true" ]; then
+    OP_GETH_RPC_ENODE=$(get_enode "op-geth-rpc" "8545")
+fi
 
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     OP_GETH_SEQ2_ENODE=$(get_enode "op-geth-seq2" "8545")
@@ -64,7 +67,10 @@ fi
 
 # Replace 127.0.0.1 with container names
 OP_GETH_SEQ_ENODE=$(replace_enode_ip "$OP_GETH_SEQ_ENODE" "op-geth-seq")
-OP_GETH_RPC_ENODE=$(replace_enode_ip "$OP_GETH_RPC_ENODE" "op-geth-rpc")
+
+if [ "$LAUNCH_RPC_NODE" = "true" ]; then
+    OP_GETH_RPC_ENODE=$(replace_enode_ip "$OP_GETH_RPC_ENODE" "op-geth-rpc")
+fi
 
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     OP_GETH_SEQ2_ENODE=$(replace_enode_ip "$OP_GETH_SEQ2_ENODE" "op-geth-seq2")
@@ -73,7 +79,9 @@ fi
 
 echo "✅ Enode addresses:"
 echo "  op-geth-seq: $OP_GETH_SEQ_ENODE"
-echo "  op-geth-rpc: $OP_GETH_RPC_ENODE"
+if [ "$LAUNCH_RPC_NODE" = "true" ]; then
+    echo "  op-geth-rpc: $OP_GETH_RPC_ENODE"
+fi
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     echo "  op-geth-seq2: $OP_GETH_SEQ2_ENODE"
     echo "  op-geth-seq3: $OP_GETH_SEQ3_ENODE"
@@ -110,16 +118,20 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
 fi
 
 # Setup RPC node to connect to all sequencer nodes
-echo "🔗 Setting up RPC node to connect to all sequencer nodes..."
-add_peer "op-geth-rpc" "$OP_GETH_SEQ_ENODE"
-if [ "$CONDUCTOR_ENABLED" = "true" ]; then
-    add_peer "op-geth-rpc" "$OP_GETH_SEQ2_ENODE"
-    add_peer "op-geth-rpc" "$OP_GETH_SEQ3_ENODE"
+if [ "$LAUNCH_RPC_NODE" = "true" ]; then
+    echo "🔗 Setting up RPC node to connect to all sequencer nodes..."
+    add_peer "op-geth-rpc" "$OP_GETH_SEQ_ENODE"
+    if [ "$CONDUCTOR_ENABLED" = "true" ]; then
+        add_peer "op-geth-rpc" "$OP_GETH_SEQ2_ENODE"
+        add_peer "op-geth-rpc" "$OP_GETH_SEQ3_ENODE"
+    fi
 fi
 
 echo "✅ P2P static connections established:"
 echo "  - Sequencer nodes (op-geth-seq, op-geth-seq2, op-geth-seq3) are connected to each other"
-echo "  - RPC node (op-geth-rpc) is connected to all sequencer nodes"
+if [ "$LAUNCH_RPC_NODE" = "true" ]; then
+    echo "  - RPC node (op-geth-rpc) is connected to all sequencer nodes"
+fi
 
 
 
@@ -143,7 +155,7 @@ VM="0x${VM_RAW: -40}"
 ANCHOR_STATE_REGISTRY=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME "anchorStateRegistry()")
 L2_CHAIN_ID=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME "l2ChainId()")
 
-# Call the function to add game type 1 (permissioned) via Transactor
+# Call the function to add game type 1 (permissioned)
 "$SCRIPTS_DIR/add-game-type.sh" 1 true $TEMP_CLOCK_EXTENSION $TEMP_MAX_CLOCK_DURATION $ABSOLUTE_PRESTATE
 
 export GAME_TYPE=1
@@ -240,7 +252,7 @@ PERMISSIONED_GAME=$(cast call --rpc-url $L1_RPC_URL $DISPUTE_GAME_FACTORY_ADDRES
 ABSOLUTE_PRESTATE=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME "absolutePrestate()")
 ANCHOR_STATE_REGISTRY=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME "anchorStateRegistry()")
 
-# Call the function to add game type 0 (permissionless) via Transactor
+# Call the function to add game type 0 (permissionless)
 "$SCRIPTS_DIR/add-game-type.sh" 0 false $CLOCK_EXTENSION $MAX_CLOCK_DURATION $ABSOLUTE_PRESTATE
 
 export GAME_TYPE=0
