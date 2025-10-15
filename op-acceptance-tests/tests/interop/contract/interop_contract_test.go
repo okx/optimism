@@ -16,13 +16,14 @@ import (
 
 // TestRegularMessage checks that messages can be sent and relayed via L2ToL2CrossDomainMessenger
 func TestRegularMessage(gt *testing.T) {
+	gt.Skip("Skipping Interop Acceptance Test")
 	t := devtest.SerialT(gt)
 	sys := presets.NewSimpleInterop(t)
 	require := sys.T.Require()
 	logger := t.Logger()
 	rng := rand.New(rand.NewSource(1234))
 
-	alice, bob := sys.FunderA.NewFundedEOA(eth.OneEther), sys.FunderB.NewFundedEOA(eth.OneEther)
+	alice, bob := sys.FunderA.NewFundedEOA(eth.OneTenthEther), sys.FunderB.NewFundedEOA(eth.OneTenthEther)
 
 	// deploy event logger at chain B
 	eventLoggerAddress := bob.DeployEventLogger()

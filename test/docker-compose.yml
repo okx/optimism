@@ -44,11 +44,16 @@ services:
       - /bin/sh
       - -c
       - |
+        apk add --no-cache jq
         echo "Fixing genesis.json fork times..."
         sed -i 's/"shanghaiTime": [0-9]*/"shanghaiTime": 0/g' /execution/genesis.json
         sed -i 's/"cancunTime": [0-9]*/"cancunTime": 0/g' /execution/genesis.json
-        echo "Genesis.json: shanghai=0, cancun=0 (MCOPY enabled)"
-        cat /execution/genesis.json | grep -E "(shanghaiTime|cancunTime)"
+        echo "Adding blobSchedule for Cancun..."
+        jq '.config.blobSchedule = {"cancun": {"target": 3, "max": 6, "baseFeeUpdateFraction": 3338477}}' /execution/genesis.json > /tmp/genesis.json && mv /tmp/genesis.json /execution/genesis.json
+        echo "Removing terminalTotalDifficultyPassed for op-node compatibility..."
+        jq 'del(.config.terminalTotalDifficultyPassed)' /execution/genesis.json > /tmp/genesis.json && mv /tmp/genesis.json /execution/genesis.json
+        echo "Genesis.json: shanghai=0, cancun=0 (MCOPY enabled), blobSchedule added, terminalTotalDifficultyPassed removed"
+        cat /execution/genesis.json | jq '.config | {shanghaiTime, cancunTime, terminalTotalDifficulty, blobSchedule}'
     volumes:
       - ./l1-geth/execution:/execution
     depends_on:
@@ -56,7 +61,7 @@ services:
         condition: service_completed_successfully
 
   l1-geth-genesis:
-    image: "ethereum/client-go:v1.14.11"
+    image: "ethereum/client-go:v1.15.11"
     container_name: l1-geth-genesis
     command: --datadir=/execution --gcmode=archive init --state.scheme=hash /execution/genesis.json
     volumes:
@@ -69,7 +74,7 @@ services:
         condition: service_completed_successfully
 
   l1-geth:
-    image: "ethereum/client-go:v1.14.11"
+    image: "ethereum/client-go:v1.15.11"
     container_name: l1-geth
     command:
       - --http
@@ -179,6 +184,7 @@ services:
       - "8552:8552"
       - "30303:30303"
       - "30303:30303/udp"
+      - "9090:9090"  # pprof port
     command:
       - --verbosity=3
       - --datadir=/datadir
@@ -254,11 +260,13 @@ services:
       - ./config-op/rollup.json:/rollup.json
       - ./config-op/jwt.txt:/jwt.txt
       - ./data/op-seq:/data
+      - ./l1-geth/execution/genesis.json:/l1-genesis.json
     ports:
       - "9545:9545"
       - "7070:7070"
       - "9223:9223"
       - "9223:9223/udp"
+      - "9091:9091"  # pprof port
     command:
       - /app/op-node/bin/op-node
       - --log.level=debug
@@ -280,9 +288,13 @@ services:
       - --l1=${L1_RPC_URL_IN_DOCKER}
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
+      - --rollup.l1-chain-config=/l1-genesis.json
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}    # 默认关闭
       - --conductor.rpc=http://op-conductor:8547
+      - --pprof.enabled
+      - --pprof.addr=0.0.0.0
+      - --pprof.port=9091
     depends_on:
       op-geth-seq:
         condition: service_healthy
@@ -301,6 +313,7 @@ services:
       - ./config-op/rollup.json:/rollup.json
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/oprpc_p2p_priv.txt:/opnode_p2p_priv.txt
+      - ./l1-geth/execution/genesis.json:/l1-genesis.json
     ports:
       - "9555:9545"
     command:
@@ -324,6 +337,7 @@ services:
       - --l1=${L1_RPC_URL_IN_DOCKER}
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
+      - --rollup.l1-chain-config=/l1-genesis.json
       - --safedb.path=/data/safedb
     depends_on:
       - ${RPC_TYPE:-op-geth-rpc}
@@ -384,7 +398,7 @@ services:
       - --max-channel-duration=25
       - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
       - --private-key=${OP_BATCHER_PRIVATE_KEY}
-      - --throttle-always-block-size=1300000
+      - --throttle.block-size-upper-limit=1300000
       - -data-availability-type=auto
     depends_on:
       - op-seq
@@ -404,7 +418,7 @@ services:
       - --proposal-interval=1m
       - --private-key=${OP_PROPOSER_PRIVATE_KEY}
       - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
-      - --game-type=${GAME_TYPE}
+      - --game-type=${GAME_TYPE:-0}
       - --allow-non-finalized
       - --genesis-height=${FORK_BLOCK}
     depends_on:
@@ -488,6 +502,7 @@ services:
       - ./config-op/rollup.json:/rollup.json
       - ./config-op/jwt.txt:/jwt.txt
       - ./data/op-seq2:/data
+      - ./l1-geth/execution/genesis.json:/l1-genesis.json
     ports:
       - "9546:9545"
 #      - "7070:7070"
@@ -516,6 +531,7 @@ services:
       - --l1=${L1_RPC_URL_IN_DOCKER}
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
+      - --rollup.l1-chain-config=/l1-genesis.json
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor2:8547
@@ -599,6 +615,7 @@ services:
       - ./config-op/rollup.json:/rollup.json
       - ./config-op/jwt.txt:/jwt.txt
       - ./data/op-seq3:/data
+      - ./l1-geth/execution/genesis.json:/l1-genesis.json
     ports:
       - "9547:9545"
 #      - "7070:7070"
@@ -627,6 +644,7 @@ services:
       - --l1=${L1_RPC_URL_IN_DOCKER}
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
+      - --rollup.l1-chain-config=/l1-genesis.json
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor3:8547

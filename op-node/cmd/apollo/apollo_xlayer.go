@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/apolloconfig/agollo/v4/storage"
-	"github.com/ethereum-optimism/optimism/op-node/node"
+	"github.com/ethereum-optimism/optimism/op-node/config"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/xlayer/apollo"
 	"github.com/urfave/cli/v2"
@@ -14,7 +14,7 @@ import (
 // ApolloConfig holds the global Apollo configuration state
 type ApolloConfigImpl struct {
 	sync.RWMutex
-	NodeCfg *node.Config
+	NodeCfg *config.Config
 }
 
 // Global Apollo configuration instance
@@ -27,7 +27,7 @@ func TryUnsafeGetApolloConfig() *ApolloConfigImpl {
 }
 
 // SetApolloConfig sets the global Apollo configuration
-func SetApolloConfig(nodeCfg *node.Config) {
+func SetApolloConfig(nodeCfg *config.Config) {
 	if globalApolloConfig == nil {
 		globalApolloConfig = &ApolloConfigImpl{}
 	}

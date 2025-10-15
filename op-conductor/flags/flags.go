@@ -158,6 +158,38 @@ var (
 		EnvVars: opservice.PrefixEnvVar(EnvVarPrefix, "WEBSOCKET_SERVER_PORT"),
 		Value:   8546,
 	}
+	HealthcheckExecutionP2pEnabled = &cli.BoolFlag{
+		Name:    "healthcheck.execution-p2p-enabled",
+		Usage:   "Whether to enable EL P2P checks",
+		EnvVars: opservice.PrefixEnvVar(EnvVarPrefix, "HEALTHCHECK_EXECUTION_P2P_ENABLED"),
+		Value:   false,
+	}
+	HealthcheckExecutionP2pMinPeerCount = &cli.Uint64Flag{
+		Name:    "healthcheck.execution-p2p-min-peer-count",
+		Usage:   "Minimum number of EL P2P peers required to be considered healthy",
+		EnvVars: opservice.PrefixEnvVar(EnvVarPrefix, "HEALTHCHECK_EXECUTION_P2P_MIN_PEER_COUNT"),
+	}
+	HealthcheckExecutionP2pRPCUrl = &cli.StringFlag{
+		Name:    "healthcheck.execution-p2p-rpc-url",
+		Usage:   "URL override for the execution layer RPC client for the sake of p2p healthcheck. If not set, the execution RPC URL will be used.",
+		EnvVars: opservice.PrefixEnvVar(EnvVarPrefix, "HEALTHCHECK_EXECUTION_P2P_RPC_URL"),
+	}
+	HealthcheckExecutionP2pCheckApi = &cli.StringFlag{
+		Name:    "healthcheck.execution-p2p-check-api",
+		Usage:   "Type of EL P2P check to perform. If not set, the default `net` type will be used corresponding to the `net_peerCount` RPC call.",
+		EnvVars: opservice.PrefixEnvVar(EnvVarPrefix, "HEALTHCHECK_EXECUTION_P2P_CHECK_API"),
+		Value:   "net",
+	}
+	HealthCheckRollupBoostPartialHealthinessToleranceLimit = &cli.Uint64Flag{
+		Name:    "healthcheck.rollup-boost-partial-healthiness-tolerance-limit",
+		Usage:   "Sets the count of rollup-boost partial healthiness failures to occur before marking op-conducto as unhealthy. Default is 0 with which a single occurrence of rollup-boost partial healthiness is enough to set op-conductor as unhealthy",
+		EnvVars: opservice.PrefixEnvVar(EnvVarPrefix, "HEALTHCHECK_ROLLUP_BOOST_PARTIAL_HEALTHINESS_TOLERANCE_LIMIT"),
+	}
+	HealthCheckRollupBoostPartialHealthinessToleranceIntervalSeconds = &cli.Uint64Flag{
+		Name:    "healthcheck.rollup-boost-partial-healthiness-tolerance-interval-seconds",
+		Usage:   "The time frame within which rollup-boost partial healthiness tolerance is evaluated",
+		EnvVars: opservice.PrefixEnvVar(EnvVarPrefix, "HEALTHCHECK_ROLLUP_BOOST_PARTIAL_HEALTHINESS_TOLERANCE_INTERVAL_SECONDS"),
+	}
 )
 
 var requiredFlags = []cli.Flag{
@@ -187,6 +219,12 @@ var optionalFlags = []cli.Flag{
 	SupervisorRPC,
 	RollupBoostEnabled,
 	RollupBoostHealthcheckTimeout,
+	HealthcheckExecutionP2pEnabled,
+	HealthcheckExecutionP2pMinPeerCount,
+	HealthcheckExecutionP2pRPCUrl,
+	HealthcheckExecutionP2pCheckApi,
+	HealthCheckRollupBoostPartialHealthinessToleranceLimit,
+	HealthCheckRollupBoostPartialHealthinessToleranceIntervalSeconds,
 }
 
 func init() {

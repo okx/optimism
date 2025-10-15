@@ -216,7 +216,7 @@ func (s *EthClient) headerCall(ctx context.Context, method string, id rpcBlockID
 	var header *RPCHeader
 	err := s.client.CallContext(ctx, &header, method, id.Arg(), false) // headers are just blocks without txs
 	if err != nil {
-		return nil, err
+		return nil, eth.MaybeAsNotFoundErr(err)
 	}
 	if header == nil {
 		return nil, ethereum.NotFound
@@ -236,7 +236,7 @@ func (s *EthClient) blockCall(ctx context.Context, method string, id rpcBlockID)
 	var block *RPCBlock
 	err := s.client.CallContext(ctx, &block, method, id.Arg(), true)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, eth.MaybeAsNotFoundErr(err)
 	}
 	if block == nil {
 		return nil, nil, ethereum.NotFound
@@ -257,7 +257,7 @@ func (s *EthClient) payloadCall(ctx context.Context, method string, id rpcBlockI
 	var block *RPCBlock
 	err := s.client.CallContext(ctx, &block, method, id.Arg(), true)
 	if err != nil {
-		return nil, err
+		return nil, eth.MaybeAsNotFoundErr(err)
 	}
 	if block == nil {
 		return nil, ethereum.NotFound
@@ -524,9 +524,9 @@ func (s *EthClient) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
 }
 
 // Call executes a message call transaction but never mined into the blockchain.
-func (s *EthClient) Call(ctx context.Context, msg ethereum.CallMsg) ([]byte, error) {
+func (s *EthClient) Call(ctx context.Context, msg ethereum.CallMsg, blockNumber rpc.BlockNumber) ([]byte, error) {
 	var hex hexutil.Bytes
-	err := s.client.CallContext(ctx, &hex, "eth_call", ToCallArg(msg), "pending")
+	err := s.client.CallContext(ctx, &hex, "eth_call", ToCallArg(msg), blockNumber)
 	if err != nil {
 		return nil, err
 	}
@@ -598,4 +598,8 @@ func (s *EthClient) CodeAtHash(ctx context.Context, account common.Address, bloc
 
 func (s *EthClient) NewMultiCaller(batchSize int) *batching.MultiCaller {
 	return batching.NewMultiCaller(s.client, batchSize)
+}
+
+func (s *EthClient) RPC() client.RPC {
+	return s.client
 }
