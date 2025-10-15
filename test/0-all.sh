@@ -2,7 +2,7 @@
 set -e
 
 mv .env .env.bak
-mv example.env .env
+cp example.env .env
 
 ./1-start-l1.sh
 ./2-deploy-op-contracts.sh
