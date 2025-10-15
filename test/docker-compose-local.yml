@@ -563,7 +563,7 @@ services:
       - ./config-op/rollup.json:/rollup.json
     ports:
       - "8547:8547"  # RPC port
-      - "50050:50050"  # Consensus port
+#      - "50050:50050"  # Consensus port
     command:
       - /app/op-conductor/bin/op-conductor
       - --log.level=debug
@@ -766,7 +766,7 @@ services:
       - ./config-op/rollup.json:/rollup.json
     ports:
       - "8548:8547"  # RPC port
-      - "50051:50050"  # Consensus port
+#      - "50051:50050"  # Consensus port
     command:
       - /app/op-conductor/bin/op-conductor
       - --log.level=debug
@@ -879,7 +879,7 @@ services:
       - ./config-op/rollup.json:/rollup.json
     ports:
       - "8549:8547"  # RPC port
-      - "50052:50050"  # Consensus port
+#      - "50052:50050"  # Consensus port
     command:
       - /app/op-conductor/bin/op-conductor
       - --log.level=debug

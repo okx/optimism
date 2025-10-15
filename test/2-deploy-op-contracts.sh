@@ -8,9 +8,12 @@ source utils.sh
 
 ROOT_DIR=$(git rev-parse --show-toplevel)
 
+# Set global OP_CONTRACTS_IMAGE_TAG based on environment
 if [ "$ENV" = "local" ]; then
+    # Use local image tag for local environment
     DOCKER_NETWORK_ARG="$DOCKER_NETWORK"
 else
+    # Use cert image tag for non-local environments
     DOCKER_NETWORK_ARG="host"
 fi
 
@@ -58,7 +61,7 @@ deploy_transactor_contract() {
   FORGE_CMD="forge create --json --broadcast --legacy \
     --rpc-url $L1_RPC_URL_IN_DOCKER \
     --private-key $DEPLOYER_PRIVATE_KEY \
-    src/periphery/Transactor.sol:Transactor.0.8.30 \
+    src/periphery/Transactor.sol:Transactor \
     --constructor-args $ADMIN_OWNER_ADDRESS"
 
   echo "🔧 Executing Docker command..."
@@ -152,7 +155,13 @@ deploy_op_stack_bootstrap_implementations() {
 
   DOCKER_ARGS+=("$OP_CONTRACTS_IMAGE_TAG")
 
-  BASH_CMD="set -e && export CURL_CA_BUNDLE= && export GIT_SSL_NO_VERIFY=true && /app/op-deployer/bin/op-deployer bootstrap implementations --artifacts-locator file:///app/packages/contracts-bedrock/forge-artifacts --l1-rpc-url $L1_RPC_URL_IN_DOCKER --outfile /deployments/implementations.json --mips-version \"7\" --private-key $DEPLOYER_PRIVATE_KEY --protocol-versions-proxy $PROTOCOL_VERSIONS_PROXY --superchain-config-proxy $SUPERCHAIN_CONFIG_PROXY --superchain-proxy-admin $PROXY_ADMIN --upgrade-controller $ADMIN_OWNER_ADDRESS --challenger $CHALLENGER_ADDRESS --challenge-period-seconds $CHALLENGE_PERIOD_SECONDS --withdrawal-delay-seconds $WITHDRAWAL_DELAY_SECONDS --proof-maturity-delay-seconds $PROOF_MATURITY_DELAY_SECONDS --dispute-game-finality-delay-seconds $DISPUTE_GAME_FINALITY_DELAY_SECONDS --dev-feature-bitmap 0x0000000000000000000000000000000000000000000000000000000000001000"
+  # Build the base command
+  BASH_CMD="set -e && export CURL_CA_BUNDLE= && export GIT_SSL_NO_VERIFY=true && /app/op-deployer/bin/op-deployer bootstrap implementations --artifacts-locator file:///app/packages/contracts-bedrock/forge-artifacts --l1-rpc-url $L1_RPC_URL_IN_DOCKER --outfile /deployments/implementations.json --mips-version \"7\" --private-key $DEPLOYER_PRIVATE_KEY --protocol-versions-proxy $PROTOCOL_VERSIONS_PROXY --superchain-config-proxy $SUPERCHAIN_CONFIG_PROXY --superchain-proxy-admin $PROXY_ADMIN --upgrade-controller $ADMIN_OWNER_ADDRESS --challenger $CHALLENGER_ADDRESS --challenge-period-seconds $CHALLENGE_PERIOD_SECONDS --withdrawal-delay-seconds $WITHDRAWAL_DELAY_SECONDS --proof-maturity-delay-seconds $PROOF_MATURITY_DELAY_SECONDS --dispute-game-finality-delay-seconds $DISPUTE_GAME_FINALITY_DELAY_SECONDS"
+
+  # Add dev-feature-bitmap only when CGT_ENABLED=true
+  if [ "$CGT_ENABLED" = "true" ]; then
+    BASH_CMD="$BASH_CMD --dev-feature-bitmap 0x0000000000000000000000000000000000000000000000000000000000001000"
+  fi
 
   docker run "${DOCKER_ARGS[@]}" bash -c "$BASH_CMD"
 
@@ -240,6 +249,8 @@ deploy_custom_gas_token() {
 
 }
 
+echo "CGT_ENABLED: ${CGT_ENABLED}"
+
 cp ./config-op/intent.${ENV}.toml.bak ./config-op/intent.toml
 cp ./config-op/state.json.bak ./config-op/state.json
 
@@ -252,4 +263,6 @@ deploy_op_stack_bootstrap_superchain
 deploy_op_stack_bootstrap_implementations
 deploy_op_stack_contracts
 
-deploy_custom_gas_token
+if [ "$CGT_ENABLED" = "true" ]; then
+  deploy_custom_gas_token
+fi
