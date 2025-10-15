@@ -193,7 +193,7 @@ build_op_stack_contract() {
     cp $PWD_DIR/contracts/Transactor.sol ../packages/contracts-bedrock/src/periphery/Transactor.sol
 
     cd ..
-    docker build --platform $ARCH -t $OP_CONTRACTS_IMAGE_TAG -f Dockerfile-contracts .
+    docker build $( [ "$FORCE" = true ] && echo --no-cache ) --platform $ARCH -t $OP_CONTRACTS_IMAGE_TAG -f Dockerfile-contracts .
 
     cd $PWD_DIR
 

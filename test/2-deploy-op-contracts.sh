@@ -11,11 +11,9 @@ ROOT_DIR=$(git rev-parse --show-toplevel)
 # Set global OP_CONTRACTS_IMAGE_TAG based on environment
 if [ "$ENV" = "local" ]; then
     # Use local image tag for local environment
-    OP_CONTRACTS_IMAGE_TAG=${OP_CONTRACTS_IMAGE_TAG:-"op-contracts:latest"}
     DOCKER_NETWORK_ARG="$DOCKER_NETWORK"
 else
     # Use cert image tag for non-local environments
-    OP_CONTRACTS_IMAGE_TAG=${OP_CONTRACTS_CERT_IMAGE_TAG:-"op-contracts-cert:latest"}
     DOCKER_NETWORK_ARG="host"
 fi
 
@@ -63,7 +61,7 @@ deploy_transactor_contract() {
   FORGE_CMD="forge create --json --broadcast --legacy \
     --rpc-url $L1_RPC_URL_IN_DOCKER \
     --private-key $DEPLOYER_PRIVATE_KEY \
-    src/periphery/Transactor.sol:Transactor.0.8.30 \
+    src/periphery/Transactor.sol:Transactor \
     --constructor-args $ADMIN_OWNER_ADDRESS"
 
   echo "🔧 Executing Docker command..."
@@ -128,6 +126,7 @@ deploy_op_stack_bootstrap_superchain() {
   DOCKER_ARGS+=("-e" "CURL_CA_BUNDLE=")
   DOCKER_ARGS+=("-e" "GIT_SSL_NO_VERIFY=true")
   DOCKER_ARGS+=("-e" "NODE_TLS_REJECT_UNAUTHORIZED=0")
+  DOCKER_ARGS+=("-e" "GODEBUG=x509ignoreCN=1,x509ignoreUnknownCA=1,x509ignoreSystemRoots=1")
   DOCKER_ARGS+=("--network" "$DOCKER_NETWORK_ARG")
 
   DOCKER_ARGS+=("$OP_CONTRACTS_IMAGE_TAG")
