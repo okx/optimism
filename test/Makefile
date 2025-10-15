@@ -142,6 +142,9 @@ clean: stop
 	rm -rf config-op/rollup.json
 	rm -rf config-op/state.json
 	rm -rf config-op/superchain.json
+	rm -rf config-op/genesis-op-before-number.json
+	rm -rf config-op/genesis-op-after-number.json
+	rm -rf config-op/merged.genesis.gz.json
 	rm -rf config-op/196-*
 	rm -rf config-op/195-*
 	rm -rf config-op/1952-*
@@ -150,7 +153,8 @@ clean: stop
 	rm -rf l1-geth/consensus/validatordata/
 	rm -rf l1-geth/execution/genesis.json
 	rm -rf l1-geth/execution/geth/
-	rm -rf init.log
+	rm -rf merged.genesis.json
+	rm -rf migrate.log
 	rm -rf .env
 
 .PHONY: run
