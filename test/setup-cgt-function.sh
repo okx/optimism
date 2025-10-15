@@ -47,11 +47,9 @@ setup_cgt() {
     MOCK_OKB_OUTPUT=$(forge script scripts/DeployMockOKB.s.sol:DeployMockOKB \
       --rpc-url "$L1_RPC_URL" \
       --private-key "$DEPLOYER_PRIVATE_KEY" \
-      --broadcast 2>&1)
+      --broadcast 2>&1 | tee /dev/tty)
     MOCK_OKB_EXIT_CODE=$?
     set -e
-
-    echo "$MOCK_OKB_OUTPUT"
 
     # Check if MockOKB deployment failed
     if [ $MOCK_OKB_EXIT_CODE -ne 0 ]; then
@@ -100,11 +98,9 @@ setup_cgt() {
   FORGE_OUTPUT=$(forge script scripts/SetupCustomGasToken.s.sol:SetupCustomGasToken \
     --rpc-url "$L1_RPC_URL" \
     --private-key "$DEPLOYER_PRIVATE_KEY" \
-    --broadcast 2>&1)
+    --broadcast 2>&1 | tee /dev/tty)
   FORGE_EXIT_CODE=$?
   set -e
-
-  echo "$FORGE_OUTPUT"
 
   # Check if forge script failed
   if [ $FORGE_EXIT_CODE -ne 0 ]; then
