@@ -160,8 +160,9 @@ echo "Generating configuration files..."
 cd "${PWD_DIR}/tmp/xlayer-erigon"
 go install ./cmd/hack/allocs
 cd ${PWD_DIR}
+GO_PATH=$(go env GOPATH)
 #TODO: make this adapt to multi environment, mac, linux
-~/go/bin/allocs $TMP_DIR/xlayer-contracts/deployment/v2/genesis.json
+${GO_PATH}/bin/allocs $TMP_DIR/xlayer-contracts/deployment/v2/genesis.json
 mv allocs.json $PWD_DIR/config/dynamic-mynetwork-allocs.json
 
 cat > $PWD_DIR/config/dynamic-mynetwork-conf.json << EOF
