@@ -13,6 +13,7 @@ import {OKBBurner} from "src/L1/OKBBurner.sol";
 // Interfaces
 import {IOKB} from "interfaces/L1/IOKB.sol";
 import {ISystemConfig} from "interfaces/L1/ISystemConfig.sol";
+import {Constants} from "src/libraries/Constants.sol";
 import {IOptimismPortal2} from "interfaces/L1/IOptimismPortal2.sol";
 import {IL1Block} from "interfaces/L2/IL1Block.sol";
 
@@ -22,53 +23,28 @@ import {GasPayingToken} from "src/libraries/GasPayingToken.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 import {Predeploys} from "src/libraries/Predeploys.sol";
 
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
-
-/// @title MockOKB
-/// @notice Mock OKB token for testing custom gas token setup
-contract MockOKB is ERC20, ERC20Burnable {
-    constructor() ERC20("Mock OKB", "OKB") {
-        _mint(msg.sender, 660000 * 10 ** decimals());
-    }
-
-    function decimals() public pure override returns (uint8) {
-        return 18;
-    }
-
-    /// @notice Burn all tokens of msg.sender
-    function triggerBridge() external {
-        _burn(msg.sender, balanceOf(msg.sender));
-    }
-}
 
 /// @title SetupCustomGasToken
 /// @notice Foundry script to set up and verify custom gas token configuration
 /// @dev This script:
-///      1. Deploys mock OKB token with triggerBridge functionality
+///      1. Reads OKB token address from environment variable
 ///      2. Deploys OKBBurner implementation contract for minimal proxy pattern
 ///      3. Deploys DepositedOKBAdapter with burner implementation reference
 ///      4. Sets gas paying token in SystemConfig storage
 ///      5. Verifies all configurations on L1
-///      6. Provides test function for deposit functionality
 contract SetupCustomGasToken is Script {
     using stdJson for string;
 
     // Addresses to be loaded from deployment artifacts
     address systemConfigProxy;
     address optimismPortalProxy;
-    address l1BlockAddress;
     address deployerAddress;
+    address okbTokenAddress;
 
     // Deployed contracts
-    MockOKB okbToken;
+    IOKB okbToken;
     OKBBurner burnerImplementation;
     DepositedOKBAdapter adapter;
-
-    // Configuration
-    bytes32 constant TOKEN_NAME = bytes32("Mock OKB");
-    bytes32 constant TOKEN_SYMBOL = bytes32("OKB");
-    uint8 constant TOKEN_DECIMALS = 18;
 
     function setUp() public {
         // Get deployer address from msg.sender (set by forge script --private-key)
@@ -78,74 +54,66 @@ contract SetupCustomGasToken is Script {
         // Parse addresses from environment variables
         systemConfigProxy = vm.envAddress("SYSTEM_CONFIG_PROXY_ADDRESS");
         optimismPortalProxy = vm.envAddress("OPTIMISM_PORTAL_PROXY_ADDRESS");
+        okbTokenAddress = vm.envAddress("OKB_TOKEN_ADDRESS");
 
         console.log("SystemConfig Proxy:", systemConfigProxy);
         console.log("OptimismPortal Proxy:", optimismPortalProxy);
+        console.log("OKB Token Address:", okbTokenAddress);
 
-        // L1Block is a predeploy on L2 at a fixed address
-        l1BlockAddress = Predeploys.L1_BLOCK_ATTRIBUTES;
-        console.log("L1Block Address:", l1BlockAddress);
+        // Initialize OKB token interface
+        okbToken = IOKB(okbTokenAddress);
     }
 
     function run() public {
         console.log("\n=== Starting Custom Gas Token Setup ===\n");
 
+        preCheck();
+
         vm.startBroadcast(msg.sender);
 
-        // Step 1: Deploy Mock OKB Token
-        console.log("Step 1: Deploying Mock OKB Token...");
-        deployMockOKB();
-
-        // Step 2: Deploy OKBBurner Implementation
-        console.log("\nStep 2: Deploying OKBBurner Implementation...");
         deployBurnerImplementation();
 
-        // Step 3: Deploy DepositedOKBAdapter
-        console.log("\nStep 3: Deploying DepositedOKBAdapter...");
         deployAdapter();
 
-        // Step 4: Set gas paying token in SystemConfig storage
-        console.log("\nStep 4: Setting gas paying token in SystemConfig storage...");
         setGasPayingToken();
 
         vm.stopBroadcast();
 
-        // Step 5: Verify all configurations
-        console.log("\n=== Verification Phase ===\n");
-        verifyL1Configuration();
+        postCheck();
     }
 
-    /// @notice Deploy mock OKB token with 21M supply
-    function deployMockOKB() internal {
-        okbToken = new MockOKB();
-        console.log("  MockOKB deployed at:", address(okbToken));
-        console.log("  Token name:", okbToken.name());
-        console.log("  Token symbol:", okbToken.symbol());
-        console.log("  Token decimals:", okbToken.decimals());
-        console.log("  Total supply:", okbToken.totalSupply() / 1e18, "OKB");
-        console.log("  Deployer balance:", okbToken.balanceOf(deployerAddress) / 1e18, "OKB");
+    /// @notice Pre-check L1 Configuration
+    function preCheck() internal view {
+        console.log("Pre-check L1 Configuration...\n");
+        ISystemConfig systemConfig = ISystemConfig(systemConfigProxy);
+        bool isCustomGasToken = systemConfig.isCustomGasToken();
+        require(isCustomGasToken, "FAILED: SystemConfig custom gas token not enabled");
+
+        (address tokenAddr, uint8 decimals) = systemConfig.gasPayingToken();
+        string memory name = systemConfig.gasPayingTokenName();
+        string memory symbol = systemConfig.gasPayingTokenSymbol();
+        console.log("SystemConfig.gasPayingToken():");
+        console.log("    Address:", tokenAddr);
+        console.log("    Decimals:", decimals);
+        console.log("    Name:", name);
+        console.log("    Symbol:", symbol);
+        require(tokenAddr == Constants.ETHER, "FAILED: GasPayingToken already set");
     }
 
     /// @notice Deploy OKBBurner implementation contract
     function deployBurnerImplementation() internal {
-        burnerImplementation = new OKBBurner(address(okbToken)); // adapter address will be set later
+        burnerImplementation = new OKBBurner(okbTokenAddress); // adapter address will be set later
         console.log("  OKBBurner Implementation deployed at:", address(burnerImplementation));
-        console.log("  Burner OKB token:", address(burnerImplementation.OKB()));
     }
 
     /// @notice Deploy DepositedOKBAdapter
     function deployAdapter() internal {
         adapter = new DepositedOKBAdapter(
-            address(okbToken),
+            okbTokenAddress,
             payable(optimismPortalProxy),
             address(burnerImplementation)
         );
         console.log("  DepositedOKBAdapter deployed at:", address(adapter));
-        console.log("  Adapter name:", adapter.name());
-        console.log("  Adapter symbol:", adapter.symbol());
-        console.log("  OKB token:", address(adapter.OKB()));
-        console.log("  Portal:", address(adapter.PORTAL()));
-        console.log("  Burner implementation:", adapter.BURNER_IMPLEMENTATION());
     }
 
     /// @notice Set gas paying token in SystemConfig storage
@@ -153,45 +121,42 @@ contract SetupCustomGasToken is Script {
     function setGasPayingToken() internal {
         ISystemConfig systemConfig = ISystemConfig(systemConfigProxy);
         // adapter is the gas paying token
-        systemConfig.setGasPayingToken(address(adapter), TOKEN_DECIMALS, TOKEN_NAME, TOKEN_SYMBOL);
+        // Convert string to bytes32 for SystemConfig function
+        bytes32 nameBytes32 = bytes32(bytes(okbToken.name()));
+        bytes32 symbolBytes32 = bytes32(bytes(okbToken.symbol()));
+        systemConfig.setGasPayingToken(address(adapter), okbToken.decimals(), nameBytes32, symbolBytes32);
     }
 
-    /// @notice Verify L1 configuration
-    function verifyL1Configuration() internal view {
-        console.log("Step 5: Verifying L1 Configuration...\n");
+    /// @notice Post-check L1 configuration
+    function postCheck() internal view {
+        console.log("\nPost-check L1 Configuration...\n");
 
         ISystemConfig systemConfig = ISystemConfig(systemConfigProxy);
-        // Check 1: SystemConfig isCustomGasToken
-        bool isCustomGasToken = systemConfig.isCustomGasToken();
-        console.log("  [CHECK 1] SystemConfig.isCustomGasToken():", isCustomGasToken);
-        require(isCustomGasToken, "FAILED: SystemConfig custom gas token not enabled");
-
-        // Check 2: SystemConfig gasPayingToken
+        // Check SystemConfig gasPayingToken
         (address tokenAddr, uint8 decimals) = systemConfig.gasPayingToken();
-        console.log("  [CHECK 2] SystemConfig.gasPayingToken():");
+        string memory name = systemConfig.gasPayingTokenName();
+        string memory symbol = systemConfig.gasPayingTokenSymbol();
+        console.log("SystemConfig.gasPayingToken():");
         console.log("    Address:", tokenAddr);
         console.log("    Decimals:", decimals);
+        console.log("    Name:", name);
+        console.log("    Symbol:", symbol);
         require(tokenAddr == address(adapter), "FAILED: Token address mismatch");
-        require(decimals == 18, "FAILED: Token decimals must be 18");
+        require(decimals == okbToken.decimals(), "FAILED: Token decimals mismatch");
+        require(keccak256(abi.encodePacked(name)) == keccak256(abi.encodePacked(okbToken.name())), "FAILED: Token name mismatch");
+        require(keccak256(abi.encodePacked(symbol)) == keccak256(abi.encodePacked(okbToken.symbol())), "FAILED: Token symbol mismatch");
 
-        // Check 4: DepositedOKBAdapter configuration
-        console.log("  [CHECK 4] DepositedOKBAdapter configuration:");
-        console.log("    OKB Token:", address(adapter.OKB()));
-        console.log("    Portal:", address(adapter.PORTAL()));
-        require(address(adapter.OKB()) == address(okbToken), "FAILED: Adapter OKB mismatch");
+        // Check DepositedOKBAdapter configuration
+        require(address(adapter.OKB()) == okbTokenAddress, "FAILED: Adapter OKB mismatch");
         require(address(adapter.PORTAL()) == optimismPortalProxy, "FAILED: Adapter portal mismatch");
 
-        // Check 5: OKBBurner Implementation configuration
-        console.log("  [CHECK 5] OKBBurner Implementation configuration:");
-        console.log("    OKB Token:", address(burnerImplementation.OKB()));
-        require(address(burnerImplementation.OKB()) == address(okbToken), "FAILED: Burner OKB mismatch");
+        // Check OKBBurner Implementation configuration
+        require(address(burnerImplementation.OKB()) == okbTokenAddress, "FAILED: Burner OKB mismatch");
 
-        // Check 6: Adapter burner implementation reference
-        console.log("  [CHECK 6] Adapter burner implementation:");
-        console.log("    Burner Implementation:", adapter.BURNER_IMPLEMENTATION());
+        // Check Adapter burner implementation reference
         require(adapter.BURNER_IMPLEMENTATION() == address(burnerImplementation), "FAILED: Adapter burner implementation mismatch");
 
-        // Check 7: Adapter approval to portal
+        // Check Adapter approval to portal
         uint256 allowance = adapter.allowance(address(adapter), optimismPortalProxy);
         console.log("  [CHECK 7] Adapter approval to Portal:", allowance);
         require(allowance == 0, "FAILED: Adapter should not pre-approve portal");

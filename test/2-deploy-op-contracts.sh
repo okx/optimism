@@ -16,6 +16,7 @@ PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd $PWD_DIR
 
 source .env
+source ./setup-cgt-function.sh
 
 # Derive CHALLENGER address from OP_CHALLENGER_PRIVATE_KEY if not set
 if [ -z "$CHALLENGER" ]; then
@@ -155,3 +156,10 @@ docker run --rm \
 echo "genesis.json and rollup.json are generated in deployments folder"
 
 echo "🎉 OP Stack deployment preparation completed!"
+
+echo ""
+echo "🔧 Setting up Custom Gas Token (CGT)..."
+setup_cgt
+
+echo ""
+echo "🎉 Complete setup with Custom Gas Token finished!"
