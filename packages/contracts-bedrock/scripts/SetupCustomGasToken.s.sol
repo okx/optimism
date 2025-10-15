@@ -194,6 +194,6 @@ contract SetupCustomGasToken is Script {
         // Check 7: Adapter approval to portal
         uint256 allowance = adapter.allowance(address(adapter), optimismPortalProxy);
         console.log("  [CHECK 7] Adapter approval to Portal:", allowance);
-        require(allowance == type(uint256).max, "FAILED: Adapter should pre-approve portal");
+        require(allowance == 0, "FAILED: Adapter should not pre-approve portal");
     }
 }

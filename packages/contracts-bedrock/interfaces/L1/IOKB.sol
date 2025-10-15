@@ -5,4 +5,5 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 interface IOKB is IERC20 {
     function triggerBridge() external;
+    function balanceOf(address account) external view returns (uint256);
 }

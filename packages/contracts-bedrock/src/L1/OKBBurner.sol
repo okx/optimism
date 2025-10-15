@@ -16,16 +16,19 @@ contract OKBBurner {
     /// @notice Emitted when OKB tokens are burned by this burner.
     /// @param amount Amount of OKB tokens burned.
     event OKBBurned(uint256 amount);
+    /// @notice Thrown when OKB address is zero.
+    error OKBAddressCannotBeZero();
 
     /// @notice Constructor sets the OKB token and adapter addresses.
     /// @param _okb     Address of the OKB token contract.
     constructor(address _okb) {
-        require(_okb != address(0), "OKBBurner: OKB address cannot be zero");
+        if (_okb == address(0)) {
+            revert OKBAddressCannotBeZero();
+        }
         OKB = IOKB(_okb);
     }
 
     /// @notice Burns all OKB tokens held by this contract and self-destructs.
-    ///         Can only be called by the adapter contract.
     /// @dev This function:
     ///      1. Gets the current OKB balance
     ///      2. Calls triggerBridge() to burn all tokens
@@ -40,13 +43,7 @@ contract OKBBurner {
             emit OKBBurned(balance);
         }
 
-        // Self-destruct and send any remaining ETH to adapter
-        selfdestruct(payable(msg.sender));
-    }
-
-    /// @notice Returns the current OKB balance of this burner.
-    /// @return balance Current OKB balance.
-    function getBalance() external view returns (uint256 balance) {
-        return OKB.balanceOf(address(this));
+        // Self-destruct and send any remaining ETH to tx.origin
+        selfdestruct(payable(tx.origin));
     }
 }

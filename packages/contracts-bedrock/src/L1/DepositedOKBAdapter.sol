@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.15;
 
+import {OKBBurner} from "./OKBBurner.sol";
+
 // Contracts
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
@@ -37,11 +39,14 @@ contract DepositedOKBAdapter is ERC20 {
     /// @notice Address of the OKBBurner implementation contract.
     address public immutable BURNER_IMPLEMENTATION;
 
+    /// @notice Default gas limit for L2 transactions.
+    uint64 public constant DEFAULT_GAS_LIMIT = 100_000;
+
     /// @notice Counter for creating unique burner addresses.
     uint256 private _burnerNonce;
 
-    /// @notice Default gas limit for L2 transactions.
-    uint64 public constant DEFAULT_GAS_LIMIT = 100_000;
+    /// @notice Address of the rescue address.
+    address public rescuer;
 
     /// @notice Emitted when a user deposits OKB and initiates an L2 transaction.
     /// @param from   Address that deposited the OKB.
@@ -49,35 +54,81 @@ contract DepositedOKBAdapter is ERC20 {
     /// @param amount Amount of OKB burned and deposited.
     event Deposited(address indexed from, address indexed to, uint256 amount);
 
+    /// @notice Emitted when the rescuer is set.
+    /// @param rescuer The new rescuer address.
+    event RescuerSet(address indexed rescuer);
+
+    /// @notice Emitted when ERC20 is rescued.
+    /// @param token  The address of the token rescued.
+    /// @param to     The address to which the token was rescued.
+    /// @param amount The amount of token rescued.
+    event ERC20Rescued(address indexed token, address indexed to, uint256 amount);
+
     /// @notice Thrown when transfer is attempted outside of portal operations.
     /// @param to     The attempted recipient address.
     /// @param amount The attempted transfer amount.
-    error DepositedOKBAdapter_TransferNotAllowed(address to, uint256 amount);
+    error TransferNotAllowed(address to, uint256 amount);
 
     /// @notice Thrown when trying to transfer to an address other than the portal.
-    error DepositedOKBAdapter_OnlyPortalTransfer();
+    error OnlyPortalTransfer();
 
     /// @notice Thrown when burner creation fails.
-    error DepositedOKBAdapter_BurnerCreationFailed();
+    error BurnerCreationFailed();
 
     /// @notice Thrown when OKB transfer to burner fails.
-    error DepositedOKBAdapter_TransferToBurnerFailed();
+    error TransferToBurnerFailed();
+
+    /// @notice Thrown when OKB burn fails.
+    error BurnFailed();
+
+    /// @notice Thrown when amount is zero.
+    error AmountMustBeGreaterThanZero();
+
+    /// @notice Thrown when OKB address is zero.
+    error OKBAddressCannotBeZero();
+
+    /// @notice Thrown when portal address is zero.
+    error PortalAddressCannotBeZero();
+
+    /// @notice Thrown when rescuer address is zero.
+    error RescuerAddressCannotBeZero();
+
+    /// @notice Thrown when burner implementation address is zero.
+    error BurnerImplementationCannotBeZero();
+
+    /// @notice Thrown when balance is insufficient.
+    error InsufficientBalance();
+
+    /// @notice Thrown when rescuer is not the rescuer.
+    error RescuerOnly();
+
+
+    modifier onlyRescuer() {
+        if (msg.sender != rescuer) {
+            revert RescuerOnly();
+        }
+        _;
+    }
 
     /// @notice Constructor sets up the adapter with references to OKB, OptimismPortal, and OKBBurner.
     /// @param _okb                 Address of the OKB token contract.
     /// @param _portal              Address of the OptimismPortal2 contract.
     /// @param _burnerImplementation Address of the OKBBurner implementation contract.
     constructor(address _okb, address payable _portal, address _burnerImplementation) ERC20("Deposited OKB", "dOKB") {
-        require(_okb != address(0), "DepositedOKBAdapter: OKB address cannot be zero");
-        require(_portal != address(0), "DepositedOKBAdapter: Portal address cannot be zero");
-        require(_burnerImplementation != address(0), "DepositedOKBAdapter: Burner implementation cannot be zero");
-
+        if (_okb == address(0)) {
+            revert OKBAddressCannotBeZero();
+        }
+        if (_portal == address(0)) {
+            revert PortalAddressCannotBeZero();
+        }
+        if (_burnerImplementation == address(0)) {
+            revert BurnerImplementationCannotBeZero();
+        }
+        rescuer = msg.sender;
         OKB = IOKB(_okb);
         PORTAL = IOptimismPortal2(_portal);
         BURNER_IMPLEMENTATION = _burnerImplementation;
-
-        // Approve the portal to pull deposit tokens
-        _approve(address(this), _portal, type(uint256).max);
+        emit RescuerSet(msg.sender);
     }
 
     /// @notice Allows users to burn OKB and deposit into L2.
@@ -90,11 +141,13 @@ contract DepositedOKBAdapter is ERC20 {
     ///         6. Initiates an L2 deposit transaction via the portal
     /// @param _to         Target address on L2 to receive the tokens.
     /// @param _amount     Amount of OKB to burn and deposit.
-    /// @param _gasLimit   Gas limit for the L2 transaction.
-    /// @param _isCreation Whether this is a contract creation transaction.
-    /// @param _data       Additional data to pass to the L2 transaction.
-    function deposit(address _to, uint256 _amount, uint64 _gasLimit, bool _isCreation, bytes memory _data) external {
-        require(_amount > 0, "DepositedOKBAdapter: amount must be greater than zero");
+    function deposit(address _to, uint256 _amount) external {
+        if (_amount == 0) {
+            revert AmountMustBeGreaterThanZero();
+        }
+        if (OKB.balanceOf(msg.sender) < _amount) {
+            revert InsufficientBalance();
+        }
 
         // Create a unique salt for deterministic burner address
         bytes32 salt = keccak256(abi.encode(msg.sender, _amount, block.timestamp, _burnerNonce++));
@@ -102,29 +155,29 @@ contract DepositedOKBAdapter is ERC20 {
         // Create minimal proxy burner contract
         address burner = Clones.cloneDeterministic(BURNER_IMPLEMENTATION, salt);
         if (burner == address(0)) {
-            revert DepositedOKBAdapter_BurnerCreationFailed();
+            revert BurnerCreationFailed();
         }
 
         // Transfer OKB from user to this contract first
-        bool transferFromUserSuccess = OKB.transferFrom(msg.sender, address(this), _amount);
+        bool transferFromUserSuccess = OKB.transferFrom(msg.sender, address(burner), _amount);
         if (!transferFromUserSuccess) {
-            revert DepositedOKBAdapter_TransferToBurnerFailed();
-        }
-
-        // Transfer the exact amount of OKB from this contract to the burner
-        bool transferToBurnerSuccess = OKB.transfer(burner, _amount);
-        if (!transferToBurnerSuccess) {
-            revert DepositedOKBAdapter_TransferToBurnerFailed();
+            revert TransferToBurnerFailed();
         }
 
         // Burn the OKB via the burner (burner will self-destruct)
         OKBBurner(burner).burnAndDestruct();
-
+        uint256 amount = OKB.balanceOf(burner);
+        if (amount > 0) {
+            revert BurnFailed();
+        }
         // Mint deposit tokens to this contract
         _mint(address(this), _amount);
 
+        // Approve the portal to pull the deposit tokens
+        _approve(address(this), address(PORTAL), _amount);
+
         // Portal will call transferFrom to pull the deposit tokens
-        PORTAL.depositERC20Transaction(_to, _amount, _amount, _gasLimit, _isCreation, _data);
+        PORTAL.depositERC20Transaction(_to, _amount, _amount, DEFAULT_GAS_LIMIT, false, "");
 
         emit Deposited(msg.sender, _to, _amount);
     }
@@ -152,7 +205,7 @@ contract DepositedOKBAdapter is ERC20 {
     /// @return bool  True if transfer succeeds.
     function transfer(address _to, uint256 _amount) public virtual override returns (bool) {
         // Do not allow any transfers
-        revert DepositedOKBAdapter_TransferNotAllowed(_to, _amount);
+        revert TransferNotAllowed(_to, _amount);
     }
 
     /// @notice Override transferFrom to disable transfers
@@ -164,10 +217,24 @@ contract DepositedOKBAdapter is ERC20 {
     /// @return bool  True if transfer succeeds.
     function transferFrom(address from, address to, uint256 amount) public virtual override returns (bool) {
         // Only allow portal to pull from this contract
-        if (msg.sender == address(PORTAL) && from == address(this)) {
+        if (to == address(PORTAL) && from == address(this)) {
             return super.transferFrom(from, to, amount);
         }
 
-        revert DepositedOKBAdapter_TransferNotAllowed(to, amount);
+        revert TransferNotAllowed(to, amount);
     }
+
+    function rescueERC20(address token, address to, uint256 amount) external onlyRescuer {
+        ERC20(token).transfer(to, amount);
+        emit ERC20Rescued(token, to, amount);
+    }
+
+    function setRescuer(address _rescuer) external onlyRescuer {
+        if (_rescuer == address(0)) {
+            revert RescuerAddressCannotBeZero();
+        }
+        rescuer = _rescuer;
+        emit RescuerSet(_rescuer);
+    }
+
 }

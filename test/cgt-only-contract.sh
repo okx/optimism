@@ -129,12 +129,9 @@ if [ -n "$OKB_TOKEN" ] && [ -n "$ADAPTER_ADDRESS" ]; then
 
   # Step 3b: Perform the deposit
   cast send "$ADAPTER_ADDRESS" \
-    "deposit(address,uint256,uint64,bool,bytes)" \
+    "deposit(address,uint256)" \
     "$L2_RECIPIENT" \
     "$DEPOSIT_AMOUNT" \
-    "100000" \
-    "false" \
-    "0x" \
     --rpc-url "$L1_RPC_URL" \
     --private-key "$DEPLOYER_PRIVATE_KEY"
 
