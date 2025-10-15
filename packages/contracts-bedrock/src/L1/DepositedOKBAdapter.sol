@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.15;
 
-import {OKBBurner} from "./OKBBurner.sol";
+import { OKBBurner } from "./OKBBurner.sol";
 
 // Contracts
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -101,7 +101,6 @@ contract DepositedOKBAdapter is ERC20 {
 
     /// @notice Thrown when rescuer is not the rescuer.
     error RescuerOnly();
-
 
     modifier onlyRescuer() {
         if (msg.sender != rescuer) {
@@ -236,5 +235,4 @@ contract DepositedOKBAdapter is ERC20 {
         rescuer = _rescuer;
         emit RescuerSet(_rescuer);
     }
-
 }

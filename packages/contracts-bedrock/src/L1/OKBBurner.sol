@@ -17,6 +17,7 @@ contract OKBBurner {
     /// @param amount Amount of OKB tokens burned.
     event OKBBurned(uint256 amount);
     /// @notice Thrown when OKB address is zero.
+
     error OKBAddressCannotBeZero();
 
     /// @notice Constructor sets the OKB token and adapter addresses.

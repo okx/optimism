@@ -1,28 +1,28 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.15;
 
-import {Script} from "forge-std/Script.sol";
-import {console2 as console} from "forge-std/console2.sol";
-import {stdJson} from "forge-std/StdJson.sol";
+import { Script } from "forge-std/Script.sol";
+import { console2 as console } from "forge-std/console2.sol";
+import { stdJson } from "forge-std/StdJson.sol";
 
 // Contracts
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {DepositedOKBAdapter} from "src/L1/DepositedOKBAdapter.sol";
-import {OKBBurner} from "src/L1/OKBBurner.sol";
+
+import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import { DepositedOKBAdapter } from "src/L1/DepositedOKBAdapter.sol";
+import { OKBBurner } from "src/L1/OKBBurner.sol";
 
 // Interfaces
-import {IOKB} from "interfaces/L1/IOKB.sol";
-import {ISystemConfig} from "interfaces/L1/ISystemConfig.sol";
-import {Constants} from "src/libraries/Constants.sol";
-import {IOptimismPortal2} from "interfaces/L1/IOptimismPortal2.sol";
-import {IL1Block} from "interfaces/L2/IL1Block.sol";
+import { IOKB } from "interfaces/L1/IOKB.sol";
+import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
+import { Constants } from "src/libraries/Constants.sol";
+import { IOptimismPortal2 } from "interfaces/L1/IOptimismPortal2.sol";
+import { IL1Block } from "interfaces/L2/IL1Block.sol";
 
 // Libraries
-import {Features} from "src/libraries/Features.sol";
-import {GasPayingToken} from "src/libraries/GasPayingToken.sol";
-import {LibString} from "@solady/utils/LibString.sol";
-import {Predeploys} from "src/libraries/Predeploys.sol";
-
+import { Features } from "src/libraries/Features.sol";
+import { GasPayingToken } from "src/libraries/GasPayingToken.sol";
+import { LibString } from "@solady/utils/LibString.sol";
+import { Predeploys } from "src/libraries/Predeploys.sol";
 
 /// @title SetupCustomGasToken
 /// @notice Foundry script to set up and verify custom gas token configuration
@@ -108,11 +108,7 @@ contract SetupCustomGasToken is Script {
 
     /// @notice Deploy DepositedOKBAdapter
     function deployAdapter() internal {
-        adapter = new DepositedOKBAdapter(
-            okbTokenAddress,
-            payable(optimismPortalProxy),
-            address(burnerImplementation)
-        );
+        adapter = new DepositedOKBAdapter(okbTokenAddress, payable(optimismPortalProxy), address(burnerImplementation));
         console.log("  DepositedOKBAdapter deployed at:", address(adapter));
     }
 
@@ -143,8 +139,14 @@ contract SetupCustomGasToken is Script {
         console.log("    Symbol:", symbol);
         require(tokenAddr == address(adapter), "FAILED: Token address mismatch");
         require(decimals == okbToken.decimals(), "FAILED: Token decimals mismatch");
-        require(keccak256(abi.encodePacked(name)) == keccak256(abi.encodePacked(okbToken.name())), "FAILED: Token name mismatch");
-        require(keccak256(abi.encodePacked(symbol)) == keccak256(abi.encodePacked(okbToken.symbol())), "FAILED: Token symbol mismatch");
+        require(
+            keccak256(abi.encodePacked(name)) == keccak256(abi.encodePacked(okbToken.name())),
+            "FAILED: Token name mismatch"
+        );
+        require(
+            keccak256(abi.encodePacked(symbol)) == keccak256(abi.encodePacked(okbToken.symbol())),
+            "FAILED: Token symbol mismatch"
+        );
 
         // Check DepositedOKBAdapter configuration
         require(address(adapter.OKB()) == okbTokenAddress, "FAILED: Adapter OKB mismatch");
@@ -154,7 +156,10 @@ contract SetupCustomGasToken is Script {
         require(address(burnerImplementation.OKB()) == okbTokenAddress, "FAILED: Burner OKB mismatch");
 
         // Check Adapter burner implementation reference
-        require(adapter.BURNER_IMPLEMENTATION() == address(burnerImplementation), "FAILED: Adapter burner implementation mismatch");
+        require(
+            adapter.BURNER_IMPLEMENTATION() == address(burnerImplementation),
+            "FAILED: Adapter burner implementation mismatch"
+        );
 
         // Check Adapter approval to portal
         uint256 allowance = adapter.allowance(address(adapter), optimismPortalProxy);
