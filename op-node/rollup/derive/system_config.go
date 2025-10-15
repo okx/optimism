@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"log/slog"
 
 	"github.com/hashicorp/go-multierror"
 
@@ -25,7 +24,6 @@ var (
 	SystemConfigUpdateEIP1559Params     = common.Hash{31: 4}
 	SystemConfigUpdateOperatorFeeParams = common.Hash{31: 5}
 	SystemConfigUpdateMinBaseFee        = common.Hash{31: 6}
-	SystemConfigUpdateGasPayingToken    = common.Hash{31: 7}
 )
 
 var (
@@ -195,10 +193,6 @@ func ProcessSystemConfigUpdateLogEvent(destSysCfg *eth.SystemConfig, ev *types.L
 			return NewCriticalError(errors.New("too many bytes"))
 		}
 		destSysCfg.MinBaseFee = minBaseFee
-		return nil
-	case SystemConfigUpdateGasPayingToken:
-		evBytes, _ := ev.MarshalJSON()
-		slog.Default().Info("ignoring L1 sysCfg update to gas-paying token", "txHash", ev.TxHash, "event", string(evBytes))
 		return nil
 	default:
 		return fmt.Errorf("unrecognized L1 sysCfg update type: %s", updateType)
