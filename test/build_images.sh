@@ -41,7 +41,7 @@ set -x
 source .env
 
 # Default values
-ARCH=linux/arm64
+ARCH=$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')
 BUILD_CDK_ERIGON=false
 BUILD_OP_GETH=false
 BUILD_OP_GETH_MIGRATE=false
@@ -268,12 +268,12 @@ build_if_needed() {
 }
 
 # Build images based on selected options
-if [ "$BUILD_OP_STACK" = true ]; then
-  build_if_needed "$OP_STACK_IMAGE_TAG" "build_op_stack_image" "OP Stack image"
-fi
-
 if [ "$BUILD_OP_CONTRACT" = true ]; then
   build_if_needed "$OP_CONTRACTS_IMAGE_TAG" "build_op_stack_contract" "OP Stack contracts"
+fi
+
+if [ "$BUILD_OP_STACK" = true ]; then
+  build_if_needed "$OP_STACK_IMAGE_TAG" "build_op_stack_image" "OP Stack image"
 fi
 
 if [ "$BUILD_OP_GETH" = true ]; then
