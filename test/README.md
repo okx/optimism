@@ -3,9 +3,9 @@
 ## run on local
 ```bash
 # git submodule update --recursive --force
-# ./build_images.sh --all # build all images. add --force if want to force rebuild
 make clean
 cp local.env .env
+# ./build_images.sh --all # build all images. add --force if want to force rebuild
 ./1-start-erigon.sh
 ./2-deploy-op-contracts.sh
 ./3-stop-erigon.sh
