@@ -132,7 +132,6 @@ abstract contract ERC721Bridge is Initializable {
     )
         external
     {
-        revert("not allow bridge");
         // Modifier requiring sender to be EOA. This prevents against a user error that would occur
         // if the sender is a smart contract wallet that has a different address on the remote chain
         // (or doesn't have an address on the remote chain at all). The user would fail to receive
@@ -169,7 +168,6 @@ abstract contract ERC721Bridge is Initializable {
     )
         external
     {
-        revert("not allow bridge");
         require(_to != address(0), "ERC721Bridge: nft recipient cannot be address(0)");
 
         _initiateBridgeERC721(_localToken, _remoteToken, msg.sender, _to, _tokenId, _minGasLimit, _extraData);

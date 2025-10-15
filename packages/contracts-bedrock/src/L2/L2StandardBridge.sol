@@ -103,7 +103,6 @@ contract L2StandardBridge is StandardBridge, ISemver {
         virtual
         onlyEOA
     {
-        revert("not allow bridge");
         _initiateWithdrawal(_l2Token, msg.sender, msg.sender, _amount, _minGasLimit, _extraData);
     }
 
@@ -132,7 +131,6 @@ contract L2StandardBridge is StandardBridge, ISemver {
         payable
         virtual
     {
-        revert("not allow bridge");
         _initiateWithdrawal(_l2Token, msg.sender, _to, _amount, _minGasLimit, _extraData);
     }
 
@@ -161,7 +159,6 @@ contract L2StandardBridge is StandardBridge, ISemver {
     )
         internal
     {
-        revert("not allow bridge");
         if (_l2Token == Predeploys.LEGACY_ERC20_ETH) {
             _initiateBridgeETH(_from, _to, _amount, _minGasLimit, _extraData);
         } else {

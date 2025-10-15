@@ -94,7 +94,6 @@ contract L1ERC721Bridge is ERC721Bridge, ProxyAdminOwnedBase, ReinitializableBas
         external
         onlyOtherBridge
     {
-        revert("not allow bridge");
         require(paused() == false, "L1ERC721Bridge: paused");
         require(_localToken != address(this), "L1ERC721Bridge: local token cannot be self");
 
@@ -129,7 +128,6 @@ contract L1ERC721Bridge is ERC721Bridge, ProxyAdminOwnedBase, ReinitializableBas
         internal
         override
     {
-        revert("not allow bridge");
         require(_remoteToken != address(0), "L1ERC721Bridge: remote token cannot be address(0)");
 
         // Construct calldata for _l2Token.finalizeBridgeERC721(_to, _tokenId)
