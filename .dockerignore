@@ -36,7 +36,6 @@
 !/mise.toml
 !/op-e2e/e2eutils
 !/op-geth
-!Makefile
 
 **/bin
 **/testdata
