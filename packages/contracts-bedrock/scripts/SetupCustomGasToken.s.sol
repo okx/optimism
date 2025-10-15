@@ -136,7 +136,7 @@ contract SetupCustomGasToken is Script {
         (address tokenAddr, uint8 decimals) = systemConfig.gasPayingToken();
         string memory name = systemConfig.gasPayingTokenName();
         string memory symbol = systemConfig.gasPayingTokenSymbol();
-        console.log("SystemConfig gasPayingToken:");
+        console.log("SystemConfig.gasPayingToken():");
         console.log("    Address:", tokenAddr);
         console.log("    Decimals:", decimals);
         console.log("    Name:", name);
