@@ -221,6 +221,11 @@ services:
       - --rollup.enabletxpooladmission
       - --realtime.kafka-sync-client-id=xlayer-consumer-el-1
       - --realtime.kafka-sync-group-id=xlayer-consumer-el-1
+      - --realtime.streamer-url=xlayer-relayer-server:8000
+      - --realtime.streamer-use-tls=false
+      - --realtime.streamer-write-timeout=30s
+      - --realtime.streamer-read-timeout=300s
+      - --realtime.streamer-retry-delay=5s
 
   op-geth-rpc-2:
     image: "${OP_GETH_IMAGE_TAG}"
@@ -748,3 +753,25 @@ services:
       - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
       - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+
+  xlayer-relayer-server:
+    container_name: xlayer-relayer-server
+    build:
+      context: ../op-geth
+      dockerfile: realtime/relayer/Dockerfile-streamer-relayer
+    ports:
+      - "8000:8000"
+    environment:
+      - KAFKA_URL=xlayer-kafka:9092
+    command: ["/home/relayer/relayer", "-port=8000", "-kafka=xlayer-kafka:9092"]
+    depends_on: ["xlayer-kafka"]
+
+  xlayer-relayer-client:
+    container_name: xlayer-relayer-client
+    build:
+      context: ../op-geth
+      dockerfile: realtime/relayer/Dockerfile-streamer-client
+    environment:
+      - RELAYER_URL=xlayer-relayer-server:8000
+    command: ["/home/client/client", "-relayer-url=xlayer-relayer-server:8000"]
+    depends_on: ["xlayer-relayer-server"]

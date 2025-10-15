@@ -28,6 +28,13 @@ if [ "$REALTIME_ENABLED" = "true" ]; then
     docker compose up -d xlayer-kafka
     sleep 20
 fi
+
+if [ "$USE_REALTIME_RELAYER" = "true" ]; then
+    docker compose up -d --build xlayer-relayer-server
+    docker compose up -d --build xlayer-relayer-client
+    sleep 10
+fi
+
 docker compose up -d op-batcher
 
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
