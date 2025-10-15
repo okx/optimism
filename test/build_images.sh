@@ -41,7 +41,7 @@ set -x
 source .env
 
 # Default values
-ARCH=linux/arm64
+ARCH=$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')
 BUILD_CDK_ERIGON=false
 BUILD_OP_GETH=false
 BUILD_OP_GETH_MIGRATE=false
