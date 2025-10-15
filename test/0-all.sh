@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+mv .env .env.bak
+mv example.env .env
+
 ./1-start-l1.sh
 ./2-deploy-op-contracts.sh
 ./3-op-init.sh
