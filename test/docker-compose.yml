@@ -352,8 +352,8 @@ services:
     command:
       - /app/op-batcher/bin/op-batcher
       - --log.level=debug
-      - --l2-eth-rpc=http://op-conductor:8547,http://op-conductor2:8547,http://op-conductor3:8547
-      - --rollup-rpc=http://op-conductor:8547,http://op-conductor2:8547,http://op-conductor3:8547
+      - --l2-eth-rpc=${OP_BATCHER_L2_ETH_RPC:-http://op-geth-seq:8545}
+      - --rollup-rpc=${OP_BATCHER_ROLLUP_RPC:-http://op-seq:9545}
       - --wait-node-sync=true
       - --check-recent-txs-depth=5
       - --poll-interval=5s

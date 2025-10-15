@@ -131,24 +131,18 @@ if [ "$LAUNCH_RPC_NODE" = "true" ]; then
     echo "  - RPC node (op-geth-rpc) is connected to all sequencer nodes"
 fi
 
-# Configure op-batcher based on conductor mode
+# Configure op-batcher endpoints based on conductor mode
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     echo "🔧 Configuring op-batcher for conductor mode with conductor RPC endpoints..."
-        # Update docker-compose.yml to use conductor endpoints for conductor mode
-        sed_inplace 's|--l2-eth-rpc=http://op-geth-seq:8545|--l2-eth-rpc=http://op-conductor:8547,http://op-conductor2:8547,http://op-conductor3:8547|' docker-compose.yml
-        sed_inplace 's|--rollup-rpc=http://op-seq:9545|--rollup-rpc=http://op-conductor:8547,http://op-conductor2:8547,http://op-conductor3:8547|' docker-compose.yml
-    # Add active sequencer check duration if not already present
-    if ! grep -q "active-sequencer-check-duration" docker-compose.yml; then
-        sed_inplace 's|- -data-availability-type=auto|- -data-availability-type=auto\n      - --active-sequencer-check-duration=5s|' docker-compose.yml
-    fi
+    # Set conductor mode endpoints
+    export OP_BATCHER_L2_ETH_RPC="http://op-conductor:8547,http://op-conductor2:8547,http://op-conductor3:8547"
+    export OP_BATCHER_ROLLUP_RPC="http://op-conductor:8547,http://op-conductor2:8547,http://op-conductor3:8547"
     echo "✅ op-batcher configured for conductor mode (connecting to conductor RPC endpoints)"
 else
     echo "🔧 Configuring op-batcher for single sequencer mode..."
-        # Ensure single endpoint configuration for non-conductor mode
-        sed_inplace 's|--l2-eth-rpc=http://op-conductor:8547,http://op-conductor2:8547,http://op-conductor3:8547|--l2-eth-rpc=http://op-geth-seq:8545|' docker-compose.yml
-        sed_inplace 's|--rollup-rpc=http://op-conductor:8547,http://op-conductor2:8547,http://op-conductor3:8547|--rollup-rpc=http://op-seq:9545|' docker-compose.yml
-    # Remove active sequencer check duration for single sequencer mode
-    sed_inplace '/--active-sequencer-check-duration=5s/d' docker-compose.yml
+    # Set single sequencer mode endpoints
+    export OP_BATCHER_L2_ETH_RPC="http://op-geth-seq:8545"
+    export OP_BATCHER_ROLLUP_RPC="http://op-seq:9545"
     echo "✅ op-batcher configured for single sequencer mode"
 fi
 
