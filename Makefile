@@ -16,6 +16,9 @@ build: build-go build-contracts ## Builds Go components and contracts-bedrock
 build-go: submodules op-node op-proposer op-batcher op-challenger op-dispute-mon op-program cannon withdrawal op-conductor ## Builds main Go components
 .PHONY: build-go
 
+build-go-no-submodules: op-node op-proposer op-batcher op-challenger op-dispute-mon op-program cannon withdrawal op-conductor ## Used in Dockerfile
+.PHONY: build-go-no-submodules
+
 build-contracts:
 	(cd packages/contracts-bedrock && just build)
 .PHONY: build-contracts
