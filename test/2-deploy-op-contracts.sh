@@ -24,7 +24,7 @@ deploy_safe() {
         -e DEPLOYER_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY" \
         -w /app/packages/contracts-bedrock \
         "${OP_CONTRACTS_IMAGE_TAG}" \
-        forge script --json --broadcast \
+        forge script --json --broadcast --legacy \
           --rpc-url $L1_RPC_URL_IN_DOCKER \
           --private-key $DEPLOYER_PRIVATE_KEY \
           scripts/deploy/DeploySimpleSafe.s.sol:DeploySimpleSafe)
