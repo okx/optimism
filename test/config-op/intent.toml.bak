@@ -28,3 +28,8 @@ l2ContractsLocator = "file:///app/packages/contracts-bedrock/forge-artifacts"
     batcher = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
     proposer = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
     challenger = "0x7d18A1B858253b5588f61fb5739d52e4b84e2cdA"
+  [chains.customGasToken]
+    enabled = true
+    name = "OKB"
+    symbol = "OKB"
+    InitialLiquidity = "0x0" # 0 OKB, no premint

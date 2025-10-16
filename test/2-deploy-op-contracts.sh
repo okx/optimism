@@ -161,8 +161,10 @@ docker run --rm \
       --challenge-period-seconds $CHALLENGE_PERIOD_SECONDS \
       --withdrawal-delay-seconds $WITHDRAWAL_DELAY_SECONDS \
       --proof-maturity-delay-seconds $WITHDRAWAL_DELAY_SECONDS \
-      --dispute-game-finality-delay-seconds $DISPUTE_GAME_FINALITY_DELAY_SECONDS
+      --dispute-game-finality-delay-seconds $DISPUTE_GAME_FINALITY_DELAY_SECONDS \
+      --dev-feature-bitmap 0x0000000000000000000000000000000000000000000000000000000000001000
   "
+# Enable custom gas token feature: --dev-feature-bitmap 0x0000000000000000000000000000000000000000000000000000000000001000
 
 cp ./config-op/intent.toml.bak ./config-op/intent.toml
 cp ./config-op/state.json.bak ./config-op/state.json
