@@ -29,8 +29,8 @@ Enable = true
 RealtimeRpc = true
 EnableSubscribe = true
 CacheHeightThreshold = 10
-SubscribeKafka = true
-SubscribeWebsocket = false
+SubscribeKafka = false
+SubscribeWebsocket = true
 CacheDumpPath = "/datadir/cache"
 
 [Eth.XLayer.Realtime.Kafka]
