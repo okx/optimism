@@ -227,9 +227,9 @@ services:
     volumes:
       - ./data/op-reth-rpc:/datadir
       - ./config-op/jwt.txt:/jwt.txt
-      - ./config-op/genesis.json:/genesis.json
+      - ./config-op/genesis-rpc.json:/genesis.json
     ports:
-      - "9123:8545"
+      - "8124:8545"
     command:
       - node
       - --datadir=/datadir
