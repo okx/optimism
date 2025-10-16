@@ -2,6 +2,11 @@
 
 set -e
 
+# Source environment variables
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="$(dirname "$SCRIPT_DIR")/.env"
+source "$ENV_FILE"
+
 # Setup P2P static connections between op-geth nodes
 echo "🔗 Setting up P2P static connections between op-geth nodes..."
 
@@ -114,7 +119,9 @@ if [ "$LAUNCH_RPC_NODE" = "true" ]; then
 fi
 
 echo "✅ P2P static connections established:"
-echo "  - Sequencer nodes (op-geth-seq, op-geth-seq2, op-geth-seq3) are connected to each other"
+if [ "$CONDUCTOR_ENABLED" = "true" ]; then
+  echo "  - Sequencer nodes (op-geth-seq, op-geth-seq2, op-geth-seq3) are connected to each other"
+fi
 if [ "$LAUNCH_RPC_NODE" = "true" ]; then
     echo "  - RPC node (op-geth-rpc) is connected to all sequencer nodes"
 fi
