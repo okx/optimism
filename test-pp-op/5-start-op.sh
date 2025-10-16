@@ -23,18 +23,16 @@ start_sequencer() {
     sed_inplace "s|L1_BEACON_URL_IN_DOCKER=.*|L1_BEACON_URL_IN_DOCKER=$L1_BEACON_URL_IN_DOCKER|" .env
   fi
 
-  ${DOCKER_COMPOSE_CMD} up -d op-batcher
-
-
   if [ "$CONDUCTOR_ENABLED" = "true" ]; then
       ${DOCKER_COMPOSE_CMD} up -d op-conductor
       ${DOCKER_COMPOSE_CMD} up -d op-conductor2
       ${DOCKER_COMPOSE_CMD} up -d op-conductor3
       sleep 3
       $SCRIPTS_DIR/active-sequencer.sh
+  else
+      ${DOCKER_COMPOSE_CMD} up -d op-seq
   fi
 
-  sleep 10
   # Check for L2 genesis hash mismatch
   LOG_OUTPUT=$(${DOCKER_COMPOSE_CMD} logs op-seq 2>&1 | tail -20)
   if echo "$LOG_OUTPUT" | grep -q "expected L2 genesis hash to match L2 block at genesis block number"; then
@@ -145,6 +143,26 @@ add_peer() {
     docker exec $container_name geth attach --exec "admin.addPeer('$peer_enode')" --datadir /datadir 2>/dev/null
 }
 
+start_batcher() {
+  # Configure op-batcher endpoints based on conductor mode
+  if [ "$CONDUCTOR_ENABLED" = "true" ]; then
+      echo "🔧 Configuring op-batcher for conductor mode with conductor RPC endpoints..."
+      # Set conductor mode endpoints
+      export OP_BATCHER_L2_ETH_RPC="http://op-conductor:8547,http://op-conductor2:8547,http://op-conductor3:8547"
+      export OP_BATCHER_ROLLUP_RPC="http://op-conductor:8547,http://op-conductor2:8547,http://op-conductor3:8547"
+      echo "✅ op-batcher configured for conductor mode (connecting to conductor RPC endpoints)"
+  else
+      echo "🔧 Configuring op-batcher for single sequencer mode..."
+      # Set single sequencer mode endpoints
+      export OP_BATCHER_L2_ETH_RPC="http://op-geth-seq:8545"
+      export OP_BATCHER_ROLLUP_RPC="http://op-seq:9545"
+      echo "✅ op-batcher configured for single sequencer mode"
+  fi
+
+  ${DOCKER_COMPOSE_CMD} up -d op-batcher
+}
+
 start_sequencer
 start_rpc
 connect_static_peers
+start_batcher

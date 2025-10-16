@@ -28,7 +28,43 @@ fi
 
 cd $PWD_DIR
 
-deploy_transactor_contract() {
+deploy_safe() {
+    echo "=== Deploying Gnosis Safe ==="
+
+    # Use deployer as single owner with threshold 1
+    echo "Using deployer as single owner with threshold 1"
+
+    # Execute Safe deployment
+    SAFE_DEPLOY_OUTPUT=$(docker run --rm \
+        --network "$DOCKER_NETWORK" \
+        -v "$(pwd)/$CONFIG_DIR:/deployments" \
+        -e DEPLOYER_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY" \
+        -w /app/packages/contracts-bedrock \
+        "${OP_CONTRACTS_IMAGE_TAG}" \
+        forge script --json --broadcast \
+          --rpc-url $L1_RPC_URL_IN_DOCKER \
+          --private-key $DEPLOYER_PRIVATE_KEY \
+          scripts/deploy/DeploySimpleSafe.s.sol:DeploySimpleSafe)
+
+    # Extract Safe address
+    SAFE_ADDRESS=$(echo "$SAFE_DEPLOY_OUTPUT" | jq -r '.logs[] | select(contains("New Safe L1ProxyAdminSafe deployed at:")) | split(": ")[1]' 2>/dev/null | head -1)
+
+    if [ -z "$SAFE_ADDRESS" ] || [ "$SAFE_ADDRESS" = "null" ]; then
+        echo "❌ Failed to deploy Safe"
+        exit 1
+    fi
+
+    echo "✅ Safe deployed at: $SAFE_ADDRESS"
+    echo "   Owner: $(cast wallet address --private-key $DEPLOYER_PRIVATE_KEY)"
+    echo "   Threshold: 1"
+
+    # Update .env file
+    sed_inplace "s/SAFE_ADDRESS=.*/SAFE_ADDRESS=$SAFE_ADDRESS/" .env
+    source .env
+    echo " ✅ Updated SAFE_ADDRESS in .env: $SAFE_ADDRESS"
+}
+
+deploy_transactor() {
   # Deploy Transactor contract first
   echo "🔧 Deploying Transactor contract..."
 
@@ -116,7 +152,6 @@ deploy_transactor_contract() {
 # }
 deploy_op_stack_bootstrap_superchain() {
   source .env
-  TRANSACTOR_ADDRESS=${TRANSACTOR}
   echo "🔧 Bootstrapping superchain with op-deployer..."
 
   # Build docker run command with conditional network flag
@@ -131,14 +166,13 @@ deploy_op_stack_bootstrap_superchain() {
 
   DOCKER_ARGS+=("$OP_CONTRACTS_IMAGE_TAG")
 
-  BASH_CMD="set -e && /app/op-deployer/bin/op-deployer bootstrap superchain --l1-rpc-url $L1_RPC_URL_IN_DOCKER --private-key $DEPLOYER_PRIVATE_KEY --artifacts-locator file:///app/packages/contracts-bedrock/forge-artifacts --superchain-proxy-admin-owner $TRANSACTOR_ADDRESS --protocol-versions-owner $ADMIN_OWNER_ADDRESS --guardian $ADMIN_OWNER_ADDRESS --outfile /deployments/superchain.json"
+  BASH_CMD="set -e && /app/op-deployer/bin/op-deployer bootstrap superchain --l1-rpc-url $L1_RPC_URL_IN_DOCKER --private-key $DEPLOYER_PRIVATE_KEY --artifacts-locator file:///app/packages/contracts-bedrock/forge-artifacts --superchain-proxy-admin-owner $L1_PROXY_ADMIN_OWNER --protocol-versions-owner $ADMIN_OWNER_ADDRESS --guardian $ADMIN_OWNER_ADDRESS --outfile /deployments/superchain.json"
 
   docker run "${DOCKER_ARGS[@]}" bash -c "$BASH_CMD"
 }
 
 deploy_op_stack_bootstrap_implementations() {
   source .env
-  TRANSACTOR_ADDRESS=${TRANSACTOR}
   echo "🔧 Bootstrapping implementations with op-deployer..."
   SUPERCHAIN_JSON="$CONFIG_DIR/superchain.json"
   PROTOCOL_VERSIONS_PROXY=$(jq -r '.protocolVersionsProxyAddress' "$SUPERCHAIN_JSON")
@@ -165,9 +199,9 @@ deploy_op_stack_bootstrap_implementations() {
 
   docker run "${DOCKER_ARGS[@]}" bash -c "$BASH_CMD"
 
-  # Update intent.toml with Transactor address for l1ProxyAdminOwner
-  sed_inplace "s/l1ProxyAdminOwner = \".*\"/l1ProxyAdminOwner = \"$TRANSACTOR_ADDRESS\"/" ./config-op/intent.toml
-  echo "✅ Updated l1ProxyAdminOwner in intent.toml: $TRANSACTOR_ADDRESS"
+  # Update intent.toml
+  sed_inplace "s/l1ProxyAdminOwner = .*/l1ProxyAdminOwner = \"$L1_PROXY_ADMIN_OWNER\"/" "$CONFIG_DIR/intent.toml"
+  echo " ✅ Updated intent.toml with $OWNER_TYPE owner: $L1_PROXY_ADMIN_OWNER"
 
   # Read opcmAddress from implementations.json and write it into intent.toml
   OPCM_ADDRESS=$(jq -r '.opcmAddress' ./config-op/implementations.json)
@@ -258,7 +292,27 @@ CHAIN_ID_UINT256=$(cast to-uint256 $CHAIN_ID)
 sed_inplace 's/id = .*/id = "'"$CHAIN_ID_UINT256"'"/' ./config-op/intent.toml
 echo " ✅ Updated chain id in intent.toml: $CHAIN_ID_UINT256"
 
-deploy_transactor_contract
+# Validate OWNER_TYPE configuration
+if [ "$OWNER_TYPE" != "transactor" ] && [ "$OWNER_TYPE" != "safe" ]; then
+    echo "❌ Error: Invalid OWNER_TYPE '$OWNER_TYPE'. Must be 'transactor' or 'safe'"
+    exit 1
+fi
+
+echo "=== Deploying with OWNER_TYPE: $OWNER_TYPE ==="
+
+# Deploy owner contract based on OWNER_TYPE
+if [ "$OWNER_TYPE" = "safe" ]; then
+    echo "🔧 Deploying Gnosis Safe for l1ProxyAdminOwner..."
+    deploy_safe
+    L1_PROXY_ADMIN_OWNER=$SAFE_ADDRESS
+elif [ "$OWNER_TYPE" = "transactor" ]; then
+    echo "🔧 Deploying Transactor for l1ProxyAdminOwner..."
+    deploy_transactor
+    L1_PROXY_ADMIN_OWNER=$TRANSACTOR_ADDRESS
+fi
+
+echo "Using $OWNER_TYPE as l1ProxyAdminOwner: $L1_PROXY_ADMIN_OWNER"
+
 deploy_op_stack_bootstrap_superchain
 deploy_op_stack_bootstrap_implementations
 deploy_op_stack_contracts
