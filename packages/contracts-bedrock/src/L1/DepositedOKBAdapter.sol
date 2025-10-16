@@ -55,9 +55,7 @@ contract DepositedOKBAdapter is ERC20, Ownable {
     event WhitelistRemoved(address indexed account);
 
     /// @notice Thrown when transfer is attempted outside of portal operations.
-    /// @param to     The attempted recipient address.
-    /// @param amount The attempted transfer amount.
-    error TransferNotAllowed(address to, uint256 amount);
+    error TransferNotAllowed();
 
     /// @notice Thrown when amount is zero.
     error AmountMustBeGreaterThanZero();
@@ -191,12 +189,10 @@ contract DepositedOKBAdapter is ERC20, Ownable {
     /// @notice Override transfer to disable transfers
     ///         This ensures that deposit tokens can only be used by the portal
     ///         and cannot be transferred or traded elsewhere.
-    /// @param _to     Recipient address.
-    /// @param _amount Amount to transfer.
-    /// @return bool  True if transfer succeeds.
-    function transfer(address _to, uint256 _amount) public virtual override returns (bool) {
+    /// @return bool  Always reverts.
+    function transfer(address /* _to */, uint256 /* _amount */) public virtual override returns (bool) {
         // Do not allow any transfers
-        revert TransferNotAllowed(_to, _amount);
+        revert TransferNotAllowed();
     }
 
     /// @notice Override transferFrom to disable transfers
@@ -212,7 +208,7 @@ contract DepositedOKBAdapter is ERC20, Ownable {
             return super.transferFrom(from, to, amount);
         }
 
-        revert TransferNotAllowed(to, amount);
+        revert TransferNotAllowed();
     }
 
     /// @notice Allows owner to rescue ERC20 tokens sent to this contract.
