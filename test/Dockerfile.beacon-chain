@@ -1,6 +1,6 @@
 # Multi-stage Docker build for beacon-chain binary
 # Stage 1: Build the Go binary
-FROM golang:1.20.9-alpine AS builder
+FROM golang:1.22.0-alpine AS builder
 
 # Install git, ca-certificates and build dependencies for CGO
 RUN apk add --no-cache git ca-certificates gcc musl-dev g++
