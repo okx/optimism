@@ -65,6 +65,9 @@ contract DepositedOKBAdapter is ERC20, Ownable {
     /// @notice Thrown when balance is insufficient.
     error InsufficientBalance();
 
+    /// @notice Thrown when transfer fails.
+    error TransferFailed();
+
     /// @notice Thrown when transfer OKB from user fails.
     error TransferFromUserFailed();
 
@@ -85,7 +88,7 @@ contract DepositedOKBAdapter is ERC20, Ownable {
     /// @param _okb                 Address of the OKB token contract.
     /// @param _portal              Address of the OptimismPortal2 contract.
     /// @param _owner               Address of the contract owner.
-    constructor(address _okb, address payable _portal, address _owner) ERC20("Deposited OKB", "dOKB") Ownable(_owner) {
+    constructor(address _okb, address payable _portal, address _owner) ERC20("Deposited OKB", "dOKB") {
         if (_okb == address(0)) {
             revert AddressCannotBeZero();
         }
@@ -97,6 +100,9 @@ contract DepositedOKBAdapter is ERC20, Ownable {
 
         // Premint total supply of OKB to this contract to enforce hard cap
         _mint(address(this), OKB.totalSupply());
+
+        // Transfer ownership to the owner
+        transferOwnership(_owner);
     }
 
     /// @notice Adds multiple addresses to the whitelist in a single transaction.
@@ -148,7 +154,10 @@ contract DepositedOKBAdapter is ERC20, Ownable {
         // Transfer any remaining OKB to rescuer.
         // If someone mistakenly directly transfer OKB to this contract, transfer it to the owner.
         if (OKB.balanceOf(address(this)) > 0) {
-            OKB.transfer(owner(), OKB.balanceOf(address(this)));
+            bool transferSuccess = OKB.transfer(owner(), OKB.balanceOf(address(this)));
+            if (!transferSuccess) {
+                revert TransferFailed();
+            }
         }
 
         // Transfer OKB from user to this contract first
@@ -221,6 +230,9 @@ contract DepositedOKBAdapter is ERC20, Ownable {
             revert AmountMustBeGreaterThanZero();
         }
 
-        IERC20(_token).transfer(_to, _amount);
+        bool transferSuccess = IERC20(_token).transfer(_to, _amount);
+        if (!transferSuccess) {
+            revert TransferFailed();
+        }
     }
 }
