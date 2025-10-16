@@ -1,0 +1,61 @@
+ARG OP_STACK_IMAGE=op-stack:v1.13.4
+FROM ${OP_STACK_IMAGE} AS geth-builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends git
+
+WORKDIR /app/op-geth
+# Must build op-stack with migrate feature (in specific branch)
+RUN git stash
+RUN git checkout feat/cliff/migrate-test
+RUN git pull origin feat/cliff/migrate-test
+RUN make geth
+
+# 2nd stage
+ARG OP_STACK_IMAGE=op-stack:v1.13.4
+FROM ${OP_STACK_IMAGE} AS builder
+
+ARG CHAIN_ID
+RUN test -n "${CHAIN_ID}" || (echo "ERROR: CHAIN_ID is not set" && exit 1)
+RUN echo "CHAIN_ID: ${CHAIN_ID}"
+
+# Install dependencies (docker CLI, make, etc.)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        make \
+        curl \
+        git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY .env .
+
+# Dummy JSON files used for `make reproducible-prestate`
+COPY template/rollup.json /app/op-program/chainconfig/configs/${CHAIN_ID}-rollup.json
+COPY template/genesis.json /app/op-program/chainconfig/configs/${CHAIN_ID}-genesis-l2.json
+# Download deps for building this binary. We will cache this inside image.
+RUN echo '🚀 Building reproducible-prestate...' && \
+    make reproducible-prestate || echo "⚠️ Make failed during build, check setup"
+
+# Third stage: clean runtime image
+ARG OP_STACK_IMAGE=op-stack:v1.13.4
+FROM ${OP_STACK_IMAGE}
+
+COPY --from=builder /go/pkg/mod /go/pkg/mod
+
+RUN apt-get update && apt-get install -y curl && \
+    mkdir -p /usr/local/lib/docker/cli-plugins && \
+    curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 \
+    -o /usr/local/lib/docker/cli-plugins/docker-compose && \
+    chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends docker.io \
+    vim && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY . /app/op-geth/test-pp-op
+COPY --from=geth-builder /app/op-geth/build/bin/geth /usr/local/bin/geth
+
+COPY --from=builder /app/.env /app/op-geth/test-pp-op/.env
