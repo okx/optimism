@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.15;
 
-import { OKBBurner } from "./OKBBurner.sol";
-
 // Contracts
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
-import { OKBBurner } from "src/L1/OKBBurner.sol";
 
 // Interfaces
 import { IOKB } from "interfaces/L1/IOKB.sol";
@@ -36,17 +32,11 @@ contract DepositedOKBAdapter is ERC20 {
     /// @notice Address of the OKB token contract.
     IOKB public immutable OKB;
 
-    /// @notice Address of the OKBBurner implementation contract.
-    address public immutable BURNER_IMPLEMENTATION;
-
-    /// @notice Default gas limit for L2 transactions.
-    uint64 public constant DEFAULT_GAS_LIMIT = 100_000;
-
-    /// @notice Counter for creating unique burner addresses.
-    uint256 private _burnerNonce;
-
     /// @notice Address of the rescue address.
-    address public rescuer;
+    address public immutable RESCUER;
+
+    /// @notice Default gas limit for L2 deposit transactions.
+    uint64 public constant DEFAULT_GAS_LIMIT = 100_000;
 
     /// @notice Emitted when a user deposits OKB and initiates an L2 transaction.
     /// @param from   Address that deposited the OKB.
@@ -54,32 +44,10 @@ contract DepositedOKBAdapter is ERC20 {
     /// @param amount Amount of OKB burned and deposited.
     event Deposited(address indexed from, address indexed to, uint256 amount);
 
-    /// @notice Emitted when the rescuer is set.
-    /// @param rescuer The new rescuer address.
-    event RescuerSet(address indexed rescuer);
-
-    /// @notice Emitted when ERC20 is rescued.
-    /// @param token  The address of the token rescued.
-    /// @param to     The address to which the token was rescued.
-    /// @param amount The amount of token rescued.
-    event ERC20Rescued(address indexed token, address indexed to, uint256 amount);
-
     /// @notice Thrown when transfer is attempted outside of portal operations.
     /// @param to     The attempted recipient address.
     /// @param amount The attempted transfer amount.
     error TransferNotAllowed(address to, uint256 amount);
-
-    /// @notice Thrown when trying to transfer to an address other than the portal.
-    error OnlyPortalTransfer();
-
-    /// @notice Thrown when burner creation fails.
-    error BurnerCreationFailed();
-
-    /// @notice Thrown when OKB transfer to burner fails.
-    error TransferToBurnerFailed();
-
-    /// @notice Thrown when OKB burn fails.
-    error BurnFailed();
 
     /// @notice Thrown when amount is zero.
     error AmountMustBeGreaterThanZero();
@@ -93,41 +61,32 @@ contract DepositedOKBAdapter is ERC20 {
     /// @notice Thrown when rescuer address is zero.
     error RescuerAddressCannotBeZero();
 
-    /// @notice Thrown when burner implementation address is zero.
-    error BurnerImplementationCannotBeZero();
-
     /// @notice Thrown when balance is insufficient.
     error InsufficientBalance();
 
-    /// @notice Thrown when rescuer is not the rescuer.
-    error RescuerOnly();
+    /// @notice Thrown when transfer OKB from user fails.
+    error TransferFromUserFailed();
 
-    modifier onlyRescuer() {
-        if (msg.sender != rescuer) {
-            revert RescuerOnly();
-        }
-        _;
-    }
+    /// @notice Thrown when OKB balance is not equal to the amount deposited.
+    error OKBBalanceMismatch();
 
-    /// @notice Constructor sets up the adapter with references to OKB, OptimismPortal, and OKBBurner.
+    /// @notice Constructor sets up the adapter with references to OKB, OptimismPortal, and rescuer.
     /// @param _okb                 Address of the OKB token contract.
     /// @param _portal              Address of the OptimismPortal2 contract.
-    /// @param _burnerImplementation Address of the OKBBurner implementation contract.
-    constructor(address _okb, address payable _portal, address _burnerImplementation) ERC20("Deposited OKB", "dOKB") {
+    /// @param _rescuer             Address of the rescuer contract.
+    constructor(address _okb, address payable _portal, address _rescuer) ERC20("Deposited OKB", "dOKB") {
         if (_okb == address(0)) {
             revert OKBAddressCannotBeZero();
         }
         if (_portal == address(0)) {
             revert PortalAddressCannotBeZero();
         }
-        if (_burnerImplementation == address(0)) {
-            revert BurnerImplementationCannotBeZero();
+        if (_rescuer == address(0)) {
+            revert RescuerAddressCannotBeZero();
         }
-        rescuer = msg.sender;
+        RESCUER = _rescuer;
         OKB = IOKB(_okb);
         PORTAL = IOptimismPortal2(_portal);
-        BURNER_IMPLEMENTATION = _burnerImplementation;
-        emit RescuerSet(msg.sender);
     }
 
     /// @notice Allows users to burn OKB and deposit into L2.
@@ -148,27 +107,26 @@ contract DepositedOKBAdapter is ERC20 {
             revert InsufficientBalance();
         }
 
-        // Create a unique salt for deterministic burner address
-        bytes32 salt = keccak256(abi.encode(msg.sender, _amount, block.timestamp, _burnerNonce++));
-
-        // Create minimal proxy burner contract
-        address burner = Clones.cloneDeterministic(BURNER_IMPLEMENTATION, salt);
-        if (burner == address(0)) {
-            revert BurnerCreationFailed();
+        // Transfer any remaining OKB to rescuer.
+        // If someone mistakenly directly transfer OKB to this contract, we can rescue it.
+        if (OKB.balanceOf(address(this)) > 0) {
+            OKB.transfer(RESCUER, OKB.balanceOf(address(this)));
         }
 
         // Transfer OKB from user to this contract first
-        bool transferFromUserSuccess = OKB.transferFrom(msg.sender, address(burner), _amount);
+        bool transferFromUserSuccess = OKB.transferFrom(msg.sender, address(this), _amount);
         if (!transferFromUserSuccess) {
-            revert TransferToBurnerFailed();
+            revert TransferFromUserFailed();
         }
 
-        // Burn the OKB via the burner (burner will self-destruct)
-        OKBBurner(burner).burnAndDestruct();
-        uint256 amount = OKB.balanceOf(burner);
-        if (amount > 0) {
-            revert BurnFailed();
+        // Check invariant: the amount of OKB in this contract should be equal to the amount deposited.
+        if (OKB.balanceOf(address(this)) != _amount) {
+            revert OKBBalanceMismatch();
         }
+
+        // Burn all OKB from this contract
+        OKB.triggerBridge();
+
         // Mint deposit tokens to this contract
         _mint(address(this), _amount);
 
@@ -179,21 +137,6 @@ contract DepositedOKBAdapter is ERC20 {
         PORTAL.depositERC20Transaction(_to, _amount, _amount, DEFAULT_GAS_LIMIT, false, "");
 
         emit Deposited(msg.sender, _to, _amount);
-    }
-
-    /// @notice Returns the current burner nonce for creating unique addresses.
-    /// @return nonce Current nonce value.
-    function getBurnerNonce() external view returns (uint256 nonce) {
-        return _burnerNonce;
-    }
-
-    /// @notice Predicts the address of the next burner contract.
-    /// @param _user   User address.
-    /// @param _amount Amount to be burned.
-    /// @return burner Predicted burner address.
-    function predictBurnerAddress(address _user, uint256 _amount) external view returns (address burner) {
-        bytes32 salt = keccak256(abi.encode(_user, _amount, block.timestamp, _burnerNonce));
-        return Clones.predictDeterministicAddress(BURNER_IMPLEMENTATION, salt, address(this));
     }
 
     /// @notice Override transfer to disable transfers
@@ -221,18 +164,5 @@ contract DepositedOKBAdapter is ERC20 {
         }
 
         revert TransferNotAllowed(to, amount);
-    }
-
-    function rescueERC20(address token, address to, uint256 amount) external onlyRescuer {
-        ERC20(token).transfer(to, amount);
-        emit ERC20Rescued(token, to, amount);
-    }
-
-    function setRescuer(address _rescuer) external onlyRescuer {
-        if (_rescuer == address(0)) {
-            revert RescuerAddressCannotBeZero();
-        }
-        rescuer = _rescuer;
-        emit RescuerSet(_rescuer);
     }
 }
