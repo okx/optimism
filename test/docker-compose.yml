@@ -230,6 +230,8 @@ services:
       - ./config-op/genesis-rpc.json:/genesis.json
     ports:
       - "8124:8545"
+      - "30304:30303"
+      - "30304:30303/udp"
     command:
       - node
       - --datadir=/datadir
@@ -250,8 +252,9 @@ services:
       - --authrpc.addr=0.0.0.0
       - --authrpc.port=8552
       - --authrpc.jwtsecret=/jwt.txt
-      - --rollup.sequencer-http=http://op-geth-seq:8545
+      # - --rollup.sequencer-http=http://op-geth-seq:8545
       - --rollup.disable-tx-pool-gossip
+      - --bootnodes=${OP_RETH_RPC_BOOTNODES}
 
   op-seq:
     image: "${OP_STACK_IMAGE_TAG}"
