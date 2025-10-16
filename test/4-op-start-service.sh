@@ -16,8 +16,6 @@ PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$PWD_DIR")"
 SCRIPTS_DIR=$ROOT_DIR/test/scripts
 
-docker compose up -d op-batcher
-
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     docker compose up -d op-conductor
     docker compose up -d op-conductor2
@@ -133,7 +131,22 @@ if [ "$LAUNCH_RPC_NODE" = "true" ]; then
     echo "  - RPC node (op-geth-rpc) is connected to all sequencer nodes"
 fi
 
+# Configure op-batcher endpoints based on conductor mode
+if [ "$CONDUCTOR_ENABLED" = "true" ]; then
+    echo "🔧 Configuring op-batcher for conductor mode with conductor RPC endpoints..."
+    # Set conductor mode endpoints
+    export OP_BATCHER_L2_ETH_RPC="http://op-conductor:8547,http://op-conductor2:8547,http://op-conductor3:8547"
+    export OP_BATCHER_ROLLUP_RPC="http://op-conductor:8547,http://op-conductor2:8547,http://op-conductor3:8547"
+    echo "✅ op-batcher configured for conductor mode (connecting to conductor RPC endpoints)"
+else
+    echo "🔧 Configuring op-batcher for single sequencer mode..."
+    # Set single sequencer mode endpoints
+    export OP_BATCHER_L2_ETH_RPC="http://op-geth-seq:8545"
+    export OP_BATCHER_ROLLUP_RPC="http://op-seq:9545"
+    echo "✅ op-batcher configured for single sequencer mode"
+fi
 
+docker compose up -d op-batcher
 
 PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd $PWD_DIR
