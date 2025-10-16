@@ -3,6 +3,8 @@ pragma solidity 0.8.15;
 
 // Contracts
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 // Interfaces
 import { IOKB } from "interfaces/L1/IOKB.sol";
@@ -25,24 +27,32 @@ import { IOptimismPortal2 } from "interfaces/L1/IOptimismPortal2.sol";
 ///         - OKB burning to maintain strict supply constraints
 ///         - Seamless integration with existing OP Stack infrastructure
 /// @dev This token is set as the gasPayingToken on SystemConfig.
-contract DepositedOKBAdapter is ERC20 {
+contract DepositedOKBAdapter is ERC20, Ownable {
     /// @notice Address of the OptimismPortal2 contract that this adapter works with.
     IOptimismPortal2 public immutable PORTAL;
 
     /// @notice Address of the OKB token contract.
     IOKB public immutable OKB;
 
-    /// @notice Address of the rescue address.
-    address public immutable RESCUER;
-
     /// @notice Default gas limit for L2 deposit transactions.
     uint64 public constant DEFAULT_GAS_LIMIT = 100_000;
+
+    /// @notice Mapping of whitelisted addresses allowed to deposit.
+    mapping(address => bool) public whitelist;
 
     /// @notice Emitted when a user deposits OKB and initiates an L2 transaction.
     /// @param from   Address that deposited the OKB.
     /// @param to     Target address on L2.
     /// @param amount Amount of OKB burned and deposited.
     event Deposited(address indexed from, address indexed to, uint256 amount);
+
+    /// @notice Emitted when an address is added to the whitelist.
+    /// @param account Address that was added to the whitelist.
+    event WhitelistAdded(address indexed account);
+
+    /// @notice Emitted when an address is removed from the whitelist.
+    /// @param account Address that was removed from the whitelist.
+    event WhitelistRemoved(address indexed account);
 
     /// @notice Thrown when transfer is attempted outside of portal operations.
     /// @param to     The attempted recipient address.
@@ -51,15 +61,6 @@ contract DepositedOKBAdapter is ERC20 {
 
     /// @notice Thrown when amount is zero.
     error AmountMustBeGreaterThanZero();
-
-    /// @notice Thrown when OKB address is zero.
-    error OKBAddressCannotBeZero();
-
-    /// @notice Thrown when portal address is zero.
-    error PortalAddressCannotBeZero();
-
-    /// @notice Thrown when rescuer address is zero.
-    error RescuerAddressCannotBeZero();
 
     /// @notice Thrown when balance is insufficient.
     error InsufficientBalance();
@@ -70,36 +71,73 @@ contract DepositedOKBAdapter is ERC20 {
     /// @notice Thrown when OKB balance is not equal to the amount deposited.
     error OKBBalanceMismatch();
 
-    /// @notice Constructor sets up the adapter with references to OKB, OptimismPortal, and rescuer.
+    /// @notice Thrown when caller is not whitelisted.
+    error NotWhitelisted();
+
+    /// @notice Thrown when address is zero.
+    error AddressCannotBeZero();
+
+    /// @notice Thrown when OKB balance is not zero.
+    error OKBBalanceNotZeroAfterBurn();
+
+    /// @notice Constructor sets up the adapter with references to OKB, OptimismPortal, rescuer,
+    ///         and premints the maximum supply to the owner.
     /// @param _okb                 Address of the OKB token contract.
     /// @param _portal              Address of the OptimismPortal2 contract.
-    /// @param _rescuer             Address of the rescuer contract.
-    constructor(address _okb, address payable _portal, address _rescuer) ERC20("Deposited OKB", "dOKB") {
+    /// @param _owner               Address of the contract owner.
+    constructor(address _okb, address payable _portal, address _owner) ERC20("Deposited OKB", "dOKB") Ownable(_owner) {
         if (_okb == address(0)) {
-            revert OKBAddressCannotBeZero();
+            revert AddressCannotBeZero();
         }
         if (_portal == address(0)) {
-            revert PortalAddressCannotBeZero();
+            revert AddressCannotBeZero();
         }
-        if (_rescuer == address(0)) {
-            revert RescuerAddressCannotBeZero();
-        }
-        RESCUER = _rescuer;
         OKB = IOKB(_okb);
         PORTAL = IOptimismPortal2(_portal);
+
+        // Premint total supply of OKB to this contract to enforce hard cap
+        _mint(address(this), OKB.totalSupply());
     }
 
-    /// @notice Allows users to burn OKB and deposit into L2.
+    /// @notice Adds multiple addresses to the whitelist in a single transaction.
+    /// @param _accounts Array of addresses to add to the whitelist.
+    function addToWhitelistBatch(address[] calldata _accounts) external onlyOwner {
+        for (uint256 i = 0; i < _accounts.length; i++) {
+            if (_accounts[i] == address(0)) {
+                revert AddressCannotBeZero();
+            }
+            whitelist[_accounts[i]] = true;
+            emit WhitelistAdded(_accounts[i]);
+        }
+    }
+
+    /// @notice Removes multiple addresses from the whitelist in a single transaction.
+    /// @param _accounts Array of addresses to remove from the whitelist.
+    function removeFromWhitelistBatch(address[] calldata _accounts) external onlyOwner {
+        for (uint256 i = 0; i < _accounts.length; i++) {
+            if (_accounts[i] == address(0)) {
+                revert AddressCannotBeZero();
+            }
+            whitelist[_accounts[i]] = false;
+            emit WhitelistRemoved(_accounts[i]);
+        }
+    }
+
+    /// @notice Allows whitelisted users to burn OKB and deposit into L2.
     ///         This function:
-    ///         1. Transfers OKB from the user to this contract
-    ///         2. Creates a minimal proxy burner contract
-    ///         3. Transfers the exact amount of OKB to the burner
-    ///         4. Burns the OKB via the burner (which self-destructs)
-    ///         5. Mints deposit tokens to this contract
-    ///         6. Initiates an L2 deposit transaction via the portal
+    ///         1. Checks if caller is whitelisted
+    ///         2. Transfers OKB from the user to this contract
+    ///         3. Creates a minimal proxy burner contract
+    ///         4. Transfers the exact amount of OKB to the burner
+    ///         5. Burns the OKB via the burner (which self-destructs)
+    ///         6. Mints deposit tokens to this contract
+    ///         7. Initiates an L2 deposit transaction via the portal
     /// @param _to         Target address on L2 to receive the tokens.
     /// @param _amount     Amount of OKB to burn and deposit.
     function deposit(address _to, uint256 _amount) external {
+        if (!whitelist[msg.sender]) {
+            revert NotWhitelisted();
+        }
         if (_amount == 0) {
             revert AmountMustBeGreaterThanZero();
         }
@@ -108,9 +146,9 @@ contract DepositedOKBAdapter is ERC20 {
         }
 
         // Transfer any remaining OKB to rescuer.
-        // If someone mistakenly directly transfer OKB to this contract, we can rescue it.
+        // If someone mistakenly directly transfer OKB to this contract, transfer it to the owner.
         if (OKB.balanceOf(address(this)) > 0) {
-            OKB.transfer(RESCUER, OKB.balanceOf(address(this)));
+            OKB.transfer(owner(), OKB.balanceOf(address(this)));
         }
 
         // Transfer OKB from user to this contract first
@@ -127,8 +165,10 @@ contract DepositedOKBAdapter is ERC20 {
         // Burn all OKB from this contract
         OKB.triggerBridge();
 
-        // Mint deposit tokens to this contract
-        _mint(address(this), _amount);
+        // Check invariant: the amount of OKB in this contract should be zero after burning.
+        if (OKB.balanceOf(address(this)) > 0) {
+            revert OKBBalanceNotZeroAfterBurn();
+        }
 
         // Approve the portal to pull the deposit tokens
         _approve(address(this), address(PORTAL), _amount);
@@ -164,5 +204,23 @@ contract DepositedOKBAdapter is ERC20 {
         }
 
         revert TransferNotAllowed(to, amount);
+    }
+
+    /// @notice Allows owner to rescue ERC20 tokens sent to this contract.
+    /// @param _token   Address of the ERC20 token to rescue.
+    /// @param _to      Address to send the tokens to.
+    /// @param _amount  Amount of tokens to rescue.
+    function rescueERC20(address _token, address _to, uint256 _amount) external onlyOwner {
+        if (_token == address(0)) {
+            revert AddressCannotBeZero();
+        }
+        if (_to == address(0)) {
+            revert AddressCannotBeZero();
+        }
+        if (_amount == 0) {
+            revert AmountMustBeGreaterThanZero();
+        }
+
+        IERC20(_token).transfer(_to, _amount);
     }
 }
