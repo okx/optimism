@@ -15,7 +15,7 @@ cp local.env .env
 ./7-setup-fraud-proof.sh
 ```
 
-## run on testnet
+## run on testnet (only regenesis, no OP program build)
 ```bash
 make clean
 cp testnet.env .env
@@ -41,34 +41,15 @@ docker build \
   --progress=plain \
   -t op-migrate:amd64 -f dockerfile/Dockerfile.op-program .
 
-# 1) docker.io/library/golang:1.24.2-alpine3.21
-docker pull golang@sha256:3077e12cda6debf8a9eba8eba0b6b4efe6f9c17295a18e3883cc5797d1688acb
-docker tag 3077e12cd golang:1.24.2-alpine3.21
-# 2) docker.io/library/golang:1.23.8-alpine3.21
-docker pull golang@sha256:b6da2ff7e4eb4c632f7f21532b775078f77a790b159c56a0a7963a1532364cf0
-docker tag b6da2ff7e4e golang:1.23.8-alpine3.21
-
-# From optimism root directory, build amd64 version of the golang base images above first.
-docker build --platform linux/amd64 -t golang:1.23.8-alpine3.21-builder --build-arg GO_VERSION=1.23.8-alpine3.21 -f Dockerfile.repro-builder .
-docker build --platform linux/amd64 -t golang:1.24.2-alpine3.21-builder --build-arg GO_VERSION=1.24.2-alpine3.21 -f Dockerfile.repro-builder .
-
-docker save golang:1.24.2-alpine3.21-builder | gzip > golang-1.24.2-alpine3.21.tar.gz
-docker save golang:1.23.8-alpine3.21-builder | gzip > golang-1.23.8-alpine3.21.tar.gz
-docker save op-geth:v1.101511.0-patch | gzip > op-geth.tar.gz # starting new OP sequencer
+# Afterwards, manually copy op-migrate-amd64.tar.gz to DACs env.
 docker save op-migrate:amd64 | gzip > op-migrate-amd64.tar.gz
-
-# Make a new folder in current directory.
-mkdir upload-to-ecs
-mv golang-1.24.2-alpine3.21.tar.gz golang-1.23.8-alpine3.21.tar.gz op-migrate-amd64.tar.gz op-geth.tar.gz upload-to-ecs
-tar -czvf upload-to-ecs.tar.gz upload-to-ecs
-# Manually copy upload-to-ecs.tar.gz to DACs env.
 
 # INSIDE DACs TERMINAL
 # ----------------------------------------------------------------------------
 # Calculate md5 hash to create OSS ticket.
-md5sum upload-to-ecs.tar.gz
-# Use osstool to upload images to ECS.
-./osstool -f upload-to-ecs.tar.gz -a upload -ticket ${ticket-id}
+md5sum op-migrate-amd64.tar.gz
+# Use osstool to upload image to ECS.
+./osstool -f op-migrate-amd64.tar.gz -a upload -ticket ${ticket-id}
 
 # INSIDE ECS MACHINE
 # ----------------------------------------------------------------------------
@@ -81,46 +62,30 @@ df -hT /mnt/ramdisk_op
 cd /data
 # download from OSS
 osstool download -ticket ${ticket-id}
-# untar the uploaded file
-tar -xzvf upload-to-ecs.tar.gz
-cd upload-to-ecs
 # load the docker images into local registry
-docker load < [filename].tar.gz
-# Retag golang builder images as base golang images. During `make reproducible-prestate`,
-# this will use the cached images instead of pulling from internet.
-docker tag golang:1.23.8-alpine3.21-builder golang:1.23.8-alpine3.21
-docker tag golang:1.24.2-alpine3.21-builder golang:1.24.2-alpine3.21
+docker load < op-migrate-amd64.tar.gz
 
-
-# START REGENESIS (ECS host machine)
+# START REGENESIS (inside container image)
 # ----------------------------------------------------------------------------
-docker run op-migrate:amd64 cp -rfv /app/op-geth/test-pp-op/* /app/op-geth/test-pp-op/.* /mnt/ramdisk_op/test-pp-op
+docker run \
+  --name $CONTAINER_NAME \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /data/erigon-data:/data/erigon-data \
+  -v /mnt/ramdisk_op:/mnt/ramdisk_op \
+  -v /mnt/ramdisk_op/test-pp-op/data/op-geth-seq:/app/op-geth/test-pp-op/data/op-geth-seq \
+  -v /mnt/ramdisk_op/test-pp-op/data/cannon-data:/app/op-program/bin \
+  -e DOCKER_HOST=unix:///var/run/docker.sock \
+  -d op-migrate:amd64 sleep infinity
 
-# All configs (including .env, op-geth-data, cannon-data) should be copied to this location.
-cd /mnt/ramdisk_op/test-pp-op
+cd /app/op-geth
+# Execute regenesis only.
+./4-migrate-op.sh
+# Copy configs to mount location
+cp -rfv /app/op-geth/test-pp-op/* /app/op-geth/test-pp-op/.* /mnt/ramdisk_op/test-pp-op
+exit
 
-# Execute all stage 5 in one step.
-./5-all.sh
-
-# RPC (init) since we couldn't start RPC with custom block.
-# Once init, start the RPC (geth + node), it will take some time before it starts
-# syncing new blocks from sequencer.
-docker run --rm \
-  -v "$(pwd):/app" \
-  -v "$(pwd)/data/op-geth-rpc:/datadir" \
-  op-geth:v1.101511.0-patch \
-  geth \
-  --datadir "/datadir" \
-  --gcmode=archive \
-  --db.engine=pebble \
-  --log.format json \
-  init \
-  --state.scheme=hash \
-  /app/merged.genesis.json 2>&1 | tee init.log
-
-# start OP services
-./5-start-op.sh # docker compose + .env
-./7-setup-fraud-proof.sh # needs cast, docker compose
+# Inside ECS host, save everything needed (to start new sequencer and build OP program) to disk.
+cp /mnt/ramdisk_op/test-pp-op/{.env,config-op/rollup.json,merged.genesis.json,data/op-geth-seq} /data
 ```
 
 
