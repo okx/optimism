@@ -28,7 +28,6 @@ if [ "$REALTIME_ENABLED" = "true" ]; then
     docker compose up -d xlayer-kafka
     sleep 20
 fi
-docker compose up -d op-batcher
 
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     CONFIG_FILE=$(get_config_file) docker compose up -d op-seq
@@ -72,8 +71,11 @@ echo "📡 Getting enode addresses..."
 
 # Get enodes
 OP_GETH_SEQ_ENODE=$(get_enode "op-geth-seq" "8545")
-OP_GETH_RPC_ENODE=$(get_enode "op-geth-rpc" "8545")
-OP_GETH_RPC_2_ENODE=$(get_enode "op-geth-rpc-2" "8545")
+
+if [ "$LAUNCH_RPC_NODE" = "true" ]; then
+    OP_GETH_RPC_ENODE=$(get_enode "op-geth-rpc" "8545")
+    OP_GETH_RPC_2_ENODE=$(get_enode "op-geth-rpc-2" "8545")
+fi
 
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     OP_GETH_SEQ2_ENODE=$(get_enode "op-geth-seq2" "8545")
@@ -82,8 +84,11 @@ fi
 
 # Replace 127.0.0.1 with container names
 OP_GETH_SEQ_ENODE=$(replace_enode_ip "$OP_GETH_SEQ_ENODE" "op-geth-seq")
-OP_GETH_RPC_ENODE=$(replace_enode_ip "$OP_GETH_RPC_ENODE" "op-geth-rpc")
-OP_GETH_RPC_2_ENODE=$(replace_enode_ip "$OP_GETH_RPC_2_ENODE" "op-geth-rpc-2")
+
+if [ "$LAUNCH_RPC_NODE" = "true" ]; then
+    OP_GETH_RPC_ENODE=$(replace_enode_ip "$OP_GETH_RPC_ENODE" "op-geth-rpc")
+    OP_GETH_RPC_2_ENODE=$(replace_enode_ip "$OP_GETH_RPC_2_ENODE" "op-geth-rpc-2")
+fi
 
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     OP_GETH_SEQ2_ENODE=$(replace_enode_ip "$OP_GETH_SEQ2_ENODE" "op-geth-seq2")
@@ -92,8 +97,10 @@ fi
 
 echo "✅ Enode addresses:"
 echo "  op-geth-seq: $OP_GETH_SEQ_ENODE"
-echo "  op-geth-rpc: $OP_GETH_RPC_ENODE"
-echo "  op-geth-rpc-2: $OP_GETH_RPC_2_ENODE"
+if [ "$LAUNCH_RPC_NODE" = "true" ]; then
+    echo "  op-geth-rpc: $OP_GETH_RPC_ENODE"
+    echo "  op-geth-rpc-2: $OP_GETH_RPC_2_ENODE"
+fi
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     echo "  op-geth-seq2: $OP_GETH_SEQ2_ENODE"
     echo "  op-geth-seq3: $OP_GETH_SEQ3_ENODE"
@@ -130,22 +137,41 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
 fi
 
 # Setup RPC node to connect to all sequencer nodes
-echo "🔗 Setting up RPC node to connect to all sequencer nodes..."
-add_peer "op-geth-rpc" "$OP_GETH_SEQ_ENODE"
-add_peer "op-geth-rpc-2" "$OP_GETH_SEQ_ENODE"
-if [ "$CONDUCTOR_ENABLED" = "true" ]; then
-    add_peer "op-geth-rpc" "$OP_GETH_SEQ2_ENODE"
-    add_peer "op-geth-rpc" "$OP_GETH_SEQ3_ENODE"
-    add_peer "op-geth-rpc-2" "$OP_GETH_SEQ2_ENODE"
-    add_peer "op-geth-rpc-2" "$OP_GETH_SEQ3_ENODE"
+if [ "$LAUNCH_RPC_NODE" = "true" ]; then
+    echo "🔗 Setting up RPC node to connect to all sequencer nodes..."
+    add_peer "op-geth-rpc" "$OP_GETH_SEQ_ENODE"
+    add_peer "op-geth-rpc-2" "$OP_GETH_SEQ_ENODE"
+    if [ "$CONDUCTOR_ENABLED" = "true" ]; then
+        add_peer "op-geth-rpc" "$OP_GETH_SEQ2_ENODE"
+        add_peer "op-geth-rpc" "$OP_GETH_SEQ3_ENODE"
+        add_peer "op-geth-rpc-2" "$OP_GETH_SEQ2_ENODE"
+        add_peer "op-geth-rpc-2" "$OP_GETH_SEQ3_ENODE"
+    fi
 fi
 
 echo "✅ P2P static connections established:"
 echo "  - Sequencer nodes (op-geth-seq, op-geth-seq2, op-geth-seq3) are connected to each other"
-echo "  - RPC node (op-geth-rpc) is connected to all sequencer nodes"
-echo "  - RPC node (op-geth-rpc-2) is connected to all sequencer nodes"
+if [ "$LAUNCH_RPC_NODE" = "true" ]; then
+    echo "  - RPC node (op-geth-rpc) is connected to all sequencer nodes"
+    echo "  - RPC node (op-geth-rpc-2) is connected to all sequencer nodes"
+fi
 
+# Configure op-batcher endpoints based on conductor mode
+if [ "$CONDUCTOR_ENABLED" = "true" ]; then
+    echo "🔧 Configuring op-batcher for conductor mode with conductor RPC endpoints..."
+    # Set conductor mode endpoints
+    export OP_BATCHER_L2_ETH_RPC="http://op-conductor:8547,http://op-conductor2:8547,http://op-conductor3:8547"
+    export OP_BATCHER_ROLLUP_RPC="http://op-conductor:8547,http://op-conductor2:8547,http://op-conductor3:8547"
+    echo "✅ op-batcher configured for conductor mode (connecting to conductor RPC endpoints)"
+else
+    echo "🔧 Configuring op-batcher for single sequencer mode..."
+    # Set single sequencer mode endpoints
+    export OP_BATCHER_L2_ETH_RPC="http://op-geth-seq:8545"
+    export OP_BATCHER_ROLLUP_RPC="http://op-seq:9545"
+    echo "✅ op-batcher configured for single sequencer mode"
+fi
 
+docker compose up -d op-batcher
 
 PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd $PWD_DIR
@@ -167,7 +193,7 @@ VM="0x${VM_RAW: -40}"
 ANCHOR_STATE_REGISTRY=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME "anchorStateRegistry()")
 L2_CHAIN_ID=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME "l2ChainId()")
 
-# Call the function to add game type 1 (permissioned) via Transactor
+# Call the function to add game type 1 (permissioned)
 "$SCRIPTS_DIR/add-game-type.sh" 1 true $TEMP_CLOCK_EXTENSION $TEMP_MAX_CLOCK_DURATION $ABSOLUTE_PRESTATE
 
 export GAME_TYPE=1
@@ -264,7 +290,7 @@ PERMISSIONED_GAME=$(cast call --rpc-url $L1_RPC_URL $DISPUTE_GAME_FACTORY_ADDRES
 ABSOLUTE_PRESTATE=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME "absolutePrestate()")
 ANCHOR_STATE_REGISTRY=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME "anchorStateRegistry()")
 
-# Call the function to add game type 0 (permissionless) via Transactor
+# Call the function to add game type 0 (permissionless)
 "$SCRIPTS_DIR/add-game-type.sh" 0 false $CLOCK_EXTENSION $MAX_CLOCK_DURATION $ABSOLUTE_PRESTATE
 
 export GAME_TYPE=0
