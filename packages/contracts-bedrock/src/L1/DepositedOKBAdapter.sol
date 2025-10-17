@@ -190,7 +190,7 @@ contract DepositedOKBAdapter is ERC20, Ownable {
     ///         This ensures that deposit tokens can only be used by the portal
     ///         and cannot be transferred or traded elsewhere.
     /// @return bool  Always reverts.
-    function transfer(address /* _to */, uint256 /* _amount */) public virtual override returns (bool) {
+    function transfer(address, /* _to */ uint256 /* _amount */ ) public virtual override returns (bool) {
         // Do not allow any transfers
         revert TransferNotAllowed();
     }
