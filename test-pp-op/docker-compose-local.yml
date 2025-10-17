@@ -598,23 +598,29 @@ services:
     command:
       - /app/op-batcher/bin/op-batcher
       - --log.level=debug
-      - --l2-eth-rpc=http://op-geth-seq:8545
-      - --rollup-rpc=http://op-seq:9545
-      - --poll-interval=1s
+      - --l2-eth-rpc=${OP_BATCHER_L2_ETH_RPC:-http://op-geth-seq:8545}
+      - --rollup-rpc=${OP_BATCHER_ROLLUP_RPC:-http://op-seq:9545}
+      - --wait-node-sync=true
+      - --check-recent-txs-depth=5
+      - --poll-interval=5s
+      - --batch-type=1
+      - --compression-algo=brotli-11
+      - --data-availability-type=auto
+      - --max-channel-duration=30
+      - --target-num-frames=5
       - --sub-safety-margin=6
-      - --num-confirmations=1
+      - --num-confirmations=4
+      - --network-timeout=10s
       - --safe-abort-nonce-too-low-count=3
+      - --max-pending-tx=10
       - --resubmission-timeout=30s
       - --rpc.addr=0.0.0.0
       - --rpc.port=8548
       - --rpc.enable-admin
-      - --max-channel-duration=25
       - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
       - --private-key=${OP_BATCHER_PRIVATE_KEY}
       - --throttle.block-size-upper-limit=1300000
-      - -data-availability-type=auto
-    depends_on:
-      - op-seq
+      - --active-sequencer-check-duration=5s
 
   op-proposer:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -624,9 +630,14 @@ services:
     command:
       - /app/op-proposer/bin/op-proposer
       - --log.level=debug
-      - --poll-interval=2s
+      - --poll-interval=20s
+      - --wait-node-sync=true
+      - --allow-non-finalized=false
+      - --num-confirmations=1
+      - --safe-abort-nonce-too-low-count=3
+      - --resubmission-timeout=30s
       - --rpc.port=8560
-      - --rollup-rpc=http://op-seq:9545
+      - --rollup-rpc=http://op-rpc:9545
       - --game-factory-address=${DISPUTE_GAME_FACTORY_ADDRESS}
       - --proposal-interval=1m
       - --private-key=${OP_PROPOSER_PRIVATE_KEY}
@@ -655,8 +666,8 @@ services:
       - --log.level=debug
       - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
       - --l1-beacon=${L1_BEACON_URL_IN_DOCKER}
-      - --l2-eth-rpc=http://op-geth-seq:8545
-      - --rollup-rpc=http://op-seq:9545
+      - --l2-eth-rpc=http://op-geth-rpc:8545
+      - --rollup-rpc=http://op-rpc:9545
       - --game-factory-address=${DISPUTE_GAME_FACTORY_ADDRESS}
       - --cannon-bin=/app/cannon/bin/cannon
       - --cannon-server=/data/op-program
@@ -677,7 +688,7 @@ services:
     command:
       - /app/op-dispute-mon/bin/op-dispute-mon
       - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
-      - --rollup-rpc=http://op-seq:9545
+      - --rollup-rpc=http://op-rpc:9545
       - --game-factory-address=${DISPUTE_GAME_FACTORY_ADDRESS}
       - --game-window=${GAME_WINDOW}s
       - --honest-actors=${PROPOSER_ADDRESS}
