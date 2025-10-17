@@ -38,6 +38,7 @@ MaxHeaderHistory = 1024
 MaxBlockHistory = 1024
 MaxPrice = "50000000000" #50GWei
 IgnorePrice = "2"
+MinSuggestedPriorityFee = 1
 
 [Eth.GPO.XLayer]
 Type = "default"
