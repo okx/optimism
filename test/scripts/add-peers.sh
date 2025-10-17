@@ -13,8 +13,7 @@ echo "🔗 Setting up P2P static connections between op-geth nodes..."
 # Function to get enode from a geth container
 get_enode() {
     local container_name=$1
-    local rpc_port=$2
-    local enode=$(docker exec $container_name geth attach --exec "admin.nodeInfo.enode" --datadir /datadir 2>/dev/null | tr -d '"')
+    local enode=$(docker logs $container_name 2>&1 | head -n 100 | grep "enode" | tail -1 | cut -d '=' -f 2 | tr -d '"')
     echo "$enode"
 }
 
@@ -25,31 +24,31 @@ replace_enode_ip() {
     echo "$enode" | sed "s/@127.0.0.1:/@$container_name:/"
 }
 
+sed_inplace() {
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    sed -i '' "$@"
+  else
+    sed -i "$@"
+  fi
+}
+
 # Get enodes for all op-geth containers
 echo "📡 Getting enode addresses..."
 
 # Get enodes
-OP_GETH_SEQ_ENODE=$(get_enode "op-geth-seq" "8545")
+OP_GETH_SEQ_ENODE=$(get_enode "op-geth-seq")
 if [ -z "$OP_GETH_SEQ_ENODE" ]; then
     echo "❌ Failed to get enode for op-geth-seq"
     exit 1
 fi
 
-if [ "$LAUNCH_RPC_NODE" = "true" ]; then
-    OP_GETH_RPC_ENODE=$(get_enode "op-geth-rpc" "8545")
-    if [ -z "$OP_GETH_RPC_ENODE" ]; then
-        echo "❌ Failed to get enode for op-geth-rpc"
-        exit 1
-    fi
-fi
-
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
-    OP_GETH_SEQ2_ENODE=$(get_enode "op-geth-seq2" "8545")
+    OP_GETH_SEQ2_ENODE=$(get_enode "op-geth-seq2")
     if [ -z "$OP_GETH_SEQ2_ENODE" ]; then
         echo "❌ Failed to get enode for op-geth-seq2"
         exit 1
     fi
-    OP_GETH_SEQ3_ENODE=$(get_enode "op-geth-seq3" "8545")
+    OP_GETH_SEQ3_ENODE=$(get_enode "op-geth-seq3")
     if [ -z "$OP_GETH_SEQ3_ENODE" ]; then
         echo "❌ Failed to get enode for op-geth-seq3"
         exit 1
@@ -59,10 +58,6 @@ fi
 # Replace 127.0.0.1 with container names
 OP_GETH_SEQ_ENODE=$(replace_enode_ip "$OP_GETH_SEQ_ENODE" "op-geth-seq")
 
-if [ "$LAUNCH_RPC_NODE" = "true" ]; then
-    OP_GETH_RPC_ENODE=$(replace_enode_ip "$OP_GETH_RPC_ENODE" "op-geth-rpc")
-fi
-
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     OP_GETH_SEQ2_ENODE=$(replace_enode_ip "$OP_GETH_SEQ2_ENODE" "op-geth-seq2")
     OP_GETH_SEQ3_ENODE=$(replace_enode_ip "$OP_GETH_SEQ3_ENODE" "op-geth-seq3")
@@ -70,9 +65,6 @@ fi
 
 echo "✅ Enode addresses:"
 echo "  op-geth-seq: $OP_GETH_SEQ_ENODE"
-if [ "$LAUNCH_RPC_NODE" = "true" ]; then
-    echo "  op-geth-rpc: $OP_GETH_RPC_ENODE"
-fi
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     echo "  op-geth-seq2: $OP_GETH_SEQ2_ENODE"
     echo "  op-geth-seq3: $OP_GETH_SEQ3_ENODE"
@@ -111,10 +103,18 @@ fi
 # Setup RPC node to connect to all sequencer nodes
 if [ "$LAUNCH_RPC_NODE" = "true" ]; then
     echo "🔗 Setting up RPC node to connect to all sequencer nodes..."
-    add_peer "op-geth-rpc" "$OP_GETH_SEQ_ENODE"
+    OP_RPC_TRUSTED_NODES="\"$OP_GETH_SEQ_ENODE\""
     if [ "$CONDUCTOR_ENABLED" = "true" ]; then
-        add_peer "op-geth-rpc" "$OP_GETH_SEQ2_ENODE"
-        add_peer "op-geth-rpc" "$OP_GETH_SEQ3_ENODE"
+        OP_RPC_TRUSTED_NODES="\"$OP_GETH_SEQ_ENODE\",\"$OP_GETH_SEQ2_ENODE\",\"$OP_GETH_SEQ3_ENODE\""
+    fi
+    if [ "$RPC_TYPE" = "op-geth-rpc" ]; then
+        cp ./config-op/test.geth.rpc.config.toml ./config-op/gen.test.geth.rpc.config.toml
+        # Here we use # as delimiter to avoid escaping // in enode URLs
+        sed_inplace 's#TrustedNodes = \[\]#TrustedNodes = \['"$OP_RPC_TRUSTED_NODES"'\]#' ./config-op/gen.test.geth.rpc.config.toml
+    elif [ "$RPC_TYPE" = "op-reth-rpc" ]; then
+        cp ./config-op/test.reth.rpc.config.toml ./config-op/gen.test.reth.rpc.config.toml
+        # Here we use # as delimiter to avoid escaping // in enode URLs
+        sed_inplace 's#trusted_nodes = \[\]#trusted_nodes = \['"$OP_RPC_TRUSTED_NODES"'\]#' ./config-op/gen.test.reth.rpc.config.toml
     fi
 fi
 
@@ -123,5 +123,5 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
   echo "  - Sequencer nodes (op-geth-seq, op-geth-seq2, op-geth-seq3) are connected to each other"
 fi
 if [ "$LAUNCH_RPC_NODE" = "true" ]; then
-    echo "  - RPC node (op-geth-rpc) is connected to all sequencer nodes"
+    echo "  - RPC node ($RPC_TYPE) is connected to all sequencer nodes"
 fi
