@@ -531,6 +531,51 @@ contract DepositedOKBAdapter_Transfer_Test is DepositedOKBAdapter_TestInit {
         assertEq(adapter.balanceOf(address(portal)), amount);
         assertEq(adapter.balanceOf(address(adapter)), TOTAL_SUPPLY - amount);
     }
+
+    /// @notice Test portal calling transferFrom from adapter to user1 reverts
+    function test_transferFrom_portalCallerAdapterToUser1_reverts() public {
+        uint256 amount = 1000e18;
+
+        // First approve the portal to spend from the adapter
+        vm.prank(address(adapter));
+        adapter.approve(address(portal), amount);
+
+        // Portal calling transferFrom(adapter, user1, amount) should revert
+        // because 'to' is not the portal address
+        vm.expectRevert(DepositedOKBAdapter.TransferNotAllowed.selector);
+        vm.prank(address(portal));
+        adapter.transferFrom(address(adapter), user1, amount);
+    }
+
+    /// @notice Test portal calling transferFrom from portal to adapter reverts
+    function test_transferFrom_portalCallerPortalToAdapter_reverts() public {
+        uint256 amount = 1000e18;
+
+        // First approve the portal to spend from the portal (though this wouldn't make sense in practice)
+        vm.prank(address(portal));
+        adapter.approve(address(portal), amount);
+
+        // Portal calling transferFrom(portal, adapter, amount) should revert
+        // because 'from' is not the adapter address
+        vm.expectRevert(DepositedOKBAdapter.TransferNotAllowed.selector);
+        vm.prank(address(portal));
+        adapter.transferFrom(address(portal), address(adapter), amount);
+    }
+
+    /// @notice Test portal calling transferFrom from portal to user1 reverts
+    function test_transferFrom_portalCallerPortalToUser1_reverts() public {
+        uint256 amount = 1000e18;
+
+        // First approve the portal to spend from the portal
+        vm.prank(address(portal));
+        adapter.approve(address(portal), amount);
+
+        // Portal calling transferFrom(portal, user1, amount) should revert
+        // because 'from' is not the adapter address and 'to' is not the portal
+        vm.expectRevert(DepositedOKBAdapter.TransferNotAllowed.selector);
+        vm.prank(address(portal));
+        adapter.transferFrom(address(portal), user1, amount);
+    }
 }
 
 /// @title DepositedOKBAdapter_Rescue_Test

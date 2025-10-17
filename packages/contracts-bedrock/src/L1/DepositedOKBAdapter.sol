@@ -13,19 +13,15 @@ import { IOptimismPortal2 } from "interfaces/L1/IOptimismPortal2.sol";
 /// @title DepositedOKBAdapter
 /// @notice This contract is an ERC20 adapter that allows for burning OKB tokens on L1
 ///         and depositing them into L2. It enforces the strict 21 million supply cap
-///         by burning OKB tokens and minting equivalent deposit tokens that can only
-///         be used with the OptimismPortal for deposits to L2.
+///         by burning OKB tokens and minting equivalent deposit tokens (dOKB) that can only
+///         be used with the OptimismPortal2 for deposits to L2.
 ///
 ///         Key features:
 ///         - Burns OKB from user's wallet upon deposit
-///         - Mints deposit tokens that are locked to this contract
-///         - Only the OptimismPortal can transfer these tokens
+///         - Mints deposit tokens (dOKB) that are locked to this contract
+///         - Only this contract and the OptimismPortal2 have balances of dOKB.
 ///         - Automatically initiates L2 deposit transaction
 ///
-///         This design enables:
-///         - Generic lock-and-mint pattern for custom gas tokens
-///         - OKB burning to maintain strict supply constraints
-///         - Seamless integration with existing OP Stack infrastructure
 /// @dev This token is set as the gasPayingToken on SystemConfig.
 contract DepositedOKBAdapter is ERC20, Ownable {
     /// @notice Address of the OptimismPortal2 contract that this adapter works with.
@@ -203,8 +199,8 @@ contract DepositedOKBAdapter is ERC20, Ownable {
     /// @param amount Amount to transfer.
     /// @return bool  True if transfer succeeds.
     function transferFrom(address from, address to, uint256 amount) public virtual override returns (bool) {
-        // Only allow portal to pull from this contract
-        if (to == address(PORTAL) && from == address(this)) {
+        // Ensure only the portal can pull from this contract, and only to the portal.
+        if (msg.sender == address(PORTAL) && to == address(PORTAL) && from == address(this)) {
             return super.transferFrom(from, to, amount);
         }
 
