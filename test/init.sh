@@ -18,20 +18,13 @@ else
     OP_GETH_DIR="$OP_GETH_LOCAL_DIRECTORY"
 fi
 
-if [ "$OP_RETH_LOCAL_DIRECTORY" = "" ]; then
-    git submodule update --init --recursive
-    OP_RETH_DIR="$OPTIMISM_DIR/op-reth"
-else
-    OP_RETH_DIR="$OP_RETH_LOCAL_DIRECTORY"
-fi
-
 # Switch to specified branch if provided
-if [ -n "$BRANCH_NAME" ]; then
-    echo "Switching op-geth to branch: $BRANCH_NAME"
+if [ -n "$OP_GETH_BRANCH" ]; then
+    echo "Switching op-geth to branch: $OP_GETH_BRANCH"
     cd $OP_GETH_DIR
     git fetch origin
-    git checkout "$BRANCH_NAME"
-    git pull origin "$BRANCH_NAME"
+    git checkout "$OP_GETH_BRANCH"
+    git pull origin "$OP_GETH_BRANCH"
     cd "$PWD_DIR"
 else
     echo "Using op-geth default branch"
@@ -71,8 +64,21 @@ fi
 if [ $SKIP_OP_RETH_BUILD = "true" ]; then
     echo "skipping op-reth build"
 else
-    echo "Building $OP_RETH_IMAGE_TAG"
-    cd $OP_RETH_DIR
-    docker build -t $OP_RETH_IMAGE_TAG -f ./DockerfileOp .
-    cd $OPTIMISM_DIR
+    if [ "$OP_RETH_LOCAL_DIRECTORY" = "" ]; then
+        echo "Please set OP_RETH_LOCAL_DIRECTORY in .env"
+        exit 1
+    else
+        echo "Building $OP_RETH_IMAGE_TAG"
+        cd $OP_RETH_LOCAL_DIRECTORY
+        if [ -n "$OP_RETH_BRANCH" ]; then
+            echo "Switching op-reth to branch: $OP_RETH_BRANCH"
+            git fetch origin
+            git checkout "$OP_RETH_BRANCH"
+            git pull origin "$OP_RETH_BRANCH"
+        else
+            echo "Using op-reth branch: $(git branch --show-current)"
+        fi
+        docker build -t $OP_RETH_IMAGE_TAG -f ./DockerfileOp .
+        cd $OPTIMISM_DIR
+    fi
 fi
