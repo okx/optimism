@@ -1,6 +1,6 @@
 networks:
   default:
-    name: ${DOCKER_NETWORK:-dev-op}
+    name: pp-op
 
 services:
   l1-geth-remove-db:
@@ -170,6 +170,252 @@ services:
     volumes:
       - ./l1-geth/consensus:/consensus
 
+  xlayer-approve:
+    container_name: xlayer-approve
+    image: hermeznetwork/zkevm-node:v0.6.6
+    volumes:
+      - ./keystore/sequencer.keystore:/pk/keystore
+      - ./config/test.node.config.toml:/app/config.toml
+      - ./config/test.genesis.config.json:/app/genesis.json
+    command:
+      - "/bin/sh"
+      - "-c"
+      - "/app/zkevm-node approve --network custom --custom-network-file /app/genesis.json --key-store-path /pk/keystore --pw testonly --am 115792089237316195423570985008687907853269984665640564039457584007913129639935 -y --cfg /app/config.toml"
+
+  xlayer-seq:
+    container_name: xlayer-seq
+    image: cdk-erigon
+    environment:
+      - CDK_ERIGON_SEQUENCER=1
+      - WRITE_MAP=true
+    ports:
+      - 6062:6060
+      - 8123:8545
+      - 6900:6900
+      - 9092:9095
+    volumes:
+      - ./data/seq/:/home/erigon/data/
+      - ./config/test.erigon.seq.config.yaml:/usr/src/app/config.yaml
+      - ./config/first-batch-config.json:/usr/src/app/first-batch-config.json
+      - ./config/dynamic-mynetwork-allocs.json:/usr/src/app/dynamic-mynetwork-allocs.json
+      - ./config/dynamic-mynetwork-chainspec.json:/usr/src/app/dynamic-mynetwork-chainspec.json
+      - ./config/dynamic-mynetwork-conf.json:/usr/src/app/dynamic-mynetwork-conf.json
+    command: >
+      cdk-erigon --http.vhosts=* --http.corsdomain=* --ws --config=/usr/src/app/config.yaml
+
+  xlayer-mainnet-seq:
+    container_name: xlayer-seq
+    image: cdk-erigon
+    environment:
+      - CDK_ERIGON_SEQUENCER=1
+      - WRITE_MAP=true
+    ports:
+      - 6062:6060
+      - 8123:8545
+      - 6900:6900
+      - 9092:9095
+    volumes:
+      - ./mainnet/seq:/home/erigon/data/
+      - ./config/xlayerconfig-mainnet.yaml:/usr/src/app/config.yaml
+    command: >
+      cdk-erigon --http.vhosts=* --http.corsdomain=* --ws --config=/usr/src/app/config.yaml
+
+  xlayer-bridge-db:
+    container_name: xlayer-bridge-db
+    image: postgres:15
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+    ports:
+      - 5439:5432
+    environment:
+      - POSTGRES_USER=test_user
+      - POSTGRES_PASSWORD=test_password
+      - POSTGRES_DB=test_db
+    command: [ "postgres", "-N", "500" ]
+
+  xlayer-bridge-service:
+    container_name: xlayer-bridge-service
+    image: ${XLAYER_BRIDGE_SERVICE_IMAGE_TAG}
+    ports:
+      - 8080:8080
+      - 9090:9090
+    environment:
+      - ZKEVM_BRIDGE_DATABASE_USER=test_user
+      - ZKEVM_BRIDGE_DATABASE_PASSWORD=test_password
+      - ZKEVM_BRIDGE_DATABASE_NAME=test_db
+      - ZKEVM_BRIDGE_DATABASE_HOST=xlayer-bridge-db
+      - ZKEVM_BRIDGE_DATABASE_PORT=5432
+    volumes:
+      - ./keystore/sequencer.keystore:/pk/keystore.claimtxmanager
+      - ./config/test.bridge.config.toml:/app/config.toml
+    command:
+      - "/bin/sh"
+      - "-c"
+      - "/app/zkevm-bridge run --cfg /app/config.toml"
+
+  xlayer-bridge-ui:
+    container_name: xlayer-bridge-ui
+    image: hermeznetwork/zkevm-bridge-ui:latest
+    ports:
+      - 8090:80
+    environment:
+      - ETHEREUM_RPC_URL=http://127.0.0.1:8545
+      - ETHEREUM_EXPLORER_URL=http://127.0.0.1:4000
+      - ETHEREUM_ROLLUP_MANAGER_ADDRESS=0xE96dBF374555C6993618906629988d39184716B3
+      - ETHEREUM_BRIDGE_CONTRACT_ADDRESS=0xb2fAc1CE54bb9BF77A7FE106fA69F81453b72851
+      - ETHEREUM_FORCE_UPDATE_GLOBAL_EXIT_ROOT=true
+      - ETHEREUM_PROOF_OF_EFFICIENCY_CONTRACT_ADDRESS=0xE45CCD0757670580a4a3600DE5cef1e45F0Ec2bd
+      - POLYGON_ZK_EVM_RPC_URL=http://127.0.0.1:8123
+      - POLYGON_ZK_EVM_EXPLORER_URL=http://127.0.0.1:4001
+      - POLYGON_ZK_EVM_BRIDGE_CONTRACT_ADDRESS=0xb2fAc1CE54bb9BF77A7FE106fA69F81453b72851
+      - POLYGON_ZK_EVM_NETWORK_ID=1
+      - BRIDGE_API_URL=http://127.0.0.1:8080
+      - ENABLE_FIAT_EXCHANGE_RATES=false
+      - ENABLE_OUTDATED_NETWORK_MODAL=false
+      - ENABLE_DEPOSIT_WARNING=false
+      - ENABLE_REPORT_FORM=false
+      - RESOLVE_RELATIVE_URLS=false
+
+  xlayer-pool-db:
+    container_name: xlayer-pool-db
+    image: postgres:15
+    ports:
+      - 5440:5432
+    volumes:
+      - /var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=pool_user
+      - POSTGRES_PASSWORD=pool_password
+      - POSTGRES_DB=pool_db
+    command:
+      - "postgres"
+      - "-N"
+      - "500"
+
+  xlayer-pool-manager:
+    container_name: xlayer-pool-manager
+    image: hermeznetwork/zkevm-pool-manager:v0.1.2
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    ports:
+      - 8125:8545
+    volumes:
+      - ./config/test.poolmanager.toml:/app/poolmanager.toml
+    command:
+      - "/bin/sh"
+      - "-c"
+      - "/app/zkevm-pool-manager run --cfg /app/poolmanager.toml"
+
+  xlayer-agg-sender:
+    container_name: xlayer-agg-sender
+    image: aggkit:local
+    restart: on-failure
+    volumes:
+      - ./data/cdk-node:/tmp
+      - ./keystore/aggregator.keystore:/etc/aggkit/aggregator.keystore
+      - ./keystore/sequencer.keystore:/etc/aggkit/sequencer.keystore
+      - ./config/aggkit.toml:/etc/aggkit/aggkit.toml
+      - ./config/test.genesis.config.json:/etc/aggkit/genesis.json
+    ports:
+      - 5576:5576
+    command: ["run", "--cfg=/etc/aggkit/aggkit.toml", "--components=aggsender"]
+
+  xlayer-agglayer:
+    container_name: xlayer-agglayer
+    image: zjg555543/agglayer:upstream-v0.3.3
+    ports:
+      - 4443:4443
+      - 4444:4444
+      - 4446:4446
+      - 9094:9092
+    volumes:
+      - ./keystore/agglayer.keystore:/etc/zkevm/agglayer.keystore
+      - ./config/agglayer-config.toml:/etc/zkevm/agglayer-config.toml
+      - ./data/agglayer/storage:/etc/zkevm/storage/
+      - ./data/agglayer/backups:/etc/zkevm/backups/
+    command:
+      - "/bin/sh"
+      - "-c"
+      - "/usr/local/bin/agglayer run --cfg /etc/zkevm/agglayer-config.toml"
+
+  xlayer-agglayer-prover:
+    container_name: xlayer-agglayer-prover
+    image: zjg555543/agglayer:upstream-v0.3.3
+    volumes:
+      - ./config/agglayer-prover-config.toml:/etc/zkevm/agglayer-prover-config.toml
+    ports:
+      - 4445:4445
+      - 9093:9093
+    command:
+      - "/bin/sh"
+      - "-c"
+      - "/usr/local/bin/agglayer prover --cfg /etc/zkevm/agglayer-prover-config.toml"
+
+  xlayer-agg-db:
+    container_name: xlayer-agg-db
+    image: postgres:15
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+    ports:
+      - 5434:5432
+    environment:
+      - POSTGRES_USER=aggregator_user
+      - POSTGRES_PASSWORD=aggregator_password
+      - POSTGRES_DB=aggregator_db
+    command:
+      - "postgres"
+      - "-N"
+      - "500"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aggregator_user -d aggregator_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  xlayer-rpc:
+    container_name: xlayer-rpc
+    image: cdk-erigon
+    environment:
+      - CDK_ERIGON_SEQUENCER=0
+      - WRITE_MAP=true
+    ports:
+      - 16061:6060
+      - 18124:8545
+      - 16901:6900
+      - 19091:9095
+    volumes:
+      - ./data/rpc/:/home/erigon/data/
+      - ./config/test.erigon.rpc.config.yaml:/usr/src/app/config.yaml
+      - ./config/first-batch-config.json:/usr/src/app/first-batch-config.json
+      - ./config/dynamic-mynetwork-allocs.json:/usr/src/app/dynamic-mynetwork-allocs.json
+      - ./config/dynamic-mynetwork-chainspec.json:/usr/src/app/dynamic-mynetwork-chainspec.json
+      - ./config/dynamic-mynetwork-conf.json:/usr/src/app/dynamic-mynetwork-conf.json
+    command: >
+      cdk-erigon --http.vhosts=* --http.corsdomain=* --ws --config=/usr/src/app/config.yaml
+  xlayer-oracle:
+    container_name: xlayer-oracle
+    image: aggkit:local
+    volumes:
+      - ./data/oracle:/tmp
+      - ./keystore/aggoracle.keystore:/etc/aggkit/aggoracle.keystore
+      - ./config-op/aggkit.toml:/etc/aggkit/aggkit.toml
+      - ./config/test.genesis.config.json:/etc/aggkit/genesis.json
+    ports:
+      - 15576:5576
+    command: ["run", "--cfg=/etc/aggkit/aggkit.toml", "--components=aggoracle"]
   op-geth-seq:
     image: "${OP_GETH_IMAGE_TAG}"
     container_name: op-geth-seq
@@ -192,6 +438,7 @@ services:
       - --config=/config.toml
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
+      - --pp-rpc-legacy-header-sync-rate-limit=10000
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
       interval: 3s
@@ -219,6 +466,7 @@ services:
       - --gcmode=archive
       # - --rollup.sequencerhttp=http://op-geth-seq:8545
       - --rollup.enabletxpooladmission
+      - --pp-rpc-legacy-header-sync-rate-limit=10000
 
   op-seq:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -227,7 +475,7 @@ services:
       - ./config-op/rollup.json:/rollup.json
       - ./config-op/jwt.txt:/jwt.txt
       - ./data/op-seq:/data
-      - ./l1-geth/execution/genesis.json:/l1-genesis.json
+      - ./l1-geth/execution/:/l1/
     ports:
       - "9545:9545"
       - "7070:7070"
@@ -255,7 +503,7 @@ services:
       - --l1=${L1_RPC_URL_IN_DOCKER}
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
-      - --rollup.l1-chain-config=/l1-genesis.json
+      - --rollup.l1-chain-config=/l1/genesis.json
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}    # 默认关闭
       - --conductor.rpc=http://op-conductor:8547
@@ -280,7 +528,7 @@ services:
       - ./config-op/rollup.json:/rollup.json
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/oprpc_p2p_priv.txt:/opnode_p2p_priv.txt
-      - ./l1-geth/execution/genesis.json:/l1-genesis.json
+      - ./l1-geth/execution/:/l1
     ports:
       - "9555:9545"
     command:
@@ -304,8 +552,9 @@ services:
       - --l1=${L1_RPC_URL_IN_DOCKER}
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
-      - --rollup.l1-chain-config=/l1-genesis.json
+      - --rollup.l1-chain-config=/l1/genesis.json
       - --safedb.path=/data/safedb
+      - --pp-rpc-url=${PP_RPC_URL}
     depends_on:
       - op-geth-rpc
 
@@ -317,7 +566,7 @@ services:
       - ./config-op/rollup.json:/rollup.json
     ports:
       - "8547:8547"  # RPC port
-      - "50050:50050"  # Consensus port
+#      - "50050:50050"  # Consensus port
     command:
       - /app/op-conductor/bin/op-conductor
       - --log.level=debug
@@ -466,6 +715,7 @@ services:
       - --config=/config.toml
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
+      - --pp-rpc-legacy-header-sync-rate-limit=10000
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
       interval: 3s
@@ -480,10 +730,10 @@ services:
       - ./config-op/rollup.json:/rollup.json
       - ./config-op/jwt.txt:/jwt.txt
       - ./data/op-seq2:/data
-      - ./l1-geth/execution/genesis.json:/l1-genesis.json
+      - ./l1-geth/execution/:/l1/
     ports:
       - "9546:9545"
-#      - "7070:7070"
+      #      - "7070:7070"
       - "9224:9223"
       - "9224:9223/udp"
     command:
@@ -509,7 +759,7 @@ services:
       - --l1=${L1_RPC_URL_IN_DOCKER}
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
-      - --rollup.l1-chain-config=/l1-genesis.json
+      - --rollup.l1-chain-config=/l1/genesis.json
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor2:8547
@@ -531,7 +781,7 @@ services:
       - ./config-op/rollup.json:/rollup.json
     ports:
       - "8548:8547"  # RPC port
-      - "50051:50050"  # Consensus port
+#      - "50051:50050"  # Consensus port
     command:
       - /app/op-conductor/bin/op-conductor
       - --log.level=debug
@@ -579,6 +829,7 @@ services:
       - --config=/config.toml
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
+      - --pp-rpc-legacy-header-sync-rate-limit=10000
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
       interval: 3s
@@ -593,10 +844,10 @@ services:
       - ./config-op/rollup.json:/rollup.json
       - ./config-op/jwt.txt:/jwt.txt
       - ./data/op-seq3:/data
-      - ./l1-geth/execution/genesis.json:/l1-genesis.json
+      - ./l1-geth/execution/:/l1/
     ports:
       - "9547:9545"
-#      - "7070:7070"
+      #      - "7070:7070"
       - "9225:9223"
       - "9225:9223/udp"
     command:
@@ -622,7 +873,7 @@ services:
       - --l1=${L1_RPC_URL_IN_DOCKER}
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
-      - --rollup.l1-chain-config=/l1-genesis.json
+      - --rollup.l1-chain-config=/l1/genesis.json
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor3:8547
@@ -644,7 +895,7 @@ services:
       - ./config-op/rollup.json:/rollup.json
     ports:
       - "8549:8547"  # RPC port
-      - "50052:50050"  # Consensus port
+#      - "50052:50050"  # Consensus port
     command:
       - /app/op-conductor/bin/op-conductor
       - --log.level=debug

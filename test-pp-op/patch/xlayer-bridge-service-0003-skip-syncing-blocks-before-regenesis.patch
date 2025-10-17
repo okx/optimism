@@ -1,0 +1,31 @@
+From 98e29ad0cf2625914c1d3b56b6ebd8648f647d49 Mon Sep 17 00:00:00 2001
+From: KyrinCode <kyrincode@qq.com>
+Date: Sat, 13 Sep 2025 00:51:47 +0800
+Subject: [PATCH 2/2] skip syncing blocks before regenesis
+
+---
+ synchronizer/synchronizer.go | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/synchronizer/synchronizer.go b/synchronizer/synchronizer.go
+index 96088b0..69d8224 100644
+--- a/synchronizer/synchronizer.go
++++ b/synchronizer/synchronizer.go
+@@ -128,6 +128,14 @@ func (s *ClientSynchronizer) Sync() error {
+ 			return err
+ 		}
+ 	}
++	if lastBlockSynced.BlockNumber < s.genBlockNumber {
++		log.Debugf("networkID: %d, latest stored block is before regenesis block. Setting regenesis block", s.networkID)
++		lastBlockSynced = &etherman.Block{
++			BlockNumber: s.genBlockNumber,
++			NetworkID:   s.networkID,
++		}
++	}
++
+ 	metrics.InitializationTime(time.Since(startInitialization))
+ 	log.Debugf("NetworkID: %d, initial lastBlockSynced: %+v", s.networkID, lastBlockSynced)
+ 	for {
+-- 
+2.39.5 (Apple Git-154)
+

@@ -1,0 +1,82 @@
+diff --git a/Makefile b/Makefile
+index b7e2e8102c..76f87fc9cf 100644
+--- a/Makefile
++++ b/Makefile
+@@ -13,7 +13,7 @@ help: ## Prints this help message
+ build: build-go build-contracts ## Builds Go components and contracts-bedrock
+ .PHONY: build
+ 
+-build-go: submodules op-node op-proposer op-batcher op-challenger op-dispute-mon op-program cannon ## Builds main Go components
++build-go: submodules op-node op-proposer op-batcher op-challenger op-dispute-mon op-program cannon withdrawal ## Builds main Go components
+ .PHONY: build-go
+ 
+ build-contracts:
+@@ -128,6 +128,10 @@ cannon:  ## Builds cannon binary
+ 	make -C ./cannon cannon
+ .PHONY: cannon
+ 
++withdrawal: ## Builds withdrawal binary
++	just $(JUSTFLAGS) ./op-chain-ops/withdrawal
++.PHONY: withdrawal
++
+ reproducible-prestate:   ## Builds reproducible-prestate binary
+ 	make -C ./op-program reproducible-prestate
+ .PHONY: reproducible-prestate
+diff --git a/go.mod b/go.mod
+index b09102566e..7a3fc16755 100644
+--- a/go.mod
++++ b/go.mod
+@@ -304,9 +304,9 @@ require (
+ 	rsc.io/tmplfunc v0.0.3 // indirect
+ )
+ 
+-replace github.com/ethereum/go-ethereum => github.com/ethereum-optimism/op-geth v1.101511.1-dev.1.0.20250608235258-6005dd53e1b5
++// replace github.com/ethereum/go-ethereum => github.com/ethereum-optimism/op-geth v1.101511.1-dev.1.0.20250608235258-6005dd53e1b5
+ 
+-//replace github.com/ethereum/go-ethereum => ../op-geth
++replace github.com/ethereum/go-ethereum => ./op-geth
+ 
+ // replace github.com/ethereum-optimism/superchain-registry/superchain => ../superchain-registry/superchain
+ 
+diff --git a/op-chain-ops/justfile b/op-chain-ops/justfile
+index ee7efe7d6c..82ddb5467a 100644
+--- a/op-chain-ops/justfile
++++ b/op-chain-ops/justfile
+@@ -12,9 +12,12 @@ _LDFLAGSSTRING := "'" + trim(
+ # Build ecotone-scalar binary
+ ecotone-scalar: (go_build "./bin/ecotone-scalar" "./cmd/ecotone-scalar" "-ldflags" _LDFLAGSSTRING)
+ 
+-# Build receipt-reference-builder binary  
++# Build receipt-reference-builder binary
+ receipt-reference-builder: (go_build "./bin/receipt-reference-builder" "./cmd/receipt-reference-builder" "-ldflags" _LDFLAGSSTRING)
+ 
++# Build withdrawal binary
++withdrawal: (go_build "./bin/withdrawal" "./cmd/withdrawal" "-ldflags" _LDFLAGSSTRING)
++
+ # Run tests
+ test: (go_test "./...")
+ 
+diff --git a/op-program/Dockerfile.repro b/op-program/Dockerfile.repro
+index 2f861f3b2f..b97057cd4e 100644
+--- a/op-program/Dockerfile.repro
++++ b/op-program/Dockerfile.repro
+@@ -6,6 +6,7 @@ RUN apk add --no-cache make gcc musl-dev linux-headers git jq bash just
+ 
+ COPY ./go.mod /app/go.mod
+ COPY ./go.sum /app/go.sum
++COPY ./op-geth /app/op-geth
+ 
+ WORKDIR /app
+ 
+diff --git a/op-program/Dockerfile.repro.dockerignore b/op-program/Dockerfile.repro.dockerignore
+index 15d6cf7638..2844c7a062 100644
+--- a/op-program/Dockerfile.repro.dockerignore
++++ b/op-program/Dockerfile.repro.dockerignore
+@@ -5,6 +5,7 @@
+ # internal dependencies
+ !cannon/
+ !op-alt-da/
++!op-geth/
+ !op-node/
+ !op-preimage/
+ !op-program/
