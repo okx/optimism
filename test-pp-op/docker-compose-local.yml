@@ -438,6 +438,7 @@ services:
       - --config=/config.toml
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
+      - --pp-rpc-legacy-header-sync-rate-limit=10000
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
       interval: 3s
@@ -465,6 +466,7 @@ services:
       - --gcmode=archive
       # - --rollup.sequencerhttp=http://op-geth-seq:8545
       - --rollup.enabletxpooladmission
+      - --pp-rpc-legacy-header-sync-rate-limit=10000
 
   op-seq:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -713,6 +715,7 @@ services:
       - --config=/config.toml
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
+      - --pp-rpc-legacy-header-sync-rate-limit=10000
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
       interval: 3s
@@ -826,6 +829,7 @@ services:
       - --config=/config.toml
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
+      - --pp-rpc-legacy-header-sync-rate-limit=10000
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
       interval: 3s
