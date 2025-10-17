@@ -40,7 +40,7 @@ if [ $SKIP_OP_CONTRACTS_BUILD = "true" ]; then
     echo "skipping op-contracts build"
 else
     echo "Building $OP_CONTRACTS_IMAGE_TAG..."
-    docker build -t $OP_CONTRACTS_IMAGE_TAG -f ./Dockerfile-contracts .
+    docker build --platform linux/amd64 -t $OP_CONTRACTS_IMAGE_TAG -f ./Dockerfile-contracts .
 fi
 
 # Build OP_STACK image if not skipping
@@ -48,7 +48,7 @@ if [ $SKIP_OP_STACK_BUILD = "true" ]; then
     echo "skipping op-stack build"
 else
     echo "Building $OP_STACK_IMAGE_TAG..."
-    docker build -t $OP_STACK_IMAGE_TAG -f ./Dockerfile-opstack .
+    docker build --build-arg BUILDKIT_INLINE_CACHE=1 --tag $OP_STACK_IMAGE_TAG --file ./Dockerfile-opstack .
 fi
 
 # Build OP_GETH image if not skipping

@@ -1,3 +1,8 @@
+# syntax=docker.io/docker/dockerfile:1.4
+
+# Foundry stage to provide tools without relying on local images
+FROM ghcr.io/foundry-rs/foundry:nightly AS foundry
+
 # Single stage build with Go
 FROM golang:1.24.4
 WORKDIR /app
@@ -42,8 +47,8 @@ RUN --mount=type=cache,target=/root/.cache \
     --mount=type=cache,target=/go/pkg/mod \
     make build-go
 
-# Copy foundry tools and artifacts from contracts image
-COPY --from=op-contracts:latest /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil /usr/local/bin/
+# Copy foundry tools from the foundry stage to avoid pulling op-contracts
+COPY --from=foundry /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil /usr/local/bin/
 
 # Verify installations
 RUN echo "🔍 Verifying installations:" && \
