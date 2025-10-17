@@ -411,8 +411,6 @@ services:
       - --private-key=${OP_BATCHER_PRIVATE_KEY}
       - --throttle.block-size-upper-limit=1300000
       - --active-sequencer-check-duration=5s
-    depends_on:
-      - op-seq
 
   op-proposer:
     image: "${OP_STACK_IMAGE_TAG}"
