@@ -1,14 +1,6 @@
 #!/bin/bash
 set -e
 
-sed_inplace() {
-  if [[ "$OSTYPE" == "darwin"* ]]; then
-    sed -i '' "$@"
-  else
-    sed -i "$@"
-  fi
-}
-
 # Load environment variables early
 source .env
 
@@ -26,11 +18,11 @@ else
     docker compose up -d op-seq
 fi
 
+$SCRIPTS_DIR/add-peers.sh
+
 if [ "$LAUNCH_RPC_NODE" = "true" ]; then
     docker compose up -d op-rpc
 fi
-
-$SCRIPTS_DIR/add-peers.sh
 
 # Configure op-batcher endpoints based on conductor mode
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
