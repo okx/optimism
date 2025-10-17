@@ -25,6 +25,7 @@ func (s *Sequencer) InitRealtimeXLayer() {
 			log.Warn("[Realtime] Failed to initialize kafka producer", "error", err)
 		}
 		s.realtimeProducer = kafkaProducer
+		s.realtimeBlock = common.Hash{}
 		s.realtimeBlockInfoChan = make(chan *realtimeTypes.BlockInfo, realtimeKafka.DefaultKafkaBufferSize)
 
 		// start realtime producer loop
@@ -43,6 +44,10 @@ func (s *Sequencer) SendRealtimeErrorTrigger(height uint64) {
 
 func (s *Sequencer) SendRealtimeConfirmedBlock(envelope *eth.ExecutionPayloadEnvelope) {
 	if s.active.Load() && s.rollupCfg != nil && s.rollupCfg.Realtime != nil && s.rollupCfg.Realtime.SequencerEnable {
+		if envelope.ExecutionPayload.BlockHash == s.realtimeBlock {
+			return
+		}
+
 		if s.realtimeBlockInfoChan != nil {
 			header, err := s.ExecutionPayloadToBlockHeader(envelope)
 			if err != nil {
@@ -57,6 +62,7 @@ func (s *Sequencer) SendRealtimeConfirmedBlock(envelope *eth.ExecutionPayloadEnv
 				Hash:        envelope.ExecutionPayload.BlockHash,
 				Changeset:   envelope.Changeset,
 			}
+			s.realtimeBlock = envelope.ExecutionPayload.BlockHash
 		}
 	}
 }

@@ -130,6 +130,7 @@ type Sequencer struct {
 	toBlockRef func(rollupCfg *rollup.Config, payload *eth.ExecutionPayload) (eth.L2BlockRef, error)
 
 	// For X Layer, realtime
+	realtimeBlock         common.Hash
 	realtimeProducer      *realtimeKafka.KafkaProducer
 	realtimeBlockInfoChan chan *realtimeTypes.BlockInfo
 }
