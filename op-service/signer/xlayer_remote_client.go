@@ -239,52 +239,7 @@ func (c *XLayerRemoteClient) detectComponentType(tx *types.Transaction) string {
 	return "unknown"
 }
 
-// buildOtherInfo builds OtherInfo JSON string
-func (c *XLayerRemoteClient) buildOtherInfo(chainId *big.Int, from common.Address, tx *types.Transaction) (string, error) {
-	otherInfo := XLayerOtherInfo{
-		ContractAddress: *tx.To(),
-		GasLimit:        tx.Gas(),
-		Nonce:           tx.Nonce(),
-		TxData:          hexutil.Encode(tx.Data()),
-		Value:           tx.Value().String(),
-	}
-
-	// Set gas price parameters based on transaction type
-	switch tx.Type() {
-	case types.BlobTxType:
-		// EIP-4844 Blob transaction
-		otherInfo.MaxFeePerGas = tx.GasFeeCap().String()
-		otherInfo.MaxPriorityFeePerGas = tx.GasTipCap().String()
-		otherInfo.BlobFeeCap = tx.BlobGasFeeCap().String()
-		otherInfo.BlobVersionedHashes = tx.BlobHashes()
-	case types.DynamicFeeTxType:
-		// EIP-1559 dynamic fee transaction
-		otherInfo.MaxFeePerGas = tx.GasFeeCap().String()
-		otherInfo.MaxPriorityFeePerGas = tx.GasTipCap().String()
-	default:
-		// Legacy transaction
-		otherInfo.GasPrice = tx.GasPrice().String()
-	}
-
-	// Serialize to JSON
-	data, err := json.Marshal(otherInfo)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal other info: %w", err)
-	}
-
-	return string(data), nil
-}
-
-func (c *XLayerRemoteClient) getOperateType(tx *types.Transaction) int {
-	switch tx.Type() {
-	case types.BlobTxType:
-		return 19 // EIP4844
-	case types.DynamicFeeTxType:
-		return 1 // EIP1559
-	default:
-		return 0 // Legacy
-	}
-}
+// 这个方法已经不再使用，因为现在使用特定的buildBatcherOtherInfo、buildProposerOtherInfo等方法
 
 // postSignRequestAndWaitResult sends signing request and waits for the result
 func (c *XLayerRemoteClient) postSignRequestAndWaitResult(ctx context.Context, req *XLayerSignRequest, originalTx *types.Transaction) (*types.Transaction, error) {
@@ -860,18 +815,6 @@ func (c *XLayerRemoteClient) getDefaultOperateType(tx *types.Transaction) int {
 	default:
 		return 0
 	}
-}
-
-func (c *XLayerRemoteClient) getBatcherAddress() common.Address {
-	return common.HexToAddress("")
-}
-
-func (c *XLayerRemoteClient) getProposerAddress() common.Address {
-	return common.HexToAddress("")
-}
-
-func (c *XLayerRemoteClient) getChallengerAddress() common.Address {
-	return common.HexToAddress("0x1a13bddcc02d363366e04d4aa588d3c125b0ff6f")
 }
 
 type ProposerTxArgs struct {
