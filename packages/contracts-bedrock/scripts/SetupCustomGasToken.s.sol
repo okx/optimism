@@ -9,7 +9,6 @@ import { stdJson } from "forge-std/StdJson.sol";
 
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { DepositedOKBAdapter } from "src/L1/DepositedOKBAdapter.sol";
-import { OKBBurner } from "src/L1/OKBBurner.sol";
 
 // Interfaces
 import { IOKB } from "interfaces/L1/IOKB.sol";
@@ -28,8 +27,8 @@ import { Predeploys } from "src/libraries/Predeploys.sol";
 /// @notice Foundry script to set up and verify custom gas token configuration
 /// @dev This script:
 ///      1. Reads OKB token address from environment variable
-///      2. Deploys OKBBurner implementation contract for minimal proxy pattern
-///      3. Deploys DepositedOKBAdapter with burner implementation reference
+///      2. Deploys DepositedOKBAdapter that handles OKB burning internally
+///      3. Adds deployer address to whitelist for deposits
 ///      4. Sets gas paying token in SystemConfig storage
 ///      5. Verifies all configurations on L1
 contract SetupCustomGasToken is Script {
@@ -43,7 +42,6 @@ contract SetupCustomGasToken is Script {
 
     // Deployed contracts
     IOKB okbToken;
-    OKBBurner burnerImplementation;
     DepositedOKBAdapter adapter;
 
     function setUp() public {
@@ -71,9 +69,9 @@ contract SetupCustomGasToken is Script {
 
         vm.startBroadcast(msg.sender);
 
-        deployBurnerImplementation();
-
         deployAdapter();
+
+        setupWhitelist();
 
         setGasPayingToken();
 
@@ -100,15 +98,18 @@ contract SetupCustomGasToken is Script {
         require(tokenAddr == Constants.ETHER, "FAILED: GasPayingToken already set");
     }
 
-    /// @notice Deploy OKBBurner implementation contract
-    function deployBurnerImplementation() internal {
-        burnerImplementation = new OKBBurner(okbTokenAddress); // adapter address will be set later
-        console.log("  OKBBurner Implementation deployed at:", address(burnerImplementation));
+    /// @notice Set up whitelist for authorized depositors
+    function setupWhitelist() internal {
+        console.log("  Adding deployer to whitelist...");
+        address[] memory addresses = new address[](1);
+        addresses[0] = deployerAddress;
+        adapter.addToWhitelistBatch(addresses);
+        console.log("  Deployer whitelisted successfully:", deployerAddress);
     }
 
     /// @notice Deploy DepositedOKBAdapter
     function deployAdapter() internal {
-        adapter = new DepositedOKBAdapter(okbTokenAddress, payable(optimismPortalProxy), address(burnerImplementation));
+        adapter = new DepositedOKBAdapter(okbTokenAddress, payable(optimismPortalProxy), deployerAddress);
         console.log("  DepositedOKBAdapter deployed at:", address(adapter));
     }
 
@@ -151,19 +152,23 @@ contract SetupCustomGasToken is Script {
         // Check DepositedOKBAdapter configuration
         require(address(adapter.OKB()) == okbTokenAddress, "FAILED: Adapter OKB mismatch");
         require(address(adapter.PORTAL()) == optimismPortalProxy, "FAILED: Adapter portal mismatch");
+        require(adapter.owner() == deployerAddress, "FAILED: Adapter owner mismatch");
 
-        // Check OKBBurner Implementation configuration
-        require(address(burnerImplementation.OKB()) == okbTokenAddress, "FAILED: Burner OKB mismatch");
+        // Check adapter has preminted total supply
+        uint256 adapterBalance = adapter.balanceOf(address(adapter));
+        uint256 expectedBalance = okbToken.totalSupply();
+        console.log("  [CHECK 6] Adapter balance:", adapterBalance);
+        console.log("  [CHECK 6] Expected balance (OKB total supply):", expectedBalance);
+        require(adapterBalance == expectedBalance, "FAILED: Adapter balance should equal OKB total supply");
 
-        // Check Adapter burner implementation reference
-        require(
-            adapter.BURNER_IMPLEMENTATION() == address(burnerImplementation),
-            "FAILED: Adapter burner implementation mismatch"
-        );
+        // Check whitelist configuration
+        console.log("  [CHECK 7] Verifying deployer whitelist...");
+        require(adapter.whitelist(deployerAddress), "FAILED: Deployer address not whitelisted");
+        console.log("  [CHECK 7] Deployer whitelist verified:", deployerAddress);
 
-        // Check Adapter approval to portal
+        // Check Adapter approval to portal (should be zero initially)
         uint256 allowance = adapter.allowance(address(adapter), optimismPortalProxy);
-        console.log("  [CHECK 7] Adapter approval to Portal:", allowance);
+        console.log("  [CHECK 8] Adapter approval to Portal:", allowance);
         require(allowance == 0, "FAILED: Adapter should not pre-approve portal");
     }
 }
