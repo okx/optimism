@@ -36,7 +36,7 @@ INIT_ACCOUNT_2 := cast send -f $(SEQUENCER_ADDRESS)  --private-key $(SEQUENCER_P
 INIT_ACCOUNT_3 := cast send -f $(SEQUENCER_ADDRESS)  --private-key $(SEQUENCER_PRIVATE_KEY) --value 1000ether $(RICH_ADDRESS) --legacy --rpc-url $(L1_RPC_URL)
 INIT_ACCOUNT_4 := cast send -f $(SEQUENCER_ADDRESS)  --private-key $(SEQUENCER_PRIVATE_KEY) --value 1000ether $(CHALLENGER_ADDRESS) --legacy --rpc-url $(L1_RPC_URL)
 
-INIT_BRIDGE_ACCOUNT := cast send -f $(DEPLOYER_ADDRESS)  --private-key $(DEPLOYER_PRIVATE_KEY) --value 0.01ether $(SEQUENCER_ADDRESS) --legacy --rpc-url $(L2_RPC_URL)
+INIT_BRIDGE_ACCOUNT := cast send -f $(DEPLOYER_ADDRESS)  --private-key $(DEPLOYER_PRIVATE_KEY) --value 0.01ether $(SEQUENCER_ADDRESS) --legacy --rpc-url $(L2_ERIGON_RPC_URL)
 
 .PHONY: set-env
 set-env:
