@@ -20,6 +20,14 @@
 
 > Important: `init.sh` should only be run once during initial setup. Re-run only if you need to rebuild Docker images after code changes.
 
+> Important: by default, `op-reth` image is not built. `op-geth` is used as RPC by default. If you want to run a Reth RPC node, please set the following variables in `example.env`:
+```bash
+OP_RETH_LOCAL_DIRECTORY=<absolute path to your reth repository>
+OP_RETH_BRANCH=<reth repository branch (if not set, default branch is used)>
+SKIP_OP_RETH_BUILD=false
+RPC_TYPE=op-reth-rpc
+```
+
 ### Code Updates and Image Rebuilding (Optional)
 If you've updated the Optimism codebase and need to rebuild Docker images:
 
