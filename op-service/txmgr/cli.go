@@ -123,7 +123,7 @@ func CLIFlagsWithDefaults(envPrefix string, defaults DefaultFlagValues) []cli.Fl
 	prefixEnvVars := func(name string) []string {
 		return opservice.PrefixEnvVar(envPrefix, name)
 	}
-	return append([]cli.Flag{
+	flags := append([]cli.Flag{
 		&cli.StringFlag{
 			Name:    MnemonicFlagName,
 			Usage:   "The mnemonic used to derive the wallets for either the service",
@@ -239,6 +239,8 @@ func CLIFlagsWithDefaults(envPrefix string, defaults DefaultFlagValues) []cli.Fl
 			EnvVars: prefixEnvVars("TXMGR_ALREADY_PUBLISHED_CUSTOM_ERRS"),
 		},
 	}, opsigner.CLIFlags(envPrefix, "")...)
+	xlayerFlags := opsigner.XLayerCLIFlags(envPrefix, "")
+	return append(flags, xlayerFlags...)
 }
 
 type CLIConfig struct {
@@ -249,6 +251,7 @@ type CLIConfig struct {
 	L2OutputHDPath             string
 	PrivateKey                 string
 	SignerCLIConfig            opsigner.CLIConfig
+	XLayerSignerCLIConfig      opsigner.XLayerCLIConfig
 	NumConfirmations           uint64
 	SafeAbortNonceTooLowCount  uint64
 	FeeLimitMultiplier         uint64
@@ -286,6 +289,7 @@ func NewCLIConfig(l1RPCURL string, defaults DefaultFlagValues) CLIConfig {
 		TxNotInMempoolTimeout:     defaults.TxNotInMempoolTimeout,
 		ReceiptQueryInterval:      defaults.ReceiptQueryInterval,
 		SignerCLIConfig:           opsigner.NewCLIConfig(),
+		XLayerSignerCLIConfig:     opsigner.NewXLayerCLIConfig(),
 	}
 }
 
@@ -321,6 +325,9 @@ func (m CLIConfig) Check() error {
 	if err := m.SignerCLIConfig.Check(); err != nil {
 		return err
 	}
+	if err := m.XLayerSignerCLIConfig.Check(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -333,6 +340,7 @@ func ReadCLIConfig(ctx *cli.Context) CLIConfig {
 		L2OutputHDPath:             ctx.String(L2OutputHDPathFlag.Name),
 		PrivateKey:                 ctx.String(PrivateKeyFlagName),
 		SignerCLIConfig:            opsigner.ReadCLIConfig(ctx),
+		XLayerSignerCLIConfig:      opsigner.ReadXLayerCLIConfig(ctx),
 		NumConfirmations:           ctx.Uint64(NumConfirmationsFlagName),
 		SafeAbortNonceTooLowCount:  ctx.Uint64(SafeAbortNonceTooLowCountFlagName),
 		FeeLimitMultiplier:         ctx.Uint64(FeeLimitMultiplierFlagName),
@@ -380,7 +388,7 @@ func NewConfig(cfg CLIConfig, l log.Logger) (*Config, error) {
 		hdPath = cfg.L2OutputHDPath
 	}
 
-	signerFactory, from, err := opcrypto.SignerFactoryFromConfig(l, cfg.PrivateKey, cfg.Mnemonic, hdPath, cfg.SignerCLIConfig)
+	signerFactory, from, err := opcrypto.SignerFactoryFromConfig(l, cfg.PrivateKey, cfg.Mnemonic, hdPath, cfg.SignerCLIConfig, cfg.XLayerSignerCLIConfig)
 	if err != nil {
 		return nil, fmt.Errorf("could not init signer: %w", err)
 	}

@@ -1,0 +1,928 @@
+package signer
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"math/big"
+	"net/http"
+	"net/url"
+	"sort"
+	"time"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/google/uuid"
+	"github.com/holiman/uint256"
+
+	"github.com/ethereum-optimism/optimism/packages/contracts-bedrock/snapshots"
+)
+
+// XLayerSignRequest represents the signing request structure for XLayer remote signer API
+type XLayerSignRequest struct {
+	UserID         int            `json:"userId"`
+	OperateType    int            `json:"operateType"` // EIP4844 = 19
+	OperateAddress common.Address `json:"operateAddress"`
+	Symbol         int            `json:"symbol"`
+	ProjectSymbol  int            `json:"projectSymbol"`
+	RefOrderID     string         `json:"refOrderId"`
+	OperateSymbol  int            `json:"operateSymbol"`
+	OperateAmount  int            `json:"operateAmount"`
+	SysFrom        int            `json:"sysFrom"`
+	OtherInfo      string         `json:"otherInfo"` // JSON-encoded transaction parameters
+	DepositAddress string         `json:"depositAddress"`
+	ToAddress      string         `json:"toAddress"`
+	BatchID        int            `json:"batchId"`
+}
+
+// XLayerSignResponse represents the signing response structure
+type XLayerSignResponse struct {
+	Code           int    `json:"code"`
+	Data           string `json:"data"` // Signed transaction hex data
+	DetailMessages string `json:"detailMsg"`
+	Msg            string `json:"msg"`
+	Status         int    `json:"status"`
+	Success        bool   `json:"success"`
+}
+
+// XLayerQueryRequest represents the query request for signature result
+type XLayerQueryRequest struct {
+	UserID        int    `json:"userId"`
+	OrderID       string `json:"orderId"`
+	ProjectSymbol int    `json:"projectSymbol"`
+}
+
+// XLayerOtherInfo contains transaction parameters for OtherInfo field
+type XLayerOtherInfo struct {
+	ContractAddress common.Address `json:"contractAddress"`
+	GasLimit        uint64         `json:"gasLimit"`
+	GasPrice        string         `json:"gasPrice"`
+	Nonce           uint64         `json:"nonce"`
+	// EIP-4844 specific parameters
+	BlobVersionedHashes []common.Hash `json:"blobVersionedHashes,omitempty"`
+	BlobFeeCap          string        `json:"maxFeePerBlobGas,omitempty"`
+	// EIP-1559 parameters
+	MaxFeePerGas         string `json:"maxFeePerGas,omitempty"`
+	MaxPriorityFeePerGas string `json:"maxPriorityFeePerGas,omitempty"`
+	// Transaction data
+	TxData string `json:"data,omitempty"`
+	Value  string `json:"value,omitempty"`
+}
+
+// XLayerRemoteClient is the client for XLayer remote signing service
+type XLayerRemoteClient struct {
+	logger   log.Logger
+	endpoint string
+	config   XLayerConfig
+	client   *http.Client
+}
+
+// XLayerConfig contains configuration for XLayer remote signer
+type XLayerConfig struct {
+	Endpoint        string
+	Address         string
+	UserID          int
+	Symbol          int
+	ProjectSymbol   int
+	OperateSymbol   int
+	OperateAmount   int
+	SysFrom         int
+	RequestSignURI  string
+	QuerySignURI    string
+	DepositeAddress string
+	AccessKey       string
+	SecretKey       string
+	Timeout         time.Duration
+}
+
+// NewXLayerRemoteClient creates a new XLayer remote signing client
+func NewXLayerRemoteClient(logger log.Logger, config XLayerConfig) *XLayerRemoteClient {
+	return &XLayerRemoteClient{
+		logger:   logger,
+		endpoint: config.Endpoint,
+		config:   config,
+		client: &http.Client{
+			Timeout: config.Timeout,
+		},
+	}
+}
+
+// SignTransaction signs a transaction using XLayer remote signing service
+func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.Int, from common.Address, tx *types.Transaction) (*types.Transaction, error) {
+	// 1. Extract blob sidecar if it's a blob transaction
+	sidecar := tx.BlobTxSidecar()
+
+	// 2. Determine component type by sender address and build OtherInfo
+	var otherInfo string
+	var operateType int
+	var err error
+	componentType := c.detectComponentType(tx)
+	switch componentType {
+	case "batcher":
+		otherInfo, err = c.buildBatcherOtherInfo(tx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build batcher other info: %w", err)
+		}
+		operateType = c.getBatcherOperateType(tx)
+
+	case "proposer":
+		otherInfo, err = c.buildProposerOtherInfo(tx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build proposer other info: %w", err)
+		}
+		operateType = 20
+
+	case "challenger":
+		otherInfo, err = c.buildChallengerOtherInfo(tx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build challenger other info: %w", err)
+		}
+		operateType = c.getChallengerOperateType(tx)
+
+	default:
+		otherInfo, err = c.buildDefaultOtherInfo(tx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build default other info: %w", err)
+		}
+		operateType = c.getDefaultOperateType(tx)
+	}
+
+	// 3. Create signing request
+	// Get To address if present and use it as both ToAddress and DepositAddress
+	toAddress := ""
+	depositAddress := ""
+	if tx.To() != nil {
+		toAddress = tx.To().Hex()
+		depositAddress = tx.To().Hex()
+	}
+
+	signReq := &XLayerSignRequest{
+		UserID:         c.config.UserID,
+		OperateType:    operateType,
+		OperateAddress: from,
+		Symbol:         c.config.Symbol,
+		ProjectSymbol:  c.config.ProjectSymbol,
+		RefOrderID:     uuid.New().String(),
+		OperateSymbol:  c.config.OperateSymbol,
+		OperateAmount:  c.config.OperateAmount,
+		SysFrom:        c.config.SysFrom,
+		OtherInfo:      otherInfo,
+		DepositAddress: depositAddress,
+		ToAddress:      toAddress,
+		BatchID:        0,
+	}
+
+	// Log signing request details
+	c.logger.Info("Sending sign request to remote signer",
+		"operateType", operateType,
+		"from", from.Hex(),
+		"depositAddress", depositAddress,
+		"to", tx.To(),
+		"toAddress", toAddress,
+		"otherInfo", otherInfo)
+
+	// 4. Send signing request and wait for result
+	signedTx, err := c.postSignRequestAndWaitResult(ctx, signReq, tx)
+	if err != nil {
+		return nil, fmt.Errorf("remote signing failed: %w", err)
+	}
+
+	// 5. Re-attach blob sidecar if present
+	if sidecar != nil {
+		if err := signedTx.SetBlobTxSidecar(sidecar); err != nil {
+			return nil, fmt.Errorf("failed to attach sidecar to signed blob tx: %w", err)
+		}
+	}
+
+	return signedTx, nil
+}
+
+func (c *XLayerRemoteClient) detectComponentType(tx *types.Transaction) string {
+	data := tx.Data()
+	dataSize := len(data)
+
+	if tx.To() != nil {
+		switch {
+		case len(tx.BlobHashes()) > 0:
+			return "batcher"
+		case dataSize > 50000:
+			return "batcher"
+		case dataSize > 1000:
+			return "batcher"
+		case dataSize >= 4:
+			selector := common.Bytes2Hex(data[:4])
+			switch selector {
+			case "9aaab648": // proposeL2OutputFunction selector
+				return "proposer"
+			case "03c2924d": // resolveClaimFunction selector
+				return "challenger"
+			case "2810e1d6": // resolveFunction selector
+				return "challenger"
+			case "60e27464": // claimCreditFunction selector
+				return "challenger"
+			default:
+				if dataSize < 200 {
+					return "proposer"
+				}
+				return "challenger"
+			}
+		default:
+			return "unknown"
+		}
+	}
+
+	// 合约创建交易
+	return "unknown"
+}
+
+// buildOtherInfo builds OtherInfo JSON string
+func (c *XLayerRemoteClient) buildOtherInfo(chainId *big.Int, from common.Address, tx *types.Transaction) (string, error) {
+	otherInfo := XLayerOtherInfo{
+		ContractAddress: *tx.To(),
+		GasLimit:        tx.Gas(),
+		Nonce:           tx.Nonce(),
+		TxData:          hexutil.Encode(tx.Data()),
+		Value:           tx.Value().String(),
+	}
+
+	// Set gas price parameters based on transaction type
+	switch tx.Type() {
+	case types.BlobTxType:
+		// EIP-4844 Blob transaction
+		otherInfo.MaxFeePerGas = tx.GasFeeCap().String()
+		otherInfo.MaxPriorityFeePerGas = tx.GasTipCap().String()
+		otherInfo.BlobFeeCap = tx.BlobGasFeeCap().String()
+		otherInfo.BlobVersionedHashes = tx.BlobHashes()
+	case types.DynamicFeeTxType:
+		// EIP-1559 dynamic fee transaction
+		otherInfo.MaxFeePerGas = tx.GasFeeCap().String()
+		otherInfo.MaxPriorityFeePerGas = tx.GasTipCap().String()
+	default:
+		// Legacy transaction
+		otherInfo.GasPrice = tx.GasPrice().String()
+	}
+
+	// Serialize to JSON
+	data, err := json.Marshal(otherInfo)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal other info: %w", err)
+	}
+
+	return string(data), nil
+}
+
+func (c *XLayerRemoteClient) getOperateType(tx *types.Transaction) int {
+	switch tx.Type() {
+	case types.BlobTxType:
+		return 19 // EIP4844
+	case types.DynamicFeeTxType:
+		return 1 // EIP1559
+	default:
+		return 0 // Legacy
+	}
+}
+
+// postSignRequestAndWaitResult sends signing request and waits for the result
+func (c *XLayerRemoteClient) postSignRequestAndWaitResult(ctx context.Context, req *XLayerSignRequest, originalTx *types.Transaction) (*types.Transaction, error) {
+	// 1. Send signing request
+	if err := c.postSignRequest(ctx, req); err != nil {
+		return nil, fmt.Errorf("failed to post sign request: %w", err)
+	}
+
+	// 2. Wait for signing result
+	result, err := c.waitSignResult(ctx, req.RefOrderID)
+	log.Info("RefOrderID IS ", req.RefOrderID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to wait sign result: %w", err)
+	}
+
+	// 3. Parse signed transaction
+	txData, err := hexutil.Decode(result.Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode signed transaction: %w", err)
+	}
+
+	var signedTx types.Transaction
+	if err := signedTx.UnmarshalBinary(txData); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal signed transaction: %w", err)
+	}
+
+	// 4. For blob transactions, attach sidecar
+	// Do not reassemble! Use the transaction returned by remote signer directly
+	if originalTx.Type() == types.BlobTxType && signedTx.BlobTxSidecar() == nil {
+		c.logger.Info("Attaching sidecar to signed blob transaction")
+		if originalTx.BlobTxSidecar() != nil {
+			if err := signedTx.SetBlobTxSidecar(originalTx.BlobTxSidecar()); err != nil {
+				return nil, fmt.Errorf("failed to attach sidecar: %w", err)
+			}
+		}
+	}
+
+	return &signedTx, nil
+}
+
+// reassembleBlobTransaction reassembles a blob transaction with signature from remote signer
+func (c *XLayerRemoteClient) reassembleBlobTransaction(originalTx *types.Transaction, signedTx *types.Transaction) (*types.Transaction, error) {
+	c.logger.Info("Reassembling blob transaction with signature from remote signer")
+
+	// Extract signature values from remote signed transaction
+	v, r, s := signedTx.RawSignatureValues()
+
+	// Get original blob transaction internal data
+	var originalBlobTx *types.BlobTx
+	switch inner := originalTx.Type(); inner {
+	case types.BlobTxType:
+		// Extract all parameters from original transaction
+		originalBlobTx = &types.BlobTx{
+			ChainID:    uint256.MustFromBig(originalTx.ChainId()),
+			Nonce:      originalTx.Nonce(),
+			GasTipCap:  uint256.MustFromBig(originalTx.GasTipCap()),
+			GasFeeCap:  uint256.MustFromBig(originalTx.GasFeeCap()),
+			Gas:        originalTx.Gas(),
+			To:         *originalTx.To(),
+			Value:      uint256.MustFromBig(originalTx.Value()),
+			Data:       originalTx.Data(),
+			BlobFeeCap: uint256.MustFromBig(originalTx.BlobGasFeeCap()),
+			BlobHashes: originalTx.BlobHashes(),
+			Sidecar:    originalTx.BlobTxSidecar(),
+		}
+	default:
+		return nil, fmt.Errorf("original transaction is not a BlobTx, type: %d", inner)
+	}
+
+	// Create new blob transaction using original parameters + remote signature
+	reassembledBlobTx := &types.BlobTx{
+		ChainID:    originalBlobTx.ChainID,
+		Nonce:      originalBlobTx.Nonce,
+		GasTipCap:  originalBlobTx.GasTipCap,
+		GasFeeCap:  originalBlobTx.GasFeeCap,
+		Gas:        originalBlobTx.Gas,
+		To:         originalBlobTx.To,
+		Value:      originalBlobTx.Value,
+		Data:       originalBlobTx.Data,
+		AccessList: originalBlobTx.AccessList,
+		BlobFeeCap: originalBlobTx.BlobFeeCap,
+		BlobHashes: originalBlobTx.BlobHashes,
+		Sidecar:    originalBlobTx.Sidecar,
+		// Use signature values from remote signer
+		V: uint256.MustFromBig(v),
+		R: uint256.MustFromBig(r),
+		S: uint256.MustFromBig(s),
+	}
+
+	reassembledTx := types.NewTx(reassembledBlobTx)
+
+	c.logger.Info("Blob transaction reassembled successfully",
+		"type", reassembledTx.Type(),
+		"nonce", reassembledTx.Nonce(),
+		"to", reassembledTx.To(),
+		"hasSidecar", reassembledTx.BlobTxSidecar() != nil)
+
+	return reassembledTx, nil
+}
+
+// postSignRequest sends a signing request to XLayer remote signer
+func (c *XLayerRemoteClient) postSignRequest(ctx context.Context, req *XLayerSignRequest) error {
+	// 1. Serialize request with sorted keys
+	payload, err := c.sortedMarshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// 2. Build request URL
+	reqURL, err := url.JoinPath(c.endpoint, c.config.RequestSignURI)
+	if err != nil {
+		return fmt.Errorf("failed to join URL: %w", err)
+	}
+
+	// 3. Create HTTP request
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", reqURL, bytes.NewBuffer(payload))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	// 4. Add authentication if configured
+	if err := c.addAuth(httpReq); err != nil {
+		return fmt.Errorf("failed to add auth: %w", err)
+	}
+
+	// 5. Send request
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// 6. Parse response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var signResp XLayerSignResponse
+	if err := json.Unmarshal(body, &signResp); err != nil {
+		return fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	if signResp.Status != 200 || !signResp.Success {
+		return fmt.Errorf("sign request failed: status=%d, msg=%s", signResp.Status, signResp.Msg)
+	}
+
+	return nil
+}
+
+// waitSignResult waits for the signing result
+func (c *XLayerRemoteClient) waitSignResult(ctx context.Context, orderID string) (*XLayerSignResponse, error) {
+	queryReq := &XLayerQueryRequest{
+		UserID:        c.config.UserID,
+		OrderID:       orderID,
+		ProjectSymbol: c.config.ProjectSymbol,
+	}
+
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+			result, err := c.querySignResult(ctx, queryReq)
+			if err == nil && result.Success && len(result.Data) > 0 {
+				return result, nil
+			}
+			// Continue waiting
+		}
+	}
+}
+
+// querySignResult queries the signing result from remote signer
+func (c *XLayerRemoteClient) querySignResult(ctx context.Context, req *XLayerQueryRequest) (*XLayerSignResponse, error) {
+	// Build query URL
+	queryURL, err := url.JoinPath(c.endpoint, c.config.QuerySignURI)
+	if err != nil {
+		return nil, fmt.Errorf("failed to join URL: %w", err)
+	}
+
+	params := url.Values{}
+	params.Add("orderId", req.OrderID)
+	params.Add("projectSymbol", fmt.Sprintf("%d", req.ProjectSymbol))
+	fullURL := fmt.Sprintf("%s?%s", queryURL, params.Encode())
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	if err := c.addAuth(httpReq); err != nil {
+		return nil, fmt.Errorf("failed to add auth: %w", err)
+	}
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var result XLayerSignResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+	fmt.Println(body)
+	fmt.Println(result)
+	return &result, nil
+}
+
+// sortedMarshal serializes data with sorted keys
+func (c *XLayerRemoteClient) sortedMarshal(v interface{}) ([]byte, error) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+
+	var jsonMap map[string]interface{}
+	if err := json.Unmarshal(data, &jsonMap); err != nil {
+		return nil, err
+	}
+
+	// Sort keys alphabetically
+	keys := make([]string, 0, len(jsonMap))
+	for k := range jsonMap {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// Rebuild map with sorted keys
+	sortedMap := make(map[string]interface{})
+	for _, key := range keys {
+		sortedMap[key] = jsonMap[key]
+	}
+
+	return json.Marshal(sortedMap)
+}
+
+// addAuth adds authentication headers to the request
+func (c *XLayerRemoteClient) addAuth(req *http.Request) error {
+	// Add AccessKey/SecretKey based authentication
+	if c.config.AccessKey != "" {
+		req.Header.Set("Access-Key", c.config.AccessKey)
+	}
+	if c.config.SecretKey != "" {
+		req.Header.Set("Secret-Key", c.config.SecretKey)
+	}
+	return nil
+}
+
+// buildProposerOtherInfo builds Proposer's OtherInfo by unpacking ABI-encoded business parameters
+func (c *XLayerRemoteClient) buildProposerOtherInfo(tx *types.Transaction) (string, error) {
+
+	// Base transaction parameters
+	baseInfo := c.buildBaseOtherInfo(tx)
+
+	// Try to unpack proposer transaction to get business parameters
+	c.logger.Info("Unpacking proposer transaction",
+		"txDataLen", len(tx.Data()),
+		"txTo", tx.To())
+
+	proposerArgs, err := c.unpackProposerTransaction(tx)
+	if err != nil {
+		c.logger.Warn("Failed to unpack proposer tx, using base info only",
+			"error", err,
+			"txHash", tx.Hash(),
+			"txDataLen", len(tx.Data()))
+		// Return base info on unpacking failure
+		return c.marshalOtherInfo(baseInfo)
+	}
+
+	c.logger.Info("Successfully unpacked proposer transaction",
+		"gameType", proposerArgs.GameType,
+		"rootClaim", proposerArgs.RootClaim.Hex(),
+		"extraDataLen", len(proposerArgs.ExtraData))
+
+	enhancedInfo := struct {
+		XLayerOtherInfo
+		GameType  *uint32 `json:"gameType,omitempty"`
+		RootClaim *string `json:"rootClaim,omitempty"`
+		ExtraData *string `json:"extraData,omitempty"`
+	}{
+		XLayerOtherInfo: baseInfo,
+	}
+
+	// Add DisputeGameFactory.create business parameters
+	enhancedInfo.GameType = &proposerArgs.GameType
+	rootClaimHex := proposerArgs.RootClaim.Hex()
+	enhancedInfo.RootClaim = &rootClaimHex
+	if len(proposerArgs.ExtraData) > 0 {
+		extraDataHex := hexutil.Encode(proposerArgs.ExtraData)
+		enhancedInfo.ExtraData = &extraDataHex
+	}
+
+	data, err := json.Marshal(enhancedInfo)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal enhanced proposer other info: %w", err)
+	}
+
+	return string(data), nil
+}
+
+// buildBatcherOtherInfo builds Batcher's OtherInfo
+func (c *XLayerRemoteClient) buildBatcherOtherInfo(tx *types.Transaction) (string, error) {
+	otherInfo := struct {
+		ContractAddress      common.Address `json:"contractAddress"`
+		GasLimit             uint64         `json:"gasLimit"`
+		GasPrice             string         `json:"gasPrice"`
+		Nonce                uint64         `json:"nonce"`
+		MaxFeePerGas         *string        `json:"maxFeePerGas,omitempty"`
+		MaxPriorityFeePerGas *string        `json:"maxPriorityFeePerGas,omitempty"`
+		// EIP-4844 specific parameters
+		EIP               *int     `json:"eip,omitempty"`
+		MaxFeePerBlobGas  *string  `json:"maxFeePerBlobGas,omitempty"`
+		BlobVersionHashes []string `json:"blobVersionHashes,omitempty"`
+		// Other parameters
+		Data  *string `json:"data,omitempty"`
+		Value *string `json:"value,omitempty"`
+	}{
+		ContractAddress: *tx.To(),
+		GasLimit:        tx.Gas(),
+		Nonce:           tx.Nonce(),
+	}
+
+	dataHex := hexutil.Encode(tx.Data())
+	otherInfo.Data = &dataHex
+	valueStr := tx.Value().String()
+	otherInfo.Value = &valueStr
+
+	switch tx.Type() {
+	case types.BlobTxType:
+		eip := 4844
+		otherInfo.EIP = &eip
+
+		maxFeePerGasWei := tx.GasFeeCap()
+		maxFeePerGasEth := new(big.Float).Quo(new(big.Float).SetInt(maxFeePerGasWei), new(big.Float).SetInt64(1e18))
+		maxFeePerGasStr := maxFeePerGasEth.Text('f', 18)
+		otherInfo.MaxFeePerGas = &maxFeePerGasStr
+
+		maxPriorityFeePerGasWei := tx.GasTipCap()
+		maxPriorityFeePerGasEth := new(big.Float).Quo(new(big.Float).SetInt(maxPriorityFeePerGasWei), new(big.Float).SetInt64(1e18))
+		maxPriorityFeePerGasStr := maxPriorityFeePerGasEth.Text('f', 18)
+		otherInfo.MaxPriorityFeePerGas = &maxPriorityFeePerGasStr
+
+		blobFeeWei := tx.BlobGasFeeCap()
+		blobFeeEth := new(big.Float).Quo(new(big.Float).SetInt(blobFeeWei), new(big.Float).SetInt64(1e18))
+		blobFeeStr := blobFeeEth.Text('f', 18)
+		otherInfo.MaxFeePerBlobGas = &blobFeeStr
+
+		blobHashes := tx.BlobHashes()
+		hashStrings := make([]string, len(blobHashes))
+		for i, hash := range blobHashes {
+			hashStrings[i] = hash.Hex()
+		}
+		otherInfo.BlobVersionHashes = hashStrings
+
+		otherInfo.GasPrice = ""
+
+	case types.DynamicFeeTxType:
+		maxFeePerGas := tx.GasFeeCap().String()
+		otherInfo.MaxFeePerGas = &maxFeePerGas
+		maxPriorityFeePerGas := tx.GasTipCap().String()
+		otherInfo.MaxPriorityFeePerGas = &maxPriorityFeePerGas
+		otherInfo.GasPrice = ""
+
+	default:
+		// Legacy transaction
+		otherInfo.GasPrice = tx.GasPrice().String()
+	}
+
+	data, err := json.Marshal(otherInfo)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal batcher other info: %w", err)
+	}
+
+	return string(data), nil
+}
+
+// buildChallengerOtherInfo builds Challenger's OtherInfo based on method signature
+func (c *XLayerRemoteClient) buildChallengerOtherInfo(tx *types.Transaction) (string, error) {
+	baseInfo := c.buildBaseOtherInfo(tx)
+
+	// Cannot parse method signature if data is less than 4 bytes
+	if len(tx.Data()) < 4 {
+		return c.marshalOtherInfo(baseInfo)
+	}
+
+	// Extract method signature (first 4 bytes)
+	methodSig := tx.Data()[:4]
+	methodSigHex := hexutil.Encode(methodSig)
+
+	// Route to different builders based on method signature
+	// resolveClaim: 0x03c2924d
+	// resolve: 0x2810e1d6
+	// claimCredit: 0x60e27464
+	switch methodSigHex {
+	case "0x03c2924d": // resolveClaim(uint256 _claimIndex, uint256 _numToResolve)
+		return c.buildChallengerResolveClaimOtherInfo(tx, baseInfo)
+	case "0x2810e1d6": // resolve()
+		return c.buildChallengerResolveOtherInfo(tx, baseInfo)
+	case "0x60e27464": // claimCredit(address _recipient)
+		return c.buildChallengerClaimCreditOtherInfo(tx, baseInfo)
+	default:
+		// Unknown method, return base info with method signature
+		c.logger.Warn("Unknown challenger method signature", "signature", methodSigHex)
+		enhancedInfo := struct {
+			XLayerOtherInfo
+			MethodSignature string `json:"methodSignature,omitempty"`
+		}{
+			XLayerOtherInfo: baseInfo,
+			MethodSignature: methodSigHex,
+		}
+		return c.marshalOtherInfo(enhancedInfo)
+	}
+}
+
+// buildChallengerResolveClaimOtherInfo builds OtherInfo for resolveClaim method
+func (c *XLayerRemoteClient) buildChallengerResolveClaimOtherInfo(tx *types.Transaction, baseInfo XLayerOtherInfo) (string, error) {
+	// resolveClaim(uint256 _claimIndex, uint256 _numToResolve)
+	// Parse two uint256 parameters
+	var claimIndex *uint64
+	var numToResolve *uint64
+
+	if len(tx.Data()) >= 36 { // 4 bytes signature + 32 bytes uint256
+		claimIndexBig := new(big.Int).SetBytes(tx.Data()[4:36])
+		claimIndexVal := claimIndexBig.Uint64()
+		claimIndex = &claimIndexVal
+	}
+
+	if len(tx.Data()) >= 68 { // 4 bytes signature + 32 bytes + 32 bytes
+		numToResolveBig := new(big.Int).SetBytes(tx.Data()[36:68])
+		numToResolveVal := numToResolveBig.Uint64()
+		numToResolve = &numToResolveVal
+	}
+
+	enhancedInfo := struct {
+		XLayerOtherInfo
+		Method       string  `json:"method"`
+		ClaimIndex   *uint64 `json:"claimIndex,omitempty"`
+		NumToResolve *uint64 `json:"numToResolve,omitempty"`
+	}{
+		XLayerOtherInfo: baseInfo,
+		Method:          "resolveClaim",
+		ClaimIndex:      claimIndex,
+		NumToResolve:    numToResolve,
+	}
+
+	return c.marshalOtherInfo(enhancedInfo)
+}
+
+// buildChallengerResolveOtherInfo builds OtherInfo for resolve method
+func (c *XLayerRemoteClient) buildChallengerResolveOtherInfo(tx *types.Transaction, baseInfo XLayerOtherInfo) (string, error) {
+	// resolve() - no parameters
+	enhancedInfo := struct {
+		XLayerOtherInfo
+		Method string `json:"method"`
+	}{
+		XLayerOtherInfo: baseInfo,
+		Method:          "resolve",
+	}
+
+	return c.marshalOtherInfo(enhancedInfo)
+}
+
+// buildChallengerClaimCreditOtherInfo builds OtherInfo for claimCredit method
+func (c *XLayerRemoteClient) buildChallengerClaimCreditOtherInfo(tx *types.Transaction, baseInfo XLayerOtherInfo) (string, error) {
+	// claimCredit(address _recipient)
+	// Parse recipient parameter
+	var recipient *string
+	if len(tx.Data()) >= 36 { // 4 bytes signature + 32 bytes address
+		recipientAddr := common.BytesToAddress(tx.Data()[16:36]) // Address in last 20 bytes
+		recipientHex := recipientAddr.Hex()
+		recipient = &recipientHex
+	}
+
+	enhancedInfo := struct {
+		XLayerOtherInfo
+		Method    string  `json:"method"`
+		Recipient *string `json:"recipient,omitempty"`
+	}{
+		XLayerOtherInfo: baseInfo,
+		Method:          "claimCredit",
+		Recipient:       recipient,
+	}
+
+	return c.marshalOtherInfo(enhancedInfo)
+}
+
+// buildDefaultOtherInfo builds default OtherInfo
+func (c *XLayerRemoteClient) buildDefaultOtherInfo(tx *types.Transaction) (string, error) {
+	baseInfo := c.buildBaseOtherInfo(tx)
+	return c.marshalOtherInfo(baseInfo)
+}
+
+// buildBaseOtherInfo builds base OtherInfo parameters
+func (c *XLayerRemoteClient) buildBaseOtherInfo(tx *types.Transaction) XLayerOtherInfo {
+	otherInfo := XLayerOtherInfo{
+		ContractAddress: *tx.To(),
+		GasLimit:        tx.Gas(),
+		Nonce:           tx.Nonce(),
+		TxData:          hexutil.Encode(tx.Data()),
+		Value:           tx.Value().String(),
+	}
+
+	// Set gas parameters based on transaction type
+	switch tx.Type() {
+	case types.BlobTxType:
+		otherInfo.MaxFeePerGas = tx.GasFeeCap().String()
+		otherInfo.MaxPriorityFeePerGas = tx.GasTipCap().String()
+		otherInfo.BlobFeeCap = tx.BlobGasFeeCap().String()
+		otherInfo.BlobVersionedHashes = tx.BlobHashes()
+	case types.DynamicFeeTxType:
+		otherInfo.MaxFeePerGas = tx.GasFeeCap().String()
+		otherInfo.MaxPriorityFeePerGas = tx.GasTipCap().String()
+	default:
+		otherInfo.GasPrice = tx.GasPrice().String()
+	}
+
+	return otherInfo
+}
+
+// marshalOtherInfo serializes OtherInfo to JSON string
+func (c *XLayerRemoteClient) marshalOtherInfo(info interface{}) (string, error) {
+	data, err := json.Marshal(info)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal other info: %w", err)
+	}
+	return string(data), nil
+}
+
+// getBatcherOperateType returns the operate type for Batcher transactions
+func (c *XLayerRemoteClient) getBatcherOperateType(tx *types.Transaction) int {
+	switch tx.Type() {
+	case types.BlobTxType:
+		return 19 // Batcher EIP-4844
+	default:
+		return 3 // Batcher EIP-1559/Legacy
+	}
+}
+
+// getChallengerOperateType returns the operate type for Challenger transactions based on method signature
+func (c *XLayerRemoteClient) getChallengerOperateType(tx *types.Transaction) int {
+	methodSigHex := hexutil.Encode(tx.Data()[:4])
+	switch methodSigHex {
+	case "0x03c2924d": // resolveClaim(uint256 _claimIndex, uint256 _numToResolve)
+		return 21
+	case "0x2810e1d6": // resolve()
+		return 22
+	case "0x60e27464": // claimCredit(address _recipient)
+		return 23
+	default:
+		c.logger.Warn("Unknown challenger method, using default operateType", "signature", methodSigHex)
+		return 21 // Default to resolveClaim operateType
+	}
+}
+
+// getDefaultOperateType returns the default operate type based on transaction type
+func (c *XLayerRemoteClient) getDefaultOperateType(tx *types.Transaction) int {
+	switch tx.Type() {
+	case types.BlobTxType:
+		return 19
+	case types.DynamicFeeTxType:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func (c *XLayerRemoteClient) getBatcherAddress() common.Address {
+	return common.HexToAddress("")
+}
+
+func (c *XLayerRemoteClient) getProposerAddress() common.Address {
+	return common.HexToAddress("")
+}
+
+func (c *XLayerRemoteClient) getChallengerAddress() common.Address {
+	return common.HexToAddress("0x1a13bddcc02d363366e04d4aa588d3c125b0ff6f")
+}
+
+type ProposerTxArgs struct {
+	// DisputeGameFactory.create parameters
+	GameType  uint32      `json:"gameType"`
+	RootClaim common.Hash `json:"rootClaim"`
+	ExtraData []byte      `json:"extraData"`
+}
+
+func (c *XLayerRemoteClient) unpackProposerTransaction(tx *types.Transaction) (*ProposerTxArgs, error) {
+	if tx == nil || len(tx.Data()) < 4 {
+		return nil, fmt.Errorf("empty or invalid transaction")
+	}
+
+	data := tx.Data()
+	methodSig := data[:4]
+	methodData := data[4:]
+
+	disputeGameFactoryABI := snapshots.LoadDisputeGameFactoryABI()
+	if method, err := disputeGameFactoryABI.MethodById(methodSig); err == nil {
+		if method.Name == "create" {
+			result := make(map[string]interface{})
+			if err := method.Inputs.UnpackIntoMap(result, methodData); err == nil {
+				// ABI unpack returns _rootClaim as [32]byte, need to convert to common.Hash
+				var rootClaim common.Hash
+				switch v := result["_rootClaim"].(type) {
+				case [32]byte:
+					rootClaim = common.BytesToHash(v[:])
+				case common.Hash:
+					rootClaim = v
+				default:
+					return nil, fmt.Errorf("unexpected rootClaim type: %T", v)
+				}
+
+				c.logger.Debug("Successfully unpacked DisputeGameFactory.create",
+					"gameType", result["_gameType"],
+					"rootClaim", rootClaim.Hex(),
+					"extraData", hexutil.Encode(result["_extraData"].([]byte)))
+
+				return &ProposerTxArgs{
+					GameType:  result["_gameType"].(uint32),
+					RootClaim: rootClaim,
+					ExtraData: result["_extraData"].([]byte),
+				}, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("unknown proposer transaction method signature: %s (only DisputeGameFactory.create supported)", hexutil.Encode(methodSig))
+}
+
+func (c *XLayerRemoteClient) Close() {
+	// Cleanup resources
+}
