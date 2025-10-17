@@ -73,3 +73,5 @@ test/tmp
 test-apollo/l1-geth
 test-apollo/config-op
 test-apollo/data
+
+test-pp-op/testnet.env
