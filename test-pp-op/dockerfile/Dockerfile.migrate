@@ -1,0 +1,27 @@
+# Support setting various labels on the final image
+ARG COMMIT=""
+ARG VERSION=""
+ARG BUILDNUM=""
+
+# Build Geth in a stock Go builder container
+FROM golang:1.24-alpine AS builder
+
+RUN go env -w CGO_ENABLED=1
+RUN apk add --no-cache make gcc musl-dev linux-headers git
+
+WORKDIR /app
+
+COPY tmp/op-geth op-geth
+RUN cd op-geth && make geth
+
+COPY . test-pp-op
+RUN rm -rf test-pp-op/tmp
+
+FROM alpine:latest
+
+RUN apk add --no-cache jq bash ca-certificates libgcc libstdc++
+
+COPY --from=builder /app/op-geth/build/bin/geth /usr/local/bin/geth
+COPY --from=builder /app/test-pp-op /app/test-pp-op
+
+WORKDIR /app

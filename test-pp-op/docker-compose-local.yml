@@ -392,10 +392,10 @@ services:
       - CDK_ERIGON_SEQUENCER=0
       - WRITE_MAP=true
     ports:
-      - 6061:6060
-      - 8124:8545
-      - 6901:6900
-      - 9091:9095
+      - 16061:6060
+      - 18124:8545
+      - 16901:6900
+      - 19091:9095
     volumes:
       - ./data/rpc/:/home/erigon/data/
       - ./config/test.erigon.rpc.config.yaml:/usr/src/app/config.yaml
@@ -552,6 +552,7 @@ services:
       - --l1.rpckind=standard
       - --rollup.l1-chain-config=/l1/genesis.json
       - --safedb.path=/data/safedb
+      - --pp-rpc-url=${PP_RPC_URL}
     depends_on:
       - op-geth-rpc
 
