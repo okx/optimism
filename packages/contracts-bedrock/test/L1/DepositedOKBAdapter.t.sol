@@ -294,7 +294,7 @@ contract DepositedOKBAdapter_TestInit is CommonTest {
 /// @notice Test contract for DepositedOKBAdapter constructor
 contract DepositedOKBAdapter_Constructor_Test is DepositedOKBAdapter_TestInit {
     /// @notice Test successful constructor execution
-    function test_constructor_succeeds() public {
+    function test_constructor_succeeds() public view {
         // Check that the adapter was deployed correctly
         assertEq(address(adapter.OKB()), address(okb));
         assertEq(address(adapter.PORTAL()), address(portal));
