@@ -1,5 +1,4 @@
 #!/bin/bash
-echo "Custom Gas Token Demo: only modify contract, without modifying sequencer code"
 set -e
 
 ROOT_DIR=$(git rev-parse --show-toplevel)
@@ -9,42 +8,35 @@ cd $PWD_DIR
 
 source .env
 
-echo "🔧 Setting up Custom Gas Token (CGT) configuration..."
-echo ""
+# Check if CGT has been set up (OKB_TOKEN_ADDRESS should be in .env)
+if [ -z "$OKB_TOKEN_ADDRESS" ]; then
+  echo "❌ ERROR: OKB_TOKEN_ADDRESS not found in .env"
+  echo ""
+  echo "Please run '2-deploy-op-contracts.sh' first to set up CGT and configure OKB token."
+  echo ""
+  exit 1
+fi
 
-# Run the Foundry script to deploy and configure CGT
-echo "📝 Step 1: Running Foundry setup script..."
-cd $ROOT_DIR/packages/contracts-bedrock
-export SYSTEM_CONFIG_PROXY_ADDRESS=$SYSTEM_CONFIG_PROXY_ADDRESS
-export OPTIMISM_PORTAL_PROXY_ADDRESS=$OPTIMISM_PORTAL_PROXY_ADDRESS
+# Query ADAPTER_ADDRESS from SystemConfig.gasPayingToken()
+echo "📝 Querying ADAPTER_ADDRESS from SystemConfig..."
+ADAPTER_ADDRESS=$(cast call "$SYSTEM_CONFIG_PROXY_ADDRESS" "gasPayingToken()(address,uint8)" --rpc-url "$L1_RPC_URL" | head -n1)
+if [ -z "$ADAPTER_ADDRESS" ] || [ "$ADAPTER_ADDRESS" = "0x0000000000000000000000000000000000000000" ]; then
+  echo "❌ ERROR: Could not query ADAPTER_ADDRESS from SystemConfig or CGT not configured"
+  echo "   SystemConfig address: $SYSTEM_CONFIG_PROXY_ADDRESS"
+  exit 1
+fi
 
-# Capture forge script output
-# forge script scripts/SetupCustomGasToken.s.sol:SetupCustomGasToken \
-#   --rpc-url "$L1_RPC_URL" \
-#   --private-key "$DEPLOYER_PRIVATE_KEY"
-
-FORGE_OUTPUT=$(forge script scripts/SetupCustomGasToken.s.sol:SetupCustomGasToken \
-  --rpc-url "$L1_RPC_URL" \
-  --private-key "$DEPLOYER_PRIVATE_KEY" \
-  --broadcast 2>&1)
-
-echo "$FORGE_OUTPUT"
-
-# Extract contract addresses from forge output
-OKB_TOKEN=$(echo "$FORGE_OUTPUT" | grep "MockOKB deployed at:" | awk '{print $NF}')
-ADAPTER_ADDRESS=$(echo "$FORGE_OUTPUT" | grep "DepositedOKBAdapter deployed at:" | awk '{print $NF}')
-
-# Query initial OKB total supply
-INIT_TOTAL_SUPPLY=$(cast call "$OKB_TOKEN" "totalSupply()(uint256)" --rpc-url "$L1_RPC_URL")
-echo ""
-echo "📊 Initial OKB Total Supply: $INIT_TOTAL_SUPPLY"
+# Query INIT_TOTAL_SUPPLY from OKB token contract
+echo "📝 Querying INIT_TOTAL_SUPPLY from OKB token..."
+INIT_TOTAL_SUPPLY=$(cast call "$OKB_TOKEN_ADDRESS" "totalSupply()(uint256)" --rpc-url "$L1_RPC_URL")
 
 echo ""
-echo "✅ L1 Custom Gas Token setup complete!"
+echo "🧪 Testing Custom Gas Token (CGT) configuration..."
 echo ""
-echo "📋 Deployed Contract Addresses:"
-echo "   OKB Token:          $OKB_TOKEN"
-echo "   Adapter:            $ADAPTER_ADDRESS"
+echo "📋 Using Contract Addresses:"
+echo "   OKB Token:          $OKB_TOKEN_ADDRESS"
+echo "   Adapter:            $ADAPTER_ADDRESS (queried from SystemConfig)"
+echo "   Initial Supply:     $INIT_TOTAL_SUPPLY (queried from OKB)"
 echo ""
 
 # Check if L2 is running before verifying L2 configuration
@@ -53,7 +45,7 @@ if curl -s -X POST "$L2_RPC_URL" \
   -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
   > /dev/null 2>&1; then
 
-  echo "📝 Step 2: Verifying L2 configuration..."
+  echo "📝 Step 1: Verifying L2 configuration..."
   echo ""
 
   # Call L1Block predeploy to check configuration
@@ -94,12 +86,12 @@ else
 fi
 
 echo ""
-echo "🎉 Custom Gas Token setup script completed!"
+echo "🎉 Custom Gas Token verification completed!"
 echo ""
 
 # Perform test deposit
-if [ -n "$OKB_TOKEN" ] && [ -n "$ADAPTER_ADDRESS" ]; then
-  echo "📝 Step 3: Performing test deposit..."
+if [ -n "$OKB_TOKEN_ADDRESS" ] && [ -n "$ADAPTER_ADDRESS" ]; then
+  echo "📝 Step 2: Performing test deposit..."
   echo ""
 
   DEPOSIT_AMOUNT="7999000000000000"
@@ -115,26 +107,23 @@ if [ -n "$OKB_TOKEN" ] && [ -n "$ADAPTER_ADDRESS" ]; then
 
   # Check deployer's OKB balance before proceeding
   DEPLOYER_ADDRESS=$(cast wallet address --private-key "$DEPLOYER_PRIVATE_KEY")
-  DEPLOYER_OKB_BALANCE=$(cast call "$OKB_TOKEN" "balanceOf(address)(uint256)" "$DEPLOYER_ADDRESS" --rpc-url "$L1_RPC_URL")
+  DEPLOYER_OKB_BALANCE=$(cast call "$OKB_TOKEN_ADDRESS" "balanceOf(address)(uint256)" "$DEPLOYER_ADDRESS" --rpc-url "$L1_RPC_URL")
   echo "  Deployer ($DEPLOYER_ADDRESS) OKB Balance: $DEPLOYER_OKB_BALANCE"
   echo ""
 
-  # Step 3a: Approve the adapter to spend OKB
-  cast send "$OKB_TOKEN" \
+  # Step 2a: Approve the adapter to spend OKB
+  cast send "$OKB_TOKEN_ADDRESS" \
     "approve(address,uint256)" \
     "$ADAPTER_ADDRESS" \
     "$DEPOSIT_AMOUNT" \
     --rpc-url "$L1_RPC_URL" \
     --private-key "$DEPLOYER_PRIVATE_KEY"
 
-  # Step 3b: Perform the deposit
+  # Step 2b: Perform the deposit
   cast send "$ADAPTER_ADDRESS" \
-    "deposit(address,uint256,uint64,bool,bytes)" \
+    "deposit(address,uint256)" \
     "$L2_RECIPIENT" \
     "$DEPOSIT_AMOUNT" \
-    "100000" \
-    "false" \
-    "0x" \
     --rpc-url "$L1_RPC_URL" \
     --private-key "$DEPLOYER_PRIVATE_KEY"
 
@@ -163,7 +152,7 @@ if [ -n "$OKB_TOKEN" ] && [ -n "$ADAPTER_ADDRESS" ]; then
       echo ""
 
       # Query OKB total supply after successful deposit
-      DEPOSIT_FINAL_TOTAL_SUPPLY=$(cast call "$OKB_TOKEN" "totalSupply()(uint256)" --rpc-url "$L1_RPC_URL")
+      DEPOSIT_FINAL_TOTAL_SUPPLY=$(cast call "$OKB_TOKEN_ADDRESS" "totalSupply()(uint256)" --rpc-url "$L1_RPC_URL")
 
       echo "📊 Final Status:"
       echo "   Initial Balance:  $INIT_BALANCE"

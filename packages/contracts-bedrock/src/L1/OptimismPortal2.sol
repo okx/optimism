@@ -591,7 +591,7 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
             revert OptimismPortal_InvalidGasToken();
         }
 
-        if ( _mint > 0) {
+        if (_mint > 0) {
             IERC20(token).transferFrom(msg.sender, address(this), _mint);
         }
 
