@@ -338,7 +338,7 @@ func (m CLIConfig) Check() error {
 	}
 	if err := m.XLayerSignerCLIConfig.Check(); err != nil {
 		return err
-  }  
+	}
 	atMostOneIsSet := func(options ...bool) bool {
 		boolToInt := func(b bool) int {
 			if b {
@@ -353,8 +353,8 @@ func (m CLIConfig) Check() error {
 		}
 		return sum == 1 || sum == 0
 	}
-	if !atMostOneIsSet(m.PrivateKey != "", m.Mnemonic != "", m.SignerCLIConfig.Enabled()) {
-		return errors.New("can only provide at most one of: [private key, mnemonic, remote signer]")
+	if !atMostOneIsSet(m.PrivateKey != "", m.Mnemonic != "", m.SignerCLIConfig.Enabled(), m.XLayerSignerCLIConfig.Enabled) {
+		return errors.New("can only provide at most one of: [private key, mnemonic, remote signer, xlayer signer]")
 	}
 	return nil
 }
