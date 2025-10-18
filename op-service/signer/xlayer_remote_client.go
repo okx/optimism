@@ -191,7 +191,12 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 		return nil, fmt.Errorf("remote signing failed: %w", err)
 	}
 
-	// 5. Re-attach blob sidecar if present
+	// 5. Verify signed transaction consistency
+	//if err := c.verifySignedTransaction(tx, signedTx); err != nil {
+	//	return nil, fmt.Errorf("signed transaction verification failed: %w", err)
+	//}
+
+	// 6. Re-attach blob sidecar if present
 	if sidecar != nil {
 		if err := signedTx.SetBlobTxSidecar(sidecar); err != nil {
 			return nil, fmt.Errorf("failed to attach sidecar to signed blob tx: %w", err)
@@ -234,12 +239,8 @@ func (c *XLayerRemoteClient) detectComponentType(tx *types.Transaction) string {
 			return "unknown"
 		}
 	}
-
-	// 合约创建交易
 	return "unknown"
 }
-
-// 这个方法已经不再使用，因为现在使用特定的buildBatcherOtherInfo、buildProposerOtherInfo等方法
 
 // postSignRequestAndWaitResult sends signing request and waits for the result
 func (c *XLayerRemoteClient) postSignRequestAndWaitResult(ctx context.Context, req *XLayerSignRequest, originalTx *types.Transaction) (*types.Transaction, error) {
@@ -865,6 +866,235 @@ func (c *XLayerRemoteClient) unpackProposerTransaction(tx *types.Transaction) (*
 
 	return nil, fmt.Errorf("unknown proposer transaction method signature: %s (only DisputeGameFactory.create supported)", hexutil.Encode(methodSig))
 }
+
+//func (c *XLayerRemoteClient) verifySignedTransaction(originalTx *types.Transaction, signedTx *types.Transaction) error {
+//	if originalTx.To() != nil && signedTx.To() != nil {
+//		if *originalTx.To() != *signedTx.To() {
+//			return fmt.Errorf("to address mismatch: original=%s, signed=%s",
+//				originalTx.To().Hex(), signedTx.To().Hex())
+//		}
+//	} else if originalTx.To() != signedTx.To() {
+//		return fmt.Errorf("to address nil mismatch: original=%v, signed=%v",
+//			originalTx.To(), signedTx.To())
+//	}
+//
+//	if !bytes.Equal(originalTx.Data(), signedTx.Data()) {
+//		return fmt.Errorf("transaction data mismatch: original_len=%d, signed_len=%d",
+//			len(originalTx.Data()), len(signedTx.Data()))
+//	}
+//
+//	if originalTx.Value().Cmp(signedTx.Value()) != 0 {
+//		return fmt.Errorf("transaction value mismatch: original=%s, signed=%s",
+//			originalTx.Value().String(), signedTx.Value().String())
+//	}
+//
+//	// 4. Verification gas limit
+//	if originalTx.Gas() != signedTx.Gas() {
+//		return fmt.Errorf("gas limit mismatch: original=%d, signed=%d",
+//			originalTx.Gas(), signedTx.Gas())
+//	}
+//
+//	// 5. nonce
+//	if originalTx.Nonce() != signedTx.Nonce() {
+//		return fmt.Errorf("nonce mismatch: original=%d, signed=%d",
+//			originalTx.Nonce(), signedTx.Nonce())
+//	}
+//
+//	// 6. Verification ID
+//	if originalTx.ChainId().Cmp(signedTx.ChainId()) != 0 {
+//		return fmt.Errorf("chain ID mismatch: original=%s, signed=%s",
+//			originalTx.ChainId().String(), signedTx.ChainId().String())
+//	}
+//
+//	// 7. Verify the transaction type (allowing EIP-1559 conversion to Legacy)
+//	if originalTx.Type() != signedTx.Type() {
+//		// Allow EIP-1559 (type 2) to be converted to Legacy (type 0), but record a warning
+//		if originalTx.Type() == types.DynamicFeeTxType && signedTx.Type() == types.LegacyTxType {
+//			c.logger.Warn("Transaction type converted by remote signer",
+//				"original_type", originalTx.Type(),
+//				"signed_type", signedTx.Type(),
+//				"reason", "EIP-1559 converted to Legacy")
+//		} else {
+//			return fmt.Errorf("unexpected transaction type conversion: original=%d, signed=%d",
+//				originalTx.Type(), signedTx.Type())
+//		}
+//	}
+//
+//	// 8. Verify the fee parameters (perform intelligent verification based on the transaction type after signing)
+//	if err := c.verifyGasFields(originalTx, signedTx); err != nil {
+//		return fmt.Errorf("gas fields verification failed: %w", err)
+//	}
+//
+//	// 9.Verify whether the signature is valid
+//	if err := c.verifyTransactionSignature(signedTx); err != nil {
+//		return fmt.Errorf("transaction signature verification failed: %w", err)
+//	}
+//
+//	c.logger.Info("Signed transaction verification passed",
+//		"original_hash", originalTx.Hash().Hex(),
+//		"signed_hash", signedTx.Hash().Hex(),
+//		"type", signedTx.Type(),
+//		"to", signedTx.To(),
+//		"nonce", signedTx.Nonce())
+//
+//	return nil
+//}
+//
+//func (c *XLayerRemoteClient) verifyBlobTxFields(originalTx *types.Transaction, signedTx *types.Transaction) error {
+//	// gas fee cap
+//	if originalTx.GasFeeCap().Cmp(signedTx.GasFeeCap()) != 0 {
+//		return fmt.Errorf("gas fee cap mismatch: original=%s, signed=%s",
+//			originalTx.GasFeeCap().String(), signedTx.GasFeeCap().String())
+//	}
+//
+//	// gas tip cap
+//	if originalTx.GasTipCap().Cmp(signedTx.GasTipCap()) != 0 {
+//		return fmt.Errorf("gas tip cap mismatch: original=%s, signed=%s",
+//			originalTx.GasTipCap().String(), signedTx.GasTipCap().String())
+//	}
+//
+//	// blob gas fee cap
+//	if originalTx.BlobGasFeeCap().Cmp(signedTx.BlobGasFeeCap()) != 0 {
+//		return fmt.Errorf("blob gas fee cap mismatch: original=%s, signed=%s",
+//			originalTx.BlobGasFeeCap().String(), signedTx.BlobGasFeeCap().String())
+//	}
+//
+//	// blob hash
+//	originalHashes := originalTx.BlobHashes()
+//	signedHashes := signedTx.BlobHashes()
+//	if len(originalHashes) != len(signedHashes) {
+//		return fmt.Errorf("blob hashes count mismatch: original=%d, signed=%d",
+//			len(originalHashes), len(signedHashes))
+//	}
+//
+//	for i, originalHash := range originalHashes {
+//		if originalHash != signedHashes[i] {
+//			return fmt.Errorf("blob hash mismatch at index %d: original=%s, signed=%s",
+//				i, originalHash.Hex(), signedHashes[i].Hex())
+//		}
+//	}
+//
+//	return nil
+//}
+//
+// verifyDynamicFeeTxFields verify EIP-1559
+//func (c *XLayerRemoteClient) verifyDynamicFeeTxFields(originalTx *types.Transaction, signedTx *types.Transaction) error {
+//	// 验证gas fee cap
+//	if originalTx.GasFeeCap().Cmp(signedTx.GasFeeCap()) != 0 {
+//		return fmt.Errorf("gas fee cap mismatch: original=%s, signed=%s",
+//			originalTx.GasFeeCap().String(), signedTx.GasFeeCap().String())
+//	}
+//
+//	// 验证gas tip cap
+//	if originalTx.GasTipCap().Cmp(signedTx.GasTipCap()) != 0 {
+//		return fmt.Errorf("gas tip cap mismatch: original=%s, signed=%s",
+//			originalTx.GasTipCap().String(), signedTx.GasTipCap().String())
+//	}
+//
+//	return nil
+//}
+
+//func (c *XLayerRemoteClient) verifyTransactionSignature(signedTx *types.Transaction) error {
+//	v, r, s := signedTx.RawSignatureValues()
+//	if v == nil || r == nil || s == nil {
+//		return fmt.Errorf("transaction is not signed: v=%v, r=%v, s=%v", v, r, s)
+//	}
+//
+//	if v.Sign() == 0 && r.Sign() == 0 && s.Sign() == 0 {
+//		return fmt.Errorf("transaction has zero signature values")
+//	}
+//
+//	signer := types.LatestSignerForChainID(signedTx.ChainId())
+//	recoveredFrom, err := signer.Sender(signedTx)
+//	if err != nil {
+//		return fmt.Errorf("failed to recover sender from signature: %w", err)
+//	}
+//
+//	expectedFrom := common.HexToAddress(c.config.Address)
+//	if recoveredFrom != expectedFrom {
+//		return fmt.Errorf("signature verification failed: expected signer=%s, recovered=%s",
+//			expectedFrom.Hex(), recoveredFrom.Hex())
+//	}
+//
+//	c.logger.Debug("Transaction signature verification passed",
+//		"signer", recoveredFrom.Hex(),
+//		"tx_hash", signedTx.Hash().Hex())
+//
+//	return nil
+//}
+//
+// verifyGasFields Intelligently verify the gas field and handle transaction type conversions
+//func (c *XLayerRemoteClient) verifyGasFields(originalTx *types.Transaction, signedTx *types.Transaction) error {
+//	// Verify based on the transaction type after signing
+//	switch signedTx.Type() {
+//	case types.BlobTxType:
+//		// After signing, it becomes a blob transaction, and the original transaction must also be a blob transaction
+//		if originalTx.Type() != types.BlobTxType {
+//			return fmt.Errorf("blob transaction type mismatch: original=%d, signed=%d",
+//				originalTx.Type(), signedTx.Type())
+//		}
+//		return c.verifyBlobTxFields(originalTx, signedTx)
+//
+//	case types.DynamicFeeTxType:
+//		// After signing, it becomes an EIP-1559 transaction
+//		if originalTx.Type() != types.DynamicFeeTxType {
+//			return fmt.Errorf("dynamic fee transaction type mismatch: original=%d, signed=%d",
+//				originalTx.Type(), signedTx.Type())
+//		}
+//		return c.verifyDynamicFeeTxFields(originalTx, signedTx)
+//
+//	case types.LegacyTxType:
+//		// After signing, it becomes a Legacy transaction, which may be converted from EIP-1559
+//		return c.verifyLegacyTxFields(originalTx, signedTx)
+//
+//	default:
+//		return fmt.Errorf("unsupported signed transaction type: %d", signedTx.Type())
+//	}
+//}
+
+// verifyLegacyTxFields Verify Legacy transaction fields (handle conversions from EIP-1559)
+//func (c *XLayerRemoteClient) verifyLegacyTxFields(originalTx *types.Transaction, signedTx *types.Transaction) error {
+//	switch originalTx.Type() {
+//	case types.LegacyTxType:
+//		// The original transaction was Legacy, directly comparing the gas price
+//		if originalTx.GasPrice().Cmp(signedTx.GasPrice()) != 0 {
+//			return fmt.Errorf("gas price mismatch: original=%s, signed=%s",
+//				originalTx.GasPrice().String(), signedTx.GasPrice().String())
+//		}
+//
+//	case types.DynamicFeeTxType:
+//		// The original is EIP-1559. To convert it to Legacy, it is necessary to verify whether the gas price is reasonable
+//		// The gas price of Legacy should be equal to or close to the original gas fee cap
+//		originalGasFeeCap := originalTx.GasFeeCap()
+//		signedGasPrice := signedTx.GasPrice()
+//
+//		// A certain margin of error (such as ±20%) is allowed as the remote signer may adjust
+//		tolerance := new(big.Int).Div(originalGasFeeCap, big.NewInt(5)) // 20% tolerance
+//		lowerBound := new(big.Int).Sub(originalGasFeeCap, tolerance)
+//		upperBound := new(big.Int).Add(originalGasFeeCap, tolerance)
+//
+//		if signedGasPrice.Cmp(lowerBound) < 0 || signedGasPrice.Cmp(upperBound) > 0 {
+//			c.logger.Warn("Gas price conversion outside tolerance range",
+//				"original_gas_fee_cap", originalGasFeeCap.String(),
+//				"original_gas_tip_cap", originalTx.GasTipCap().String(),
+//				"signed_gas_price", signedGasPrice.String(),
+//				"tolerance", tolerance.String(),
+//				"lower_bound", lowerBound.String(),
+//				"upper_bound", upperBound.String())
+//			// No error is returned; only warnings are recorded because this conversion is allowed
+//		}
+//
+//		c.logger.Debug("EIP-1559 to Legacy gas conversion verified",
+//			"original_gas_fee_cap", originalGasFeeCap.String(),
+//			"original_gas_tip_cap", originalTx.GasTipCap().String(),
+//			"signed_gas_price", signedGasPrice.String())
+//
+//	default:
+//		return fmt.Errorf("unsupported original transaction type for legacy conversion: %d", originalTx.Type())
+//	}
+//
+//	return nil
+//}
 
 func (c *XLayerRemoteClient) Close() {
 	// Cleanup resources
