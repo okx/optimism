@@ -187,13 +187,15 @@ services:
       - "30303:30303/udp"
       - "9090:9090"  # pprof port
     command:
-      - --verbosity=3
+      - --verbosity=5
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
       - --config=${CONFIG_FILE:-/config.toml}
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
-      - --verbosity=5
+      - --pprof
+      - --pprof.addr=0.0.0.0
+      - --pprof.port=9090
       - --realtime.kafka-sync-client-id=xlayer-producer-el-1
       - --realtime.kafka-sync-group-id=xlayer-producer-el-1
     healthcheck:
@@ -217,7 +219,7 @@ services:
       - "7547:7546"
       - "30304:30303"
       - "30304:30303/udp"
-      - "6061:9090"  # pprof port
+      - "6061:6061"  # pprof port
     command:
       - --verbosity=5
       - --datadir=/datadir
@@ -226,6 +228,9 @@ services:
       - --gcmode=archive
       # - --rollup.sequencerhttp=http://op-geth-seq:8545
       - --rollup.enabletxpooladmission
+      - --pprof
+      - --pprof.addr=0.0.0.0
+      - --pprof.port=6061
       - --realtime.kafka-sync-client-id=xlayer-consumer-el-1
       - --realtime.kafka-sync-group-id=xlayer-consumer-el-1
 
