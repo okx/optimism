@@ -219,8 +219,6 @@ func TestBatcher_EIP4844_Sepolia_FullFlow(t *testing.T) {
 	sendCtx, sendCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer sendCancel()
 
-	fmt.Println("--------------------------------")
-
 	err = client.SendTransaction(sendCtx, signedTx)
 	if err != nil {
 		t.Logf("Failed to send transaction: %v", err)

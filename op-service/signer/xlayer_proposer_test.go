@@ -33,7 +33,6 @@ func TestProposer_DisputeGameFactory_Sepolia_FullFlow(t *testing.T) {
 
 	t.Logf("Connected to Sepolia testnet")
 
-	// 2. 设置测试参数
 	chainID := big.NewInt(11155111)
 	proposerAddr := common.HexToAddress("0x1a13bddcc02d363366e04d4aa588d3c125b0ff6f")
 	disputeGameFactoryAddr := common.HexToAddress("0xca66313d59c9aab29a0e2a84635dc6778c4c5819")
@@ -223,7 +222,6 @@ func TestProposer_DisputeGameFactory_Sepolia_FullFlow(t *testing.T) {
 		t.Logf("Transaction Hash: %s", signedTx.Hash().Hex())
 		t.Logf("View on Etherscan: https://sepolia.etherscan.io/tx/%s", signedTx.Hash().Hex())
 
-		// 15. 等待交易确认
 		t.Logf("Waiting for transaction confirmation...")
 
 		receipt, err := waitForProposerReceipt(client, signedTx.Hash(), 2*time.Minute)
