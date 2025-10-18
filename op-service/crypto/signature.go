@@ -50,23 +50,23 @@ type SignerFactory func(chainID *big.Int) SignerFn
 
 // SignerFactoryFromConfig considers multiple ways that signers are created & then creates single factory from those config options.
 // It can either take a remote signer (via opsigner.CLIConfig), XLayer remote signer, or it can be provided either a mnemonic + derivation path or a private key.
-// It prefers the remote signer, then XLayer signer, then the mnemonic or private key (only one of which can be provided).
-func SignerFactoryFromConfig(l log.Logger, privateKey, mnemonic, hdPath string, signerConfig opsigner.CLIConfig, xlayerConfig ...opsigner.XLayerCLIConfig) (SignerFactory, common.Address, error) {
+// It prefers the XLayer signer, then remote signer, then the mnemonic or private key (only one of which can be provided).
+func SignerFactoryFromConfig(l log.Logger, privateKey, mnemonic, hdPath string, signerConfig opsigner.CLIConfig, xlayerConfig opsigner.XLayerCLIConfig) (SignerFactory, common.Address, error) {
 	var signer SignerFactory
 	var fromAddress common.Address
 
-	// Check for XLayer remote signer first (if provided)
-	if len(xlayerConfig) > 0 && xlayerConfig[0].Enabled {
-		xlayerClient, err := opsigner.NewXLayerSignerClientFromConfig(l, xlayerConfig[0])
+	// Check for XLayer remote signer first (if enabled)
+	if xlayerConfig.Enabled {
+		xlayerClient, err := opsigner.NewXLayerSignerClientFromConfig(l, xlayerConfig)
 		if err != nil {
 			l.Error("Unable to create XLayer Signer Client", "error", err)
 			return nil, common.Address{}, fmt.Errorf("failed to create the XLayer signer client: %w", err)
 		}
-		fromAddress = common.HexToAddress(xlayerConfig[0].Address)
+		fromAddress = common.HexToAddress(xlayerConfig.Address)
 		signer = func(chainID *big.Int) SignerFn {
 			return func(ctx context.Context, address common.Address, tx *types.Transaction) (*types.Transaction, error) {
 				if !bytes.Equal(address[:], fromAddress[:]) {
-					return nil, fmt.Errorf("attempting to sign for %s, expected %s: ", address, xlayerConfig[0].Address)
+					return nil, fmt.Errorf("attempting to sign for %s, expected %s: ", address, xlayerConfig.Address)
 				}
 				return xlayerClient.SignTransaction(ctx, chainID, address, tx)
 			}
