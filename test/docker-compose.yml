@@ -217,6 +217,7 @@ services:
       - "7547:7546"
       - "30304:30303"
       - "30304:30303/udp"
+      - "6061:9090"  # pprof port
     command:
       - --verbosity=5
       - --datadir=/datadir
