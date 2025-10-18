@@ -44,11 +44,16 @@ services:
       - /bin/sh
       - -c
       - |
+        apk add --no-cache jq
         echo "Fixing genesis.json fork times..."
         sed -i 's/"shanghaiTime": [0-9]*/"shanghaiTime": 0/g' /execution/genesis.json
         sed -i 's/"cancunTime": [0-9]*/"cancunTime": 0/g' /execution/genesis.json
-        echo "Genesis.json: shanghai=0, cancun=0 (MCOPY enabled)"
-        cat /execution/genesis.json | grep -E "(shanghaiTime|cancunTime)"
+        echo "Adding blobSchedule for Cancun..."
+        jq '.config.blobSchedule = {"cancun": {"target": 3, "max": 6, "baseFeeUpdateFraction": 3338477}}' /execution/genesis.json > /tmp/genesis.json && mv /tmp/genesis.json /execution/genesis.json
+        echo "Removing terminalTotalDifficultyPassed for op-node compatibility..."
+        jq 'del(.config.terminalTotalDifficultyPassed)' /execution/genesis.json > /tmp/genesis.json && mv /tmp/genesis.json /execution/genesis.json
+        echo "Genesis.json: shanghai=0, cancun=0 (MCOPY enabled), blobSchedule added, terminalTotalDifficultyPassed removed"
+        cat /execution/genesis.json | jq '.config | {shanghaiTime, cancunTime, terminalTotalDifficulty, blobSchedule}'
     volumes:
       - ./l1-geth/execution:/execution
     depends_on:
@@ -56,7 +61,7 @@ services:
         condition: service_completed_successfully
 
   l1-geth-genesis:
-    image: "ethereum/client-go:v1.14.11"
+    image: "ethereum/client-go:v1.15.11"
     container_name: l1-geth-genesis
     command: --datadir=/execution --gcmode=archive init --state.scheme=hash /execution/genesis.json
     volumes:
@@ -69,7 +74,7 @@ services:
         condition: service_completed_successfully
 
   l1-geth:
-    image: "ethereum/client-go:v1.14.11"
+    image: "ethereum/client-go:v1.15.11"
     container_name: l1-geth
     command:
       - --http
@@ -179,6 +184,7 @@ services:
       - "8552:8552"
       - "30303:30303"
       - "30303:30303/udp"
+      - "9090:9090"  # pprof port
     command:
       - --verbosity=3
       - --datadir=/datadir
@@ -200,7 +206,7 @@ services:
     volumes:
       - ./data/op-geth-rpc:/datadir
       - ./config-op/jwt.txt:/jwt.txt
-      - ./config-op/test.rpc.config.toml:/config.toml
+      - ./config-op/gen.test.geth.rpc.config.toml:/config.toml
     ports:
       - "8124:8545"
       - "30304:30303"
@@ -211,8 +217,43 @@ services:
       - --db.engine=${DB_ENGINE}
       - --config=/config.toml
       - --gcmode=archive
-      # - --rollup.sequencerhttp=http://op-geth-seq:8545
       - --rollup.enabletxpooladmission
+
+  op-reth-rpc:
+    image: "${OP_RETH_IMAGE_TAG}"
+    container_name: op-reth-rpc
+    entrypoint: op-reth
+    volumes:
+      - ./data/op-reth-rpc:/datadir
+      - ./config-op/jwt.txt:/jwt.txt
+      - ./config-op/genesis-rpc.json:/genesis.json
+      - ./config-op/gen.test.reth.rpc.config.toml:/config.toml
+    ports:
+      - "8124:8545"
+      - "30304:30303"
+      - "30304:30303/udp"
+    command:
+      - node
+      - --datadir=/datadir
+      - --chain=/genesis.json
+      - --config=/config.toml
+      - --http
+      - --http.corsdomain=*
+      - --http.port=8545
+      - --http.addr=0.0.0.0
+      - --http.api=web3,debug,eth,txpool,net,miner
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=7546
+      - --ws.origins=*
+      - --ws.api=debug,eth,txpool,net
+      - --disable-discovery
+      - --max-outbound-peers=0
+      - --max-inbound-peers=0
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.port=8552
+      - --authrpc.jwtsecret=/jwt.txt
+      - --rollup.disable-tx-pool-gossip
 
   op-seq:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -221,11 +262,13 @@ services:
       - ./config-op/rollup.json:/rollup.json
       - ./config-op/jwt.txt:/jwt.txt
       - ./data/op-seq:/data
+      - ./l1-geth/execution/genesis.json:/l1-genesis.json
     ports:
       - "9545:9545"
       - "7070:7070"
       - "9223:9223"
       - "9223:9223/udp"
+      - "9091:9091"  # pprof port
     command:
       - /app/op-node/bin/op-node
       - --log.level=debug
@@ -247,9 +290,13 @@ services:
       - --l1=${L1_RPC_URL_IN_DOCKER}
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
+      - --rollup.l1-chain-config=/l1-genesis.json
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}    # 默认关闭
       - --conductor.rpc=http://op-conductor:8547
+      - --pprof.enabled
+      - --pprof.addr=0.0.0.0
+      - --pprof.port=9091
     depends_on:
       op-geth-seq:
         condition: service_healthy
@@ -268,12 +315,13 @@ services:
       - ./config-op/rollup.json:/rollup.json
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/oprpc_p2p_priv.txt:/opnode_p2p_priv.txt
+      - ./l1-geth/execution/genesis.json:/l1-genesis.json
     ports:
       - "9555:9545"
     command:
       - /app/op-node/bin/op-node
       - --log.level=debug
-      - --l2=http://op-geth-rpc:8552
+      - --l2=http://${RPC_TYPE:-op-geth-rpc}:8552
       - --l2.jwt-secret=/jwt.txt
       - --sequencer.enabled=false
       - --verifier.l1-confs=1
@@ -291,9 +339,10 @@ services:
       - --l1=${L1_RPC_URL_IN_DOCKER}
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
+      - --rollup.l1-chain-config=/l1-genesis.json
       - --safedb.path=/data/safedb
     depends_on:
-      - op-geth-rpc
+      - ${RPC_TYPE:-op-geth-rpc}
 
   op-conductor:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -338,23 +387,29 @@ services:
     command:
       - /app/op-batcher/bin/op-batcher
       - --log.level=debug
-      - --l2-eth-rpc=http://op-geth-seq:8545
-      - --rollup-rpc=http://op-seq:9545
-      - --poll-interval=1s
+      - --l2-eth-rpc=${OP_BATCHER_L2_ETH_RPC:-http://op-geth-seq:8545}
+      - --rollup-rpc=${OP_BATCHER_ROLLUP_RPC:-http://op-seq:9545}
+      - --wait-node-sync=true
+      - --check-recent-txs-depth=5
+      - --poll-interval=5s
+      - --batch-type=1
+      - --compression-algo=brotli-11
+      - --data-availability-type=auto
+      - --max-channel-duration=30
+      - --target-num-frames=5
       - --sub-safety-margin=6
-      - --num-confirmations=1
+      - --num-confirmations=4
+      - --network-timeout=10s
       - --safe-abort-nonce-too-low-count=3
+      - --max-pending-tx=10
       - --resubmission-timeout=30s
       - --rpc.addr=0.0.0.0
       - --rpc.port=8548
       - --rpc.enable-admin
-      - --max-channel-duration=25
       - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
       - --private-key=${OP_BATCHER_PRIVATE_KEY}
-      - --throttle-always-block-size=1300000
-      - -data-availability-type=auto
-    depends_on:
-      - op-seq
+      - --throttle.block-size-upper-limit=1300000
+      - --active-sequencer-check-duration=5s
 
   op-proposer:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -364,14 +419,19 @@ services:
     command:
       - /app/op-proposer/bin/op-proposer
       - --log.level=debug
-      - --poll-interval=2s
+      - --poll-interval=20s
+      - --wait-node-sync=true
+      - --allow-non-finalized=false
+      - --num-confirmations=1
+      - --safe-abort-nonce-too-low-count=3
+      - --resubmission-timeout=30s
       - --rpc.port=8560
-      - --rollup-rpc=http://op-seq:9545
+      - --rollup-rpc=http://op-rpc:9545
       - --game-factory-address=${DISPUTE_GAME_FACTORY_ADDRESS}
       - --proposal-interval=1m
       - --private-key=${OP_PROPOSER_PRIVATE_KEY}
       - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
-      - --game-type=${GAME_TYPE}
+      - --game-type=${GAME_TYPE:-0}
       - --allow-non-finalized
       - --genesis-height=${FORK_BLOCK}
     depends_on:
@@ -395,8 +455,8 @@ services:
       - --log.level=debug
       - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
       - --l1-beacon=${L1_BEACON_URL_IN_DOCKER}
-      - --l2-eth-rpc=http://op-geth-seq:8545
-      - --rollup-rpc=http://op-seq:9545
+      - --l2-eth-rpc=http://op-geth-rpc:8545
+      - --rollup-rpc=http://op-rpc:9545
       - --game-factory-address=${DISPUTE_GAME_FACTORY_ADDRESS}
       - --cannon-bin=/app/cannon/bin/cannon
       - --cannon-server=/data/op-program
@@ -417,7 +477,7 @@ services:
     command:
       - /app/op-dispute-mon/bin/op-dispute-mon
       - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
-      - --rollup-rpc=http://op-seq:9545
+      - --rollup-rpc=http://op-rpc:9545
       - --game-factory-address=${DISPUTE_GAME_FACTORY_ADDRESS}
       - --game-window=${GAME_WINDOW}s
       - --honest-actors=${PROPOSER_ADDRESS}
@@ -455,6 +515,7 @@ services:
       - ./config-op/rollup.json:/rollup.json
       - ./config-op/jwt.txt:/jwt.txt
       - ./data/op-seq2:/data
+      - ./l1-geth/execution/genesis.json:/l1-genesis.json
     ports:
       - "9546:9545"
 #      - "7070:7070"
@@ -483,6 +544,7 @@ services:
       - --l1=${L1_RPC_URL_IN_DOCKER}
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
+      - --rollup.l1-chain-config=/l1-genesis.json
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor2:8547
@@ -566,6 +628,7 @@ services:
       - ./config-op/rollup.json:/rollup.json
       - ./config-op/jwt.txt:/jwt.txt
       - ./data/op-seq3:/data
+      - ./l1-geth/execution/genesis.json:/l1-genesis.json
     ports:
       - "9547:9545"
 #      - "7070:7070"
@@ -594,6 +657,7 @@ services:
       - --l1=${L1_RPC_URL_IN_DOCKER}
       - --l1.beacon=${L1_BEACON_URL_IN_DOCKER}
       - --l1.rpckind=standard
+      - --rollup.l1-chain-config=/l1-genesis.json
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor3:8547

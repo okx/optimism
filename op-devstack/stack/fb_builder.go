@@ -2,6 +2,7 @@ package stack
 
 import (
 	"log/slog"
+	"net/http"
 
 	"github.com/ethereum-optimism/optimism/op-service/apis"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
@@ -10,9 +11,10 @@ import (
 type FlashblocksBuilderNode interface {
 	ELNode
 	ID() FlashblocksBuilderID
-	ConductorID() ConductorID
+	Conductor() Conductor
 	L2EthClient() apis.L2EthClient
 	FlashblocksWsUrl() string
+	FlashblocksWsHeaders() http.Header
 }
 
 type FlashblocksBuilderID idWithChain

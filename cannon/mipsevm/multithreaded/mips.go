@@ -165,9 +165,6 @@ func (m *InstrumentedState) handleSyscall() error {
 		// Otherwise, ignored (noop)
 	case arch.SysMunmap:
 	case arch.SysMprotect:
-		if !m.features.SupportNoopMprotect {
-			m.handleUnrecognizedSyscall(syscallNum)
-		}
 	case arch.SysGetAffinity:
 	case arch.SysMadvise:
 	case arch.SysRtSigprocmask:
@@ -198,10 +195,6 @@ func (m *InstrumentedState) handleSyscall() error {
 	case arch.SysGetRLimit:
 	case arch.SysLseek:
 	case arch.SysEventFd2:
-		if !m.features.SupportMinimalSysEventFd2 {
-			m.handleUnrecognizedSyscall(syscallNum)
-		}
-
 		// a0 = initial value, a1 = flags
 		// Validate flags
 		if a1&exec.EFD_NONBLOCK == 0 {
@@ -247,7 +240,9 @@ func (m *InstrumentedState) syscallGetRandom(a0, a1 uint64) (v0, v1 uint64) {
 	randDataMask <<= (arch.WordSizeBytes - byteCount) * 8
 	randDataMask >>= targetByteIndex * 8
 	newMemVal := (memVal & ^randDataMask) | (randomWord & randDataMask)
+
 	m.state.Memory.SetWord(effAddr, newMemVal)
+	m.handleMemoryUpdate(effAddr)
 
 	v0 = byteCount
 	v1 = 0
@@ -321,8 +316,21 @@ func (m *InstrumentedState) doMipsStep() error {
 	}
 	m.state.StepsSinceLastContextSwitch += 1
 
-	//instruction fetch
-	insn, opcode, fun := exec.GetInstructionDetails(m.state.GetPC(), m.state.Memory)
+	pc := m.state.GetPC()
+	if pc&0x3 != 0 {
+		panic(fmt.Sprintf("unaligned instruction fetch: PC = 0x%x", pc))
+	}
+	cacheIdx := pc / 4
+
+	var insn, opcode, fun uint32
+	if int(cacheIdx) < len(m.cached_decode) {
+		decoded := m.cached_decode[cacheIdx]
+		insn, opcode, fun = decoded.insn, decoded.opcode, decoded.fun
+	} else {
+		// PC is outside eager region
+		m.statsTracker.trackInstructionCacheMiss(pc)
+		insn, opcode, fun = exec.GetInstructionDetails(pc, m.state.Memory)
+	}
 
 	// Handle syscall separately
 	// syscall (can read and write)
@@ -342,7 +350,7 @@ func (m *InstrumentedState) doMipsStep() error {
 	}
 
 	// Exec the rest of the step logic
-	memUpdated, effMemAddr, err := exec.ExecMipsCoreStepLogic(m.state.getCpuRef(), m.state.GetRegistersRef(), m.state.Memory, insn, opcode, fun, m.memoryTracker, m.stackTracker, m.features)
+	memUpdated, effMemAddr, err := exec.ExecMipsCoreStepLogic(m.state.getCpuRef(), m.state.GetRegistersRef(), m.state.Memory, insn, opcode, fun, m.memoryTracker, m.stackTracker)
 	if err != nil {
 		return err
 	}
