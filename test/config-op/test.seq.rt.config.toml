@@ -30,6 +30,9 @@ AccountQueue = 10000
 [Eth.XLayer]
 EnableInnerTx = false
 
+[Eth.Miner]
+Recommit = 200000000
+
 [Eth.XLayer.Realtime]
 Enable = true
 RealtimeRpc = false
@@ -52,9 +55,6 @@ MaxHeaderHistory = 1024
 MaxBlockHistory = 1024
 MaxPrice = "5000000000000000000000"
 IgnorePrice = "2000000000000000000"
-
-[Eth.Miner]
-Recommit = 200000000
 
 [Eth.GPO.XLayer]
 Type = "follower"
