@@ -578,16 +578,94 @@ contract DepositedOKBAdapter_Transfer_Test is DepositedOKBAdapter_TestInit {
     }
 }
 
+/// @title MockUSDT
+/// @notice Mock USDT contract that mimics real USDT behavior (no return value for transfer)
+contract MockUSDT {
+    mapping(address => uint256) private _balances;
+    mapping(address => mapping(address => uint256)) private _allowances;
+
+    uint256 private _totalSupply;
+    string public name = "Tether USD";
+    string public symbol = "USDT";
+    uint8 public decimals = 6;
+
+    bool public shouldRevert = false;
+
+    constructor(uint256 _supply) {
+        _totalSupply = _supply;
+        _balances[msg.sender] = _supply;
+    }
+
+    function totalSupply() public view returns (uint256) {
+        return _totalSupply;
+    }
+
+    function balanceOf(address account) public view returns (uint256) {
+        return _balances[account];
+    }
+
+    function allowance(address owner, address spender) public view returns (uint256) {
+        return _allowances[owner][spender];
+    }
+
+    /// @notice USDT-style transfer that doesn't return bool and reverts on failure
+    function transfer(address to, uint256 amount) public {
+        if (shouldRevert) {
+            revert("USDT: transfer failed");
+        }
+        require(to != address(0), "USDT: transfer to zero address");
+        require(_balances[msg.sender] >= amount, "USDT: insufficient balance");
+
+        _balances[msg.sender] -= amount;
+        _balances[to] += amount;
+    }
+
+    /// @notice USDT-style transferFrom that doesn't return bool and reverts on failure
+    function transferFrom(address from, address to, uint256 amount) public {
+        if (shouldRevert) {
+            revert("USDT: transfer failed");
+        }
+        require(to != address(0), "USDT: transfer to zero address");
+        require(_balances[from] >= amount, "USDT: insufficient balance");
+        require(_allowances[from][msg.sender] >= amount, "USDT: insufficient allowance");
+
+        _balances[from] -= amount;
+        _balances[to] += amount;
+        _allowances[from][msg.sender] -= amount;
+    }
+
+    function approve(address spender, uint256 amount) public returns (bool) {
+        _allowances[msg.sender][spender] = amount;
+        return true;
+    }
+
+    function setShouldRevert(bool _shouldRevert) external {
+        shouldRevert = _shouldRevert;
+    }
+
+    /// @notice Mint tokens for testing
+    function mint(address to, uint256 amount) external {
+        _balances[to] += amount;
+        _totalSupply += amount;
+    }
+}
+
 /// @title DepositedOKBAdapter_Rescue_Test
 /// @notice Test contract for ERC20 rescue functionality
 contract DepositedOKBAdapter_Rescue_Test is DepositedOKBAdapter_TestInit {
     ERC20 testToken;
+    MockUSDT mockUSDT;
 
     function setUp() public override {
         super.setUp();
         testToken = new ERC20("Test Token", "TEST");
         // Mint some tokens to the adapter (simulating accidental transfer)
         deal(address(testToken), address(adapter), 1000e18);
+
+        // Create mock USDT with 6 decimals (1M USDT)
+        mockUSDT = new MockUSDT(1_000_000e6);
+        // Transfer some USDT to the adapter (simulating accidental transfer)
+        mockUSDT.mint(address(adapter), 10_000e6); // 10,000 USDT
     }
 
     /// @notice Test successful ERC20 rescue
@@ -630,6 +708,35 @@ contract DepositedOKBAdapter_Rescue_Test is DepositedOKBAdapter_TestInit {
         vm.expectRevert("Ownable: caller is not the owner");
         vm.prank(user1);
         adapter.rescueERC20(address(testToken), makeAddr("rescueTo"), 100);
+    }
+
+    /// @notice Test successful USDT rescue (USDT doesn't return bool from transfer)
+    function test_rescueUSDT_succeeds() public {
+        uint256 rescueAmount = 5000e6; // 5,000 USDT (6 decimals)
+        address rescueTo = makeAddr("rescueTo");
+
+        uint256 balanceBefore = mockUSDT.balanceOf(rescueTo);
+        uint256 adapterBalanceBefore = mockUSDT.balanceOf(address(adapter));
+
+        vm.prank(owner);
+        adapter.rescueERC20(address(mockUSDT), rescueTo, rescueAmount);
+
+        assertEq(mockUSDT.balanceOf(rescueTo), balanceBefore + rescueAmount);
+        assertEq(mockUSDT.balanceOf(address(adapter)), adapterBalanceBefore - rescueAmount);
+    }
+
+    /// @notice Test USDT rescue handles revert case properly
+    function test_rescueUSDT_transferReverts_fails() public {
+        uint256 rescueAmount = 5000e6; // 5,000 USDT (6 decimals)
+        address rescueTo = makeAddr("rescueTo");
+
+        // Make USDT transfers revert
+        mockUSDT.setShouldRevert(true);
+
+        // The rescue should revert when USDT transfer fails
+        vm.expectRevert("USDT: transfer failed");
+        vm.prank(owner);
+        adapter.rescueERC20(address(mockUSDT), rescueTo, rescueAmount);
     }
 }
 
