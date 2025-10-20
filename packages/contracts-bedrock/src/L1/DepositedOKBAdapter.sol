@@ -25,6 +25,7 @@ import { IOptimismPortal2 } from "interfaces/L1/IOptimismPortal2.sol";
 /// @dev This token is set as the gasPayingToken on SystemConfig.
 contract DepositedOKBAdapter is ERC20, Ownable {
     using SafeERC20 for IERC20;
+
     /// @notice Address of the OptimismPortal2 contract that this adapter works with.
     IOptimismPortal2 public immutable PORTAL;
 
@@ -224,6 +225,5 @@ contract DepositedOKBAdapter is ERC20, Ownable {
         }
 
         IERC20(_token).safeTransfer(_to, _amount);
-
     }
 }
