@@ -2,7 +2,6 @@
 set -e
 set -x
 
-CLEAN_ENVIRONMENT=${CLEAN_ENVIRONMENT:-true}
 IMAGE_NAME="op-geth-migrate:latest"
 CONTAINER_NAME="op-migrate-container"
 RAMDISK_PATH="/mnt/ramdisk_op"
@@ -10,42 +9,6 @@ DATA_DIR="/data"
 ERIGON_DATA_DIR="/data/erigon-data"
 BACKUP_DIR="${DATA_DIR}/migration-backup-$(date +%Y%m%d-%H%M%S)"
 L2_RPC_URL="${L2_RPC_URL:-http://rpcapi.xlayer.tech/sequencer}"
-
-# Optional: Complete cleanup before migration
-# Set CLEAN_ENVIRONMENT=true to force cleanup of container and ramdisk
-if [ "${CLEAN_ENVIRONMENT}" = "true" ]; then
-    echo "=============================================="
-    echo "Environment Cleanup (CLEAN_ENVIRONMENT=true)"
-    echo "=============================================="
-
-    # 1. Remove container if exists
-    if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-        echo "Removing container ${CONTAINER_NAME}..."
-        docker stop ${CONTAINER_NAME} 2>/dev/null || true
-        docker rm ${CONTAINER_NAME} 2>/dev/null || true
-        echo "✅ Container removed"
-    fi
-
-    # 2. Unmount ramdisk if mounted
-    if mountpoint -q ${RAMDISK_PATH}; then
-        echo "⚠️  Unmounting ramdisk at ${RAMDISK_PATH}..."
-        echo "   This will clear all data in ramdisk!"
-        if sudo umount ${RAMDISK_PATH} 2>/dev/null; then
-            echo "✅ Ramdisk unmounted"
-        else
-            echo "❌ Error: Failed to unmount ramdisk (may be in use or require root)"
-            echo "   Processes using ramdisk:"
-            sudo lsof ${RAMDISK_PATH} 2>/dev/null || echo "   Unable to check (requires root)"
-            echo "   You can manually unmount: sudo umount ${RAMDISK_PATH}"
-            echo "   Or force kill processes: sudo fuser -km ${RAMDISK_PATH}"
-            exit 1
-        fi
-    fi
-
-    echo "✅ Environment cleaned successfully"
-    echo "⚠️  Please run m2-download-image.sh to recreate ramdisk before migration"
-    exit 0
-fi
 
 # Check required tools
 for cmd in docker jq curl sed grep; do
@@ -472,7 +435,6 @@ if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
         -v ${ERIGON_DATA_DIR}:${ERIGON_DATA_DIR} \
         -v ${BACKUP_DIR}:${BACKUP_DIR} \
         -v ${RAMDISK_PATH}:${RAMDISK_PATH} \
-        -v ${RAMDISK_PATH}/test-pp-op/data/op-geth-seq:/app/op-geth/test-pp-op/data/op-geth-seq \
         -e DOCKER_HOST=unix:///var/run/docker.sock \
         -d ${IMAGE_NAME} sleep infinity
 
