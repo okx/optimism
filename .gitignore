@@ -68,9 +68,9 @@ test/data
 .tool-versions
 test/l1-geth/execution/genesis.json
 test/tmp
-test/config/gen.test.geth.rpc.config.toml
-test/config/gen.test.geth.rpc.rt.config.toml
-test/config/genesis-rpc.json
+test/config-op/gen.test.geth.rpc.config.toml
+test/config-op/gen.test.geth.rpc.rt.config.toml
+test/config-op/genesis-rpc.json
 
 # Ignore test apollo files
 test-apollo/l1-geth
