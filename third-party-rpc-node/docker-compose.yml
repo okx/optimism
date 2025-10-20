@@ -50,7 +50,7 @@ services:
       - --p2p.priv.raw=604557d042fbea9ed42f46c0c95c346a932b6a5ef0c0dd07a00dbf95801a2510
       - --p2p.peerstore.path=/data/p2p/opnode_peerstore_db
       - --p2p.discovery.path=/data/p2p/opnode_discovery_db
-      - --p2p.bootnodes=enr:-J24QMKrCjD9yO_etOJmxFNAJdJayoNLzx2SKRD4amiEtYHSAgaQIheHntQ8hQLby7ejqwPQzMuT6nys9MBfU0yeVZaGAZnq6jJvgmlkgnY0gmlwhAjStTKHb3BzdGFja4OgDwCJc2VjcDI1NmsxoQPqrp_i_HWK3WX-TP1CkY6JjharIylNuI8NzbyrJ3PnW4N0Y3CCJAeDdWRwgiQH
+      - --p2p.bootnodes=enode://eaae9fe2fc758add65fe4cfd42918e898e16ab23294db88f0dcdbcab2773e75bbea6bfdaa42b3ed502dfbee1335c242c602078c4aa009264e4705caa20d3dca7@8.210.181.50:9223
       - --p2p.no-discovery
       - --rpc.enable-admin=true
       - --l1=${L1_RPC_URL}

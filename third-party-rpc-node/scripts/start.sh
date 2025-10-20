@@ -16,7 +16,7 @@ fi
 source .env
 
 # 检查必要的环境变量
-required_vars=("L1_RPC_URL" "L1_BEACON_URL" "NETWORK_ID" "CHAIN_ID" "OP_NODE_BOOTNODE" "OP_GETH_BOOTNODE")
+required_vars=("L1_RPC_URL" "L1_BEACON_URL" "OP_NODE_BOOTNODE" "OP_GETH_BOOTNODE")
 for var in "${required_vars[@]}"; do
     if [ -z "${!var}" ]; then
         echo "❌ 错误: 环境变量 $var 未设置"
@@ -32,7 +32,7 @@ mkdir -p config
 
 # 检查配置文件
 echo "🔍 检查配置文件..."
-config_files=("config/rollup.json" "config/jwt.txt" "config/op-geth-config.toml" "config/genesis.json")
+config_files=("../config/rollup.json" "../config/jwt.txt" "../config/op-geth-config.toml" "../config/genesis.json")
 for file in "${config_files[@]}"; do
     if [ ! -f "$file" ]; then
         echo "❌ 错误: 配置文件 $file 不存在"
