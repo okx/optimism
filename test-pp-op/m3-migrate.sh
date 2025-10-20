@@ -8,8 +8,269 @@ RAMDISK_PATH="/mnt/ramdisk_op"
 DATA_DIR="/data"
 ERIGON_DATA_DIR="/data/erigon-data"
 BACKUP_DIR="${DATA_DIR}/migration-backup-$(date +%Y%m%d-%H%M%S)"
+L2_RPC_URL="${L2_RPC_URL:-http://rpcapi.xlayer.tech/sequencer}"
 
 mkdir -p ${BACKUP_DIR}
+
+# Function to fetch block data from RPC (executed on host)
+fetch_block_data() {
+    local fork_block=$1
+
+    echo "Fetching block #$fork_block from RPC..."
+    echo "RPC URL: ${L2_RPC_URL}"
+
+    # Convert to hex
+    local fork_block_hex=$(printf '0x%x' $fork_block)
+
+    # Fetch block data from RPC (on host, not in container)
+    local block_data=$(curl -s --max-time 30 -X POST ${L2_RPC_URL} \
+      -H 'Content-Type: application/json' \
+      -d '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["'$fork_block_hex'",true],"id":1}')
+
+    local curl_exit_code=$?
+    if [ $curl_exit_code -ne 0 ]; then
+        echo "❌ Error: Failed to fetch block data from RPC (curl exit code: $curl_exit_code)"
+        echo "   RPC URL: ${L2_RPC_URL}"
+        echo "   This may be due to network issues or RPC timeout."
+        echo "   You can set L2_RPC_URL environment variable to customize."
+        exit 1
+    fi
+
+    # Extract hash and timestamp
+    local block_hash=$(echo "$block_data" | jq -r '.result.hash')
+    local timestamp=$(echo "$block_data" | jq -r '.result.timestamp')
+
+    echo "Block #$fork_block:"
+    echo "  Hash: $block_hash"
+    echo "  Timestamp: $timestamp"
+
+    # Validate data
+    if [ "$block_hash" = "null" ] || [ -z "$block_hash" ]; then
+        echo "❌ Error: Failed to fetch block hash for block $fork_block"
+        echo "   RPC Response: $block_data"
+        exit 1
+    fi
+
+    if [ "$timestamp" = "null" ] || [ -z "$timestamp" ]; then
+        echo "❌ Error: Failed to fetch timestamp for block $fork_block"
+        echo "   RPC Response: $block_data"
+        exit 1
+    fi
+
+    # Export for use by other functions
+    export FETCHED_BLOCK_HASH="$block_hash"
+    export FETCHED_TIMESTAMP="$timestamp"
+    export FETCHED_FORK_BLOCK="$fork_block"
+}
+
+# Function to update fork configuration (executed in container)
+update_fork_configuration() {
+    local fork_block=$1
+    local block_hash=$2
+    local timestamp=$3
+
+    echo ""
+    echo "Updating .env with fork configuration..."
+
+    docker exec ${CONTAINER_NAME} bash -c "
+        cd /app/test-pp-op
+
+        # Calculate FORK_BLOCK + 1
+        FORK_BLOCK_PLUS_ONE=\$(($fork_block + 1))
+
+        # Update .env file
+        sed -i \"s/^FORK_BLOCK=.*/FORK_BLOCK=\$FORK_BLOCK_PLUS_ONE/\" .env
+        sed -i \"s|^PARENT_HASH=.*|PARENT_HASH=$block_hash|\" .env
+
+        echo \"✅ .env updated:\"
+        echo \"   FORK_BLOCK: \$FORK_BLOCK_PLUS_ONE (input block + 1)\"
+        echo \"   PARENT_HASH: $block_hash\"
+        echo \"   RPC_TIMESTAMP: $timestamp\"
+    "
+}
+
+# Function to validate configuration (executed in container)
+validate_configuration() {
+    local rpc_timestamp=$1
+
+    echo ""
+    echo "============================================="
+    echo "Validating Configuration Files"
+    echo "============================================="
+
+    docker exec ${CONTAINER_NAME} bash -c "
+        cd /app/test-pp-op
+
+        # 1. Validate .env
+        echo \"\"
+        echo \"[1/4] Validating .env...\"
+        ENV_CHAIN_ID=\$(grep '^CHAIN_ID=' .env | cut -d'=' -f2)
+        echo \"  CHAIN_ID: \$ENV_CHAIN_ID\"
+        if [ \"\$ENV_CHAIN_ID\" != \"196\" ]; then
+            echo \"  ❌ Error: .env CHAIN_ID must be 196, but got \$ENV_CHAIN_ID\"
+            exit 1
+        fi
+        echo \"  ✅ .env validation passed\"
+
+        # 2. Validate genesis.json
+        echo \"\"
+        echo \"[2/4] Validating config-op/genesis.json...\"
+        if [ ! -f config-op/genesis.json ]; then
+            echo \"  ❌ Error: config-op/genesis.json not found\"
+            exit 1
+        fi
+
+        CHAIN_ID=\$(jq -r '.config.chainId' config-op/genesis.json)
+        echo \"  config.chainId: \$CHAIN_ID\"
+        if [ \"\$CHAIN_ID\" != \"196\" ]; then
+            echo \"  ❌ Error: Chain ID must be 196, but got \$CHAIN_ID\"
+            exit 1
+        fi
+
+        # Validate timestamp: RPC timestamp must be < genesis.json timestamp
+        EXISTING_TIMESTAMP=\$(jq -r '.timestamp' config-op/genesis.json)
+        RPC_TS_DEC=\$(($rpc_timestamp))
+        GENESIS_TS_DEC=\$((EXISTING_TIMESTAMP))
+        echo \"  genesis.json timestamp: \$EXISTING_TIMESTAMP (decimal: \$GENESIS_TS_DEC)\"
+        echo \"  RPC timestamp: $rpc_timestamp (decimal: \$RPC_TS_DEC)\"
+
+        if [ \$RPC_TS_DEC -ge \$GENESIS_TS_DEC ]; then
+            echo \"  ❌ Error: RPC timestamp (\$RPC_TS_DEC) must be < genesis.json timestamp (\$GENESIS_TS_DEC)\"
+            echo \"   This indicates the fork block is at or after the genesis block.\"
+            echo \"   Please specify an earlier fork block number.\"
+            exit 1
+        fi
+        echo \"  ✅ genesis.json timestamp validation passed (RPC < genesis)\"
+
+        # 3. Validate intent.toml
+        echo \"\"
+        echo \"[3/4] Validating config-op/intent.toml...\"
+        if [ ! -f config-op/intent.toml ]; then
+            echo \"  ❌ Error: config-op/intent.toml not found\"
+            exit 1
+        fi
+
+        L1_CHAIN_ID=\$(grep '^l1ChainID' config-op/intent.toml | head -1 | sed 's/.*=\\s*\\([0-9]*\\).*/\\1/')
+        echo \"  l1ChainID: \$L1_CHAIN_ID\"
+        if [ \"\$L1_CHAIN_ID\" != \"1\" ]; then
+            echo \"  ❌ Error: l1ChainID must be 1, but got \$L1_CHAIN_ID\"
+            exit 1
+        fi
+
+        CHAIN_ID_HEX=\$(grep '^\\s*id\\s*=' config-op/intent.toml | head -1 | sed 's/.*\"\\(0x[0-9a-fA-F]*\\)\".*/\\1/')
+        CHAIN_ID_DEC=\$((\$CHAIN_ID_HEX))
+        echo \"  chains[0].id: \$CHAIN_ID_HEX (decimal: \$CHAIN_ID_DEC)\"
+        if [ \"\$CHAIN_ID_DEC\" != \"196\" ]; then
+            echo \"  ❌ Error: chains[0].id must be 196, but got \$CHAIN_ID_DEC\"
+            exit 1
+        fi
+
+        echo \"  ✅ intent.toml validation passed\"
+
+        # 4. Validate rollup.json
+        echo \"\"
+        echo \"[4/4] Validating config-op/rollup.json...\"
+        if [ ! -f config-op/rollup.json ]; then
+            echo \"  ❌ Error: config-op/rollup.json not found\"
+            exit 1
+        fi
+
+        ROLLUP_CHAIN_ID=\$(jq -r '.l2_chain_id' config-op/rollup.json)
+        echo \"  l2_chain_id: \$ROLLUP_CHAIN_ID\"
+        if [ \"\$ROLLUP_CHAIN_ID\" != \"196\" ]; then
+            echo \"  ❌ Error: l2_chain_id must be 196, but got \$ROLLUP_CHAIN_ID\"
+            exit 1
+        fi
+        echo \"  ✅ rollup.json validation passed\"
+
+        echo \"\"
+        echo \"=============================================\"
+        echo \"✅ All Configuration Validations Passed\"
+        echo \"=============================================\"
+    "
+}
+
+# Function to wait for Enter key
+wait_for_enter() {
+    local prompt="$1"
+    echo "---"
+    read -n 1 -s -r -p "$prompt" key
+    echo ""
+    if [ "$key" != "" ]; then
+        echo "❌ Aborted by user"
+        exit 1
+    fi
+}
+
+# Function to review configuration files interactively
+review_configuration_files() {
+    # 1. Check .env file
+    echo "=============================================="
+    echo "1. Checking .env file"
+    echo "=============================================="
+    docker exec ${CONTAINER_NAME} bash -c "cd /app/test-pp-op && cat .env"
+    wait_for_enter "Press ENTER to continue to next check..."
+
+    # 2. Check genesis.json timestamp
+    echo ""
+    echo "=============================================="
+    echo "2. Checking config-op/genesis.json timestamp"
+    echo "=============================================="
+    docker exec ${CONTAINER_NAME} bash -c "cd /app/test-pp-op && jq '.timestamp' config-op/genesis.json"
+    echo ""
+    echo "Full genesis.json preview (first 50 lines):"
+    docker exec ${CONTAINER_NAME} bash -c "cd /app/test-pp-op && cat config-op/genesis.json | head -50"
+    wait_for_enter "Press ENTER to continue to next check..."
+
+    # 3. Check intent.toml
+    echo ""
+    echo "=============================================="
+    echo "3. Checking config-op/intent.toml"
+    echo "=============================================="
+    docker exec ${CONTAINER_NAME} bash -c "cd /app/test-pp-op && cat config-op/intent.toml"
+    wait_for_enter "Press ENTER to continue to next check..."
+
+    # 4. Check rollup.json
+    echo ""
+    echo "=============================================="
+    echo "4. Checking config-op/rollup.json"
+    echo "=============================================="
+    docker exec ${CONTAINER_NAME} bash -c "cd /app/test-pp-op && cat config-op/rollup.json"
+    wait_for_enter "Press ENTER to start migration..."
+
+    echo ""
+    echo "✅ Configuration verification completed"
+}
+
+# Function to execute migration
+execute_migration() {
+    # Execute migration script inside container
+    if docker exec -i ${CONTAINER_NAME} bash -c "
+        cd /app/test-pp-op
+        ./4-migrate-op.sh
+        cp {.env,merged.genesis.json} ${BACKUP_DIR}
+        cp -rf config-op ${BACKUP_DIR}/config-op
+    "; then
+        echo ""
+        echo "✅ Migration completed successfully inside container"
+        return 0
+    else
+        local exit_code=$?
+        echo ""
+        echo "❌ Migration failed with exit code: ${exit_code}"
+        echo ""
+        read -p "Do you want to keep the container for debugging? (y/N): " KEEP_CONTAINER
+        if [[ ! "$KEEP_CONTAINER" =~ ^[Yy]$ ]]; then
+            echo "Stopping and removing container..."
+            docker stop ${CONTAINER_NAME} 2>/dev/null || true
+            docker rm ${CONTAINER_NAME} 2>/dev/null || true
+        else
+            echo "Container ${CONTAINER_NAME} kept for debugging"
+            echo "To enter the container: docker exec -it ${CONTAINER_NAME} bash"
+        fi
+        exit ${exit_code}
+    fi
+}
 
 echo "=============================================="
 echo "Step 1: Pre-flight checks"
@@ -62,7 +323,7 @@ if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
         --name ${CONTAINER_NAME} \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v ${ERIGON_DATA_DIR}:${ERIGON_DATA_DIR} \
-        -v ${BACKUP_DIR}:${BACKUP_DIR} \ # For writing out config files.
+        -v ${BACKUP_DIR}:${BACKUP_DIR} \
         -v ${RAMDISK_PATH}:${RAMDISK_PATH} \
         -v ${RAMDISK_PATH}/test-pp-op/data/op-geth-seq:/app/op-geth/test-pp-op/data/op-geth-seq \
         -e DOCKER_HOST=unix:///var/run/docker.sock \
@@ -78,7 +339,7 @@ fi
 
 echo ""
 echo "=============================================="
-echo "Step 3: Update Fork Configuration"
+echo "Step 3: Update ForkBlock And Check"
 echo "=============================================="
 
 # Prompt user for fork block number
@@ -89,63 +350,16 @@ if [ -z "$FORK_BLOCK_INPUT" ]; then
     exit 1
 fi
 
-echo "Fetching block information from L2 RPC..."
+# Fetch block data from RPC (on host)
+fetch_block_data $FORK_BLOCK_INPUT
 
-# Fetch block information inside container (where curl/jq are available)
-docker exec -i ${CONTAINER_NAME} bash -c "
-cd /app/test-pp-op
+# Update configuration in container with fetched data
+update_fork_configuration $FETCHED_FORK_BLOCK $FETCHED_BLOCK_HASH $FETCHED_TIMESTAMP
 
-# Fetch block data
-FORK_BLOCK_HEX=\$(printf '0x%x' $FORK_BLOCK_INPUT)
-BLOCK_DATA=\$(curl -s -X POST http://rpcapi.xlayer.tech/sequencer \
-  -H 'Content-Type: application/json' \
-  -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBlockByNumber\",\"params\":[\"'\$FORK_BLOCK_HEX'\",true],\"id\":1}')
+# Validate all configurations (pass RPC timestamp for validation)
+validate_configuration $FETCHED_TIMESTAMP
 
-# Extract parent hash and timestamp
-PARENT_HASH=\$(echo \$BLOCK_DATA | jq -r '.result.parentHash')
-TIMESTAMP=\$(echo \$BLOCK_DATA | jq -r '.result.timestamp')
-
-echo \"Block #$FORK_BLOCK_INPUT:\"
-echo \"  Parent Hash: \$PARENT_HASH\"
-echo \"  Timestamp: \$TIMESTAMP\"
-
-# Validate data
-if [ \"\$PARENT_HASH\" = \"null\" ] || [ -z \"\$PARENT_HASH\" ]; then
-    echo \"❌ Error: Failed to fetch parent hash for block $FORK_BLOCK_INPUT\"
-    exit 1
-fi
-
-if [ \"\$TIMESTAMP\" = \"null\" ] || [ -z \"\$TIMESTAMP\" ]; then
-    echo \"❌ Error: Failed to fetch timestamp for block $FORK_BLOCK_INPUT\"
-    exit 1
-fi
-
-# Update .env file
-echo \"Updating .env with fork configuration...\"
-sed -i \"s/^FORK_BLOCK=.*/FORK_BLOCK=$FORK_BLOCK_INPUT/\" .env
-sed -i \"s|^PARENT_HASH=.*|PARENT_HASH=\$PARENT_HASH|\" .env
-
-# Update genesis.json timestamp
-echo \"Updating config-op/genesis.json with timestamp...\"
-if [ -f config-op/genesis.json ]; then
-    # Keep timestamp in hex string format (e.g., \"0x68F5EA9C\")
-    jq \".timestamp = \\\"\$TIMESTAMP\\\"\" config-op/genesis.json > config-op/genesis.json.tmp
-    mv config-op/genesis.json.tmp config-op/genesis.json
-    echo \"✅ Genesis timestamp updated: \$TIMESTAMP\"
-fi
-
-echo \"\"
-echo \"✅ Fork configuration updated successfully\"
-echo \"   FORK_BLOCK: $FORK_BLOCK_INPUT\"
-echo \"   PARENT_HASH: \$PARENT_HASH\"
-echo \"   TIMESTAMP: \$TIMESTAMP\"
-"
-
-if [ $? -ne 0 ]; then
-    echo "❌ Failed to update fork configuration"
-    exit 1
-fi
-
+# Call the review function
 echo ""
 echo "=============================================="
 echo "Step 4: Configuration Verification"
@@ -153,88 +367,16 @@ echo "=============================================="
 echo "Please review the configuration files before migration"
 echo "Press ENTER to continue, any other key to abort"
 echo ""
+review_configuration_files
 
-# Function to wait for Enter key
-wait_for_enter() {
-    local prompt="$1"
-    echo "---"
-    read -n 1 -s -r -p "$prompt" key
-    echo ""
-    if [ "$key" != "" ]; then
-        echo "❌ Aborted by user"
-        exit 1
-    fi
-}
-
-# 1. Check .env file
-echo "=============================================="
-echo "1. Checking .env file"
-echo "=============================================="
-docker exec ${CONTAINER_NAME} bash -c "cd /app/test-pp-op && cat .env"
-wait_for_enter "Press ENTER to continue to next check..."
-
-# 2. Check genesis.json timestamp
-echo ""
-echo "=============================================="
-echo "2. Checking config-op/genesis.json timestamp"
-echo "=============================================="
-docker exec ${CONTAINER_NAME} bash -c "cd /app/test-pp-op && jq '.timestamp' config-op/genesis.json"
-echo ""
-echo "Full genesis.json preview (first 50 lines):"
-docker exec ${CONTAINER_NAME} bash -c "cd /app/test-pp-op && cat config-op/genesis.json | head -50"
-wait_for_enter "Press ENTER to continue to next check..."
-
-# 3. Check intent.toml
-echo ""
-echo "=============================================="
-echo "3. Checking config-op/intent.toml"
-echo "=============================================="
-docker exec ${CONTAINER_NAME} bash -c "cd /app/test-pp-op && cat config-op/intent.toml"
-wait_for_enter "Press ENTER to continue to next check..."
-
-# 4. Check rollup.json
-echo ""
-echo "=============================================="
-echo "4. Checking config-op/rollup.json"
-echo "=============================================="
-docker exec ${CONTAINER_NAME} bash -c "cd /app/test-pp-op && cat config-op/rollup.json"
-wait_for_enter "Press ENTER to start migration..."
-
-echo ""
-echo "✅ Configuration verification completed"
+# Execute migration and copy results
 echo ""
 echo "=============================================="
 echo "Step 5: Execute Migration"
 echo "=============================================="
 echo "Executing ./4-migrate-op.sh inside container..."
 echo ""
-
-# Execute migration script inside container
-# Use docker exec to run the command and capture output
-if docker exec -i ${CONTAINER_NAME} bash -c "
-  cd /app/test-pp-op
-  ./4-migrate-op.sh
-  cp {.env,merged.genesis.json} ${BACKUP_DIR}
-  cp -rf config-op ${BACKUP_DIR}/config-op
-  "; then
-    echo ""
-    echo "✅ Migration completed successfully inside container"
-else
-    MIGRATION_EXIT_CODE=$?
-    echo ""
-    echo "❌ Migration failed with exit code: ${MIGRATION_EXIT_CODE}"
-    echo ""
-    read -p "Do you want to keep the container for debugging? (y/N): " KEEP_CONTAINER
-    if [[ ! "$KEEP_CONTAINER" =~ ^[Yy]$ ]]; then
-        echo "Stopping and removing container..."
-        docker stop ${CONTAINER_NAME} 2>/dev/null || true
-        docker rm ${CONTAINER_NAME} 2>/dev/null || true
-    else
-        echo "Container ${CONTAINER_NAME} kept for debugging"
-        echo "To enter the container: docker exec -it ${CONTAINER_NAME} bash"
-    fi
-    exit ${MIGRATION_EXIT_CODE}
-fi
+execute_migration
 
 echo ""
 echo "=============================================="
@@ -244,22 +386,6 @@ echo "=============================================="
 echo "Backup directory: ${BACKUP_DIR}"
 cp -rfv $RAMDISK_PATH/test-pp-op/data/op-geth-seq $BACKUP_DIR
 echo "✅ Files copied successfully"
-
-echo ""
-echo "=============================================="
-echo "Step 7: Cleanup"
-echo "=============================================="
-
-read -p "Do you want to stop and remove the container? (Y/n): " CLEANUP
-if [[ ! "$CLEANUP" =~ ^[Nn]$ ]]; then
-    echo "Stopping and removing container..."
-    docker stop ${CONTAINER_NAME} 2>/dev/null || true
-    docker rm ${CONTAINER_NAME} 2>/dev/null || true
-    echo "✅ Container cleaned up"
-else
-    echo "Container ${CONTAINER_NAME} kept running"
-    echo "To stop it later: docker stop ${CONTAINER_NAME} && docker rm ${CONTAINER_NAME}"
-fi
 
 echo ""
 echo "=============================================="

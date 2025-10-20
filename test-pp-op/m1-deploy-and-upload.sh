@@ -19,7 +19,7 @@ echo ""
 echo "=============================================="
 echo "Step 1: Deploy OP Contracts"
 echo "=============================================="
-#./2-deploy-op-contracts.sh
+./2-deploy-op-contracts.sh
 
 echo ""
 echo "=============================================="
