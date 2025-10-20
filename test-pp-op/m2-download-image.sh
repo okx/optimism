@@ -2,10 +2,19 @@
 set -e
 set -x
 
-TAR_FILE="op-geth-migrate:latest-amd64.tar.gz"
+source .env
+
+IMAGE_NAME=$(echo "${OP_GETH_MIGRATION_IMAGE_TAG}" | cut -d':' -f1)
+TAR_FILE="${IMAGE_NAME}.tar.gz"
 RAMDISK_PATH="/mnt/ramdisk_op"
 RAMDISK_SIZE="128g"
 DATA_DIR="/data"
+TICKET_ID="$1"
+
+if [ -z "$TICKET_ID" ]; then
+    echo "❌ Error: Ticket ID cannot be empty"
+    exit 1
+fi
 
 echo "=============================================="
 echo "Step 1: Setting up ramdisk"
@@ -20,6 +29,8 @@ if mountpoint -q ${RAMDISK_PATH}; then
         umount ${RAMDISK_PATH}
     else
         echo "Using existing ramdisk mount"
+        echo "Clearing contents inside mount ❗❗❗"
+        rm -rf $RAMDISK_PATH/*
     fi
 fi
 
@@ -48,15 +59,6 @@ echo "=============================================="
 cd ${DATA_DIR}
 echo "Current directory: $(pwd)"
 
-# Prompt for ticket ID
-echo ""
-read -p "Enter ticket ID: " TICKET_ID
-
-if [ -z "$TICKET_ID" ]; then
-    echo "❌ Error: Ticket ID cannot be empty"
-    exit 1
-fi
-
 # Download from OSS
 echo ""
 echo "Downloading from OSS with ticket ID: ${TICKET_ID}..."
@@ -64,20 +66,7 @@ osstool download -ticket ${TICKET_ID}
 
 echo ""
 echo "=============================================="
-echo "Step 3: Extract tar.gz file"
-echo "=============================================="
-
-if [ ! -f "${TAR_FILE}" ]; then
-    echo "❌ Error: ${TAR_FILE} not found in ${DATA_DIR}"
-    exit 1
-fi
-
-echo "Extracting ${TAR_FILE}..."
-tar -xzvf ${TAR_FILE}
-
-echo ""
-echo "=============================================="
-echo "Step 4: Load Docker image"
+echo "Step 3: Load Docker image"
 echo "=============================================="
 
 echo "Loading Docker image from ${TAR_FILE}..."

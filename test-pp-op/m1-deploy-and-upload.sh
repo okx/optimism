@@ -12,14 +12,14 @@ source tools.sh
 source utils.sh
 
 ARCH="linux/amd64"
-TAR_FILE="${OP_GETH_MIGRATION_IMAGE_TAG}.tar.gz"
+TAR_FILE="${IMAGE_NAME}.tar.gz"
 SKIP_BUILD_GETH=false; [[ "$*" =~ --skip-geth ]] && BUILD_GETH=true
 
 echo ""
 echo "=============================================="
 echo "Step 1: Deploy OP Contracts"
 echo "=============================================="
-./2-deploy-op-contracts.sh
+#./2-deploy-op-contracts.sh
 
 echo ""
 echo "=============================================="
