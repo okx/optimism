@@ -7,18 +7,18 @@ l2ContractsLocator = "file:///app/packages/contracts-bedrock/forge-artifacts"
 
 [[chains]]
   id = "0x00000000000000000000000000000000000000000000000000000000000007A0"
-  baseFeeVaultRecipient = "0xE350871784500B8B4c630D84195859FEff810b83"
-  l1FeeVaultRecipient = "0xE350871784500B8B4c630D84195859FEff810b83"
-  sequencerFeeVaultRecipient = "0xE350871784500B8B4c630D84195859FEff810b83"
-  eip1559DenominatorCanyon = 2000000000
-  eip1559Denominator = 2000000000
+  baseFeeVaultRecipient = "0x86Df3Aa8a02b7b67A1b83f1B062F93563F7494d2"
+  l1FeeVaultRecipient = "0x86Df3Aa8a02b7b67A1b83f1B062F93563F7494d2"
+  sequencerFeeVaultRecipient = "0x86Df3Aa8a02b7b67A1b83f1B062F93563F7494d2"
+  eip1559DenominatorCanyon = 100000000
+  eip1559Denominator = 100000000
   eip1559Elasticity = 1
   operatorFeeScalar = 0
   operatorFeeConstant = 0
   gasLimit = 30000000
   [chains.deployOverrides]
-      l2GenesisBlockGasLimit = "0xbebc200"
-      l2GenesisBlockBaseFeePerGas = "0x2FAF080"
+      l2GenesisBlockGasLimit = "0x1C9C380"
+      l2GenesisBlockBaseFeePerGas = "0x5F5E100"
       l2BlockTime = 1
   [chains.customGasToken]
       enabled = true
@@ -26,11 +26,11 @@ l2ContractsLocator = "file:///app/packages/contracts-bedrock/forge-artifacts"
       symbol = "OKB"
       initialLiquidity = "0x0"
   [chains.roles]
-    l1ProxyAdminOwner = "0xE350871784500B8B4c630D84195859FEff810b83"
-    l2ProxyAdminOwner = "0xE350871784500B8B4c630D84195859FEff810b83"
+    l1ProxyAdminOwner = "0x86Df3Aa8a02b7b67A1b83f1B062F93563F7494d2"
+    l2ProxyAdminOwner = "0x86Df3Aa8a02b7b67A1b83f1B062F93563F7494d2"
     systemConfigOwner = "0x1183f158515091c94188C13Cd16923cee663d4c4"
-    unsafeBlockSigner = "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc"
-    batcher = "0x87eadD549cADC215c1296ABCEFD5B440FC7D896D"
-    proposer = "0xE21D4B6B1d6B655CFf81A7256833C2ED2016a347"
-    challenger = "0xe1AE03b6eAF91D6ECF2Db82E0e5b5d6e96B80Eb5"
+    unsafeBlockSigner = "0x8A8926FEbCFEdD0B189886858B32ad1e7F4a5b4B"
+    batcher = "0x8EDf9B54e1c693b7B0caEa85E6a005C35e229124"
+    proposer = "0x829D57F38D2A94514a3dbA2297fDD1Bc52bB1938"
+    challenger = "0x7c3787BF0D78a9e2F802916110e4Ddd6E3eD262C"
 

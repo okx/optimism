@@ -34,21 +34,16 @@ https://fullnode-inner.okg.com/ethsepoliabeacon/native/layer1/rpc
 # LOCAL ENVIRONMENT
 # ----------------------------------------------------------------------------
 # Build the image locally after deploying contracts (rollup.json and genesis.json).
-docker build \
-  --platform linux/amd64 \
-  --build-arg CHAIN_ID=196 \
-  --build-arg OP_STACK_IMAGE=op-stack:amd64 \
-  --progress=plain \
-  -t op-migrate:amd64 -f dockerfile/Dockerfile.op-program .
+./build_images.sh --op-geth-migrate --force
 
 docker save op-migrate:amd64 | gzip > op-migrate-amd64.tar.gz
 
 # INSIDE DACs TERMINAL
 # ----------------------------------------------------------------------------
 # Calculate md5 hash to create OSS ticket.
-md5sum op-migrate-amd64.tar.gz
+md5sum op-geth-migrate.tar.gz
 # Use osstool to upload images to ECS.
-./osstool -f op-migrate-amd64.tar.gz -a upload -ticket ${ticket-id}
+./osstool -f op-geth-migrate.tar.gz -a upload -ticket ${ticket-id}
 
 # INSIDE ECS MACHINE
 # ----------------------------------------------------------------------------
@@ -62,9 +57,9 @@ cd /data
 # download from OSS
 osstool download -ticket ${ticket-id}
 # untar the uploaded file
-tar -xzvf op-migrate-amd64.tar.gz
+tar -xzvf op-geth-migrate.tar.gz
 # load the docker image into local registry
-docker load < op-migrate-amd64.tar.gz
+docker load < op-geth-migrate.tar.gz
 
 # START REGENESIS (ECS host machine)
 # ----------------------------------------------------------------------------
@@ -74,15 +69,14 @@ docker run \
   -v /data/erigon-data:/data/erigon-data \
   -v /mnt/ramdisk_op:/mnt/ramdisk_op \
   -v /mnt/ramdisk_op/test-pp-op/data/op-geth-seq:/app/op-geth/test-pp-op/data/op-geth-seq \
-  -v /mnt/ramdisk_op/test-pp-op/data/cannon-data:/app/op-program/bin \
   -e DOCKER_HOST=unix:///var/run/docker.sock \
-  -d op-migrate:amd64 sleep infinity
+  -d op-geth-migrate:latest sleep infinity
 
-cd /app/op-geth
+cd test-pp-op
 # Execute regenesis only.
 ./4-migrate-op.sh
-# Copy configs to mount location
-cp -rfv /app/op-geth/test-pp-op/* /app/op-geth/test-pp-op/.* /mnt/ramdisk_op/test-pp-op
+
+# Leave container
 exit
 
 # Inside ECS host, save everything needed (to start new sequencer and build OP program) to disk.

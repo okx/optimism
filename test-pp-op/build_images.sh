@@ -233,8 +233,10 @@ build_op_geth_migrate_image() {
     cd $PWD_DIR
   fi
 
-  cd "$PWD_DIR/tmp/op-geth"
-  docker build --platform $ARCH -t $OP_GETH_MIGRATION_IMAGE_TAG .
+  # Must build at test-pp-op to copy config files (eg. .env) over as well.
+  docker build --platform $ARCH -t $OP_GETH_MIGRATION_IMAGE_TAG --progress=plain --no-cache -f dockerfile/Dockerfile.migrate .
+  # cd "$PWD_DIR/tmp/op-geth"
+  # docker build --platform $ARCH -t $OP_GETH_MIGRATION_IMAGE_TAG .
   cd $PWD_DIR
 }
 

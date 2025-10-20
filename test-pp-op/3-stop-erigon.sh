@@ -10,7 +10,7 @@ cd $PWD_DIR
 ## Stop X Layer services
 echo "DOCKER_COMPOSE_CMD: ${DOCKER_COMPOSE_CMD}"
 ${DOCKER_COMPOSE_CMD} stop xlayer-seq
-${DOCKER_COMPOSE_CMD} stop xlayer-rpc
+#${DOCKER_COMPOSE_CMD} stop xlayer-rpc
 ${DOCKER_COMPOSE_CMD} stop xlayer-bridge-service
 ${DOCKER_COMPOSE_CMD} stop xlayer-bridge-ui
 ${DOCKER_COMPOSE_CMD} stop xlayer-agg-sender
