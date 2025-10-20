@@ -167,7 +167,6 @@ echo "✅ Migration process completed successfully!"
 echo "=============================================="
 echo "Backup directory: ${BACKUP_DIR}"
 echo "Files also copied to: ${DATA_DIR}"
-echo ""
-echo "Next steps:"
-echo "  1. Verify the migration results in ${BACKUP_DIR}"
-echo "  2. Start the new sequencer with the migrated data"
+
+
+echo "=============================================="

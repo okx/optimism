@@ -1,39 +1,62 @@
 #!/bin/bash
 set -e
+
+echo "=============================================="
+echo "Step 1: Setup Environment"
+echo "=============================================="
+
+make clean
+cp mainnet.env .env
+
+echo ""
+echo "=============================================="
+echo "Current .env Configuration:"
+echo "=============================================="
+cat .env
+
+echo ""
+echo "=============================================="
+echo "Please review the .env configuration above"
+echo "=============================================="
+read -p "Continue with this configuration? (Yes/No): " CONFIRM
+
+if [[ "$CONFIRM" != "Yes" ]]; then
+    echo "❌ Deployment cancelled. Please edit .env and run again."
+    exit 0
+fi
+
 set -x
 
 source .env
 source tools.sh
 source utils.sh
 
-make clean
-cp mainnet.env .env
-
+echo ""
+echo "=============================================="
+echo "Step 2: Deploy OP Contracts"
+echo "=============================================="
 ./2-deploy-op-contracts.sh
-
-# =============================================================================
-# This script builds, saves, and uploads the op-migrate image to OSS
-# =============================================================================
 
 IMAGE_NAME="op-migrate"
 ARCH="amd64"
 TAR_FILE="${IMAGE_NAME}-${ARCH}.tar.gz"
 
+echo ""
 echo "=============================================="
-echo "Step 1: Building op-migrate image"
+echo "Step 3: Build op-migrate image"
 echo "=============================================="
 ./build_images.sh --op-geth-migrate --arch linux/amd64 --force
 
 echo ""
 echo "=============================================="
-echo "Step 2: Saving Docker image to tar.gz"
+echo "Step 4: Save Docker image to tar.gz"
 echo "=============================================="
 docker save ${IMAGE_NAME}:${ARCH} | gzip > ${TAR_FILE}
 echo "✅ Image saved to ${TAR_FILE}"
 
 echo ""
 echo "=============================================="
-echo "Step 3: Calculating MD5 hash"
+echo "Step 5: Calculate MD5 hash"
 echo "=============================================="
 if [[ "$OSTYPE" == "darwin"* ]]; then
     MD5_HASH=$(md5 -q ${TAR_FILE})
@@ -45,7 +68,7 @@ fi
 
 echo ""
 echo "=============================================="
-echo "Step 4: Upload to OSS"
+echo "Step 6: Upload to OSS"
 echo "=============================================="
 echo "Please create an OSS ticket with the MD5 hash above."
 echo ""
@@ -67,7 +90,4 @@ echo "=============================================="
 echo "Ticket ID: ${TICKET_ID}"
 echo "File: ${TAR_FILE}"
 echo "MD5: ${MD5_HASH}"
-echo ""
-echo "Next steps (on ECS machine):"
-echo "  osstool download -ticket ${TICKET_ID}"
-echo "  docker load < ${TAR_FILE}"
+
