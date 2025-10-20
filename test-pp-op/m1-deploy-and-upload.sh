@@ -11,29 +11,29 @@ source .env
 source tools.sh
 source utils.sh
 
+ARCH="linux/amd64"
+TAR_FILE="${OP_GETH_MIGRATION_IMAGE_TAG}.tar.gz"
+SKIP_BUILD_GETH=false; [[ "$*" =~ --skip-geth ]] && BUILD_GETH=true
+
 echo ""
 echo "=============================================="
 echo "Step 1: Deploy OP Contracts"
 echo "=============================================="
 ./2-deploy-op-contracts.sh
 
-IMAGE_NAME="op-geth-migrate"
-ARCH="amd64"
-TAR_FILE="${IMAGE_NAME}-${ARCH}.tar.gz"
-BUILD_GETH=false; [[ "$*" =~ --build-geth ]] && BUILD_GETH=true
-
 echo ""
 echo "=============================================="
 echo "Step 2: Build op-migrate image"
 echo "=============================================="
-[ "$BUILD_GETH" = true ] && ./build_images.sh --op-geth-migrate --arch linux/amd64 --force
+[ "$SKIP_BUILD_GETH" = true ] || ./build_images.sh --op-geth-migrate --arch ${ARCH} --force
 
 echo ""
 echo "=============================================="
 echo "Step 3: Save Docker image to tar.gz"
 echo "=============================================="
+IMAGE_NAME=$(echo "${OP_GETH_MIGRATION_IMAGE_TAG}" | cut -d':' -f1)
 [ -n "$(docker images -q ${IMAGE_NAME})" ] || exit 1
-docker save ${IMAGE_NAME}:latest | gzip > ${TAR_FILE}
+docker save ${OP_GETH_MIGRATION_IMAGE_TAG} | gzip > ${TAR_FILE}
 echo "✅ Image saved to ${TAR_FILE}"
 
 echo ""
