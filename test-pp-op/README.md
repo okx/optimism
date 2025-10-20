@@ -1,6 +1,6 @@
 # Optimism Test Environment Setup Guide
 
-## For local
+## run on local
 ```bash
 # git submodule update --recursive --force
 make clean
@@ -15,21 +15,54 @@ cp local.env .env
 ./7-setup-fraud-proof.sh
 ```
 
-## For mainnet
-### [Prepare] On Mac host
+## run on testnet
 ```bash
 make clean
-cp mainnet.env .env
+cp testnet.env .env
 ./2-deploy-op-contracts.sh
-./2.1-upload-image.sh
-```
+# AFTER DEPLOYING OP CONTRACTS, CHECK TRANSACTOR ADDRESS ON SEPOLIA.
+# NOTE: l1ProxyAdminOwner + opcm + transactor addr checking (check intent.toml)
 
-### [Prepare] On ECS host
-```
-./2.2-download-image.sh
-```
+# Update .env ()
+# pause erigon, update .env fork_num.
+Update FORK_BLOCK+1
+# Overwrite .env to replace with inner node sepolia/beacon node
+# Do this before you build op-migrate image.
+https://fullnode-inner.okg.com/sepolia/fork/okbc/rpc
+https://fullnode-inner.okg.com/ethsepoliabeacon/native/layer1/rpc
 
-### [Migrate] On ECS host
+# LOCAL ENVIRONMENT
+# ----------------------------------------------------------------------------
+# Build the image locally after deploying contracts (rollup.json and genesis.json).
+./build_images.sh --op-geth-migrate --force
+
+docker save op-migrate:amd64 | gzip > op-migrate-amd64.tar.gz
+
+# INSIDE DACs TERMINAL
+# ----------------------------------------------------------------------------
+# Calculate md5 hash to create OSS ticket.
+md5sum op-geth-migrate.tar.gz
+# Use osstool to upload images to ECS.
+./osstool -f op-geth-migrate.tar.gz -a upload -ticket ${ticket-id}
+
+# INSIDE ECS MACHINE
+# ----------------------------------------------------------------------------
+# If not mounted memory, do this ONCE.
+mkdir -p /mnt/ramdisk_op
+mount -t tmpfs -o size=128g tmpfs /mnt/ramdisk_op
+df -hT /mnt/ramdisk_op
+
+# In disk
+cd /data
+# download from OSS
+osstool download -ticket ${ticket-id}
+# untar the uploaded file
+tar -xzvf op-geth-migrate.tar.gz
+# load the docker image into local registry
+docker load < op-geth-migrate.tar.gz
+
+# START REGENESIS (ECS host machine)
+# ----------------------------------------------------------------------------
 docker run \
   --name $CONTAINER_NAME \
   -v /var/run/docker.sock:/var/run/docker.sock \

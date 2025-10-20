@@ -15,14 +15,7 @@ Complete guide for migrating X Layer to Optimism on mainnet.
 ### 1. [Local] Deploy Contracts & Build Image
 
 ```bash
-cd test-pp-op
-make clean
-cp mainnet.env .env
-
-# Edit .env for mainnet config (FORK_BLOCK, PARENT_HASH, RPC endpoints, etc.)
-
-./2-deploy-op-contracts.sh
-./2.1-upload-image.sh  # Enter ticket ID when prompted
+./m1-deploy-and-upload.sh
 ```
 
 ### 2. [ECS] Download Image & Setup
@@ -30,7 +23,7 @@ cp mainnet.env .env
 ```bash
 # need to copy scirpt to data first
 cd /data/
-sudo ./2.2-download-image.sh  # Enter ticket ID when prompted
+sudo ./m2-download-image.sh  # Enter ticket ID when prompted
 ```
 
 ### 3. [ECS] Execute Migration
@@ -38,7 +31,7 @@ sudo ./2.2-download-image.sh  # Enter ticket ID when prompted
 ```bash
 # need to copy scirpt to data first
 cd /data/
-sudo ./4.0-migrate.sh
+sudo ./m3-migrate.sh
 ```
 
 ---
