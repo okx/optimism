@@ -16,6 +16,7 @@ JWTSecret = "/jwt.txt"
 [Node.P2P]
 MaxPeers = 30
 DiscoveryV5 = true
+TrustedNodes = []
 
 [Eth]
 NetworkId = 901
