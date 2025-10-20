@@ -2,9 +2,10 @@
 set -e
 set -x
 
-IMAGE_NAME="op-migrate"
-ARCH="amd64"
-TAR_FILE="${IMAGE_NAME}-${ARCH}.tar.gz"
+source .env
+
+IMAGE_NAME=$(echo "${OP_GETH_MIGRATION_IMAGE_TAG}" | cut -d':' -f1)
+TAR_FILE="${OP_GETH_MIGRATION_IMAGE_TAG}.tar.gz"
 RAMDISK_PATH="/mnt/ramdisk_op"
 RAMDISK_SIZE="128g"
 DATA_DIR="/data"
