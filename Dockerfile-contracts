@@ -1,18 +1,6 @@
 # Contracts build stage
-FROM golang:1.24 AS contracts-builder
+FROM okexchain/go-builder:v1 AS contracts-builder
 
-# Install dependencies for contract building
-RUN apt-get update && apt-get install -y \
-    curl \
-    git \
-    bash \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Install foundry
-RUN curl -L https://foundry.paradigm.xyz | bash && \
-    /root/.foundry/bin/foundryup && \
-    mv /root/.foundry/bin/* /usr/local/bin/ && \
-    rm -rf /root/.foundry
 
 WORKDIR /app
 
