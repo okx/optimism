@@ -2,6 +2,8 @@
 set -e
 set -x
 
+source .env
+
 IMAGE_NAME=$(echo "${OP_GETH_MIGRATION_IMAGE_TAG}" | cut -d':' -f1)
 CONTAINER_NAME="${CONTAINER_NAME:-op-migrate}"
 RAMDISK_PATH="/mnt/ramdisk_op"
@@ -62,7 +64,7 @@ if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
         --name ${CONTAINER_NAME} \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v ${ERIGON_DATA_DIR}:${ERIGON_DATA_DIR} \
-        -v /data/storage:/data/storage \ # For writing out config files.
+        -v ${BACKUP_DIR}:${BACKUP_DIR} \ # For writing out config files.
         -v ${RAMDISK_PATH}:${RAMDISK_PATH} \
         -v ${RAMDISK_PATH}/test-pp-op/data/op-geth-seq:/app/op-geth/test-pp-op/data/op-geth-seq \
         -e DOCKER_HOST=unix:///var/run/docker.sock \
@@ -87,10 +89,10 @@ echo ""
 # Execute migration script inside container
 # Use docker exec to run the command and capture output
 if docker exec -i ${CONTAINER_NAME} bash -c "
-  cd /app/op-geth/test-pp-op
+  cd /app/test-pp-op
   ./4-migrate-op.sh
-  cp {.env,merged.genesis.json} /data/storage
-  cp config-op/* ${BACKUP_DIR}
+  cp {.env,merged.genesis.json} ${BACKUP_DIR}
+  cp -rf config-op ${BACKUP_DIR}/config-op
   "; then
     echo ""
     echo "✅ Migration completed successfully inside container"
