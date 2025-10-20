@@ -75,3 +75,4 @@ test-apollo/config-op
 test-apollo/data
 
 test-pp-op/testnet.env
+test-pp-op/mainnet.env
