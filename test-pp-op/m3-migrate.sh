@@ -336,15 +336,17 @@ review_configuration_files() {
     docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && cat .env"
     wait_for_enter "Press ENTER to continue to next check..."
 
-    # 2. Check genesis.json timestamp
+    # 2. Check genesis.json
     echo ""
     echo "=============================================="
-    echo "2. Checking config-op/genesis.json timestamp"
+    echo "2. Checking config-op/genesis.json"
     echo "=============================================="
-    docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && jq '.timestamp' config-op/genesis.json"
-    echo ""
-    echo "Full genesis.json preview (first 50 lines):"
+    echo "First 50 lines:"
     docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && cat config-op/genesis.json | head -50"
+    echo ""
+    echo "---"
+    echo "Last 10 lines:"
+    docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && cat config-op/genesis.json | tail -10"
     wait_for_enter "Press ENTER to continue to next check..."
 
     # 3. Check intent.toml
