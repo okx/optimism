@@ -8,7 +8,7 @@ echo "================================"
 
 # 检查Docker服务状态
 echo "🐳 Docker服务状态:"
-docker-compose ps
+docker compose ps
 
 echo ""
 echo "🔍 服务健康检查:"

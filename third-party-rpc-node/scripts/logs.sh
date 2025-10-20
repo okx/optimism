@@ -26,7 +26,7 @@ echo "📋 查看 $SERVICE 服务日志 (最近 $LINES 行)"
 echo "================================"
 
 if [ "$SERVICE" = "all" ]; then
-    docker-compose logs --tail=$LINES --follow
+    docker compose logs --tail=$LINES --follow
 else
-    docker-compose logs --tail=$LINES --follow $SERVICE
+    docker compose logs --tail=$LINES --follow $SERVICE
 fi

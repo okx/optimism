@@ -49,7 +49,7 @@ fi
 
 # 启动服务
 echo "🐳 启动Docker服务..."
-docker-compose up -d
+docker compose up -d
 
 # 等待服务启动
 echo "⏳ 等待服务启动..."
@@ -57,7 +57,7 @@ sleep 10
 
 # 检查服务状态
 echo "🔍 检查服务状态..."
-docker-compose ps
+docker compose ps
 
 echo "✅ X Layer RPC节点启动完成!"
 echo ""
