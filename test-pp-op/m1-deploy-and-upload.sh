@@ -2,7 +2,7 @@
 set -e
 set -x
 
-if [ -f .env ];then
+if [ ! -f .env ];then
   echo "Please create .env file."
   exit 1
 fi
