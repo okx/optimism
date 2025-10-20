@@ -256,6 +256,7 @@ deploy_custom_gas_token() {
   cd $ROOT_DIR/packages/contracts-bedrock
   export SYSTEM_CONFIG_PROXY_ADDRESS=$SYSTEM_CONFIG_PROXY_ADDRESS
   export OPTIMISM_PORTAL_PROXY_ADDRESS=$OPTIMISM_PORTAL_PROXY_ADDRESS
+  export OKB_TOKEN_ADDRESS=$OKB_TOKEN_ADDRESS
 
   FORGE_OUTPUT=$(forge script scripts/SetupCustomGasToken.s.sol:SetupCustomGasToken \
     --rpc-url "$L1_RPC_URL" \
@@ -276,7 +277,7 @@ deploy_custom_gas_token() {
   echo "✅ L1 Custom Gas Token setup complete!"
   echo "📋 Deployed Contract Addresses:"
   echo ""
-  echo "   OKB Token:          $OKB_TOKEN"
+  echo "   OKB Token:          $OKB_TOKEN_ADDRESS"
   echo "   Adapter:            $ADAPTER_ADDRESS"
   echo ""
 
