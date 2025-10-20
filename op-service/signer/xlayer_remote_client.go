@@ -224,35 +224,60 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 func (c *XLayerRemoteClient) detectComponentType(tx *types.Transaction) string {
 	data := tx.Data()
 	dataSize := len(data)
+
 	if tx.To() == nil {
 		return "unknown"
 	}
+
 	if len(tx.BlobHashes()) > 0 {
 		return "batcher"
 	}
+
 	if dataSize < 4 {
 		return "unknown"
 	}
 
-	selector := common.Bytes2Hex(data[:4])
-	switch selector {
-	case "82ecf2f6": // create (DisputeGameFactory)
+	methodSig := data[:4]
+
+	if componentType := c.detectProposerMethod(methodSig); componentType != "" {
+		return componentType
+	}
+
+	if componentType := c.detectChallengerMethod(methodSig); componentType != "" {
+		return componentType
+	}
+
+	if dataSize > 1000 {
+		return "batcher"
+	} else if dataSize < 200 {
 		return "proposer"
-	case "03c2924d": // resolveClaim
+	} else {
 		return "challenger"
-	case "2810e1d6": // resolve
-		return "challenger"
-	case "60e27464": // claimCredit
-		return "challenger"
-	default:
-		if dataSize > 1000 {
-			return "batcher"
-		} else if dataSize < 200 {
+	}
+}
+
+func (c *XLayerRemoteClient) detectProposerMethod(methodSig []byte) string {
+	dgfABI := snapshots.LoadDisputeGameFactoryABI()
+	if method, err := dgfABI.MethodById(methodSig); err == nil {
+		if method.Name == "create" {
 			return "proposer"
-		} else {
+		}
+	}
+
+	return ""
+}
+
+func (c *XLayerRemoteClient) detectChallengerMethod(methodSig []byte) string {
+	gameABI := snapshots.LoadFaultDisputeGameABI()
+
+	if method, err := gameABI.MethodById(methodSig); err == nil {
+		switch method.Name {
+		case "resolveClaim", "resolve", "claimCredit":
 			return "challenger"
 		}
 	}
+
+	return ""
 }
 
 // postSignRequestAndWaitResult sends signing request and waits for the result
@@ -474,8 +499,7 @@ func (c *XLayerRemoteClient) querySignResult(ctx context.Context, req *XLayerQue
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
-	fmt.Println(result)
-	// 记录查询结果
+
 	c.logger.Debug("Query sign result response",
 		"response_body", string(body),
 		"status", result.Status,
@@ -665,28 +689,37 @@ func (c *XLayerRemoteClient) buildChallengerOtherInfo(tx *types.Transaction) (st
 
 	// Extract method signature (first 4 bytes)
 	methodSig := tx.Data()[:4]
-	methodSigHex := hexutil.Encode(methodSig)
 
-	// Route to different builders based on method signature
-	// resolveClaim: 0x03c2924d
-	// resolve: 0x2810e1d6
-	// claimCredit: 0x60e27464
-	switch methodSigHex {
-	case "0x03c2924d": // resolveClaim(uint256 _claimIndex, uint256 _numToResolve)
-		return c.buildChallengerResolveClaimOtherInfo(tx, baseInfo)
-	case "0x2810e1d6": // resolve()
-		return c.buildChallengerResolveOtherInfo(tx, baseInfo)
-	case "0x60e27464": // claimCredit(address _recipient)
-		return c.buildChallengerClaimCreditOtherInfo(tx, baseInfo)
-	default:
+	gameABI := snapshots.LoadFaultDisputeGameABI()
+	method, err := gameABI.MethodById(methodSig)
+	if err != nil {
 		// Unknown method, return base info with method signature
-		c.logger.Warn("Unknown challenger method signature", "signature", methodSigHex)
+		c.logger.Warn("Unknown challenger method signature", "signature", hexutil.Encode(methodSig))
 		enhancedInfo := struct {
 			XLayerOtherInfo
 			MethodSignature string `json:"methodSignature,omitempty"`
 		}{
 			XLayerOtherInfo: baseInfo,
-			MethodSignature: methodSigHex,
+			MethodSignature: hexutil.Encode(methodSig),
+		}
+		return c.marshalOtherInfo(enhancedInfo)
+	}
+
+	switch method.Name {
+	case "resolveClaim":
+		return c.buildChallengerResolveClaimOtherInfo(tx, baseInfo)
+	case "resolve":
+		return c.buildChallengerResolveOtherInfo(tx, baseInfo)
+	case "claimCredit":
+		return c.buildChallengerClaimCreditOtherInfo(tx, baseInfo)
+	default:
+		c.logger.Warn("Unhandled challenger method", "method", method.Name)
+		enhancedInfo := struct {
+			XLayerOtherInfo
+			MethodName string `json:"methodName,omitempty"`
+		}{
+			XLayerOtherInfo: baseInfo,
+			MethodName:      method.Name,
 		}
 		return c.marshalOtherInfo(enhancedInfo)
 	}
