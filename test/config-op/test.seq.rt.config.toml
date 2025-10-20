@@ -54,7 +54,7 @@ MaxPrice = "5000000000000000000000"
 IgnorePrice = "2000000000000000000"
 
 [Eth.Miner]
-Recommit = 200000000
+Recommit = 500000000
 
 [Eth.GPO.XLayer]
 Type = "follower"
