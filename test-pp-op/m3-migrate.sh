@@ -2,11 +2,14 @@
 set -e
 set -x
 
-CONTAINER_NAME="${CONTAINER_NAME:-op-migrate-container}"
-IMAGE_NAME="op-migrate:latest"
+IMAGE_NAME=$(echo "${OP_GETH_MIGRATION_IMAGE_TAG}" | cut -d':' -f1)
+CONTAINER_NAME="${CONTAINER_NAME:-op-migrate}"
 RAMDISK_PATH="/mnt/ramdisk_op"
 DATA_DIR="/data"
 ERIGON_DATA_DIR="/data/erigon-data"
+BACKUP_DIR="${DATA_DIR}/migration-backup-$(date +%Y%m%d-%H%M%S)"
+
+mkdir -p ${BACKUP_DIR}
 
 echo "=============================================="
 echo "Step 1: Pre-flight checks"
@@ -15,14 +18,14 @@ echo "=============================================="
 # Check if ramdisk is mounted
 if ! mountpoint -q ${RAMDISK_PATH}; then
     echo "❌ Error: Ramdisk not mounted at ${RAMDISK_PATH}"
-    echo "Please run 2.2-download-image.sh first to setup ramdisk"
+    echo "Please run m2-download-image.sh first to setup ramdisk"
     exit 1
 fi
 
 # Check if Docker image exists
 if ! docker image inspect ${IMAGE_NAME} >/dev/null 2>&1; then
     echo "❌ Error: Docker image ${IMAGE_NAME} not found"
-    echo "Please run 2.2-download-image.sh first to load the image"
+    echo "Please run m2-download-image.sh first to load the image"
     exit 1
 fi
 
@@ -59,6 +62,7 @@ if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
         --name ${CONTAINER_NAME} \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v ${ERIGON_DATA_DIR}:${ERIGON_DATA_DIR} \
+        -v /data/storage:/data/storage \ # For writing out config files.
         -v ${RAMDISK_PATH}:${RAMDISK_PATH} \
         -v ${RAMDISK_PATH}/test-pp-op/data/op-geth-seq:/app/op-geth/test-pp-op/data/op-geth-seq \
         -e DOCKER_HOST=unix:///var/run/docker.sock \
@@ -82,7 +86,12 @@ echo ""
 
 # Execute migration script inside container
 # Use docker exec to run the command and capture output
-if docker exec -i ${CONTAINER_NAME} bash -c "cd /app/op-geth/test-pp-op && ./4-migrate-op.sh"; then
+if docker exec -i ${CONTAINER_NAME} bash -c "
+  cd /app/op-geth/test-pp-op
+  ./4-migrate-op.sh
+  cp {.env,merged.genesis.json} /data/storage
+  cp config-op/* ${BACKUP_DIR}
+  "; then
     echo ""
     echo "✅ Migration completed successfully inside container"
 else
@@ -107,42 +116,8 @@ echo "=============================================="
 echo "Step 4: Copy results to disk"
 echo "=============================================="
 
-echo "Copying important files from ramdisk to disk..."
-
-# Create backup directory with timestamp
-BACKUP_DIR="${DATA_DIR}/migration-backup-$(date +%Y%m%d-%H%M%S)"
-mkdir -p ${BACKUP_DIR}
-
-# Copy files to backup directory
 echo "Backup directory: ${BACKUP_DIR}"
-
-FILES_TO_COPY=(
-    ".env"
-    "config-op/rollup.json"
-    "merged.genesis.json"
-    "data/op-geth-seq"
-)
-
-cd ${RAMDISK_PATH}/test-pp-op
-
-for file in "${FILES_TO_COPY[@]}"; do
-    if [ -e "$file" ]; then
-        echo "Copying $file..."
-        cp -r "$file" "${BACKUP_DIR}/"
-    else
-        echo "⚠️  Warning: $file not found, skipping"
-    fi
-done
-
-# Also copy to /data for easy access
-echo ""
-echo "Copying files to ${DATA_DIR} for easy access..."
-for file in "${FILES_TO_COPY[@]}"; do
-    if [ -e "$file" ]; then
-        cp -r "$file" "${DATA_DIR}/" || true
-    fi
-done
-
+cp -rfv $RAMDISK_PATH/test-pp-op/data/op-geth-seq $BACKUP_DIR
 echo "✅ Files copied successfully"
 
 echo ""
@@ -166,7 +141,5 @@ echo "=============================================="
 echo "✅ Migration process completed successfully!"
 echo "=============================================="
 echo "Backup directory: ${BACKUP_DIR}"
-echo "Files also copied to: ${DATA_DIR}"
-
 
 echo "=============================================="
