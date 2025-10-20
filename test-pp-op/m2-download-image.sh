@@ -2,14 +2,6 @@
 set -e
 set -x
 
-source .env
-source tools.sh
-source utils.sh
-
-# =============================================================================
-# This script downloads and loads the op-migrate image from OSS (on ECS machine)
-# =============================================================================
-
 IMAGE_NAME="op-migrate"
 ARCH="amd64"
 TAR_FILE="${IMAGE_NAME}-${ARCH}.tar.gz"

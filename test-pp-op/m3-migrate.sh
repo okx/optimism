@@ -2,15 +2,6 @@
 set -e
 set -x
 
-source .env
-source tools.sh
-source utils.sh
-
-# =============================================================================
-# This script orchestrates the migration process on ECS host machine
-# It starts a container, executes migration inside, and saves results to disk
-# =============================================================================
-
 CONTAINER_NAME="${CONTAINER_NAME:-op-migrate-container}"
 IMAGE_NAME="op-migrate:latest"
 RAMDISK_PATH="/mnt/ramdisk_op"
