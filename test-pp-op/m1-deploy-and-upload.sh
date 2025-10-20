@@ -1,31 +1,11 @@
 #!/bin/bash
 set -e
-
-echo "=============================================="
-echo "Step 1: Setup Environment"
-echo "=============================================="
-
-make clean
-cp mainnet.env .env
-
-echo ""
-echo "=============================================="
-echo "Current .env Configuration:"
-echo "=============================================="
-cat .env
-
-echo ""
-echo "=============================================="
-echo "Please review the .env configuration above"
-echo "=============================================="
-read -p "Continue with this configuration? (Yes/No): " CONFIRM
-
-if [[ "$CONFIRM" != "Yes" ]]; then
-    echo "❌ Deployment cancelled. Please edit .env and run again."
-    exit 0
-fi
-
 set -x
+
+if [ -f .env ];then
+  echo "Please create .env file."
+  exit 1
+fi
 
 source .env
 source tools.sh
@@ -33,30 +13,32 @@ source utils.sh
 
 echo ""
 echo "=============================================="
-echo "Step 2: Deploy OP Contracts"
+echo "Step 1: Deploy OP Contracts"
 echo "=============================================="
 ./2-deploy-op-contracts.sh
 
-IMAGE_NAME="op-migrate"
+IMAGE_NAME="op-geth-migrate"
 ARCH="amd64"
 TAR_FILE="${IMAGE_NAME}-${ARCH}.tar.gz"
+BUILD_GETH=false; [[ "$*" =~ --build-geth ]] && BUILD_GETH=true
 
 echo ""
 echo "=============================================="
-echo "Step 3: Build op-migrate image"
+echo "Step 2: Build op-migrate image"
 echo "=============================================="
-./build_images.sh --op-geth-migrate --arch linux/amd64 --force
+[ "$BUILD_GETH" = true ] && ./build_images.sh --op-geth-migrate --arch linux/amd64 --force
 
 echo ""
 echo "=============================================="
-echo "Step 4: Save Docker image to tar.gz"
+echo "Step 3: Save Docker image to tar.gz"
 echo "=============================================="
-docker save ${IMAGE_NAME}:${ARCH} | gzip > ${TAR_FILE}
+[ -n "$(docker images -q ${IMAGE_NAME})" ] || exit 1
+docker save ${IMAGE_NAME}:latest | gzip > ${TAR_FILE}
 echo "✅ Image saved to ${TAR_FILE}"
 
 echo ""
 echo "=============================================="
-echo "Step 5: Calculate MD5 hash"
+echo "Step 4: Calculate MD5 hash"
 echo "=============================================="
 if [[ "$OSTYPE" == "darwin"* ]]; then
     MD5_HASH=$(md5 -q ${TAR_FILE})
@@ -68,26 +50,6 @@ fi
 
 echo ""
 echo "=============================================="
-echo "Step 6: Upload to OSS"
+echo "Step 5: Upload to OSS"
 echo "=============================================="
-echo "Please create an OSS ticket with the MD5 hash above."
-echo ""
-read -p "Enter ticket ID: " TICKET_ID
-
-if [ -z "$TICKET_ID" ]; then
-    echo "❌ Error: Ticket ID cannot be empty"
-    exit 1
-fi
-
-echo ""
-echo "Uploading ${TAR_FILE} with ticket ID: ${TICKET_ID}"
-./osstool -f ${TAR_FILE} -a upload -ticket ${TICKET_ID}
-
-echo ""
-echo "=============================================="
-echo "✅ Upload completed successfully!"
-echo "=============================================="
-echo "Ticket ID: ${TICKET_ID}"
-echo "File: ${TAR_FILE}"
-echo "MD5: ${MD5_HASH}"
-
+echo "Please create an OSS ticket with the MD5 hash: ${MD5_HASH}."
