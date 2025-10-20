@@ -6,6 +6,11 @@ source .env
 source tools.sh
 source utils.sh
 
+make clean
+cp mainnet.env .env
+
+./2-deploy-op-contracts.sh
+
 # =============================================================================
 # This script builds, saves, and uploads the op-migrate image to OSS
 # =============================================================================

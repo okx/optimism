@@ -25,7 +25,9 @@ cp mainnet.env .env
 ```
 
 ### [Prepare] On ECS host
+```
 ./2.2-download-image.sh
+```
 
 ### [Migrate] On ECS host
 docker run \
