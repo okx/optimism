@@ -104,11 +104,11 @@ func TestBatcher_EIP4844_Sepolia_FullFlow(t *testing.T) {
 		Symbol:          2882,
 		ProjectSymbol:   3011,
 		OperateSymbol:   2,
-		OperateAmount:   0,
+		OperateAmount:   "0",
 		SysFrom:         3,
 		RequestSignURI:  "/priapi/v1/assetonchain/ecology/ecologyOperate",
 		QuerySignURI:    "/priapi/v1/assetonchain/ecology/querySignDataByOrderNo",
-		DepositeAddress: "0x006737cc6980a7786a477ce46b491845509b19dc",
+		DepositeAddress: "0x1a13bddcc02d363366e04d4aa588d3c125b0ff6f",
 		AccessKey:       "test-access-key",
 		SecretKey:       "test-secret-key",
 	}

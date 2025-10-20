@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -24,19 +25,19 @@ import (
 
 // XLayerSignRequest represents the signing request structure for XLayer remote signer API
 type XLayerSignRequest struct {
-	UserID         int            `json:"userId"`
-	OperateType    int            `json:"operateType"` // EIP4844 = 19
-	OperateAddress common.Address `json:"operateAddress"`
-	Symbol         int            `json:"symbol"`
-	ProjectSymbol  int            `json:"projectSymbol"`
-	RefOrderID     string         `json:"refOrderId"`
-	OperateSymbol  int            `json:"operateSymbol"`
-	OperateAmount  int            `json:"operateAmount"`
-	SysFrom        int            `json:"sysFrom"`
-	OtherInfo      string         `json:"otherInfo"` // JSON-encoded transaction parameters
-	DepositAddress string         `json:"depositAddress"`
-	ToAddress      string         `json:"toAddress"`
-	BatchID        int            `json:"batchId"`
+	UserID          int            `json:"userId"`
+	OperateType     int            `json:"operateType"` // EIP4844 = 19
+	OperateAddress  common.Address `json:"operateAddress"`
+	Symbol          int            `json:"symbol"`
+	ProjectSymbol   int            `json:"projectSymbol"`
+	RefOrderID      string         `json:"refOrderId"`
+	OperateSymbol   int            `json:"operateSymbol"`
+	OperateAmount   string         `json:"operateAmount"`
+	SysFrom         int            `json:"sysFrom"`
+	OtherInfo       string         `json:"otherInfo"` // JSON-encoded transaction parameters
+	DepositeAddress string         `json:"depositeAddress"`
+	ToAddress       string         `json:"toAddress"`
+	BatchID         int            `json:"batchId"`
 }
 
 // XLayerSignResponse represents the signing response structure
@@ -58,10 +59,10 @@ type XLayerQueryRequest struct {
 
 // XLayerOtherInfo contains transaction parameters for OtherInfo field
 type XLayerOtherInfo struct {
-	ContractAddress common.Address `json:"contractAddress"`
-	GasLimit        uint64         `json:"gasLimit"`
-	GasPrice        string         `json:"gasPrice"`
-	Nonce           uint64         `json:"nonce"`
+	ContractAddress string `json:"contractAddress"`
+	GasLimit        uint64 `json:"gasLimit"`
+	GasPrice        string `json:"gasPrice"`
+	Nonce           uint64 `json:"nonce"`
 	// EIP-4844 specific parameters
 	BlobVersionedHashes []common.Hash `json:"blobVersionedHashes,omitempty"`
 	BlobFeeCap          string        `json:"maxFeePerBlobGas,omitempty"`
@@ -89,7 +90,7 @@ type XLayerConfig struct {
 	Symbol          int
 	ProjectSymbol   int
 	OperateSymbol   int
-	OperateAmount   int
+	OperateAmount   string
 	SysFrom         int
 	RequestSignURI  string
 	QuerySignURI    string
@@ -151,39 +152,53 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 		operateType = c.getDefaultOperateType(tx)
 	}
 
-	// 3. Create signing request
-	// Get To address if present and use it as both ToAddress and DepositAddress
 	toAddress := ""
-	depositAddress := ""
+	depositeAddress := ""
 	if tx.To() != nil {
-		toAddress = tx.To().Hex()
-		depositAddress = tx.To().Hex()
+		toAddress = strings.ToLower(tx.To().Hex())
+		depositeAddress = strings.ToLower(tx.To().Hex())
 	}
 
+	operateAmount := convertValueToOperateAmount(tx.Value())
+
+	fromLower := common.HexToAddress(strings.ToLower(from.Hex()))
+
 	signReq := &XLayerSignRequest{
-		UserID:         c.config.UserID,
-		OperateType:    operateType,
-		OperateAddress: from,
-		Symbol:         c.config.Symbol,
-		ProjectSymbol:  c.config.ProjectSymbol,
-		RefOrderID:     uuid.New().String(),
-		OperateSymbol:  c.config.OperateSymbol,
-		OperateAmount:  c.config.OperateAmount,
-		SysFrom:        c.config.SysFrom,
-		OtherInfo:      otherInfo,
-		DepositAddress: depositAddress,
-		ToAddress:      toAddress,
-		BatchID:        0,
+		UserID:          c.config.UserID,
+		OperateType:     operateType,
+		OperateAddress:  fromLower,
+		Symbol:          c.config.Symbol,
+		ProjectSymbol:   c.config.ProjectSymbol,
+		RefOrderID:      uuid.New().String(),
+		OperateSymbol:   c.config.OperateSymbol,
+		OperateAmount:   operateAmount,
+		SysFrom:         c.config.SysFrom,
+		OtherInfo:       otherInfo,
+		DepositeAddress: depositeAddress,
+		ToAddress:       toAddress,
+		BatchID:         0,
 	}
 
 	// Log signing request details
 	c.logger.Info("Sending sign request to remote signer",
 		"operateType", operateType,
 		"from", from.Hex(),
-		"depositAddress", depositAddress,
+		"depositeAddress", depositeAddress,
 		"to", tx.To(),
 		"toAddress", toAddress,
+		"userId", signReq.UserID,
+		"symbol", signReq.Symbol,
+		"projectSymbol", signReq.ProjectSymbol,
+		"operateSymbol", signReq.OperateSymbol,
+		"operateAmount", operateAmount,
+		"tx_value_wei", tx.Value().String(),
+		"tx_value_eth", new(big.Float).Quo(new(big.Float).SetInt(tx.Value()), new(big.Float).SetInt64(1e18)).String(),
 		"otherInfo", otherInfo)
+
+	c.logger.Debug("Full sign request details",
+		"depositAddress_in_struct", signReq.DepositeAddress,
+		"toAddress_in_struct", signReq.ToAddress,
+		"tx_to_is_nil", tx.To() == nil)
 
 	// 4. Send signing request and wait for result
 	signedTx, err := c.postSignRequestAndWaitResult(ctx, signReq, tx)
@@ -192,9 +207,9 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 	}
 
 	// 5. Verify signed transaction consistency
-	//if err := c.verifySignedTransaction(tx, signedTx); err != nil {
-	//	return nil, fmt.Errorf("signed transaction verification failed: %w", err)
-	//}
+	if err := c.verifySignedTransaction(tx, signedTx); err != nil {
+		return nil, fmt.Errorf("signed transaction verification failed: %w", err)
+	}
 
 	// 6. Re-attach blob sidecar if present
 	if sidecar != nil {
@@ -347,6 +362,12 @@ func (c *XLayerRemoteClient) postSignRequest(ctx context.Context, req *XLayerSig
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
+	// Debug: 打印实际发送的JSON
+	c.logger.Debug("Serialized sign request JSON",
+		"payload", string(payload),
+		"depositAddress_field", req.DepositeAddress,
+		"toAddress_field", req.ToAddress)
+
 	// 2. Build request URL
 	reqURL, err := url.JoinPath(c.endpoint, c.config.RequestSignURI)
 	if err != nil {
@@ -453,8 +474,15 @@ func (c *XLayerRemoteClient) querySignResult(ctx context.Context, req *XLayerQue
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
-	fmt.Println(body)
 	fmt.Println(result)
+	// 记录查询结果
+	c.logger.Debug("Query sign result response",
+		"response_body", string(body),
+		"status", result.Status,
+		"success", result.Success,
+		"msg", result.Msg,
+		"data_length", len(result.Data))
+
 	return &result, nil
 }
 
@@ -553,12 +581,12 @@ func (c *XLayerRemoteClient) buildProposerOtherInfo(tx *types.Transaction) (stri
 // buildBatcherOtherInfo builds Batcher's OtherInfo
 func (c *XLayerRemoteClient) buildBatcherOtherInfo(tx *types.Transaction) (string, error) {
 	otherInfo := struct {
-		ContractAddress      common.Address `json:"contractAddress"`
-		GasLimit             uint64         `json:"gasLimit"`
-		GasPrice             string         `json:"gasPrice"`
-		Nonce                uint64         `json:"nonce"`
-		MaxFeePerGas         *string        `json:"maxFeePerGas,omitempty"`
-		MaxPriorityFeePerGas *string        `json:"maxPriorityFeePerGas,omitempty"`
+		ContractAddress      string  `json:"contractAddress"`
+		GasLimit             uint64  `json:"gasLimit"`
+		GasPrice             string  `json:"gasPrice"`
+		Nonce                uint64  `json:"nonce"`
+		MaxFeePerGas         *string `json:"maxFeePerGas,omitempty"`
+		MaxPriorityFeePerGas *string `json:"maxPriorityFeePerGas,omitempty"`
 		// EIP-4844 specific parameters
 		EIP               *int     `json:"eip,omitempty"`
 		MaxFeePerBlobGas  *string  `json:"maxFeePerBlobGas,omitempty"`
@@ -567,7 +595,7 @@ func (c *XLayerRemoteClient) buildBatcherOtherInfo(tx *types.Transaction) (strin
 		Data  *string `json:"data,omitempty"`
 		Value *string `json:"value,omitempty"`
 	}{
-		ContractAddress: *tx.To(),
+		ContractAddress: strings.ToLower(tx.To().Hex()),
 		GasLimit:        tx.Gas(),
 		Nonce:           tx.Nonce(),
 	}
@@ -745,7 +773,7 @@ func (c *XLayerRemoteClient) buildDefaultOtherInfo(tx *types.Transaction) (strin
 // buildBaseOtherInfo builds base OtherInfo parameters
 func (c *XLayerRemoteClient) buildBaseOtherInfo(tx *types.Transaction) XLayerOtherInfo {
 	otherInfo := XLayerOtherInfo{
-		ContractAddress: *tx.To(),
+		ContractAddress: strings.ToLower(tx.To().Hex()),
 		GasLimit:        tx.Gas(),
 		Nonce:           tx.Nonce(),
 		TxData:          hexutil.Encode(tx.Data()),
@@ -1092,6 +1120,23 @@ func (c *XLayerRemoteClient) verifyLegacyTxFields(originalTx *types.Transaction,
 	}
 
 	return nil
+}
+
+func convertValueToOperateAmount(valueWei *big.Int) string {
+	if valueWei == nil || valueWei.Sign() == 0 {
+		return "0"
+	}
+
+	oneEth := new(big.Float).SetInt(big.NewInt(1000000000000000000)) // 10^18
+	valueFloat := new(big.Float).SetInt(valueWei)
+	ethAmount := new(big.Float).Quo(valueFloat, oneEth)
+
+	ethStr := ethAmount.Text('f', 18)
+
+	ethStr = strings.TrimRight(ethStr, "0")
+	ethStr = strings.TrimRight(ethStr, ".")
+
+	return ethStr
 }
 
 func (c *XLayerRemoteClient) Close() {

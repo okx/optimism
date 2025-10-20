@@ -23,6 +23,7 @@ func TestChallenger_ResolveClaim_Sepolia_FullFlow(t *testing.T) {
 	logger := testlog.Logger(t, log.LevelInfo)
 
 	sepoliaRPC := "https://www.okx.com/fullnode/xlayer/ethsepolia/discover/rpc"
+	//sepoliaRPC := "https://sepolia.infura.io/v3/464a484737734f7db0ef5114b0817d81"
 	client, err := ethclient.Dial(sepoliaRPC)
 	require.NoError(t, err, "Failed to connect to Sepolia")
 	defer client.Close()
@@ -92,7 +93,7 @@ func TestChallenger_ResolveClaim_Sepolia_FullFlow(t *testing.T) {
 		Symbol:          2882,
 		ProjectSymbol:   3011,
 		OperateSymbol:   2,
-		OperateAmount:   0,
+		OperateAmount:   "0",
 		SysFrom:         3,
 		RequestSignURI:  "/priapi/v1/assetonchain/ecology/ecologyOperate",
 		QuerySignURI:    "/priapi/v1/assetonchain/ecology/querySignDataByOrderNo",
@@ -238,7 +239,7 @@ func TestChallenger_Resolve_Sepolia_FullFlow(t *testing.T) {
 		Symbol:          2882,
 		ProjectSymbol:   3011,
 		OperateSymbol:   2,
-		OperateAmount:   0,
+		OperateAmount:   "0",
 		SysFrom:         3,
 		RequestSignURI:  "/priapi/v1/assetonchain/ecology/ecologyOperate",
 		QuerySignURI:    "/priapi/v1/assetonchain/ecology/querySignDataByOrderNo",
@@ -337,7 +338,7 @@ func TestChallenger_ClaimCredit_Sepolia_FullFlow(t *testing.T) {
 		Symbol:          2882,
 		ProjectSymbol:   3011,
 		OperateSymbol:   2,
-		OperateAmount:   0,
+		OperateAmount:   "0",
 		SysFrom:         3,
 		RequestSignURI:  "/priapi/v1/assetonchain/ecology/ecologyOperate",
 		QuerySignURI:    "/priapi/v1/assetonchain/ecology/querySignDataByOrderNo",

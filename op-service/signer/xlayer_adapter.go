@@ -78,7 +78,7 @@ type XLayerCLIConfig struct {
 	Symbol        int    `json:"symbol"`
 	ProjectSymbol int    `json:"projectSymbol"`
 	OperateSymbol int    `json:"operateSymbol"`
-	OperateAmount int    `json:"operateAmount"`
+	OperateAmount string `json:"operateAmount"`
 	SysFrom       int    `json:"sysFrom"`
 	AccessKey     string `json:"accessKey"`
 	SecretKey     string `json:"secretKey"`
@@ -92,7 +92,7 @@ func NewXLayerCLIConfig() XLayerCLIConfig {
 		Symbol:        2882, // Default value for devnet
 		ProjectSymbol: 3011,
 		OperateSymbol: 2,
-		OperateAmount: 0,
+		OperateAmount: "0",
 		SysFrom:       3,
 		Timeout:       "30s",
 	}
@@ -110,10 +110,6 @@ func (c XLayerCLIConfig) Check() error {
 
 	if c.Address == "" {
 		return fmt.Errorf("XLayer address is required when enabled")
-	}
-
-	if c.UserID == 0 {
-		return fmt.Errorf("XLayer userID is required when enabled")
 	}
 
 	return nil

@@ -32,7 +32,6 @@ func TestProposer_DisputeGameFactory_Sepolia_FullFlow(t *testing.T) {
 	defer client.Close()
 
 	t.Logf("Connected to Sepolia testnet")
-
 	chainID := big.NewInt(11155111)
 	proposerAddr := common.HexToAddress("0x1a13bddcc02d363366e04d4aa588d3c125b0ff6f")
 	disputeGameFactoryAddr := common.HexToAddress("0xca66313d59c9aab29a0e2a84635dc6778c4c5819")
@@ -47,9 +46,10 @@ func TestProposer_DisputeGameFactory_Sepolia_FullFlow(t *testing.T) {
 	t.Logf("Suggested gas price: %s wei", gasPrice)
 
 	gameType := uint32(1)
-	rootClaim := common.HexToHash("0x6b88b9b1af7e1d0ec959abffdf24cac21f8703c9fd066bb40e8aae7bcddd773d")
-	extraData := common.FromHex("0x000000000000000000000000000000000000000000000000000000000226c2b2")
-
+	//rootClaim := common.HexToHash("0x6b88b9b1af7e1d0ec959abffdf24cac21f8703c9fd066bb40e8aae7bcddd773d")
+	//extraData := common.FromHex("0x000000000000000000000000000000000000000000000000000000000226c2b2")
+	rootClaim := common.HexToHash("0xa394e33559e15a0661a3f16ea6309a05ba182d2e243a3cd29c06b7cf7379199e")
+	extraData := common.FromHex("0x0000000000000000000000000000000000000000000000000000000003a2007d")
 	l2BlockNumber := new(big.Int).SetBytes(extraData[len(extraData)-8:]).Uint64()
 
 	t.Logf("DisputeGameFactory.create parameters:")
@@ -69,7 +69,7 @@ func TestProposer_DisputeGameFactory_Sepolia_FullFlow(t *testing.T) {
 		GasFeeCap: new(big.Int).Mul(gasPrice, big.NewInt(3)), // 3x gas price
 		Gas:       10000000,
 		To:        &disputeGameFactoryAddr,
-		Value:     big.NewInt(1000000000000000000), // 1 ETH bond
+		Value:     big.NewInt(0), // 1 ETH bond
 		Data:      txData,
 	}
 
@@ -93,7 +93,7 @@ func TestProposer_DisputeGameFactory_Sepolia_FullFlow(t *testing.T) {
 		Symbol:          2882,
 		ProjectSymbol:   3011,
 		OperateSymbol:   2,
-		OperateAmount:   0,
+		OperateAmount:   "0",
 		SysFrom:         3,
 		RequestSignURI:  "/priapi/v1/assetonchain/ecology/ecologyOperate",
 		QuerySignURI:    "/priapi/v1/assetonchain/ecology/querySignDataByOrderNo",

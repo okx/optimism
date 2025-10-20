@@ -71,12 +71,12 @@ func XLayerCLIFlags(envPrefix string, category string) []cli.Flag {
 			Category: category,
 			Value:    2,
 		},
-		&cli.IntFlag{
+		&cli.StringFlag{
 			Name:     XLayerOperateAmountFlagName,
-			Usage:    "XLayer operate amount",
+			Usage:    "XLayer operate amount (in ETH, supports decimals, e.g., '0.08', '1', '2.5')",
 			EnvVars:  opservice.PrefixEnvVar(envPrefix, "OPERATE_AMOUNT"),
 			Category: category,
-			Value:    0,
+			Value:    "0",
 		},
 		&cli.IntFlag{
 			Name:     XLayerSysFromFlagName,
@@ -117,7 +117,7 @@ func ReadXLayerCLIConfig(ctx *cli.Context) XLayerCLIConfig {
 		Symbol:        ctx.Int(XLayerSymbolFlagName),
 		ProjectSymbol: ctx.Int(XLayerProjectSymbolFlagName),
 		OperateSymbol: ctx.Int(XLayerOperateSymbolFlagName),
-		OperateAmount: ctx.Int(XLayerOperateAmountFlagName),
+		OperateAmount: ctx.String(XLayerOperateAmountFlagName),
 		SysFrom:       ctx.Int(XLayerSysFromFlagName),
 		AccessKey:     ctx.String(XLayerAccessKeyFlagName),
 		SecretKey:     ctx.String(XLayerSecretKeyFlagName),
