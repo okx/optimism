@@ -2,6 +2,7 @@
 set -e
 set -x
 
+CLEAN_ENVIRONMENT=${CLEAN_ENVIRONMENT:-true}
 IMAGE_NAME="op-geth-migrate:latest"
 CONTAINER_NAME="op-migrate-container"
 RAMDISK_PATH="/mnt/ramdisk_op"
@@ -9,6 +10,42 @@ DATA_DIR="/data"
 ERIGON_DATA_DIR="/data/erigon-data"
 BACKUP_DIR="${DATA_DIR}/migration-backup-$(date +%Y%m%d-%H%M%S)"
 L2_RPC_URL="${L2_RPC_URL:-http://rpcapi.xlayer.tech/sequencer}"
+
+# Optional: Complete cleanup before migration
+# Set CLEAN_ENVIRONMENT=true to force cleanup of container and ramdisk
+if [ "${CLEAN_ENVIRONMENT}" = "true" ]; then
+    echo "=============================================="
+    echo "Environment Cleanup (CLEAN_ENVIRONMENT=true)"
+    echo "=============================================="
+
+    # 1. Remove container if exists
+    if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+        echo "Removing container ${CONTAINER_NAME}..."
+        docker stop ${CONTAINER_NAME} 2>/dev/null || true
+        docker rm ${CONTAINER_NAME} 2>/dev/null || true
+        echo "✅ Container removed"
+    fi
+
+    # 2. Unmount ramdisk if mounted
+    if mountpoint -q ${RAMDISK_PATH}; then
+        echo "⚠️  Unmounting ramdisk at ${RAMDISK_PATH}..."
+        echo "   This will clear all data in ramdisk!"
+        if sudo umount ${RAMDISK_PATH} 2>/dev/null; then
+            echo "✅ Ramdisk unmounted"
+        else
+            echo "❌ Error: Failed to unmount ramdisk (may be in use or require root)"
+            echo "   Processes using ramdisk:"
+            sudo lsof ${RAMDISK_PATH} 2>/dev/null || echo "   Unable to check (requires root)"
+            echo "   You can manually unmount: sudo umount ${RAMDISK_PATH}"
+            echo "   Or force kill processes: sudo fuser -km ${RAMDISK_PATH}"
+            exit 1
+        fi
+    fi
+
+    echo "✅ Environment cleaned successfully"
+    echo "⚠️  Please run m2-download-image.sh to recreate ramdisk before migration"
+    exit 0
+fi
 
 # Check required tools
 for cmd in docker jq curl sed grep; do
@@ -167,6 +204,11 @@ validate_configuration() {
         echo \"\"
         echo \"[1/4] Validating .env...\"
         ENV_CHAIN_ID=\$(grep '^CHAIN_ID=' .env | cut -d'=' -f2)
+        if [ -z \"\$ENV_CHAIN_ID\" ]; then
+            echo \"  ❌ Error: CHAIN_ID not found in .env\"
+            echo \"   Please ensure .env contains 'CHAIN_ID=196'\"
+            exit 1
+        fi
         echo \"  CHAIN_ID: \$ENV_CHAIN_ID\"
         if [ \"\$ENV_CHAIN_ID\" != \"196\" ]; then
             echo \"  ❌ Error: .env CHAIN_ID must be 196, but got \$ENV_CHAIN_ID\"
@@ -183,6 +225,11 @@ validate_configuration() {
         fi
 
         CHAIN_ID=\$(jq -r '.config.chainId' config-op/genesis.json)
+        if [ -z \"\$CHAIN_ID\" ] || [ \"\$CHAIN_ID\" = \"null\" ]; then
+            echo \"  ❌ Error: Failed to read .config.chainId from genesis.json\"
+            echo \"   Response: \$CHAIN_ID\"
+            exit 1
+        fi
         echo \"  config.chainId: \$CHAIN_ID\"
         if [ \"\$CHAIN_ID\" != \"196\" ]; then
             echo \"  ❌ Error: Chain ID must be 196, but got \$CHAIN_ID\"
@@ -191,6 +238,10 @@ validate_configuration() {
 
         # Validate timestamp: RPC timestamp must be < genesis.json timestamp
         EXISTING_TIMESTAMP=\$(jq -r '.timestamp' config-op/genesis.json)
+        if [ -z \"\$EXISTING_TIMESTAMP\" ] || [ \"\$EXISTING_TIMESTAMP\" = \"null\" ]; then
+            echo \"  ❌ Error: Failed to read .timestamp from genesis.json\"
+            exit 1
+        fi
         RPC_TS_DEC=\$(($rpc_timestamp))
         GENESIS_TS_DEC=\$((EXISTING_TIMESTAMP))
         echo \"  genesis.json timestamp: \$EXISTING_TIMESTAMP (decimal: \$GENESIS_TS_DEC)\"
@@ -212,14 +263,22 @@ validate_configuration() {
             exit 1
         fi
 
-        L1_CHAIN_ID=\$(grep '^l1ChainID' config-op/intent.toml | head -1 | sed 's/.*=\\s*\\([0-9]*\\).*/\\1/')
+        L1_CHAIN_ID=\$(grep '^l1ChainID' config-op/intent.toml | head -1 | sed 's/.*=[[:space:]]*\\([0-9]*\\).*/\\1/')
+        if [ -z \"\$L1_CHAIN_ID\" ]; then
+            echo \"  ❌ Error: Failed to extract l1ChainID from intent.toml\"
+            exit 1
+        fi
         echo \"  l1ChainID: \$L1_CHAIN_ID\"
         if [ \"\$L1_CHAIN_ID\" != \"1\" ]; then
             echo \"  ❌ Error: l1ChainID must be 1, but got \$L1_CHAIN_ID\"
             exit 1
         fi
 
-        CHAIN_ID_HEX=\$(grep '^\\s*id\\s*=' config-op/intent.toml | head -1 | sed 's/.*\"\\(0x[0-9a-fA-F]*\\)\".*/\\1/')
+        CHAIN_ID_HEX=\$(grep '^[[:space:]]*id[[:space:]]*=' config-op/intent.toml | head -1 | sed 's/.*\"\\(0x[0-9a-fA-F]*\\)\".*/\\1/')
+        if [ -z \"\$CHAIN_ID_HEX\" ]; then
+            echo \"  ❌ Error: Failed to extract chains[0].id from intent.toml\"
+            exit 1
+        fi
         CHAIN_ID_DEC=\$((\$CHAIN_ID_HEX))
         echo \"  chains[0].id: \$CHAIN_ID_HEX (decimal: \$CHAIN_ID_DEC)\"
         if [ \"\$CHAIN_ID_DEC\" != \"196\" ]; then
@@ -238,6 +297,10 @@ validate_configuration() {
         fi
 
         ROLLUP_CHAIN_ID=\$(jq -r '.l2_chain_id' config-op/rollup.json)
+        if [ -z \"\$ROLLUP_CHAIN_ID\" ] || [ \"\$ROLLUP_CHAIN_ID\" = \"null\" ]; then
+            echo \"  ❌ Error: Failed to read .l2_chain_id from rollup.json\"
+            exit 1
+        fi
         echo \"  l2_chain_id: \$ROLLUP_CHAIN_ID\"
         if [ \"\$ROLLUP_CHAIN_ID\" != \"196\" ]; then
             echo \"  ❌ Error: l2_chain_id must be 196, but got \$ROLLUP_CHAIN_ID\"
@@ -362,6 +425,7 @@ if ! mountpoint -q ${RAMDISK_PATH}; then
     echo "Please run m2-download-image.sh first to setup ramdisk"
     exit 1
 fi
+echo "✅ Ramdisk is mounted at ${RAMDISK_PATH}"
 
 # Check if Docker image exists
 if ! docker image inspect ${IMAGE_NAME} >/dev/null 2>&1; then
@@ -383,19 +447,18 @@ echo "=============================================="
 echo "Step 2: Start Docker container"
 echo "=============================================="
 
-# Check if container already exists
+# Force remove existing container for clean migration
 if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-    echo "⚠️  Container ${CONTAINER_NAME} already exists"
-    echo "⚠️  Warning: Reusing existing container may contain stale migration data"
-    echo "   Recommendation: Remove and recreate for a clean migration"
-    read -p "Do you want to remove and recreate it? (Y/n): " RECREATE
-    if [[ ! "$RECREATE" =~ ^[Nn]$ ]]; then
-        echo "Stopping and removing existing container..."
-        docker stop ${CONTAINER_NAME} 2>/dev/null || true
-        docker rm ${CONTAINER_NAME} 2>/dev/null || true
-    else
-        echo "⚠️  Using existing container (not recommended for production)"
+    echo "🗑️  Removing existing container ${CONTAINER_NAME} for clean migration..."
+
+    # Give container time to gracefully shutdown (30 seconds)
+    if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+        echo "   Stopping container (graceful shutdown, timeout 30s)..."
+        docker stop -t 30 ${CONTAINER_NAME} 2>/dev/null || true
     fi
+
+    docker rm ${CONTAINER_NAME} 2>/dev/null || true
+    echo "✅ Old container removed"
 fi
 
 # Start container if not running
@@ -484,11 +547,46 @@ TEMP_DIR="${BACKUP_DIR}.tmp"
 # Verify source exists
 if [ ! -d "$SOURCE_PATH" ]; then
     echo "❌ Error: Source directory not found: $SOURCE_PATH"
+    echo "   Expected migration output in ramdisk, but directory does not exist"
+    echo ""
+    echo "   Checking alternative locations..."
+
+    # Check if data might be elsewhere
+    if [ -d "$RAMDISK_PATH/test-pp-op/data" ]; then
+        echo "   Contents of $RAMDISK_PATH/test-pp-op/data/:"
+        ls -la "$RAMDISK_PATH/test-pp-op/data/" 2>/dev/null || echo "   (unable to list)"
+    fi
+
+    echo ""
+    echo "   Please verify:"
+    echo "   1. Migration script completed successfully"
+    echo "   2. Output was written to ramdisk"
+    echo "   3. Container volume mounts are correct"
     exit 1
 fi
 
+# Verify source is not empty
+SOURCE_SIZE=$(du -sb "$SOURCE_PATH" 2>/dev/null | awk '{print $1}')
+if [ "$SOURCE_SIZE" -lt 1024 ]; then
+    echo "⚠️  Warning: Source directory is very small (${SOURCE_SIZE} bytes)"
+    echo "   This may indicate migration did not complete properly"
+    read -p "Continue anyway? (y/N): " CONTINUE
+    if [[ ! "$CONTINUE" =~ ^[Yy]$ ]]; then
+        echo "Aborted by user"
+        exit 1
+    fi
+fi
+
+echo "Source size: $(du -sh "$SOURCE_PATH" 2>/dev/null | awk '{print $1}')"
+
 echo "Backup directory: ${BACKUP_DIR}"
 echo "Copying data from ramdisk to disk (using atomic operation)..."
+
+# Safety check for TEMP_DIR
+if [ -z "$TEMP_DIR" ] || [ "$TEMP_DIR" = "/" ] || [ "$TEMP_DIR" = "/tmp" ]; then
+    echo "❌ Error: Invalid TEMP_DIR value: $TEMP_DIR"
+    exit 1
+fi
 
 # Use temporary directory for atomic copy
 rm -rf "$TEMP_DIR"
