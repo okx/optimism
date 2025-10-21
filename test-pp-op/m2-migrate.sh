@@ -15,6 +15,7 @@ ENV=${ENV:-mainnet}
 # Set expected chain ID based on ENV variable
 EXPECTED_CHAIN=$([ "$ENV" = "testnet" ] && echo "1952" || echo "196")
 EXPECTED_L1_CHAIN_ID=$([ "$ENV" = "testnet" ] && echo "11155111" || echo "1")
+CHECK_BLOCK=${CHECK_BLOCK:-true}
 
 # Check required tools
 for cmd in docker jq curl sed grep; do
@@ -351,6 +352,18 @@ echo "=============================================="
 echo "Step 2: Start Docker container"
 echo "=============================================="
 
+# Clean up any existing data from previous migrations
+SOURCE_PATH="$RAMDISK_PATH/test-pp-op/data/op-geth-seq"
+if [ -d "$SOURCE_PATH" ]; then
+    echo "🗑️  Removing contents from $SOURCE_PATH..."
+    rm -rf "$SOURCE_PATH"/*
+    echo "✅ Previous data contents cleaned up"
+else
+    echo "✅ No existing data found at $SOURCE_PATH"
+fi
+
+mkdir -p ${SOURCE_PATH}
+
 # Force remove existing container for clean migration
 if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     echo "🗑️  Removing existing container ${CONTAINER_NAME} for clean migration..."
@@ -371,7 +384,7 @@ if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     docker run \
         --name ${CONTAINER_NAME} \
         -v /var/run/docker.sock:/var/run/docker.sock \
-        -v ${ERIGON_DATA_DIR}:${ERIGON_DATA_DIR} \
+        -v ${ERIGON_DATA_DIR}:/data/erigon-data \
         -v ${BACKUP_DIR}:${BACKUP_DIR} \
         -v ${RAMDISK_PATH}:${RAMDISK_PATH} \
         -v ${RAMDISK_PATH}/test-pp-op/data/op-geth-seq:/app/test-pp-op/data/op-geth-seq \
@@ -391,11 +404,12 @@ echo "=============================================="
 echo "Step 3: Update ForkBlock And Check"
 echo "=============================================="
 
-# Fetch block data from RPC (on host)
-fetch_block_data $FORK_BLOCK
-
-# Validate all configurations (pass RPC timestamp for validation)
-validate_configuration $FETCHED_TIMESTAMP
+if [ "$CHECK_BLOCK" = "true" ]; then
+    # Fetch block data from RPC (on host)
+    fetch_block_data $FORK_BLOCK
+    # Validate all configurations (pass RPC timestamp for validation)
+    validate_configuration $FETCHED_TIMESTAMP
+fi
 
 # Call the review function
 echo ""
@@ -412,17 +426,6 @@ echo ""
 echo "=============================================="
 echo "Step 5: Clean Previous Data"
 echo "=============================================="
-
-# Clean up any existing data from previous migrations
-SOURCE_PATH="$RAMDISK_PATH/test-pp-op/data/op-geth-seq"
-if [ -d "$SOURCE_PATH" ]; then
-    echo "🗑️  Removing contents from $SOURCE_PATH..."
-    rm -rf "$SOURCE_PATH"/*
-    echo "✅ Previous data contents cleaned up"
-else
-    echo "✅ No existing data found at $SOURCE_PATH"
-    mkdir -p $SOURCE_PATH
-fi
 
 echo ""
 echo "=============================================="
