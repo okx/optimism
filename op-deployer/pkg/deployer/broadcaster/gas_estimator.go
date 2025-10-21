@@ -19,7 +19,7 @@ var (
 	// maxTip is the maximum tip that can be suggested by this estimator.
 	maxTip = big.NewInt(50 * 1e9)
 	// minTip is the minimum tip that can be suggested by this estimator.
-	minTip = big.NewInt(2 * 1e9)
+	minTip = big.NewInt(1 * 1e9)
 )
 
 // DeployerGasPriceEstimator is a custom gas price estimator for use with op-deployer.

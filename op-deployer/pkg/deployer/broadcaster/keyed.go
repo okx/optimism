@@ -46,9 +46,9 @@ func NewKeyedBroadcaster(cfg KeyedBroadcasterOpts) (*KeyedBroadcaster, error) {
 	mgrCfg := &txmgr.Config{
 		Backend:                   cfg.Client,
 		ChainID:                   cfg.ChainID,
-		TxSendTimeout:             15 * time.Minute,
+		TxSendTimeout:             5 * time.Minute,
 		TxNotInMempoolTimeout:     time.Minute,
-		NetworkTimeout:            900 * time.Second,
+		NetworkTimeout:            10 * time.Second,
 		ReceiptQueryInterval:      time.Second,
 		NumConfirmations:          1,
 		SafeAbortNonceTooLowCount: 3,
