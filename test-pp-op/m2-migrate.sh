@@ -112,7 +112,9 @@ validate_configuration() {
         set -e
         cd /app/test-pp-op
 
+        #########################################################
         # 1. Validate .env
+        #########################################################
         echo \"\"
         echo \"[1/4] Validating .env...\"
         ENV_CHAIN_ID=\$(grep '^CHAIN_ID=' .env | cut -d'=' -f2)
@@ -128,7 +130,9 @@ validate_configuration() {
         fi
         echo \"  ✅ .env validation passed\"
 
+        #########################################################
         # 2. Validate genesis.json
+        #########################################################
         echo \"\"
         echo \"[2/4] Validating config-op/genesis.json...\"
         if [ ! -f config-op/genesis.json ]; then
@@ -167,7 +171,9 @@ validate_configuration() {
         #fi
         #echo \"  ✅ genesis.json timestamp validation passed (RPC < genesis)\"
 
+        #########################################################
         # 3. Validate intent.toml
+        #########################################################
         echo \"\"
         echo \"[3/4] Validating config-op/intent.toml...\"
         if [ ! -f config-op/intent.toml ]; then
@@ -200,7 +206,9 @@ validate_configuration() {
 
         echo \"  ✅ intent.toml validation passed\"
 
+        #########################################################
         # 4. Validate rollup.json
+        #########################################################
         echo \"\"
         echo \"[4/4] Validating config-op/rollup.json...\"
         if [ ! -f config-op/rollup.json ]; then
@@ -225,60 +233,6 @@ validate_configuration() {
         echo \"✅ All Configuration Validations Passed\"
         echo \"=============================================\"
     "
-}
-
-# Function to wait for Enter key
-wait_for_enter() {
-    local prompt="$1"
-    echo "---"
-    read -n 1 -s -r -p "$prompt" key
-    echo ""
-    if [ "$key" != "" ]; then
-        echo "❌ Aborted by user"
-        exit 1
-    fi
-}
-
-# Function to review configuration files interactively
-review_configuration_files() {
-    # 1. Check .env file
-    echo "=============================================="
-    echo "1. Checking .env file"
-    echo "=============================================="
-    docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && cat .env"
-    wait_for_enter "Press ENTER to continue to next check..."
-
-    # 2. Check genesis.json
-    echo ""
-    echo "=============================================="
-    echo "2. Checking config-op/genesis.json"
-    echo "=============================================="
-    echo "First 50 lines:"
-    docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && cat config-op/genesis.json | head -50"
-    echo ""
-    echo "---"
-    echo "Last 10 lines:"
-    docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && cat config-op/genesis.json | tail -10"
-    wait_for_enter "Press ENTER to continue to next check..."
-
-    # 3. Check intent.toml
-    echo ""
-    echo "=============================================="
-    echo "3. Checking config-op/intent.toml"
-    echo "=============================================="
-    docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && cat config-op/intent.toml"
-    wait_for_enter "Press ENTER to continue to next check..."
-
-    # 4. Check rollup.json
-    echo ""
-    echo "=============================================="
-    echo "4. Checking config-op/rollup.json"
-    echo "=============================================="
-    docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && cat config-op/rollup.json"
-    wait_for_enter "Press ENTER to start migration..."
-
-    echo ""
-    echo "✅ Configuration verification completed"
 }
 
 # Function to execute migration
@@ -401,7 +355,7 @@ fi
 
 echo ""
 echo "=============================================="
-echo "Step 3: Update ForkBlock And Check"
+echo "Step 3: Check configuration"
 echo "=============================================="
 
 if [ "$CHECK_BLOCK" = "true" ]; then
@@ -416,25 +370,9 @@ if [ "$CHECK_BLOCK" = "true" ]; then
     validate_configuration $FETCHED_TIMESTAMP
 fi
 
-# Call the review function
 echo ""
 echo "=============================================="
-echo "Step 4: Configuration Verification"
-echo "=============================================="
-echo "Please review the configuration files before migration"
-echo "Press ENTER to continue, any other key to abort"
-echo ""
-review_configuration_files
-
-# Execute migration and copy results
-echo ""
-echo "=============================================="
-echo "Step 5: Clean Previous Data"
-echo "=============================================="
-
-echo ""
-echo "=============================================="
-echo "Step 6: Execute Migration"
+echo "Step 4: Execute Migration"
 echo "=============================================="
 echo "Executing ./4-migrate-op.sh inside container..."
 echo ""
@@ -442,7 +380,7 @@ execute_migration
 
 echo ""
 echo "=============================================="
-echo "Step 7: Copy results to disk"
+echo "Step 5: Copy results to disk"
 echo "=============================================="
 
 TEMP_DIR="${BACKUP_DIR}.tmp"
