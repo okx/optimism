@@ -31,7 +31,7 @@ FROM debian:bookworm-slim
 WORKDIR /app
 
 # Update certificates
-RUN apt-get update && apt-get install -y ca-certificates && update-ca-certificates
+# RUN apt-get update && apt-get install -y ca-certificates && update-ca-certificates
 
 # Set environment variables for Go
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
