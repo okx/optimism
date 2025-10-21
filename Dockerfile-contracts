@@ -24,7 +24,7 @@ WORKDIR /app/packages/contracts-bedrock
 RUN git submodule update --init --recursive || echo "No submodules found"
 RUN --mount=type=cache,target=/root/.foundry \
     --mount=type=cache,target=/root/.cache \
-    forge build
+    forge build --skip "/**/test/**"
 
 # Build op-deployer
 WORKDIR /app
@@ -41,6 +41,13 @@ RUN --mount=type=cache,target=/root/.cache \
 # Create final contracts image with artifacts, foundry tools, and op-deployer
 FROM debian:bookworm-slim
 WORKDIR /app
+
+# Update certificates
+RUN apt-get update && apt-get install -y ca-certificates && update-ca-certificates
+
+# Set environment variables for Go
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV SSL_CERT_DIR=/etc/ssl/certs
 
 # Copy foundry tools for runtime use
 COPY --from=contracts-builder /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil /usr/local/bin/
