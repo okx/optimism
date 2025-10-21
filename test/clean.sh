@@ -12,6 +12,7 @@ rm -rf config-op/genesis.json
 rm -rf config-op/genesis-rpc.json
 rm -rf config-op/gen.test.reth.rpc.config.toml
 rm -rf config-op/gen.test.geth.rpc.config.toml
+rm -rf config-op/gen.test.geth.rpc.rt.config.toml
 rm -rf config-op/genesis.json.gz
 rm -rf config-op/implementations.json
 rm -rf config-op/intent.toml
