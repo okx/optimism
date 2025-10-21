@@ -371,7 +371,7 @@ if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     # Give container time to gracefully shutdown (30 seconds)
     if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
         echo "   Stopping container (graceful shutdown, timeout 30s)..."
-        docker stop -t 30 ${CONTAINER_NAME} 2>/dev/null || true
+        docker stop ${CONTAINER_NAME} 2>/dev/null || true
     fi
 
     docker rm ${CONTAINER_NAME} 2>/dev/null || true

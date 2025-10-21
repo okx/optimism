@@ -145,8 +145,6 @@ migrate() {
   echo "GETH_CMD: $GETH_CMD"
   ${GETH_CMD} --datadir=${OP_DATA_DIR} --gcmode=archive migrate --state.scheme=hash --ignore-addresses=0x000000000000000000000000000000005ca1ab1e --chaindata=${ERIGON_CHAINDATA_DIR} --smt-db-path=${ERIGON_SMTDATA_DIR} --output merged.genesis.json ${OP_GENESIS_PATH} 2>&1 | tee migrate.log
 
-  sleep 5
-
   LOG_BLOCK=$(grep -A 5 "Update rollup.json file with the following information l2" migrate.log | tail -n 5)
   L2_NUMBER=$(echo "$LOG_BLOCK" | grep '"number"' | sed 's/[^0-9]*\([0-9]*\).*/\1/')
   L2_HASH=$(echo "$LOG_BLOCK" | grep '"hash"' | sed 's/.*"\(0x[0-9a-fA-F]*\)".*/\1/')
