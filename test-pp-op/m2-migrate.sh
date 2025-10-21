@@ -9,7 +9,7 @@ CONTAINER_NAME="op-migrate-container"
 RAMDISK_PATH="/mnt/ramdisk_op"
 DATA_DIR="/data"
 ERIGON_DATA_DIR="/data/erigon-data"
-BACKUP_DIR="${DATA_DIR}/migration-backup-$(date +%Y%m%d-%H%M%S)"
+BACKUP_DIR="${DATA_DIR}/migration-backup-$(date +%Y%m%d)"
 L2_RPC_URL="${L2_RPC_URL:-http://10.2.29.232:8545}"
 ENV=${ENV:-mainnet}
 # Set expected chain ID based on ENV variable
