@@ -24,18 +24,21 @@ func (s *Sequencer) InitRealtimeXLayer() {
 			kafkaProducer = nil
 			log.Warn("[Realtime] Failed to initialize kafka producer", "error", err)
 		}
-		s.realtimeProducer = kafkaProducer
-		s.realtimeBlock = common.Hash{}
-		s.realtimeBlockInfoChan = make(chan *realtimeTypes.BlockInfo, realtimeKafka.DefaultKafkaBufferSize)
 
-		// start realtime producer loop
-		go realtime.ListenRealtimeProducer(s.ctx, s.realtimeProducer, s.realtimeBlockInfoChan, nil, false)
-		log.Info("[Realtime] Realtime initialized on op-node sequencer")
+		if kafkaProducer != nil {
+			s.realtimeProducer = kafkaProducer
+			s.realtimeBlock = common.Hash{}
+			s.realtimeBlockInfoChan = make(chan *realtimeTypes.BlockInfo, realtimeKafka.DefaultKafkaBufferSize)
+
+			// start realtime producer loop
+			go realtime.ListenRealtimeProducer(s.ctx, s.realtimeProducer, s.realtimeBlockInfoChan, nil, false)
+			log.Info("[Realtime] Realtime initialized on op-node sequencer")
+		}
 	}
 }
 
 func (s *Sequencer) SendRealtimeErrorTrigger(height uint64) {
-	if s.active.Load() && s.rollupCfg != nil && s.rollupCfg.Realtime != nil && s.rollupCfg.Realtime.SequencerEnable {
+	if s.active.Load() && s.rollupCfg != nil && s.rollupCfg.Realtime != nil && s.rollupCfg.Realtime.SequencerEnable && s.realtimeProducer != nil {
 		if err := s.realtimeProducer.SendKafkaErrorTrigger(height); err != nil {
 			log.Error(fmt.Sprintf("[Realtime] Failed to send kafka error trigger message. error: %v", err))
 		}
@@ -43,7 +46,7 @@ func (s *Sequencer) SendRealtimeErrorTrigger(height uint64) {
 }
 
 func (s *Sequencer) SendRealtimeConfirmedBlock(envelope *eth.ExecutionPayloadEnvelope) {
-	if s.active.Load() && s.rollupCfg != nil && s.rollupCfg.Realtime != nil && s.rollupCfg.Realtime.SequencerEnable {
+	if s.active.Load() && s.rollupCfg != nil && s.rollupCfg.Realtime != nil && s.rollupCfg.Realtime.SequencerEnable && s.realtimeProducer != nil {
 		if envelope.ExecutionPayload.BlockHash == s.realtimeBlock {
 			return
 		}
