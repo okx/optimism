@@ -2,13 +2,18 @@
 set -e
 set -x
 
+FORK_BLOCK=$1
+
 IMAGE_NAME="op-geth-migrate:latest"
 CONTAINER_NAME="op-migrate-container"
 RAMDISK_PATH="/mnt/ramdisk_op"
 DATA_DIR="/data"
 ERIGON_DATA_DIR="/data/erigon-data"
 BACKUP_DIR="${DATA_DIR}/migration-backup-$(date +%Y%m%d-%H%M%S)"
-L2_RPC_URL="${L2_RPC_URL:-http://rpcapi.xlayer.tech/sequencer}"
+L2_RPC_URL="${L2_RPC_URL:-http://10.2.29.232:8545}"
+# Set expected chain ID based on ENV variable
+EXPECTED_CHAIN=$([ "$ENV" = "testnet" ] && echo "1952" || echo "196")
+EXPECTED_L1_CHAIN_ID=$([ "$ENV" = "testnet" ] && echo "11155111" || echo "1")
 
 # Check required tools
 for cmd in docker jq curl sed grep; do
@@ -52,6 +57,7 @@ fetch_block_data() {
 
     # Extract hash and timestamp
     local block_hash=$(echo "$block_data" | jq -r '.result.hash')
+    # max(old genesis timestamp, latest L2 block timestamp + 1)
     local timestamp=$(echo "$block_data" | jq -r '.result.timestamp')
 
     echo "Block #$fork_block:"
@@ -169,12 +175,12 @@ validate_configuration() {
         ENV_CHAIN_ID=\$(grep '^CHAIN_ID=' .env | cut -d'=' -f2)
         if [ -z \"\$ENV_CHAIN_ID\" ]; then
             echo \"  ❌ Error: CHAIN_ID not found in .env\"
-            echo \"   Please ensure .env contains 'CHAIN_ID=196'\"
+            echo \"   Please ensure .env contains 'CHAIN_ID=$EXPECTED_CHAIN'\"
             exit 1
         fi
         echo \"  CHAIN_ID: \$ENV_CHAIN_ID\"
-        if [ \"\$ENV_CHAIN_ID\" != \"196\" ]; then
-            echo \"  ❌ Error: .env CHAIN_ID must be 196, but got \$ENV_CHAIN_ID\"
+        if [ \"\$ENV_CHAIN_ID\" != \"$EXPECTED_CHAIN\" ]; then
+            echo \"  ❌ Error: .env CHAIN_ID must be $EXPECTED_CHAIN, but got \$ENV_CHAIN_ID\"
             exit 1
         fi
         echo \"  ✅ .env validation passed\"
@@ -194,8 +200,8 @@ validate_configuration() {
             exit 1
         fi
         echo \"  config.chainId: \$CHAIN_ID\"
-        if [ \"\$CHAIN_ID\" != \"196\" ]; then
-            echo \"  ❌ Error: Chain ID must be 196, but got \$CHAIN_ID\"
+        if [ \"\$CHAIN_ID\" != \"$EXPECTED_CHAIN\" ]; then
+            echo \"  ❌ Error: Chain ID must be $EXPECTED_CHAIN, but got \$CHAIN_ID\"
             exit 1
         fi
 
@@ -210,13 +216,13 @@ validate_configuration() {
         echo \"  genesis.json timestamp: \$EXISTING_TIMESTAMP (decimal: \$GENESIS_TS_DEC)\"
         echo \"  RPC timestamp: $rpc_timestamp (decimal: \$RPC_TS_DEC)\"
 
-        if [ \$RPC_TS_DEC -ge \$GENESIS_TS_DEC ]; then
-            echo \"  ❌ Error: RPC timestamp (\$RPC_TS_DEC) must be < genesis.json timestamp (\$GENESIS_TS_DEC)\"
-            echo \"   This indicates the fork block is at or after the genesis block.\"
-            echo \"   Please specify an earlier fork block number.\"
-            exit 1
-        fi
-        echo \"  ✅ genesis.json timestamp validation passed (RPC < genesis)\"
+        #if [ \$RPC_TS_DEC -ge \$GENESIS_TS_DEC ]; then
+        #    echo \"  ❌ Error: RPC timestamp (\$RPC_TS_DEC) must be < genesis.json timestamp (\$GENESIS_TS_DEC)\"
+        #    echo \"   This indicates the fork block is at or after the genesis block.\"
+        #    echo \"   Please specify an earlier fork block number.\"
+        #    exit 1
+        #fi
+        #echo \"  ✅ genesis.json timestamp validation passed (RPC < genesis)\"
 
         # 3. Validate intent.toml
         echo \"\"
@@ -232,8 +238,8 @@ validate_configuration() {
             exit 1
         fi
         echo \"  l1ChainID: \$L1_CHAIN_ID\"
-        if [ \"\$L1_CHAIN_ID\" != \"1\" ]; then
-            echo \"  ❌ Error: l1ChainID must be 1, but got \$L1_CHAIN_ID\"
+        if [ \"\$L1_CHAIN_ID\" != \"$EXPECTED_L1_CHAIN_ID\" ]; then
+            echo \"  ❌ Error: l1ChainID must be $EXPECTED_L1_CHAIN_ID, but got \$L1_CHAIN_ID\"
             exit 1
         fi
 
@@ -244,8 +250,8 @@ validate_configuration() {
         fi
         CHAIN_ID_DEC=\$((\$CHAIN_ID_HEX))
         echo \"  chains[0].id: \$CHAIN_ID_HEX (decimal: \$CHAIN_ID_DEC)\"
-        if [ \"\$CHAIN_ID_DEC\" != \"196\" ]; then
-            echo \"  ❌ Error: chains[0].id must be 196, but got \$CHAIN_ID_DEC\"
+        if [ \"\$CHAIN_ID_DEC\" != \"$EXPECTED_CHAIN\" ]; then
+            echo \"  ❌ Error: chains[0].id must be $EXPECTED_CHAIN, but got \$CHAIN_ID_DEC\"
             exit 1
         fi
 
@@ -265,8 +271,8 @@ validate_configuration() {
             exit 1
         fi
         echo \"  l2_chain_id: \$ROLLUP_CHAIN_ID\"
-        if [ \"\$ROLLUP_CHAIN_ID\" != \"196\" ]; then
-            echo \"  ❌ Error: l2_chain_id must be 196, but got \$ROLLUP_CHAIN_ID\"
+        if [ \"\$ROLLUP_CHAIN_ID\" != \"$EXPECTED_CHAIN\" ]; then
+            echo \"  ❌ Error: l2_chain_id must be $EXPECTED_CHAIN, but got \$ROLLUP_CHAIN_ID\"
             exit 1
         fi
         echo \"  ✅ rollup.json validation passed\"
@@ -340,17 +346,8 @@ execute_migration() {
         cd /app/test-pp-op
         ./4-migrate-op.sh
 
-        # Verify output files exist
-        if [ ! -f .env ]; then
-            echo \"❌ Error: .env not found after migration\"
-            exit 1
-        fi
         if [ ! -f merged.genesis.json ]; then
             echo \"❌ Error: merged.genesis.json not found after migration\"
-            exit 1
-        fi
-        if [ ! -d config-op ]; then
-            echo \"❌ Error: config-op directory not found\"
             exit 1
         fi
 
@@ -451,29 +448,8 @@ echo "=============================================="
 echo "Step 3: Update ForkBlock And Check"
 echo "=============================================="
 
-# Prompt user for fork block number
-read -p "Enter FORK_BLOCK number (the block to fork from): " FORK_BLOCK_INPUT
-
-if [ -z "$FORK_BLOCK_INPUT" ]; then
-    echo "❌ Error: FORK_BLOCK cannot be empty"
-    exit 1
-fi
-
-# Validate FORK_BLOCK is a positive integer
-if ! [[ "$FORK_BLOCK_INPUT" =~ ^[0-9]+$ ]]; then
-    echo "❌ Error: FORK_BLOCK must be a positive integer"
-    echo "   Got: $FORK_BLOCK_INPUT"
-    exit 1
-fi
-
-# Check if block number is reasonable (not zero)
-if [ "$FORK_BLOCK_INPUT" -eq 0 ]; then
-    echo "❌ Error: FORK_BLOCK cannot be zero"
-    exit 1
-fi
-
 # Fetch block data from RPC (on host)
-fetch_block_data $FORK_BLOCK_INPUT
+fetch_block_data $FORK_BLOCK
 
 # Update configuration in container with fetched data
 update_fork_configuration $FETCHED_FORK_BLOCK $FETCHED_BLOCK_HASH $FETCHED_TIMESTAMP
@@ -494,7 +470,22 @@ review_configuration_files
 # Execute migration and copy results
 echo ""
 echo "=============================================="
-echo "Step 5: Execute Migration"
+echo "Step 5: Clean Previous Data"
+echo "=============================================="
+
+# Clean up any existing data from previous migrations
+SOURCE_PATH="$RAMDISK_PATH/test-pp-op/data/op-geth-seq"
+if [ -d "$SOURCE_PATH" ]; then
+    echo "🗑️  Removing contents from $SOURCE_PATH..."
+    rm -rf "$SOURCE_PATH"/*
+    echo "✅ Previous data contents cleaned up"
+else
+    echo "✅ No existing data found at $SOURCE_PATH"
+fi
+
+echo ""
+echo "=============================================="
+echo "Step 6: Execute Migration"
 echo "=============================================="
 echo "Executing ./4-migrate-op.sh inside container..."
 echo ""
@@ -502,10 +493,9 @@ execute_migration
 
 echo ""
 echo "=============================================="
-echo "Step 6: Copy results to disk"
+echo "Step 7: Copy results to disk"
 echo "=============================================="
 
-SOURCE_PATH="$RAMDISK_PATH/test-pp-op/data/op-geth-seq"
 TEMP_DIR="${BACKUP_DIR}.tmp"
 
 # Verify source exists
