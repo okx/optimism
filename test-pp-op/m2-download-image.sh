@@ -3,11 +3,14 @@ set -e
 set -x
 
 IMAGE_NAME="op-geth-migrate:latest"
-TAR_FILE="${IMAGE_NAME}.tar.gz"
+UPLOAD_DIR="upload-to-oss"
+TAR_FILE="${UPLOAD_DIR}.tar.gz"
 RAMDISK_PATH="/mnt/ramdisk_op"
 RAMDISK_SIZE="128g"
 DATA_DIR="/data"
 TICKET_ID="$1"
+
+PWD=$(pwd)
 
 if [ -z "$TICKET_ID" ]; then
     echo "❌ Error: Ticket ID cannot be empty"
@@ -63,12 +66,18 @@ echo "Downloading from OSS with ticket ID: ${TICKET_ID}..."
 osstool download -ticket ${TICKET_ID}
 
 echo ""
+echo "Unzipping folder from OSS with ticket ID: ${TICKET_ID}..."
+tar -xzvf ${TAR_FILE}
+
+cd $UPLOAD_DIR
+
+echo ""
 echo "=============================================="
 echo "Step 3: Load Docker image"
 echo "=============================================="
 
-echo "Loading Docker image from ${TAR_FILE}..."
-docker load < ${TAR_FILE}
+echo "Loading Docker image..."
+docker load < op-geth-migrate.tar.gz
 
 echo ""
 echo "Ticket ID: ${TICKET_ID}"
@@ -81,3 +90,5 @@ echo ""
 echo "=============================================="
 echo "✅ Image download and load completed successfully!"
 echo "=============================================="
+
+cd $PWD
