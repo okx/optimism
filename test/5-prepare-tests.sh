@@ -8,7 +8,7 @@ source .env
 echo "=== Preparing test; Funding L1 Admin Address==="
 L1_ADMIN_ADDRESS="0x8f8E2d6cF621f30e9a11309D6A56A876281Fd534"
 L1_ADMIN_PRIVATE_KEY="0x815405dddb0e2a99b12af775fd2929e526704e1d1aea6a0b4e74dc33e2f7fcd2"
-cast send --rpc-url $L1_RPC_URL $L1_ADMIN_ADDRESS --private-key $RICH_L1_PRIVATE_KEY --value 1000ether --legacy
+# cast send --rpc-url $L1_RPC_URL $L1_ADMIN_ADDRESS --private-key $RICH_L1_PRIVATE_KEY --value 1000ether --legacy
 
 echo "=== Bridging ETH from L1 to L2 ==="
 
@@ -26,12 +26,14 @@ echo "Bridging 1 ETH from L1 to L2..."
 cast send $OPTIMISM_PORTAL \
   --rpc-url $L1_RPC_URL \
   --private-key $PRIVATE_KEY \
-  --value 100ether
+  --value 100ether \
+  --legacy
 
 cast send $OPTIMISM_PORTAL \
   --rpc-url $L1_RPC_URL \
   --private-key $L1_ADMIN_PRIVATE_KEY \
-  --value 100ether
+  --value 100ether \
+  --legacy
 
 
 
