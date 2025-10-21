@@ -11,9 +11,9 @@ source .env
 source tools.sh
 source utils.sh
 
-ARCH="linux/amd64"
-IMAGE_NAME="op-geth-migrate:latest"
+IMAGE_NAME=$(echo "${OP_GETH_MIGRATION_IMAGE_TAG}" | cut -d':' -f1)
 TAR_FILE="${IMAGE_NAME}.tar.gz"
+ARCH="linux/amd64"
 SKIP_BUILD_GETH=false; [[ "$*" =~ --skip-geth ]] && BUILD_GETH=true
 
 echo ""
@@ -32,9 +32,8 @@ echo ""
 echo "=============================================="
 echo "Step 3: Save Docker image to tar.gz"
 echo "=============================================="
-IMAGE_NAME=$(echo "${OP_GETH_MIGRATION_IMAGE_TAG}" | cut -d':' -f1)
-[ -n "$(docker images -q ${IMAGE_NAME})" ] || exit 1
 docker save ${OP_GETH_MIGRATION_IMAGE_TAG} | gzip > ${TAR_FILE}
+[ -n "$(docker images -q ${IMAGE_NAME})" ] || exit 1
 echo "✅ Image saved to ${TAR_FILE}"
 
 echo ""
