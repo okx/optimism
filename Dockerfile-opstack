@@ -40,16 +40,16 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache \
     --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    make build-go
+    make build-go-no-submodules
 
 # Copy foundry tools and artifacts from contracts image
-COPY --from=op-contracts:latest /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil /usr/local/bin/
+#COPY --from=op-contracts:latest /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil /usr/local/bin/
 
 # Verify installations
 RUN echo "🔍 Verifying installations:" && \
     which go && go version && \
     which docker && docker --version && \
-    which forge && forge --version && \
+#    which forge && forge --version && \
     which just && just --version || echo "⚠️ Some tools not found"
 
 WORKDIR /app
