@@ -2,7 +2,6 @@
 FROM okexchain/go-builder:v1
 RUN apt-get update && apt-get install -y \
     docker.io \
-    make \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 # Cache go dependencies first
