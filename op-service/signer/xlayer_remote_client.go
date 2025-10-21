@@ -556,18 +556,55 @@ func (c *XLayerRemoteClient) addAuth(req *http.Request) error {
 	return nil
 }
 
-// buildProposerOtherInfo builds Proposer's OtherInfo
+// buildProposerOtherInfo builds Proposer's OtherInfo by unpacking ABI-encoded business parameters
 func (c *XLayerRemoteClient) buildProposerOtherInfo(tx *types.Transaction) (string, error) {
 	// Base transaction parameters
 	baseInfo := c.buildBaseOtherInfo(tx)
 
-	// For proposer transactions, we only provide base info
-	// Parsing ABI-encoded parameters would require contract ABI, which we want to avoid
-	c.logger.Info("Building proposer transaction info",
+	// Try to unpack proposer transaction to get business parameters
+	c.logger.Info("Unpacking proposer transaction",
 		"txDataLen", len(tx.Data()),
 		"txTo", tx.To())
 
-	return c.marshalOtherInfo(baseInfo)
+	proposerArgs, err := c.unpackProposerTransaction(tx)
+	if err != nil {
+		c.logger.Warn("Failed to unpack proposer tx, using base info only",
+			"error", err,
+			"txHash", tx.Hash(),
+			"txDataLen", len(tx.Data()))
+		// Return base info on unpacking failure
+		return c.marshalOtherInfo(baseInfo)
+	}
+
+	c.logger.Info("Successfully unpacked proposer transaction",
+		"gameType", proposerArgs.GameType,
+		"rootClaim", proposerArgs.RootClaim.Hex(),
+		"extraDataLen", len(proposerArgs.ExtraData))
+
+	enhancedInfo := struct {
+		XLayerOtherInfo
+		GameType  *uint32 `json:"gameType,omitempty"`
+		RootClaim *string `json:"rootClaim,omitempty"`
+		ExtraData *string `json:"extraData,omitempty"`
+	}{
+		XLayerOtherInfo: baseInfo,
+	}
+
+	// Add DisputeGameFactory.create business parameters
+	enhancedInfo.GameType = &proposerArgs.GameType
+	rootClaimHex := proposerArgs.RootClaim.Hex()
+	enhancedInfo.RootClaim = &rootClaimHex
+	if len(proposerArgs.ExtraData) > 0 {
+		extraDataHex := hexutil.Encode(proposerArgs.ExtraData)
+		enhancedInfo.ExtraData = &extraDataHex
+	}
+
+	data, err := json.Marshal(enhancedInfo)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal enhanced proposer other info: %w", err)
+	}
+
+	return string(data), nil
 }
 
 // buildBatcherOtherInfo builds Batcher's OtherInfo
@@ -659,12 +696,14 @@ func (c *XLayerRemoteClient) buildChallengerOtherInfo(tx *types.Transaction) (st
 	methodSig := tx.Data()[:4]
 	methodSigHex := hexutil.Encode(methodSig)
 
+	// Determine method type by signature and route to appropriate handler
+	// We use hardcoded method signatures instead of ABI parsing to avoid dependencies
 	switch methodSigHex {
-	case MethodSigResolveClaim:
+	case MethodSigResolveClaim: // resolveClaim
 		return c.buildChallengerResolveClaimOtherInfo(tx, baseInfo)
-	case MethodSigResolve:
+	case MethodSigResolve: // resolve
 		return c.buildChallengerResolveOtherInfo(tx, baseInfo)
-	case MethodSigClaimCredit:
+	case MethodSigClaimCredit: // claimCredit
 		return c.buildChallengerClaimCreditOtherInfo(tx, baseInfo)
 	default:
 		// Unknown method, return base info with method signature
@@ -830,6 +869,68 @@ func (c *XLayerRemoteClient) getDefaultOperateType(tx *types.Transaction) int {
 	default:
 		return 0
 	}
+}
+
+type ProposerTxArgs struct {
+	// DisputeGameFactory.create parameters
+	GameType  uint32      `json:"gameType"`
+	RootClaim common.Hash `json:"rootClaim"`
+	ExtraData []byte      `json:"extraData"`
+}
+
+func (c *XLayerRemoteClient) unpackProposerTransaction(tx *types.Transaction) (*ProposerTxArgs, error) {
+	if tx == nil || len(tx.Data()) < 4 {
+		return nil, fmt.Errorf("empty or invalid transaction")
+	}
+
+	data := tx.Data()
+	methodSig := data[:4]
+	methodData := data[4:]
+
+	// Check if this is DisputeGameFactory.create method
+	methodSigHex := hexutil.Encode(methodSig)
+	if methodSigHex != MethodSigDGFCreate {
+		return nil, fmt.Errorf("unknown proposer transaction method signature: %s (only DisputeGameFactory.create supported)", methodSigHex)
+	}
+
+	// Manually parse ABI-encoded parameters for create(uint32 _gameType, bytes32 _rootClaim, bytes calldata _extraData)
+	if len(methodData) < 96 {
+		return nil, fmt.Errorf("method data too short: %d bytes", len(methodData))
+	}
+
+	// Parse uint32 _gameType (first 32 bytes, right-aligned)
+	gameTypeBytes := methodData[28:32]
+	gameType := uint32(gameTypeBytes[0])<<24 | uint32(gameTypeBytes[1])<<16 |
+		uint32(gameTypeBytes[2])<<8 | uint32(gameTypeBytes[3])
+
+	// Parse bytes32 _rootClaim (next 32 bytes)
+	var rootClaim common.Hash
+	copy(rootClaim[:], methodData[32:64])
+
+	// Parse bytes calldata _extraData (dynamic type)
+	extraDataOffset := new(big.Int).SetBytes(methodData[64:96]).Uint64()
+	if extraDataOffset+32 > uint64(len(methodData)) {
+		return nil, fmt.Errorf("invalid extraData offset: %d", extraDataOffset)
+	}
+
+	extraDataLength := new(big.Int).SetBytes(methodData[extraDataOffset : extraDataOffset+32]).Uint64()
+	if extraDataOffset+32+extraDataLength > uint64(len(methodData)) {
+		return nil, fmt.Errorf("invalid extraData length: %d", extraDataLength)
+	}
+
+	extraData := make([]byte, extraDataLength)
+	copy(extraData, methodData[extraDataOffset+32:extraDataOffset+32+extraDataLength])
+
+	c.logger.Debug("Successfully unpacked DisputeGameFactory.create",
+		"gameType", gameType,
+		"rootClaim", rootClaim.Hex(),
+		"extraData", hexutil.Encode(extraData))
+
+	return &ProposerTxArgs{
+		GameType:  gameType,
+		RootClaim: rootClaim,
+		ExtraData: extraData,
+	}, nil
 }
 
 func (c *XLayerRemoteClient) verifySignedTransaction(originalTx *types.Transaction, signedTx *types.Transaction) error {
