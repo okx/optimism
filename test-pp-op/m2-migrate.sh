@@ -405,6 +405,11 @@ echo "Step 3: Update ForkBlock And Check"
 echo "=============================================="
 
 if [ "$CHECK_BLOCK" = "true" ]; then
+    if [ -z "$FORK_BLOCK" ]; then
+      echo "❌ Error: FORK_BLOCK not set. Pls specify ./m2-migrate.sh FORK_BLOCK"
+      exit 1
+    fi
+
     # Fetch block data from RPC (on host)
     fetch_block_data $FORK_BLOCK
     # Validate all configurations (pass RPC timestamp for validation)
