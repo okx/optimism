@@ -419,7 +419,7 @@ services:
       - --safedb.path=/data/safedb
       - --realtime.sequencer-enabled=false
     depends_on:
-      - ${RPC_TYPE:-op-geth-rpc-2}
+      - op-geth-rpc-2
 
   op-conductor:
     image: "${OP_STACK_IMAGE_TAG}"

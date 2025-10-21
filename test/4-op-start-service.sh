@@ -32,7 +32,7 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     sleep 5
     $SCRIPTS_DIR/active-sequencer.sh
 else
-    docker compose up -d op-seq
+    CONFIG_FILE=$(get_config_file) docker compose up -d op-seq
 fi
 
 $SCRIPTS_DIR/add-peers.sh
