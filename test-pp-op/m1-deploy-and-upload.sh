@@ -12,6 +12,7 @@ source tools.sh
 source utils.sh
 
 ARCH="linux/amd64"
+IMAGE_NAME="op-geth-migrate:latest"
 TAR_FILE="${IMAGE_NAME}.tar.gz"
 SKIP_BUILD_GETH=false; [[ "$*" =~ --skip-geth ]] && BUILD_GETH=true
 
