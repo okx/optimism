@@ -374,6 +374,7 @@ if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
         -v ${ERIGON_DATA_DIR}:${ERIGON_DATA_DIR} \
         -v ${BACKUP_DIR}:${BACKUP_DIR} \
         -v ${RAMDISK_PATH}:${RAMDISK_PATH} \
+        -v ${RAMDISK_PATH}/test-pp-op/data/op-geth-seq:/app/test-pp-op/data/op-geth-seq \
         -e DOCKER_HOST=unix:///var/run/docker.sock \
         -d ${IMAGE_NAME} sleep infinity
 
@@ -420,6 +421,7 @@ if [ -d "$SOURCE_PATH" ]; then
     echo "✅ Previous data contents cleaned up"
 else
     echo "✅ No existing data found at $SOURCE_PATH"
+    mkdir -p $SOURCE_PATH
 fi
 
 echo ""
