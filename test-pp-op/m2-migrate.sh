@@ -11,6 +11,7 @@ DATA_DIR="/data"
 ERIGON_DATA_DIR="/data/erigon-data"
 BACKUP_DIR="${DATA_DIR}/migration-backup-$(date +%Y%m%d-%H%M%S)"
 L2_RPC_URL="${L2_RPC_URL:-http://10.2.29.232:8545}"
+ENV=${ENV:-mainnet}
 # Set expected chain ID based on ENV variable
 EXPECTED_CHAIN=$([ "$ENV" = "testnet" ] && echo "1952" || echo "196")
 EXPECTED_L1_CHAIN_ID=$([ "$ENV" = "testnet" ] && echo "11155111" || echo "1")
@@ -95,65 +96,6 @@ fetch_block_data() {
     export FETCHED_BLOCK_HASH="$block_hash"
     export FETCHED_TIMESTAMP="$timestamp"
     export FETCHED_FORK_BLOCK="$fork_block"
-}
-
-# Function to update fork configuration (executed in container)
-update_fork_configuration() {
-    local fork_block=$1
-    local block_hash=$2
-    local timestamp=$3
-
-    echo ""
-    echo "Updating .env with fork configuration..."
-
-    docker exec ${CONTAINER_NAME} bash -c "
-        set -e
-        cd /app/test-pp-op
-
-        # Calculate FORK_BLOCK + 1
-        FORK_BLOCK_PLUS_ONE=\$(($fork_block + 1))
-
-        # Verify .env exists and has required fields
-        if [ ! -f .env ]; then
-            echo \"❌ Error: .env file not found\"
-            exit 1
-        fi
-
-        if ! grep -q '^FORK_BLOCK=' .env; then
-            echo \"❌ Error: .env does not contain FORK_BLOCK field\"
-            exit 1
-        fi
-
-        if ! grep -q '^PARENT_HASH=' .env; then
-            echo \"❌ Error: .env does not contain PARENT_HASH field\"
-            exit 1
-        fi
-
-        # Update .env file
-        sed -i \"s/^FORK_BLOCK=.*/FORK_BLOCK=\$FORK_BLOCK_PLUS_ONE/\" .env
-        sed -i \"s|^PARENT_HASH=.*|PARENT_HASH=$block_hash|\" .env
-
-        # Verify updates succeeded
-        ACTUAL_FORK_BLOCK=\$(grep '^FORK_BLOCK=' .env | cut -d'=' -f2)
-        ACTUAL_PARENT_HASH=\$(grep '^PARENT_HASH=' .env | cut -d'=' -f2)
-
-        if [ \"\$ACTUAL_FORK_BLOCK\" != \"\$FORK_BLOCK_PLUS_ONE\" ]; then
-            echo \"❌ Error: Failed to update FORK_BLOCK\"
-            echo \"   Expected: \$FORK_BLOCK_PLUS_ONE, Got: \$ACTUAL_FORK_BLOCK\"
-            exit 1
-        fi
-
-        if [ \"\$ACTUAL_PARENT_HASH\" != \"$block_hash\" ]; then
-            echo \"❌ Error: Failed to update PARENT_HASH\"
-            echo \"   Expected: $block_hash, Got: \$ACTUAL_PARENT_HASH\"
-            exit 1
-        fi
-
-        echo \"✅ .env updated:\"
-        echo \"   FORK_BLOCK: \$FORK_BLOCK_PLUS_ONE (input block + 1)\"
-        echo \"   PARENT_HASH: $block_hash\"
-        echo \"   RPC_TIMESTAMP: $timestamp\"
-    "
 }
 
 # Function to validate configuration (executed in container)
@@ -450,9 +392,6 @@ echo "=============================================="
 
 # Fetch block data from RPC (on host)
 fetch_block_data $FORK_BLOCK
-
-# Update configuration in container with fetched data
-update_fork_configuration $FETCHED_FORK_BLOCK $FETCHED_BLOCK_HASH $FETCHED_TIMESTAMP
 
 # Validate all configurations (pass RPC timestamp for validation)
 validate_configuration $FETCHED_TIMESTAMP
