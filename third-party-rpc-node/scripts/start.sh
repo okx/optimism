@@ -32,7 +32,7 @@ mkdir -p config
 
 # 检查配置文件
 echo "🔍 检查配置文件..."
-config_files=("../config/rollup.json" "../config/jwt.txt" "../config/op-geth-config.toml" "../config/genesis.json")
+config_files=("config/rollup.json" "config/jwt.txt" "config/op-geth-config.toml" "config/genesis.json")
 for file in "${config_files[@]}"; do
     if [ ! -f "$file" ]; then
         echo "❌ 错误: 配置文件 $file 不存在"
