@@ -5,42 +5,10 @@ set -e
 source .env
 
 
-wait_for_l1() {
-    echo "Waiting for L1 RPC ($L1_RPC_URL) to be ready..."
-    for i in $(seq 1 60); do
-        if cast block-number --rpc-url "$L1_RPC_URL" >/dev/null 2>&1; then
-            echo "L1 RPC is ready."
-            return 0
-        fi
-        sleep 2
-    done
-    echo "⚠️  L1 RPC not ready after waiting. Proceeding anyway."
-}
-
-retry_fund() {
-    local to_addr="$1"
-    local pk="$2"
-    local value="$3"
-    local max=10
-    local i=0
-    while [ $i -lt $max ]; do
-        if cast send --rpc-url "$L1_RPC_URL" "$to_addr" --private-key "$pk" --value "$value" --legacy >/dev/null 2>&1; then
-            return 0
-        fi
-        sleep 3
-        i=$((i+1))
-    done
-    return 1
-}
-
-wait_for_l1
-
 echo "=== Preparing test; Funding L1 Admin Address==="
 L1_ADMIN_ADDRESS="0x8f8E2d6cF621f30e9a11309D6A56A876281Fd534"
 L1_ADMIN_PRIVATE_KEY="0x815405dddb0e2a99b12af775fd2929e526704e1d1aea6a0b4e74dc33e2f7fcd2"
-retry_fund "$L1_ADMIN_ADDRESS" "$RICH_L1_PRIVATE_KEY" "1000ether" || {
-    echo "⚠️  Funding tx not confirmed in time; retry later or continue without extra funding.";
-}
+cast send --rpc-url $L1_RPC_URL $L1_ADMIN_ADDRESS --private-key $RICH_L1_PRIVATE_KEY --value 1000ether
 
 echo "=== Bridging ETH from L1 to L2 ==="
 
