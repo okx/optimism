@@ -2,8 +2,6 @@
 set -e
 set -x
 
-source .env
-
 IMAGE_NAME="op-geth-migrate:latest"
 TAR_FILE="${IMAGE_NAME}.tar.gz"
 RAMDISK_PATH="/mnt/ramdisk_op"
