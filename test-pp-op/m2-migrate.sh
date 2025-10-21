@@ -14,7 +14,7 @@ L2_RPC_URL="${L2_RPC_URL:-http://10.2.29.232:8545}"
 ENV=${ENV:-mainnet}
 # Set expected chain ID based on ENV variable
 EXPECTED_CHAIN=$([ "$ENV" = "testnet" ] && echo "1952" || echo "196")
-EXPECTED_L1_CHAIN_ID=$([ "$ENV" = "testnet" ] && echo "11155111" || echo "1")
+EXPECTED_L1_CHAIN_ID=$([ "$ENV" = "testnet" ] && echo "11155111" || ([ "$ENV" = "fakemainnet" ] && echo "11155111" || echo "1"))
 CHECK_BLOCK=${CHECK_BLOCK:-true}
 
 # Check required tools
