@@ -19,8 +19,21 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/google/uuid"
 	"github.com/holiman/uint256"
+)
 
-	"github.com/ethereum-optimism/optimism/packages/contracts-bedrock/snapshots"
+// Contract method signatures (4-byte selectors)
+const (
+	// DisputeGameFactory.create(uint32 _gameType, bytes32 _rootClaim, bytes calldata _extraData)
+	MethodSigDGFCreate = "0x82ecf2f6"
+
+	// FaultDisputeGame.resolveClaim(uint256 _claimIndex, uint256 _numToResolve)
+	MethodSigResolveClaim = "0x03c2924d"
+
+	// FaultDisputeGame.resolve()
+	MethodSigResolve = "0x2810e1d6"
+
+	// FaultDisputeGame.claimCredit(address _recipient)
+	MethodSigClaimCredit = "0x60e27464"
 )
 
 // XLayerSignRequest represents the signing request structure for XLayer remote signer API
@@ -257,26 +270,19 @@ func (c *XLayerRemoteClient) detectComponentType(tx *types.Transaction) string {
 }
 
 func (c *XLayerRemoteClient) detectProposerMethod(methodSig []byte) string {
-	dgfABI := snapshots.LoadDisputeGameFactoryABI()
-	if method, err := dgfABI.MethodById(methodSig); err == nil {
-		if method.Name == "create" {
-			return "proposer"
-		}
+	methodSigHex := hexutil.Encode(methodSig)
+	if methodSigHex == MethodSigDGFCreate {
+		return "proposer"
 	}
-
 	return ""
 }
 
 func (c *XLayerRemoteClient) detectChallengerMethod(methodSig []byte) string {
-	gameABI := snapshots.LoadFaultDisputeGameABI()
-
-	if method, err := gameABI.MethodById(methodSig); err == nil {
-		switch method.Name {
-		case "resolveClaim", "resolve", "claimCredit":
-			return "challenger"
-		}
+	methodSigHex := hexutil.Encode(methodSig)
+	switch methodSigHex {
+	case MethodSigResolveClaim, MethodSigResolve, MethodSigClaimCredit:
+		return "challenger"
 	}
-
 	return ""
 }
 
@@ -550,56 +556,18 @@ func (c *XLayerRemoteClient) addAuth(req *http.Request) error {
 	return nil
 }
 
-// buildProposerOtherInfo builds Proposer's OtherInfo by unpacking ABI-encoded business parameters
+// buildProposerOtherInfo builds Proposer's OtherInfo
 func (c *XLayerRemoteClient) buildProposerOtherInfo(tx *types.Transaction) (string, error) {
-
 	// Base transaction parameters
 	baseInfo := c.buildBaseOtherInfo(tx)
 
-	// Try to unpack proposer transaction to get business parameters
-	c.logger.Info("Unpacking proposer transaction",
+	// For proposer transactions, we only provide base info
+	// Parsing ABI-encoded parameters would require contract ABI, which we want to avoid
+	c.logger.Info("Building proposer transaction info",
 		"txDataLen", len(tx.Data()),
 		"txTo", tx.To())
 
-	proposerArgs, err := c.unpackProposerTransaction(tx)
-	if err != nil {
-		c.logger.Warn("Failed to unpack proposer tx, using base info only",
-			"error", err,
-			"txHash", tx.Hash(),
-			"txDataLen", len(tx.Data()))
-		// Return base info on unpacking failure
-		return c.marshalOtherInfo(baseInfo)
-	}
-
-	c.logger.Info("Successfully unpacked proposer transaction",
-		"gameType", proposerArgs.GameType,
-		"rootClaim", proposerArgs.RootClaim.Hex(),
-		"extraDataLen", len(proposerArgs.ExtraData))
-
-	enhancedInfo := struct {
-		XLayerOtherInfo
-		GameType  *uint32 `json:"gameType,omitempty"`
-		RootClaim *string `json:"rootClaim,omitempty"`
-		ExtraData *string `json:"extraData,omitempty"`
-	}{
-		XLayerOtherInfo: baseInfo,
-	}
-
-	// Add DisputeGameFactory.create business parameters
-	enhancedInfo.GameType = &proposerArgs.GameType
-	rootClaimHex := proposerArgs.RootClaim.Hex()
-	enhancedInfo.RootClaim = &rootClaimHex
-	if len(proposerArgs.ExtraData) > 0 {
-		extraDataHex := hexutil.Encode(proposerArgs.ExtraData)
-		enhancedInfo.ExtraData = &extraDataHex
-	}
-
-	data, err := json.Marshal(enhancedInfo)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal enhanced proposer other info: %w", err)
-	}
-
-	return string(data), nil
+	return c.marshalOtherInfo(baseInfo)
 }
 
 // buildBatcherOtherInfo builds Batcher's OtherInfo
@@ -689,37 +657,24 @@ func (c *XLayerRemoteClient) buildChallengerOtherInfo(tx *types.Transaction) (st
 
 	// Extract method signature (first 4 bytes)
 	methodSig := tx.Data()[:4]
+	methodSigHex := hexutil.Encode(methodSig)
 
-	gameABI := snapshots.LoadFaultDisputeGameABI()
-	method, err := gameABI.MethodById(methodSig)
-	if err != nil {
+	switch methodSigHex {
+	case MethodSigResolveClaim:
+		return c.buildChallengerResolveClaimOtherInfo(tx, baseInfo)
+	case MethodSigResolve:
+		return c.buildChallengerResolveOtherInfo(tx, baseInfo)
+	case MethodSigClaimCredit:
+		return c.buildChallengerClaimCreditOtherInfo(tx, baseInfo)
+	default:
 		// Unknown method, return base info with method signature
-		c.logger.Warn("Unknown challenger method signature", "signature", hexutil.Encode(methodSig))
+		c.logger.Warn("Unknown challenger method signature", "signature", methodSigHex)
 		enhancedInfo := struct {
 			XLayerOtherInfo
 			MethodSignature string `json:"methodSignature,omitempty"`
 		}{
 			XLayerOtherInfo: baseInfo,
-			MethodSignature: hexutil.Encode(methodSig),
-		}
-		return c.marshalOtherInfo(enhancedInfo)
-	}
-
-	switch method.Name {
-	case "resolveClaim":
-		return c.buildChallengerResolveClaimOtherInfo(tx, baseInfo)
-	case "resolve":
-		return c.buildChallengerResolveOtherInfo(tx, baseInfo)
-	case "claimCredit":
-		return c.buildChallengerClaimCreditOtherInfo(tx, baseInfo)
-	default:
-		c.logger.Warn("Unhandled challenger method", "method", method.Name)
-		enhancedInfo := struct {
-			XLayerOtherInfo
-			MethodName string `json:"methodName,omitempty"`
-		}{
-			XLayerOtherInfo: baseInfo,
-			MethodName:      method.Name,
+			MethodSignature: methodSigHex,
 		}
 		return c.marshalOtherInfo(enhancedInfo)
 	}
@@ -853,11 +808,11 @@ func (c *XLayerRemoteClient) getBatcherOperateType(tx *types.Transaction) int {
 func (c *XLayerRemoteClient) getChallengerOperateType(tx *types.Transaction) int {
 	methodSigHex := hexutil.Encode(tx.Data()[:4])
 	switch methodSigHex {
-	case "0x03c2924d": // resolveClaim(uint256 _claimIndex, uint256 _numToResolve)
+	case MethodSigResolveClaim: // resolveClaim(uint256 _claimIndex, uint256 _numToResolve)
 		return 21
-	case "0x2810e1d6": // resolve()
+	case MethodSigResolve: // resolve()
 		return 22
-	case "0x60e27464": // claimCredit(address _recipient)
+	case MethodSigClaimCredit: // claimCredit(address _recipient)
 		return 23
 	default:
 		c.logger.Warn("Unknown challenger method, using default operateType", "signature", methodSigHex)
@@ -875,55 +830,6 @@ func (c *XLayerRemoteClient) getDefaultOperateType(tx *types.Transaction) int {
 	default:
 		return 0
 	}
-}
-
-type ProposerTxArgs struct {
-	// DisputeGameFactory.create parameters
-	GameType  uint32      `json:"gameType"`
-	RootClaim common.Hash `json:"rootClaim"`
-	ExtraData []byte      `json:"extraData"`
-}
-
-func (c *XLayerRemoteClient) unpackProposerTransaction(tx *types.Transaction) (*ProposerTxArgs, error) {
-	if tx == nil || len(tx.Data()) < 4 {
-		return nil, fmt.Errorf("empty or invalid transaction")
-	}
-
-	data := tx.Data()
-	methodSig := data[:4]
-	methodData := data[4:]
-
-	disputeGameFactoryABI := snapshots.LoadDisputeGameFactoryABI()
-	if method, err := disputeGameFactoryABI.MethodById(methodSig); err == nil {
-		if method.Name == "create" {
-			result := make(map[string]interface{})
-			if err := method.Inputs.UnpackIntoMap(result, methodData); err == nil {
-				// ABI unpack returns _rootClaim as [32]byte, need to convert to common.Hash
-				var rootClaim common.Hash
-				switch v := result["_rootClaim"].(type) {
-				case [32]byte:
-					rootClaim = common.BytesToHash(v[:])
-				case common.Hash:
-					rootClaim = v
-				default:
-					return nil, fmt.Errorf("unexpected rootClaim type: %T", v)
-				}
-
-				c.logger.Debug("Successfully unpacked DisputeGameFactory.create",
-					"gameType", result["_gameType"],
-					"rootClaim", rootClaim.Hex(),
-					"extraData", hexutil.Encode(result["_extraData"].([]byte)))
-
-				return &ProposerTxArgs{
-					GameType:  result["_gameType"].(uint32),
-					RootClaim: rootClaim,
-					ExtraData: result["_extraData"].([]byte),
-				}, nil
-			}
-		}
-	}
-
-	return nil, fmt.Errorf("unknown proposer transaction method signature: %s (only DisputeGameFactory.create supported)", hexutil.Encode(methodSig))
 }
 
 func (c *XLayerRemoteClient) verifySignedTransaction(originalTx *types.Transaction, signedTx *types.Transaction) error {
