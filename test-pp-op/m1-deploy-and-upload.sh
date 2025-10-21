@@ -11,34 +11,56 @@ source .env
 source tools.sh
 source utils.sh
 
+UPLOAD_DIR="upload-to-oss"
 IMAGE_NAME=$(echo "${OP_GETH_MIGRATION_IMAGE_TAG}" | cut -d':' -f1)
-TAR_FILE="${IMAGE_NAME}.tar.gz"
+TAR_FILE="${UPLOAD_DIR}.tar.gz"
 ARCH="linux/amd64"
-SKIP_BUILD_GETH=false; [[ "$*" =~ --skip-geth ]] && BUILD_GETH=true
+SKIP_BUILD_GETH=false; [[ "$*" =~ --skip-geth ]] && SKIP_BUILD_GETH=true
+SKIP_DEPLOY=false; [[ "$*" =~ --skip-deploy ]] && SKIP_DEPLOY=true
 
 echo ""
 echo "=============================================="
 echo "Step 1: Deploy OP Contracts"
 echo "=============================================="
-./2-deploy-op-contracts.sh
+if [ "$SKIP_DEPLOY" = true ]; then
+    echo "⏭️  Skipping 2-deploy-op-contracts.sh (--skip-deploy flag detected)"
+else
+    ./2-deploy-op-contracts.sh
+fi
 
 echo ""
 echo "=============================================="
 echo "Step 2: Build op-migrate image"
 echo "=============================================="
-[ "$SKIP_BUILD_GETH" = true ] || ./build_images.sh --op-geth-migrate --arch ${ARCH} --force
+if [ "$SKIP_BUILD_GETH" = true ]; then
+    echo "⏭️  Skipping build_images.sh (--skip-geth flag detected)"
+else
+    ./build_images.sh --op-geth-migrate --arch ${ARCH} --force
+fi
 
 echo ""
 echo "=============================================="
 echo "Step 3: Save Docker image to tar.gz"
 echo "=============================================="
-docker save ${OP_GETH_MIGRATION_IMAGE_TAG} | gzip > ${TAR_FILE}
+docker save ${OP_GETH_MIGRATION_IMAGE_TAG} | gzip > ${IMAGE_NAME}.tar.gz
 [ -n "$(docker images -q ${IMAGE_NAME})" ] || exit 1
-echo "✅ Image saved to ${TAR_FILE}"
+echo "✅ Image saved to ${IMAGE_NAME}.tar.gz"
 
 echo ""
 echo "=============================================="
-echo "Step 4: Calculate MD5 hash"
+echo "Step 4: Create folder to store upload files"
+echo "=============================================="
+rm -rf $UPLOAD_DIR
+mkdir -p $UPLOAD_DIR
+mv ${IMAGE_NAME}.tar.gz $UPLOAD_DIR
+cp ./m2-download-image.sh $UPLOAD_DIR
+cp ./m3-migrate.sh $UPLOAD_DIR
+tar -czvf $UPLOAD_DIR.tar.gz $UPLOAD_DIR
+echo "✅ Upload file ${TAR_FILE} is created."
+
+echo ""
+echo "=============================================="
+echo "Step 5: Calculate MD5 hash"
 echo "=============================================="
 if [[ "$OSTYPE" == "darwin"* ]]; then
     MD5_HASH=$(md5 -q ${TAR_FILE})
@@ -50,6 +72,6 @@ fi
 
 echo ""
 echo "=============================================="
-echo "Step 5: Upload to OSS"
+echo "Step 6: Upload to OSS"
 echo "=============================================="
 echo "Please create an OSS ticket with the MD5 hash: ${MD5_HASH}."
