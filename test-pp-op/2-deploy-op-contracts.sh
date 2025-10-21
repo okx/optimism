@@ -97,7 +97,7 @@ deploy_transactor() {
   FORGE_CMD="forge create --json --broadcast --legacy \
     --rpc-url $L1_RPC_URL_IN_DOCKER \
     --private-key $DEPLOYER_PRIVATE_KEY \
-    src/periphery/Transactor.sol:Transactor \
+    src/periphery/Transactor.sol:Transactor.0.8.30 \
     --constructor-args $ADMIN_OWNER_ADDRESS"
 
   echo "🔧 Executing Docker command..."
@@ -256,6 +256,7 @@ deploy_custom_gas_token() {
   cd $ROOT_DIR/packages/contracts-bedrock
   export SYSTEM_CONFIG_PROXY_ADDRESS=$SYSTEM_CONFIG_PROXY_ADDRESS
   export OPTIMISM_PORTAL_PROXY_ADDRESS=$OPTIMISM_PORTAL_PROXY_ADDRESS
+  export OKB_TOKEN_ADDRESS=$OKB_TOKEN_ADDRESS
 
   FORGE_OUTPUT=$(forge script scripts/SetupCustomGasToken.s.sol:SetupCustomGasToken \
     --rpc-url "$L1_RPC_URL" \
@@ -265,19 +266,18 @@ deploy_custom_gas_token() {
   echo "$FORGE_OUTPUT"
 
   # Extract contract addresses from forge output
-  OKB_TOKEN=$(echo "$FORGE_OUTPUT" | grep "MockOKB deployed at:" | awk '{print $NF}')
   ADAPTER_ADDRESS=$(echo "$FORGE_OUTPUT" | grep "DepositedOKBAdapter deployed at:" | awk '{print $NF}')
 
   # Query initial OKB total supply
-  INIT_TOTAL_SUPPLY=$(cast call "$OKB_TOKEN" "totalSupply()(uint256)" --rpc-url "$L1_RPC_URL")
+  INIT_TOTAL_SUPPLY=$(cast call "$OKB_TOKEN_ADDRESS" "totalSupply()(uint256)" --rpc-url "$L1_RPC_URL")
   echo ""
   echo "📊 Initial OKB Total Supply: $INIT_TOTAL_SUPPLY"
 
   echo ""
   echo "✅ L1 Custom Gas Token setup complete!"
-  echo ""
   echo "📋 Deployed Contract Addresses:"
-  echo "   OKB Token:          $OKB_TOKEN"
+  echo ""
+  echo "   OKB Token:          $OKB_TOKEN_ADDRESS"
   echo "   Adapter:            $ADAPTER_ADDRESS"
   echo ""
 

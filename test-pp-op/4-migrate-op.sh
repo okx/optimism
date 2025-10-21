@@ -7,13 +7,6 @@ source utils.sh
 
 
 prepare() {
-  # Check if FORK_BLOCK is set
-  if [ -z "$FORK_BLOCK" ]; then
-      echo " ❌ FORK_BLOCK environment variable is not set"
-      echo "Please set FORK_BLOCK in your .env file"
-      exit 1
-  fi
-
   # Check required files exist
   if [ ! -f "./config-op/genesis.json" ]; then
     echo "❌ ERROR: ./config-op/genesis.json not found!"
@@ -27,11 +20,6 @@ prepare() {
 
   cp ./config-op/genesis.json ./config-op/genesis-op-raw.json
   cp ./config-op/genesis.json ./config-op/genesis-op-before-number.json
-
-  jq '.config.legacyXLayerBlock = '"$FORK_BLOCK" ./config-op/genesis.json > temp_genesis.json && mv temp_genesis.json ./config-op/genesis.json
-  sed_inplace 's/"parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000"/"parentHash": "'"$PARENT_HASH"'"/' ./config-op/genesis.json
-  jq '.genesis.l2.number = '"$FORK_BLOCK" ./config-op/rollup.json > temp_rollup.json && mv temp_rollup.json ./config-op/rollup.json
-
   cp ./config-op/genesis.json ./config-op/genesis-op-after-number.json
 
   # Extract contract addresses from state.json and update .env file
@@ -155,9 +143,7 @@ migrate() {
   fi
 
   echo "GETH_CMD: $GETH_CMD"
-  ${GETH_CMD} --datadir=${OP_DATA_DIR} --gcmode=archive migrate --state.scheme=hash --ignore-addresses=0x000000000000000000000000000000005ca1ab1e --chaindata=${ERIGON_CHAINDATA_DIR} --smt-db-path=${ERIGON_SMTDATA_DIR} --no-verify --output merged.genesis.json ${OP_GENESIS_PATH} 2>&1 | tee migrate.log
-
-  sleep 5
+  ${GETH_CMD} --datadir=${OP_DATA_DIR} --gcmode=archive migrate --state.scheme=hash --ignore-addresses=0x000000000000000000000000000000005ca1ab1e --chaindata=${ERIGON_CHAINDATA_DIR} --smt-db-path=${ERIGON_SMTDATA_DIR} --output merged.genesis.json ${OP_GENESIS_PATH} 2>&1 | tee migrate.log
 
   LOG_BLOCK=$(grep -A 5 "Update rollup.json file with the following information l2" migrate.log | tail -n 5)
   L2_NUMBER=$(echo "$LOG_BLOCK" | grep '"number"' | sed 's/[^0-9]*\([0-9]*\).*/\1/')
