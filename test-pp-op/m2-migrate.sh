@@ -30,6 +30,23 @@ for cmd in docker jq curl sed grep; do
     fi
 done
 
+# Prompt to delete ${BACKUP_DIR} contents
+if [ -d $BACKUP_DIR ];then
+  echo ""
+  echo "============================================="
+  echo "Existing ${BACKUP_DIR}"
+  echo "============================================="
+  ls -la $BACKUP_DIR
+  echo ""
+  read -p "Do you want to delete the contents of ${BACKUP_DIR}? (y/n): " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+      rm -rf ${BACKUP_DIR}/*
+  else
+      echo "${BACKUP_DIR} contents are NOT deleted..."
+  fi
+fi
+
 # Create and verify backup directory
 mkdir -p ${BACKUP_DIR}
 if ! touch ${BACKUP_DIR}/.write_test 2>/dev/null; then
