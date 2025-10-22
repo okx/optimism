@@ -29,7 +29,7 @@ fi
 echo "✅ Genesis file extracted successfully to config/genesis.json"
 
 # Initialize op-geth with the genesis file
-echo "🔧 Initializing op-geth with genesis file..."
+echo "🔧 Initializing op-geth with genesis file... (It may take a while, please wait patiently.)"
 docker run --rm \
     -v "$(pwd)/data:/data" \
     -v "$(pwd)/config/genesis.json:/genesis.json" \
