@@ -1,10 +1,16 @@
 #!/bin/bash
-set -x
 set -e
+
+# Debug mode - set to true to enable verbose output
+DEBUG=${DEBUG:-false}
+
+if [ "$DEBUG" = "true" ]; then
+    set -x
+fi
+
 source .env
 source tools.sh
 source utils.sh
-
 
 prepare() {
   # Check required files exist

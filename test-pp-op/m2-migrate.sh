@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
-set -x
+
+# Debug mode - set to true to enable verbose output
+DEBUG=${DEBUG:-false}
+if [ "$DEBUG" = "true" ]; then
+    set -x
+fi
 
 FORK_BLOCK=$1
 
@@ -251,10 +256,6 @@ wait_for_enter() {
 extract_configuration_fields() {
     local phase="$1"  # "before" or "after"
 
-    echo "=============================================="
-    echo "Configuration Fields - $phase Migration"
-    echo "=============================================="
-
     # Extract .env values
     echo "=== .env Configuration ==="
     docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && \
@@ -286,12 +287,12 @@ extract_configuration_fields() {
         echo 'sequencerFeeVaultRecipient='\$(grep 'sequencerFeeVaultRecipient' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
         echo 'l2GenesisBlockGasLimit='\$(grep 'l2GenesisBlockGasLimit' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
         echo 'l2GenesisBlockBaseFeePerGas='\$(grep 'l2GenesisBlockBaseFeePerGas' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
-        echo 'eip1559DenominatorCanyon='\$(grep 'eip1559DenominatorCanyon' config-op/intent.toml | sed 's/.*=\\([0-9]*\\).*/\\1/') && \
-        echo 'eip1559Denominator='\$(grep 'eip1559Denominator' config-op/intent.toml | sed 's/.*=\\([0-9]*\\).*/\\1/') && \
-        echo 'eip1559Elasticity='\$(grep 'eip1559Elasticity' config-op/intent.toml | sed 's/.*=\\([0-9]*\\).*/\\1/') && \
-        echo 'operatorFeeScalar='\$(grep 'operatorFeeScalar' config-op/intent.toml | sed 's/.*=\\([0-9]*\\).*/\\1/') && \
-        echo 'operatorFeeConstant='\$(grep 'operatorFeeConstant' config-op/intent.toml | sed 's/.*=\\([0-9]*\\).*/\\1/') && \
-        echo 'gasLimit='\$(grep 'gasLimit' config-op/intent.toml | sed 's/.*=\\([0-9]*\\).*/\\1/') && \
+        echo 'eip1559DenominatorCanyon='\$(grep 'eip1559DenominatorCanyon' config-op/intent.toml | cut -d'=' -f2 | tr -d ' ') && \
+        echo 'eip1559Denominator='\$(grep 'eip1559Denominator' config-op/intent.toml | cut -d'=' -f2 | tr -d ' ') && \
+        echo 'eip1559Elasticity='\$(grep 'eip1559Elasticity' config-op/intent.toml | cut -d'=' -f2 | tr -d ' ') && \
+        echo 'operatorFeeScalar='\$(grep 'operatorFeeScalar' config-op/intent.toml | cut -d'=' -f2 | tr -d ' ') && \
+        echo 'operatorFeeConstant='\$(grep 'operatorFeeConstant' config-op/intent.toml | cut -d'=' -f2 | tr -d ' ') && \
+        echo 'gasLimit='\$(grep 'gasLimit' config-op/intent.toml | cut -d'=' -f2 | tr -d ' ') && \
         echo 'l1ProxyAdminOwner='\$(grep 'l1ProxyAdminOwner' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
         echo 'l2ProxyAdminOwner='\$(grep 'l2ProxyAdminOwner' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
         echo 'systemConfigOwner='\$(grep 'systemConfigOwner' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
@@ -305,8 +306,8 @@ extract_configuration_fields() {
     docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && \
         echo 'hash='\$(jq -r '.genesis.l2.hash' config-op/rollup.json 2>/dev/null || echo 'N/A') && \
         echo 'number='\$(jq -r '.genesis.l2.number' config-op/rollup.json 2>/dev/null || echo 'N/A') && \
-        echo 'l1_chain_id='\$(jq -r '.l1.chain_id' config-op/rollup.json 2>/dev/null || echo 'N/A') && \
-        echo 'l2_chain_id='\$(jq -r '.l2.chain_id' config-op/rollup.json 2>/dev/null || echo 'N/A') && \
+        echo 'l1_chain_id='\$(jq -r '.l1_chain_id' config-op/rollup.json 2>/dev/null || echo 'N/A') && \
+        echo 'l2_chain_id='\$(jq -r '.l2_chain_id' config-op/rollup.json 2>/dev/null || echo 'N/A') && \
         echo 'batch_inbox_address='\$(jq -r '.batch_inbox_address' config-op/rollup.json 2>/dev/null || echo 'N/A') && \
         echo 'deposit_contract_address='\$(jq -r '.deposit_contract_address' config-op/rollup.json 2>/dev/null || echo 'N/A') && \
         echo 'l1_system_config_address='\$(jq -r '.l1_system_config_address' config-op/rollup.json 2>/dev/null || echo 'N/A') && \
@@ -317,13 +318,14 @@ extract_configuration_fields() {
         echo ""
         echo "=== merged.genesis.json Configuration ==="
         docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && \
-            echo 'chainId='\$(jq -r '.config.chainId' merged.genesis.json 2>/dev/null || echo 'N/A') && \
-            echo 'legacyXLayerBlock='\$(jq -r '.config.legacyXLayerBlock' merged.genesis.json 2>/dev/null || echo 'N/A') && \
-            echo 'eip1559Elasticity='\$(jq -r '.config.optimism.eip1559Elasticity' merged.genesis.json 2>/dev/null || echo 'N/A') && \
-            echo 'eip1559Denominator='\$(jq -r '.config.optimism.eip1559Denominator' merged.genesis.json 2>/dev/null || echo 'N/A') && \
-            echo 'eip1559DenominatorCanyon='\$(jq -r '.config.optimism.eip1559DenominatorCanyon' merged.genesis.json 2>/dev/null || echo 'N/A') && \
-            echo 'parentHash='\$(jq -r '.parentHash' merged.genesis.json 2>/dev/null || echo 'N/A') && \
-            echo 'baseFeePerGas='\$(jq -r '.baseFeePerGas' merged.genesis.json 2>/dev/null || echo 'N/A')"
+            echo 'chainId='\$(head -n 20 merged.genesis.json | grep -o '\"chainId\":[[:space:]]*[0-9]*' | cut -d':' -f2 | tr -d ' ' || echo 'N/A') && \
+            echo 'legacyXLayerBlock='\$(head -n 20 merged.genesis.json | grep -o '\"legacyXLayerBlock\":[[:space:]]*[0-9]*' | cut -d':' -f2 | tr -d ' ' || echo 'N/A') && \
+            echo 'eip1559Elasticity='\$(head -n 50 merged.genesis.json | grep 'eip1559Elasticity' | head -1 | cut -d':' -f2 | tr -d ' ,' || echo 'N/A') && \
+            echo 'eip1559Denominator='\$(head -n 50 merged.genesis.json | grep 'eip1559Denominator' | head -1 | cut -d':' -f2 | tr -d ' ,' || echo 'N/A') && \
+            echo 'eip1559DenominatorCanyon='\$(head -n 50 merged.genesis.json | grep 'eip1559DenominatorCanyon' | head -1 | cut -d':' -f2 | tr -d ' ,' || echo 'N/A') && \
+            echo 'parentHash='\$(tail -n 20 merged.genesis.json | grep -o '\"parentHash\":[[:space:]]*\"0x[0-9a-fA-F]*\"' | cut -d':' -f2 | tr -d ' \"' || echo 'N/A') && \
+            echo 'baseFeePerGas='\$(tail -n 20 merged.genesis.json | grep -o '\"baseFeePerGas\":[[:space:]]*\"0x[0-9a-fA-F]*\"' | cut -d':' -f2 | tr -d ' \"' || echo 'N/A') && \
+            echo 'timestamp='\$(head -n 50 merged.genesis.json | grep -o '\"timestamp\":[[:space:]]*[0-9]*' | cut -d':' -f2 | tr -d ' ' || echo 'N/A')"
     else
         echo ""
         echo "=== merged.genesis.json Configuration ==="
