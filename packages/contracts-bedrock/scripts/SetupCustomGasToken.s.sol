@@ -39,6 +39,7 @@ contract SetupCustomGasToken is Script {
     address optimismPortalProxy;
     address deployerAddress;
     address okbTokenAddress;
+    address okbAdapterOwnerAddress;
 
     // Deployed contracts
     IOKB okbToken;
@@ -53,6 +54,7 @@ contract SetupCustomGasToken is Script {
         systemConfigProxy = vm.envAddress("SYSTEM_CONFIG_PROXY_ADDRESS");
         optimismPortalProxy = vm.envAddress("OPTIMISM_PORTAL_PROXY_ADDRESS");
         okbTokenAddress = vm.envAddress("OKB_TOKEN_ADDRESS");
+        okbAdapterOwnerAddress = vm.envAddress("OKB_ADAPTER_OWNER_ADDRESS");
 
         console.log("SystemConfig Proxy:", systemConfigProxy);
         console.log("OptimismPortal Proxy:", optimismPortalProxy);
@@ -109,7 +111,7 @@ contract SetupCustomGasToken is Script {
 
     /// @notice Deploy DepositedOKBAdapter
     function deployAdapter() internal {
-        adapter = new DepositedOKBAdapter(okbTokenAddress, payable(optimismPortalProxy), deployerAddress);
+        adapter = new DepositedOKBAdapter(okbTokenAddress, payable(optimismPortalProxy), okbAdapterOwnerAddress);
         console.log("  DepositedOKBAdapter deployed at:", address(adapter));
     }
 
@@ -152,7 +154,7 @@ contract SetupCustomGasToken is Script {
         // Check DepositedOKBAdapter configuration
         require(address(adapter.OKB()) == okbTokenAddress, "FAILED: Adapter OKB mismatch");
         require(address(adapter.PORTAL()) == optimismPortalProxy, "FAILED: Adapter portal mismatch");
-        require(adapter.owner() == deployerAddress, "FAILED: Adapter owner mismatch");
+        require(adapter.owner() == okbAdapterOwnerAddress, "FAILED: Adapter owner mismatch");
 
         // Check adapter has preminted total supply
         uint256 adapterBalance = adapter.balanceOf(address(adapter));
