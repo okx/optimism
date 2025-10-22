@@ -192,6 +192,7 @@ services:
       - --config=/config.toml
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
+      - --okpay.priority-enable-flag=${OKPAY_PRIORITY_ENABLE:-false}
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
       interval: 3s
