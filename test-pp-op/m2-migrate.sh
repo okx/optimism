@@ -280,7 +280,7 @@ extract_configuration_fields() {
         echo 'l2GenesisBlockGasLimit='\$(grep 'l2GenesisBlockGasLimit' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
         echo 'l2GenesisBlockBaseFeePerGas='\$(grep 'l2GenesisBlockBaseFeePerGas' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
         echo 'eip1559DenominatorCanyon='\$(grep 'eip1559DenominatorCanyon' config-op/intent.toml | cut -d'=' -f2 | tr -d ' ') && \
-        echo 'eip1559Denominator='\$(grep 'eip1559Denominator' config-op/intent.toml | cut -d'=' -f2 | tr -d ' ') && \
+        echo 'eip1559Denominator='\$(grep 'eip1559Denominator' config-op/intent.toml | head -1 | cut -d'=' -f2 | tr -d ' ') && \
         echo 'eip1559Elasticity='\$(grep 'eip1559Elasticity' config-op/intent.toml | cut -d'=' -f2 | tr -d ' ') && \
         echo 'operatorFeeScalar='\$(grep 'operatorFeeScalar' config-op/intent.toml | cut -d'=' -f2 | tr -d ' ') && \
         echo 'operatorFeeConstant='\$(grep 'operatorFeeConstant' config-op/intent.toml | cut -d'=' -f2 | tr -d ' ') && \
