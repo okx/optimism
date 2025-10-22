@@ -15,7 +15,7 @@ RAMDISK_PATH="/mnt/ramdisk_op"
 DATA_DIR="/data"
 ERIGON_DATA_DIR="/data/erigon-data"
 BACKUP_DIR="${DATA_DIR}/migration-backup-$(date +%Y%m%d)"
-L2_RPC_URL="${L2_RPC_URL:-http://10.2.29.232:8545}"
+L2_RPC_URL="${L2_RPC_URL:-http://10.2.29.232:18545}"
 ENV=${ENV:-mainnet}
 # Set expected chain ID based on ENV variable
 EXPECTED_CHAIN=$([ "$ENV" = "testnet" ] && echo "1952" || echo "196")
@@ -266,6 +266,8 @@ extract_configuration_fields() {
         echo 'DISPUTE_GAME_FINALITY_DELAY_SECONDS='\$(grep '^DISPUTE_GAME_FINALITY_DELAY_SECONDS=' .env | cut -d'=' -f2) && \
         echo 'CHALLENGE_PERIOD_SECONDS='\$(grep '^CHALLENGE_PERIOD_SECONDS=' .env | cut -d'=' -f2) && \
         echo 'WITHDRAWAL_DELAY_SECONDS='\$(grep '^WITHDRAWAL_DELAY_SECONDS=' .env | cut -d'=' -f2) && \
+        echo 'OKB_ADAPTER_OWNER_ADDRESS='\$(grep '^OKB_ADAPTER_OWNER_ADDRESS=' .env | cut -d'=' -f2) && \
+        echo 'SYSTEM_CONFIG_OWNER_ADDRESS='\$(grep '^SYSTEM_CONFIG_OWNER_ADDRESS=' .env | cut -d'=' -f2) && \
         echo 'TRANSACTOR='\$(grep '^TRANSACTOR=' .env | cut -d'=' -f2)"
 
     echo ""
@@ -420,9 +422,9 @@ mkdir -p ${SOURCE_PATH}
 if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     echo "🗑️  Removing existing container ${CONTAINER_NAME} for clean migration..."
 
-    # Give container time to gracefully shutdown (30 seconds)
+    # Stop container
     if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-        echo "   Stopping container (graceful shutdown, timeout 30s)..."
+        echo "   Stopping container..."
         docker stop ${CONTAINER_NAME} 2>/dev/null || true
     fi
 
@@ -484,13 +486,7 @@ execute_migration
 
 echo ""
 echo "=============================================="
-echo "Step 6: Review Configuration After Migration"
-echo "=============================================="
-extract_configuration_fields "after"
-
-echo ""
-echo "=============================================="
-echo "Step 7: Copy results to disk"
+echo "Step 6: Copy results to disk"
 echo "=============================================="
 
 TEMP_DIR="${BACKUP_DIR}.tmp"
@@ -564,8 +560,20 @@ echo "✅ Files copied successfully"
 
 echo ""
 echo "=============================================="
+echo "Step 7: Review Configuration After Copy"
+echo "=============================================="
+extract_configuration_fields "after"
+
+echo ""
+echo "=============================================="
 echo "✅ Migration process completed successfully!"
 echo "=============================================="
 echo "Backup directory: ${BACKUP_DIR}"
+
+if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+    echo ""
+    echo "   Stopping migration container at last."
+    docker stop ${CONTAINER_NAME} 2>/dev/null || true
+fi
 
 echo "=============================================="
