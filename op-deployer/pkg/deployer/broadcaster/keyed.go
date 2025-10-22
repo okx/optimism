@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	GasPadFactor = 1.2
+	GasPadFactor = 1.5 // ⚠️[X Layer] Increased from 1.2 to 1.5 for mainnet
 )
 
 type KeyedBroadcaster struct {
@@ -43,13 +43,23 @@ type KeyedBroadcasterOpts struct {
 }
 
 func NewKeyedBroadcaster(cfg KeyedBroadcasterOpts) (*KeyedBroadcaster, error) {
+	cfg.Logger.Info("⚠️[X Layer] Initializing KeyedBroadcaster with mainnet-optimized config")
+	cfg.Logger.Info("⚠️[X Layer] Timeout config",
+		"TxSendTimeout", "10m (was 5m)",
+		"NetworkTimeout", "30s (was 10s)",
+		"TxNotInMempoolTimeout", "2m (was 1m)",
+		"ReceiptQueryInterval", "2s (was 1s)")
+	cfg.Logger.Info("⚠️[X Layer] Gas config",
+		"GasPadFactor", "1.5 (was 1.2)",
+		"FeeLimitMultiplier", "10 (was 5)")
+
 	mgrCfg := &txmgr.Config{
 		Backend:                   cfg.Client,
 		ChainID:                   cfg.ChainID,
-		TxSendTimeout:             5 * time.Minute,
-		TxNotInMempoolTimeout:     time.Minute,
-		NetworkTimeout:            10 * time.Second,
-		ReceiptQueryInterval:      time.Second,
+		TxSendTimeout:             10 * time.Minute,
+		TxNotInMempoolTimeout:     2 * time.Minute,
+		NetworkTimeout:            30 * time.Second,
+		ReceiptQueryInterval:      2 * time.Second,
 		NumConfirmations:          1,
 		SafeAbortNonceTooLowCount: 3,
 		Signer:                    cfg.Signer,
@@ -68,7 +78,7 @@ func NewKeyedBroadcaster(cfg KeyedBroadcasterOpts) (*KeyedBroadcaster, error) {
 
 	mgrCfg.RebroadcastInterval.Store(int64(12 * time.Second))
 	mgrCfg.ResubmissionTimeout.Store(int64(48 * time.Second))
-	mgrCfg.FeeLimitMultiplier.Store(5)
+	mgrCfg.FeeLimitMultiplier.Store(10)
 	mgrCfg.FeeLimitThreshold.Store(big.NewInt(100))
 	mgrCfg.MinTipCap.Store(minTipCap)
 	mgrCfg.MinBaseFee.Store(minBaseFee)
@@ -126,6 +136,10 @@ func (t *KeyedBroadcaster) Broadcast(ctx context.Context) ([]BroadcastResult, er
 			"id", ids[i],
 			"nonce", bcast.Nonce,
 		)
+		t.lgr.Info("⚠️[X Layer] Gas limit calculation",
+			"blockGasLimit", latestBlock.GasLimit(),
+			"gasPadFactor", GasPadFactor,
+			"note", "Using 1.5x padding for mainnet")
 	}
 
 	var txErr *multierror.Error
@@ -229,6 +243,7 @@ func asTxCandidate(bcast script.Broadcast, blockGasLimit uint64) txmgr.TxCandida
 // the underlying call. Values are multiplied by a pad factor to account for any discrepancies. The output
 // is clamped to the block gas limit since Geth will reject transactions that exceed it before letting them
 // into the mempool.
+// ⚠️[X Layer] Using GasPadFactor=1.5 (increased from 1.2) for mainnet deployment
 func padGasLimit(data []byte, gasUsed uint64, creation bool, blockGasLimit uint64) uint64 {
 	intrinsicGas, err := core.IntrinsicGas(data, nil, nil, creation, true, true, false)
 	// This method never errors - we should look into it if it does.
@@ -249,6 +264,8 @@ func padGasLimit(data []byte, gasUsed uint64, creation bool, blockGasLimit uint6
 
 	limit := uint64(float64(gas) * GasPadFactor)
 	if limit > blockGasLimit {
+		// Note: Can't log here as padGasLimit doesn't have logger access
+		// The calling function will log the final gas limit
 		return blockGasLimit
 	}
 	return limit

@@ -17,14 +17,15 @@ var (
 	// post blobs, it's just set to 1.
 	dummyBlobFee = big.NewInt(1)
 	// maxTip is the maximum tip that can be suggested by this estimator.
-	maxTip = big.NewInt(50 * 1e9)
+	// ⚠️[X Layer] Increased from 50 gwei to 100 gwei for mainnet deployment
+	maxTip = big.NewInt(100 * 1e9)
 	// minTip is the minimum tip that can be suggested by this estimator.
 	minTip = big.NewInt(1 * 1e9)
 )
 
 // DeployerGasPriceEstimator is a custom gas price estimator for use with op-deployer.
 // It pads the base fee by 50% and multiplies the suggested tip by 5 up to a max of
-// 50 gwei.
+// 100 gwei (⚠️[X Layer] increased from 50 gwei for mainnet).
 func DeployerGasPriceEstimator(ctx context.Context, client txmgr.ETHBackend) (*big.Int, *big.Int, *big.Int, error) {
 	chainHead, err := client.HeaderByNumber(ctx, nil)
 	if err != nil {
@@ -45,6 +46,8 @@ func DeployerGasPriceEstimator(ctx context.Context, client txmgr.ETHBackend) (*b
 	}
 
 	if paddedTip.Cmp(maxTip) > 0 {
+		// ⚠️[X Layer] Tip would exceed 100 gwei, capping it
+		// The actual value will be logged by txmgr when the transaction is crafted
 		paddedTip.Set(maxTip)
 	}
 

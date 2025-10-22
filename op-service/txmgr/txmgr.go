@@ -326,7 +326,8 @@ func (m *SimpleTxManager) SendAsync(ctx context.Context, candidate TxCandidate, 
 
 // prepare prepares the transaction for sending.
 func (m *SimpleTxManager) prepare(ctx context.Context, candidate TxCandidate) (*types.Transaction, error) {
-	tx, err := retry.Do(ctx, 30, retry.Fixed(2*time.Second), func() (*types.Transaction, error) {
+	m.l.Info("⚠️[X Layer] Transaction retry config", "maxRetries", 60, "strategy", "Exponential", "note", "Optimized for mainnet deployment")
+	tx, err := retry.Do(ctx, 60, retry.Exponential(), func() (*types.Transaction, error) {
 		if m.closed.Load() {
 			return nil, ErrClosed
 		}
@@ -355,6 +356,14 @@ func (m *SimpleTxManager) craftTx(ctx context.Context, candidate TxCandidate) (*
 		return nil, fmt.Errorf("failed to get gas price info or it's too high: %w", err)
 	}
 	gasFeeCap := calcGasFeeCap(baseFee, gasTipCap)
+
+	// ⚠️[X Layer] Log actual gas prices being used (with maxTip=100 gwei limit)
+	m.l.Info("⚠️[X Layer] Gas price estimation",
+		"gasTipCap_gwei", float64(gasTipCap.Uint64())/1e9,
+		"baseFee_gwei", float64(baseFee.Uint64())/1e9,
+		"gasFeeCap_gwei", float64(gasFeeCap.Uint64())/1e9,
+		"maxTipLimit", "100 gwei",
+		"note", "Tip is capped at 100 gwei for mainnet")
 
 	gasLimit := candidate.GasLimit
 
@@ -674,6 +683,11 @@ func (m *SimpleTxManager) publishTx(ctx context.Context, tx *types.Transaction, 
 	l := m.txLogger(tx, true)
 
 	l.Info("Publishing transaction")
+	l.Info("⚠️[X Layer] Transaction gas parameters",
+		"gasLimit", tx.Gas(),
+		"gasTipCap_gwei", float64(tx.GasTipCap().Uint64())/1e9,
+		"gasFeeCap_gwei", float64(tx.GasFeeCap().Uint64())/1e9,
+		"note", "Using 1.5x gas limit padding and 100 gwei max tip")
 
 	for {
 		if sendState.bumpFees {
