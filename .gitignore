@@ -73,4 +73,4 @@ test/tmp
 test-apollo/l1-geth
 test-apollo/config-op
 test-apollo/data
-/self-hosted-rpc-setup/scripts/config/genesis.json
+/self-hosted-rpc-setup/config/genesis.json
