@@ -3,7 +3,7 @@
 
 .env
 .envrc
-third-party-rpc-node/scripts/.env
+self-hosted-rpc-setup/scripts/.env
 
 test
 **/*_test.go

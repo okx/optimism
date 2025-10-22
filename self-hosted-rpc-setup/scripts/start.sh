@@ -26,7 +26,6 @@ done
 
 # 创建必要的目录
 echo "📁 创建数据目录..."
-mkdir -p data/op-geth
 mkdir -p data/op-node/p2p
 mkdir -p config
 
