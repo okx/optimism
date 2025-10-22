@@ -37,8 +37,13 @@ func (s *Sequencer) InitRealtimeXLayer() {
 	}
 }
 
+func (s *Sequencer) RealtimeEnabled() bool {
+	// Realtime is enabled if realtime sequencer is enabled, op-seq is active, and kafka producer is initialized
+	return s.rollupCfg.Realtime.SequencerEnable && s.active.Load() && s.realtimeProducer != nil
+}
+
 func (s *Sequencer) SendRealtimeErrorTrigger(height uint64) {
-	if s.active.Load() && s.rollupCfg != nil && s.rollupCfg.Realtime != nil && s.rollupCfg.Realtime.SequencerEnable && s.realtimeProducer != nil {
+	if s.RealtimeEnabled() {
 		if err := s.realtimeProducer.SendKafkaErrorTrigger(height); err != nil {
 			log.Error(fmt.Sprintf("[Realtime] Failed to send kafka error trigger message. error: %v", err))
 		}
@@ -46,7 +51,7 @@ func (s *Sequencer) SendRealtimeErrorTrigger(height uint64) {
 }
 
 func (s *Sequencer) SendRealtimeConfirmedBlock(envelope *eth.ExecutionPayloadEnvelope) {
-	if s.active.Load() && s.rollupCfg != nil && s.rollupCfg.Realtime != nil && s.rollupCfg.Realtime.SequencerEnable && s.realtimeProducer != nil {
+	if s.RealtimeEnabled() {
 		if envelope.ExecutionPayload.BlockHash == s.realtimeBlock {
 			return
 		}
@@ -71,7 +76,7 @@ func (s *Sequencer) SendRealtimeConfirmedBlock(envelope *eth.ExecutionPayloadEnv
 }
 
 func (s *Sequencer) SetRealtimeEnabledXLayer(attrs *eth.PayloadAttributes) {
-	if s.active.Load() && s.rollupCfg != nil && s.rollupCfg.Realtime != nil {
+	if s.RealtimeEnabled() {
 		attrs.RealtimeEnabled = s.rollupCfg.Realtime.SequencerEnable
 	}
 }

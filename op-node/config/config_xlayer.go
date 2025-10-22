@@ -36,19 +36,22 @@ func applyApolloFlags(ctx *cli.Context, cfg *Config) {
 }
 
 func applyRealtimeFlags(ctx *cli.Context, cfg *Config) {
-	groupID := ctx.String(flags.RealtimeKafkaSyncGroupID.Name)
-	if envGroupID := os.Getenv(EnvKafkaConsumerGroupID); envGroupID != "" {
-		// Override consumer group id if env variable is set
-		groupID = envGroupID
-	}
 	realtimeCfg := rollup.DefaultRealtimeConfig
-	realtimeCfg.SequencerEnable = ctx.Bool(flags.RealtimeSequencerEnableFlag.Name)
-	realtimeCfg.Kafka = realtimeKafka.KafkaConfig{
-		BootstrapServers: strings.Split(ctx.String(flags.RealtimeKafkaSyncBootstrapServers.Name), ","),
-		BlockTopic:       ctx.String(flags.RealtimeKafkaSyncBlockTopic.Name),
-		ErrorTopic:       ctx.String(flags.RealtimeKafkaSyncErrorTopic.Name),
-		ClientID:         ctx.String(flags.RealtimeKafkaSyncClientID.Name),
-		GroupID:          groupID,
+	seqRealtimeEnabled := ctx.Bool(flags.RealtimeSequencerEnableFlag.Name)
+	if seqRealtimeEnabled {
+		realtimeCfg.SequencerEnable = seqRealtimeEnabled
+		groupID := ctx.String(flags.RealtimeKafkaSyncGroupID.Name)
+		if envGroupID := os.Getenv(EnvKafkaConsumerGroupID); envGroupID != "" {
+			// Override consumer group id if env variable is set
+			groupID = envGroupID
+		}
+		realtimeCfg.Kafka = realtimeKafka.KafkaConfig{
+			BootstrapServers: strings.Split(ctx.String(flags.RealtimeKafkaSyncBootstrapServers.Name), ","),
+			BlockTopic:       ctx.String(flags.RealtimeKafkaSyncBlockTopic.Name),
+			ErrorTopic:       ctx.String(flags.RealtimeKafkaSyncErrorTopic.Name),
+			ClientID:         ctx.String(flags.RealtimeKafkaSyncClientID.Name),
+			GroupID:          groupID,
+		}
 	}
 	cfg.Rollup.Realtime = &realtimeCfg
 }
