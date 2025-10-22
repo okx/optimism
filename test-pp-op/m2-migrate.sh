@@ -325,7 +325,7 @@ extract_configuration_fields() {
             echo 'eip1559DenominatorCanyon='\$(head -n 50 merged.genesis.json | grep 'eip1559DenominatorCanyon' | head -1 | cut -d':' -f2 | tr -d ' ,' || echo 'N/A') && \
             echo 'parentHash='\$(tail -n 20 merged.genesis.json | grep -o '\"parentHash\":[[:space:]]*\"0x[0-9a-fA-F]*\"' | cut -d':' -f2 | tr -d ' \"' || echo 'N/A') && \
             echo 'baseFeePerGas='\$(tail -n 20 merged.genesis.json | grep -o '\"baseFeePerGas\":[[:space:]]*\"0x[0-9a-fA-F]*\"' | cut -d':' -f2 | tr -d ' \"' || echo 'N/A') && \
-            echo 'timestamp='\$(head -n 50 merged.genesis.json | grep -o '\"timestamp\":[[:space:]]*[0-9]*' | cut -d':' -f2 | tr -d ' ' || echo 'N/A')"
+            echo 'timestamp='\$(head -n 50 merged.genesis.json | grep 'timestamp' | head -1 | cut -d':' -f2 | tr -d ' ,' || echo 'N/A')"
     else
         echo ""
         echo "=== merged.genesis.json Configuration ==="
