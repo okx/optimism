@@ -1,18 +1,6 @@
 # Contracts build stage
-FROM golang:1.24 AS contracts-builder
+FROM okexchain/go-builder:v1 AS contracts-builder
 
-# Install dependencies for contract building
-RUN apt-get update && apt-get install -y \
-    curl \
-    git \
-    bash \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Install foundry
-RUN curl -L https://foundry.paradigm.xyz | bash && \
-    /root/.foundry/bin/foundryup && \
-    mv /root/.foundry/bin/* /usr/local/bin/ && \
-    rm -rf /root/.foundry
 
 WORKDIR /app
 
@@ -24,7 +12,7 @@ WORKDIR /app/packages/contracts-bedrock
 RUN git submodule update --init --recursive || echo "No submodules found"
 RUN --mount=type=cache,target=/root/.foundry \
     --mount=type=cache,target=/root/.cache \
-    forge build
+    forge build --skip "/**/test/**"
 
 # Build op-deployer
 WORKDIR /app
@@ -41,16 +29,14 @@ RUN --mount=type=cache,target=/root/.cache \
 # Create final contracts image with artifacts, foundry tools, and op-deployer
 FROM debian:bookworm-slim
 WORKDIR /app
+# RUN apt-get update && apt-get install -y ca-certificates && update-ca-certificates
+
+# Set environment variables for Go
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV SSL_CERT_DIR=/etc/ssl/certs
 
 # Copy foundry tools for runtime use
 COPY --from=contracts-builder /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil /usr/local/bin/
-
-# Verify foundry tools integrity
-RUN chmod +x /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil && \
-    /usr/local/bin/forge --version > /dev/null && \
-    /usr/local/bin/cast --version > /dev/null && \
-    /usr/local/bin/anvil --version > /dev/null
-
 # Copy op-deployer binary
 COPY --from=contracts-builder /app/op-deployer/bin/ ./op-deployer/bin/
 
