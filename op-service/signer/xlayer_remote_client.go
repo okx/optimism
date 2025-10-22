@@ -544,18 +544,6 @@ func (c *XLayerRemoteClient) sortedMarshal(v interface{}) ([]byte, error) {
 	return json.Marshal(sortedMap)
 }
 
-// addAuth adds authentication headers to the request
-func (c *XLayerRemoteClient) addAuth(req *http.Request) error {
-	// Add AccessKey/SecretKey based authentication
-	if c.config.AccessKey != "" {
-		req.Header.Set("Access-Key", c.config.AccessKey)
-	}
-	if c.config.SecretKey != "" {
-		req.Header.Set("Secret-Key", c.config.SecretKey)
-	}
-	return nil
-}
-
 // buildProposerOtherInfo builds Proposer's OtherInfo by unpacking ABI-encoded business parameters
 func (c *XLayerRemoteClient) buildProposerOtherInfo(tx *types.Transaction) (string, error) {
 	// Base transaction parameters
