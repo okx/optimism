@@ -336,6 +336,11 @@ extract_configuration_fields() {
             echo 'parentHash='\$(tail -n 20 merged.genesis.json | grep -o '\"parentHash\":[[:space:]]*\"0x[0-9a-fA-F]*\"' | cut -d':' -f2 | tr -d ' \"' || echo 'N/A') && \
             echo 'baseFeePerGas='\$(tail -n 20 merged.genesis.json | grep -o '\"baseFeePerGas\":[[:space:]]*\"0x[0-9a-fA-F]*\"' | cut -d':' -f2 | tr -d ' \"' || echo 'N/A') && \
             echo 'timestamp='\$(head -n 50 merged.genesis.json | grep 'timestamp' | head -1 | cut -d':' -f2 | tr -d ' ,' || echo 'N/A')"
+
+        echo ""
+        echo "=== state.json Configuration ==="
+        docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && \
+            echo 'SystemConfigProxy='\$(head -n 200 config-op/state.json | grep 'SystemConfigProxy' | head -1 | cut -d':' -f2 | tr -d ' ,' || echo 'N/A')"
     else
         echo ""
         echo "=== merged.genesis.json Configuration ==="
