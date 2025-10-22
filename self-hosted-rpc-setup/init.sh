@@ -4,9 +4,15 @@
 set -e
 
 # Parse command line arguments
-NETWORK_TYPE=${1:-"testnet"}
+NETWORK_TYPE=${1:-""}
 
 # Validate network type
+if [ -z "$NETWORK_TYPE" ]; then
+    echo "❌ Error: Network type is required"
+    echo "Usage: $0 [testnet|mainnet]"
+    exit 1
+fi
+
 if [ "$NETWORK_TYPE" != "testnet" ] && [ "$NETWORK_TYPE" != "mainnet" ]; then
     echo "❌ Error: Invalid network type. Please use 'testnet' or 'mainnet'"
     echo "Usage: $0 [testnet|mainnet]"
