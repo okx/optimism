@@ -30,6 +30,9 @@ packages/contracts-bedrock/deployments/anvil
 # jetbrains
 .idea/
 
+# vscode
+.vscode/
+
 .secrets
 .env
 .env*
@@ -75,3 +78,5 @@ test-apollo/config-op
 test-apollo/data
 
 test-pp-op/testnet.env
+test-pp-op/mainnet.env
+test-pp-op/fakemainnet.env

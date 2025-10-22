@@ -18,69 +18,23 @@ cp local.env .env
 ## run on testnet
 ```bash
 make clean
+
 cp testnet.env .env
-./2-deploy-op-contracts.sh
-# AFTER DEPLOYING OP CONTRACTS, CHECK TRANSACTOR ADDRESS ON SEPOLIA.
-# NOTE: l1ProxyAdminOwner + opcm + transactor addr checking (check intent.toml)
+./m1-deploy-and-upload.sh
 
-# Update .env ()
-# pause erigon, update .env fork_num.
-Update FORK_BLOCK+1
-# Overwrite .env to replace with inner node sepolia/beacon node
-# Do this before you build op-migrate image.
-https://fullnode-inner.okg.com/sepolia/fork/okbc/rpc
-https://fullnode-inner.okg.com/ethsepoliabeacon/native/layer1/rpc
+# Upload with md5 hash
+osstool -f upload-to-oss.tar.gz -a upload -ticket ${TICKET_ID}
 
-# LOCAL ENVIRONMENT
-# ----------------------------------------------------------------------------
-# Build the image locally after deploying contracts (rollup.json and genesis.json).
-./build_images.sh --op-geth-migrate --force
 
-docker save op-migrate:amd64 | gzip > op-migrate-amd64.tar.gz
+# Download to ECS machine
+osstool -a download -ticket ${TICKET_ID}
 
-# INSIDE DACs TERMINAL
-# ----------------------------------------------------------------------------
-# Calculate md5 hash to create OSS ticket.
-md5sum op-geth-migrate.tar.gz
-# Use osstool to upload images to ECS.
-./osstool -f op-geth-migrate.tar.gz -a upload -ticket ${ticket-id}
+# Unzip
+tar -xzvf upload-to-oss.tar.gz
+cd upload-to-oss
 
-# INSIDE ECS MACHINE
-# ----------------------------------------------------------------------------
-# If not mounted memory, do this ONCE.
-mkdir -p /mnt/ramdisk_op
-mount -t tmpfs -o size=128g tmpfs /mnt/ramdisk_op
-df -hT /mnt/ramdisk_op
-
-# In disk
-cd /data
-# download from OSS
-osstool download -ticket ${ticket-id}
-# untar the uploaded file
-tar -xzvf op-geth-migrate.tar.gz
-# load the docker image into local registry
-docker load < op-geth-migrate.tar.gz
-
-# START REGENESIS (ECS host machine)
-# ----------------------------------------------------------------------------
-docker run \
-  --name $CONTAINER_NAME \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v /data/erigon-data:/data/erigon-data \
-  -v /mnt/ramdisk_op:/mnt/ramdisk_op \
-  -v /mnt/ramdisk_op/test-pp-op/data/op-geth-seq:/app/op-geth/test-pp-op/data/op-geth-seq \
-  -e DOCKER_HOST=unix:///var/run/docker.sock \
-  -d op-geth-migrate:latest sleep infinity
-
-cd test-pp-op
-# Execute regenesis only.
-./4-migrate-op.sh
-
-# Leave container
-exit
-
-# Inside ECS host, save everything needed (to start new sequencer and build OP program) to disk.
-cp /mnt/ramdisk_op/test-pp-op/{.env,config-op/rollup.json,merged.genesis.json,data/op-geth-seq} /data
+# On ECS machine, just run and follow prompts.
+./m2-migrate.sh
 ```
 
 ## Prerequisites
