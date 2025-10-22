@@ -11,8 +11,8 @@ services:
     entrypoint: geth
     ports:
       - "8124:8545"   # HTTP RPC
-      - "8553:8552"
-      - "7547:7546"
+      - "8552:8552"
+      - "7546:7546"
       - "30304:30303" # P2P TCP
       - "30304:30303/udp" # P2P UDP
     volumes:
@@ -41,7 +41,7 @@ services:
     networks:
       - xlayer-network
     ports:
-      - "9555:9545"
+      - "9545:9545"
     volumes:
       - ./data/op-node:/data
       - ./config/rollup.json:/rollup.json
