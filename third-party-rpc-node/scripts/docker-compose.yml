@@ -2,7 +2,7 @@ version: '3.8'
 
 networks:
   xlayer-network:
-    name: xlayer-rpc-network
+    name: xlayer-network
 
 services:
   op-geth:
@@ -11,30 +11,41 @@ services:
     entrypoint: geth
     ports:
       - "8124:8545"   # HTTP RPC
+      - "8553:8552"
+      - "7547:7546"
       - "30304:30303" # P2P TCP
       - "30304:30303/udp" # P2P UDP
     volumes:
-      - ./data/op-geth:/datadir
+      - ./data:/data
       - ./config/jwt.txt:/jwt.txt
       - ./config/op-geth-config.toml:/config.toml
     command:
       - --verbosity=3
-      - --datadir=/datadir
+      - --datadir=/data
       - --config=/config.toml
-      - --authrpc.jwtsecret=/jwt.txt
+      - --db.engine=pebble
       - --gcmode=archive
       - --rollup.enabletxpooladmission
+    networks:
+      - xlayer-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
 
   op-node:
     image: "${OP_STACK_IMAGE_TAG}"
     container_name: xlayer-op-node
+    networks:
+      - xlayer-network
     ports:
       - "9555:9545"
     volumes:
       - ./data/op-node:/data
       - ./config/rollup.json:/rollup.json
       - ./config/jwt.txt:/jwt.txt
-      - ./config/genesis.json:/l1-genesis.json
     command:
       - /app/op-node/bin/op-node
       - --log.level=info
@@ -47,15 +58,15 @@ services:
       - --rpc.port=9545
       - --p2p.listen.tcp=9223
       - --p2p.listen.udp=9223
-      - --p2p.priv.raw=604557d042fbea9ed42f46c0c95c346a932b6a5ef0c0dd07a00dbf95801a2510
       - --p2p.peerstore.path=/data/p2p/opnode_peerstore_db
       - --p2p.discovery.path=/data/p2p/opnode_discovery_db
       - --p2p.bootnodes=enode://eaae9fe2fc758add65fe4cfd42918e898e16ab23294db88f0dcdbcab2773e75bbea6bfdaa42b3ed502dfbee1335c242c602078c4aa009264e4705caa20d3dca7@8.210.181.50:9223
-      - --p2p.no-discovery
+      #- --p2p.static=enode://eaae9fe2fc758add65fe4cfd42918e898e16ab23294db88f0dcdbcab2773e75bbea6bfdaa42b3ed502dfbee1335c242c602078c4aa009264e4705caa20d3dca7@8.210.181.50:9223
       - --rpc.enable-admin=true
       - --l1=${L1_RPC_URL}
-      - --l1.beacon=${L1_BEACON_URL}
-      - --rollup.l1-chain-config=/l1-genesis.json
+      - --l1.beacon.ignore=true
+      - --l1.rpckind=standard
+      - --conductor.enabled=false
       - --safedb.path=/data/safedb
     depends_on:
       - op-geth
