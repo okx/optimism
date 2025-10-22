@@ -3,7 +3,33 @@
 
 set -e
 
-echo "🚀 Initializing X Layer Self-hosted RPC node..."
+# Parse command line arguments
+NETWORK_TYPE=${1:-"testnet"}
+
+# Validate network type
+if [ "$NETWORK_TYPE" != "testnet" ] && [ "$NETWORK_TYPE" != "mainnet" ]; then
+    echo "❌ Error: Invalid network type. Please use 'testnet' or 'mainnet'"
+    echo "Usage: $0 [testnet|mainnet]"
+    exit 1
+fi
+
+# Check if mainnet is supported
+if [ "$NETWORK_TYPE" = "mainnet" ]; then
+    echo "❌ Error: Mainnet is not currently supported"
+    echo "Please use 'testnet' for now. Mainnet support will be available in future releases."
+    exit 1
+fi
+
+if [ ! -f .env ]; then
+    echo "❌ Error: .env file does not exist"
+    echo "Please copy env.example to .env and fill in the correct configuration"
+    exit 1
+fi
+
+# Load environment variables
+source .env
+
+echo "🚀 Initializing X Layer Self-hosted RPC node for $NETWORK_TYPE network..."
 
 mkdir -p data
 
@@ -33,7 +59,7 @@ echo "🔧 Initializing op-geth with genesis file... (It may take a while, pleas
 docker run --rm \
     -v "$(pwd)/data:/data" \
     -v "$(pwd)/config/genesis.json:/genesis.json" \
-    xlayer/op-geth:dev \
+    ${OP_GETH_IMAGE_TAG} \
     --datadir /data \
     --gcmode=archive \
     --db.engine=pebble \
@@ -47,7 +73,3 @@ echo ""
 echo "📁 Generated directories:"
 echo "  - data/: Contains op-geth blockchain data"
 echo "  - config/: Contains configuration files"
-echo ""
-echo "🚀 Next steps:"
-echo "  1. Copy scripts/env.example to .env and configure your settings"
-echo "  2. Run ./start.sh to start the RPC node"

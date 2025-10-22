@@ -3,7 +3,24 @@
 
 set -e
 
-echo "🚀 Starting X Layer Self-hosted RPC node..."
+# Parse command line arguments
+NETWORK_TYPE=${1:-"testnet"}
+
+# Validate network type
+if [ "$NETWORK_TYPE" != "testnet" ] && [ "$NETWORK_TYPE" != "mainnet" ]; then
+    echo "❌ Error: Invalid network type. Please use 'testnet' or 'mainnet'"
+    echo "Usage: $0 [testnet|mainnet]"
+    exit 1
+fi
+
+# Check if mainnet is supported
+if [ "$NETWORK_TYPE" = "mainnet" ]; then
+    echo "❌ Error: Mainnet is not currently supported"
+    echo "Please use 'testnet' for now. Mainnet support will be available in future releases."
+    exit 1
+fi
+
+echo "🚀 Starting X Layer Self-hosted RPC node for $NETWORK_TYPE network..."
 
 # Check environment variables file
 if [ ! -f .env ]; then
