@@ -32,6 +32,10 @@ echo ""
 echo "=============================================="
 echo "Step 2: Build op-migrate image"
 echo "=============================================="
+
+# Remove previous uploads to keep size of docker image small.
+rm -rf $UPLOAD_DIR ${UPLOAD_DIR}.tar.gz
+
 if [ "$SKIP_BUILD_GETH" = true ]; then
     echo "⏭️  Skipping build_images.sh (--skip-geth flag detected)"
 else
@@ -50,7 +54,6 @@ echo ""
 echo "=============================================="
 echo "Step 4: Create folder to store upload files"
 echo "=============================================="
-rm -rf $UPLOAD_DIR
 mkdir -p $UPLOAD_DIR
 mv ${IMAGE_NAME}.tar.gz $UPLOAD_DIR
 cp ./m2-migrate.sh $UPLOAD_DIR
