@@ -3,9 +3,9 @@
 
 set -e
 
-echo "🛑 停止 X Layer RPC节点..."
+echo "🛑 Stopping X Layer RPC node..."
 
-# 停止Docker服务
+# Stop Docker services
 docker compose down
 
-echo "✅ X Layer RPC节点已停止"
+echo "✅ X Layer RPC node has been stopped"

@@ -3,68 +3,59 @@
 
 set -e
 
-echo "🚀 启动 X Layer Self-hosted RPC节点..."
+echo "🚀 Starting X Layer Self-hosted RPC node..."
 
-# 检查环境变量文件
+# Check environment variables file
 if [ ! -f .env ]; then
-    echo "❌ 错误: .env 文件不存在"
-    echo "请复制 env.example 到 .env 并填入正确的配置"
+    echo "❌ Error: .env file does not exist"
+    echo "Please copy env.example to .env and fill in the correct configuration"
     exit 1
 fi
 
-# 加载环境变量
+# Load environment variables
 source .env
 
-# 检查必要的环境变量
+# Check required environment variables
 required_vars=("L1_RPC_URL" "OP_NODE_BOOTNODE" "OP_GETH_BOOTNODE")
 for var in "${required_vars[@]}"; do
     if [ -z "${!var}" ]; then
-        echo "❌ 错误: 环境变量 $var 未设置"
+        echo "❌ Error: Environment variable $var is not set"
         exit 1
     fi
 done
 
-# 创建必要的目录
-echo "📁 创建数据目录..."
+# Create necessary directories
+echo "📁 Creating data directories..."
 mkdir -p data/op-node/p2p
 mkdir -p config
 
-# 检查配置文件
-echo "🔍 检查配置文件..."
-config_files=("config/rollup.json" "config/op-geth-config.toml" "config/genesis.json")
+# Check configuration files
+echo "🔍 Checking configuration files..."
+config_files=("config/rollup.json" "config/genesis.json")
 for file in "${config_files[@]}"; do
     if [ ! -f "$file" ]; then
-        echo "❌ 错误: 配置文件 $file 不存在"
-        echo "请将X Layer测试网的配置文件放入 config/ 目录"
+        echo "❌ Error: Configuration file $file does not exist"
+        echo "Please place X Layer configuration files in the config/ directory"
         exit 1
     fi
 done
 
-# 生成JWT密钥（如果不存在）
+# Generate JWT secret (if it does not exist)
 if [ ! -s config/jwt.txt ]; then
-    echo "🔑 生成JWT密钥..."
+    echo "🔑 Generating JWT secret..."
     openssl rand -hex 32 > config/jwt.txt
 fi
 
-# 启动服务
-echo "🐳 启动Docker服务..."
+# Start services
+echo "🐳 Starting Docker services..."
 docker compose up -d
 
-# 等待服务启动
-echo "⏳ 等待服务启动..."
+# Wait for services to start
+echo "⏳ Waiting for services to start..."
 sleep 10
 
-# 检查服务状态
-echo "🔍 检查服务状态..."
+# Check service status
+echo "🔍 Checking service status..."
 docker compose ps
 
-echo "✅ X Layer RPC节点启动完成!"
-echo ""
-echo "📡 服务端点:"
-echo "  - op-geth RPC: http://localhost:8545"
-echo "  - op-geth WebSocket: ws://localhost:8546"
-echo "  - op-node RPC: http://localhost:9545"
-echo ""
-echo "📊 查看日志: ./scripts/logs.sh"
-echo "🛑 停止服务: ./scripts/stop.sh"
-echo "📈 检查状态: ./scripts/status.sh"
+echo "✅ X Layer RPC node startup completed!"
