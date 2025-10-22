@@ -41,6 +41,7 @@ if [ -d $BACKUP_DIR ];then
   read -p "Do you want to delete the contents of ${BACKUP_DIR}? (y/n): " -n 1 -r
   echo
   if [[ $REPLY =~ ^[Yy]$ ]]; then
+      echo "${BACKUP_DIR} contents are DELETED..."
       rm -rf ${BACKUP_DIR}/*
   else
       echo "${BACKUP_DIR} contents are NOT deleted..."
