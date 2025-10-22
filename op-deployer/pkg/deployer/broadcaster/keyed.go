@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	GasPadFactor = 1.5 // ⚠️[X Layer] Increased from 1.2 to 1.5 for mainnet
+	GasPadFactor = 1.2 // ⚠️[X Layer] Conservative value to stay within RPC gas limits (< 16M per tx)
 )
 
 type KeyedBroadcaster struct {
@@ -50,7 +50,7 @@ func NewKeyedBroadcaster(cfg KeyedBroadcasterOpts) (*KeyedBroadcaster, error) {
 		"TxNotInMempoolTimeout", "2m (was 1m)",
 		"ReceiptQueryInterval", "2s (was 1s)")
 	cfg.Logger.Info("⚠️[X Layer] Gas config",
-		"GasPadFactor", "1.5 (was 1.2)",
+		"GasPadFactor", "1.2 (conservative for RPC limits)",
 		"FeeLimitMultiplier", "10 (was 5)")
 
 	mgrCfg := &txmgr.Config{
@@ -139,7 +139,7 @@ func (t *KeyedBroadcaster) Broadcast(ctx context.Context) ([]BroadcastResult, er
 		t.lgr.Info("⚠️[X Layer] Gas limit calculation",
 			"blockGasLimit", latestBlock.GasLimit(),
 			"gasPadFactor", GasPadFactor,
-			"note", "Using 1.5x padding for mainnet")
+			"note", "Using 1.2x padding (conservative for RPC limits)")
 	}
 
 	var txErr *multierror.Error
@@ -243,7 +243,7 @@ func asTxCandidate(bcast script.Broadcast, blockGasLimit uint64) txmgr.TxCandida
 // the underlying call. Values are multiplied by a pad factor to account for any discrepancies. The output
 // is clamped to the block gas limit since Geth will reject transactions that exceed it before letting them
 // into the mempool.
-// ⚠️[X Layer] Using GasPadFactor=1.5 (increased from 1.2) for mainnet deployment
+// ⚠️[X Layer] Using GasPadFactor=1.2 (conservative to avoid RPC "gas limit too high" errors)
 func padGasLimit(data []byte, gasUsed uint64, creation bool, blockGasLimit uint64) uint64 {
 	intrinsicGas, err := core.IntrinsicGas(data, nil, nil, creation, true, true, false)
 	// This method never errors - we should look into it if it does.
