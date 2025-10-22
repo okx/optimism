@@ -30,6 +30,9 @@ packages/contracts-bedrock/deployments/anvil
 # jetbrains
 .idea/
 
+# vscode
+.vscode/
+
 .secrets
 .env
 .env*

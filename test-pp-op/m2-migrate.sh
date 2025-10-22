@@ -117,9 +117,7 @@ validate_configuration() {
         set -e
         cd /app/test-pp-op
 
-        #########################################################
         # 1. Validate .env
-        #########################################################
         echo \"\"
         echo \"[1/4] Validating .env...\"
         ENV_CHAIN_ID=\$(grep '^CHAIN_ID=' .env | cut -d'=' -f2)
@@ -135,9 +133,7 @@ validate_configuration() {
         fi
         echo \"  ✅ .env validation passed\"
 
-        #########################################################
         # 2. Validate genesis.json
-        #########################################################
         echo \"\"
         echo \"[2/4] Validating config-op/genesis.json...\"
         if [ ! -f config-op/genesis.json ]; then
@@ -176,9 +172,7 @@ validate_configuration() {
         #fi
         #echo \"  ✅ genesis.json timestamp validation passed (RPC < genesis)\"
 
-        #########################################################
         # 3. Validate intent.toml
-        #########################################################
         echo \"\"
         echo \"[3/4] Validating config-op/intent.toml...\"
         if [ ! -f config-op/intent.toml ]; then
@@ -211,9 +205,7 @@ validate_configuration() {
 
         echo \"  ✅ intent.toml validation passed\"
 
-        #########################################################
         # 4. Validate rollup.json
-        #########################################################
         echo \"\"
         echo \"[4/4] Validating config-op/rollup.json...\"
         if [ ! -f config-op/rollup.json ]; then
