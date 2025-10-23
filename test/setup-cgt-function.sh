@@ -92,6 +92,7 @@ setup_cgt() {
   # Export required environment variables for the setup script
   export SYSTEM_CONFIG_PROXY_ADDRESS="$SYSTEM_CONFIG_PROXY_ADDRESS"
   export OPTIMISM_PORTAL_PROXY_ADDRESS="$OPTIMISM_PORTAL_PROXY_ADDRESS"
+  export OKB_ADAPTER_OWNER_ADDRESS="$OKB_ADAPTER_OWNER_ADDRESS"
 
   # Temporarily disable set -e to capture forge output properly
   set +e
@@ -128,16 +129,5 @@ setup_cgt() {
   echo "📋 Setup Contract Addresses:"
   echo "   OKB Token:          $OKB_TOKEN"
   echo "   Adapter:            $ADAPTER_ADDRESS"
-  echo ""
-
-  # Save OKB_TOKEN_ADDRESS to .env file for the test script to use
-  echo "💾 Updating .env with OKB token address..."
-
-  # Update OKB_TOKEN_ADDRESS in .env
-  sed_inplace "s/^OKB_TOKEN_ADDRESS=.*/OKB_TOKEN_ADDRESS=$OKB_TOKEN_ADDRESS/" "$PWD_DIR/.env"
-
-  echo "   ✅ OKB token address updated in .env file"
-  echo "   💡 ADAPTER_ADDRESS can be queried from SystemConfig.gasPayingToken()"
-  echo "   💡 INIT_TOTAL_SUPPLY can be queried from OKB token contract"
   echo ""
 }

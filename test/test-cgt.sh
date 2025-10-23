@@ -8,21 +8,21 @@ cd $PWD_DIR
 
 source .env
 
-# Check if CGT has been set up (OKB_TOKEN_ADDRESS should be in .env)
-if [ -z "$OKB_TOKEN_ADDRESS" ]; then
-  echo "❌ ERROR: OKB_TOKEN_ADDRESS not found in .env"
-  echo ""
-  echo "Please run '2-deploy-op-contracts.sh' first to set up CGT and configure OKB token."
-  echo ""
-  exit 1
-fi
-
 # Query ADAPTER_ADDRESS from SystemConfig.gasPayingToken()
 echo "📝 Querying ADAPTER_ADDRESS from SystemConfig..."
 ADAPTER_ADDRESS=$(cast call "$SYSTEM_CONFIG_PROXY_ADDRESS" "gasPayingToken()(address,uint8)" --rpc-url "$L1_RPC_URL" | head -n1)
 if [ -z "$ADAPTER_ADDRESS" ] || [ "$ADAPTER_ADDRESS" = "0x0000000000000000000000000000000000000000" ]; then
   echo "❌ ERROR: Could not query ADAPTER_ADDRESS from SystemConfig or CGT not configured"
   echo "   SystemConfig address: $SYSTEM_CONFIG_PROXY_ADDRESS"
+  exit 1
+fi
+
+# Query OKB_TOKEN_ADDRESS from the adapter
+echo "📝 Querying OKB_TOKEN_ADDRESS from adapter..."
+OKB_TOKEN_ADDRESS=$(cast call "$ADAPTER_ADDRESS" "OKB()(address)" --rpc-url "$L1_RPC_URL")
+if [ -z "$OKB_TOKEN_ADDRESS" ] || [ "$OKB_TOKEN_ADDRESS" = "0x0000000000000000000000000000000000000000" ]; then
+  echo "❌ ERROR: Could not query OKB_TOKEN_ADDRESS from adapter"
+  echo "   Adapter address: $ADAPTER_ADDRESS"
   exit 1
 fi
 
@@ -105,13 +105,40 @@ if [ -n "$OKB_TOKEN_ADDRESS" ] && [ -n "$ADAPTER_ADDRESS" ]; then
   echo "  Initial Balance: $INIT_BALANCE"
   echo ""
 
-  # Check deployer's OKB balance before proceeding
+  # Get deployer address and verify it's the adapter owner
   DEPLOYER_ADDRESS=$(cast wallet address --private-key "$DEPLOYER_PRIVATE_KEY")
-  DEPLOYER_OKB_BALANCE=$(cast call "$OKB_TOKEN_ADDRESS" "balanceOf(address)(uint256)" "$DEPLOYER_ADDRESS" --rpc-url "$L1_RPC_URL")
-  echo "  Deployer ($DEPLOYER_ADDRESS) OKB Balance: $DEPLOYER_OKB_BALANCE"
+  ADAPTER_OWNER=$(cast call "$ADAPTER_ADDRESS" "owner()(address)" --rpc-url "$L1_RPC_URL")
+
+  echo "  Deployer Address: $DEPLOYER_ADDRESS"
+  echo "  Adapter Owner:    $ADAPTER_OWNER"
+
+  if [ "$DEPLOYER_ADDRESS" != "$ADAPTER_OWNER" ]; then
+    echo ""
+    echo "❌ ERROR: Deployer is not the adapter owner"
+    echo "   This script assumes deployer has ownership of the adapter"
+    echo "   Current owner: $ADAPTER_OWNER"
+    exit 1
+  fi
+
+  echo "  ✅ Deployer is verified as adapter owner"
   echo ""
 
-  # Step 2a: Approve the adapter to spend OKB
+  # Check deployer's OKB balance
+  DEPLOYER_OKB_BALANCE=$(cast call "$OKB_TOKEN_ADDRESS" "balanceOf(address)(uint256)" "$DEPLOYER_ADDRESS" --rpc-url "$L1_RPC_URL")
+  echo "  Deployer OKB Balance: $DEPLOYER_OKB_BALANCE"
+  echo ""
+
+  # Step 2a: Add deployer to whitelist
+  echo "  Adding deployer to whitelist..."
+  cast send "$ADAPTER_ADDRESS" \
+    "addToWhitelistBatch(address[])" \
+    "[$DEPLOYER_ADDRESS]" \
+    --rpc-url "$L1_RPC_URL" \
+    --private-key "$DEPLOYER_PRIVATE_KEY"
+  echo "  ✅ Deployer added to whitelist"
+  echo ""
+
+  # Step 2b: Approve the adapter to spend OKB
   cast send "$OKB_TOKEN_ADDRESS" \
     "approve(address,uint256)" \
     "$ADAPTER_ADDRESS" \
@@ -119,7 +146,7 @@ if [ -n "$OKB_TOKEN_ADDRESS" ] && [ -n "$ADAPTER_ADDRESS" ]; then
     --rpc-url "$L1_RPC_URL" \
     --private-key "$DEPLOYER_PRIVATE_KEY"
 
-  # Step 2b: Perform the deposit
+  # Step 2c: Perform the deposit
   cast send "$ADAPTER_ADDRESS" \
     "deposit(address,uint256)" \
     "$L2_RECIPIENT" \
