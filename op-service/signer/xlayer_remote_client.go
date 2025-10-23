@@ -418,6 +418,13 @@ func (c *XLayerRemoteClient) postSignRequest(ctx context.Context, req *XLayerSig
 		return fmt.Errorf("failed to add auth: %w", err)
 	}
 
+	// Log request details before sending
+	c.logger.Info("Sending HTTP request to XLayer",
+		"method", httpReq.Method,
+		"url", httpReq.URL.String(),
+		"content_type", httpReq.Header.Get("Content-Type"),
+		"has_auth", httpReq.Header.Get("accessKey") != "")
+
 	// 5. Send request
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
@@ -431,14 +438,49 @@ func (c *XLayerRemoteClient) postSignRequest(ctx context.Context, req *XLayerSig
 		return fmt.Errorf("failed to read response: %w", err)
 	}
 
+	// Log response for debugging
+	c.logger.Debug("Post sign request response",
+		"http_status", resp.StatusCode,
+		"content_type", resp.Header.Get("Content-Type"),
+		"body_length", len(body),
+		"body_preview", func() string {
+			if len(body) > 200 {
+				return string(body[:200]) + "..."
+			}
+			return string(body)
+		}())
+
+	// Check HTTP status code
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Error("Post sign request HTTP error",
+			"status_code", resp.StatusCode,
+			"status", resp.Status,
+			"body", string(body))
+		return fmt.Errorf("HTTP error: status=%d, body=%s", resp.StatusCode, string(body))
+	}
+
 	var signResp XLayerSignResponse
 	if err := json.Unmarshal(body, &signResp); err != nil {
-		return fmt.Errorf("failed to unmarshal response: %w", err)
+		c.logger.Error("Failed to unmarshal sign response",
+			"error", err,
+			"body", string(body),
+			"body_length", len(body))
+		return fmt.Errorf("failed to unmarshal response (body: %s): %w", string(body), err)
 	}
 
 	if signResp.Status != 200 || !signResp.Success {
-		return fmt.Errorf("sign request failed: status=%d, msg=%s", signResp.Status, signResp.Msg)
+		c.logger.Error("Sign request failed",
+			"response_status", signResp.Status,
+			"response_msg", signResp.Msg,
+			"response_detail", signResp.DetailMessages,
+			"response_code", signResp.Code)
+		return fmt.Errorf("sign request failed: status=%d, msg=%s, detail=%s",
+			signResp.Status, signResp.Msg, signResp.DetailMessages)
 	}
+
+	c.logger.Info("Post sign request successful",
+		"order_id", signResp.Data,
+		"msg", signResp.Msg)
 
 	return nil
 }
@@ -501,17 +543,43 @@ func (c *XLayerRemoteClient) querySignResult(ctx context.Context, req *XLayerQue
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	var result XLayerSignResponse
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	// Log response for debugging
+	c.logger.Debug("Query sign result HTTP response",
+		"http_status", resp.StatusCode,
+		"content_type", resp.Header.Get("Content-Type"),
+		"body_length", len(body),
+		"body_preview", func() string {
+			if len(body) > 200 {
+				return string(body[:200]) + "..."
+			}
+			return string(body)
+		}())
+
+	// Check HTTP status code
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Error("Query sign result HTTP error",
+			"status_code", resp.StatusCode,
+			"status", resp.Status,
+			"body", string(body))
+		return nil, fmt.Errorf("HTTP error: status=%d, body=%s", resp.StatusCode, string(body))
 	}
 
-	c.logger.Debug("Query sign result response",
-		"response_body", string(body),
+	var result XLayerSignResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		c.logger.Error("Failed to unmarshal query response",
+			"error", err,
+			"body", string(body),
+			"body_length", len(body))
+		return nil, fmt.Errorf("failed to unmarshal response (body: %s): %w", string(body), err)
+	}
+
+	c.logger.Debug("Query sign result parsed",
 		"status", result.Status,
 		"success", result.Success,
 		"msg", result.Msg,
-		"data_length", len(result.Data))
+		"code", result.Code,
+		"data_length", len(result.Data),
+		"has_signature", len(result.Data) > 0)
 
 	return &result, nil
 }
