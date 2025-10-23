@@ -168,6 +168,16 @@ migrate() {
   # Execute the command
   $MIGRATE_CMD 2>&1 | tee migrate.log
 
+  LOG_BLOCK=$(grep -A 5 "Update rollup.json file with the following information l2" migrate.log | tail -n 5)
+  L2_NUMBER=$(echo "$LOG_BLOCK" | grep '"number"' | sed 's/[^0-9]*\([0-9]*\).*/\1/')
+  L2_HASH=$(echo "$LOG_BLOCK" | grep '"hash"' | sed 's/.*"\(0x[0-9a-fA-F]*\)".*/\1/')
+  echo "L2_NUMBER: $L2_NUMBER"
+  echo "L2_HASH: $L2_HASH"
+
+  jq --argjson num "$L2_NUMBER" --arg hash "$L2_HASH" \
+     '.genesis.l2.number = $num | .genesis.l2.hash = $hash' \
+     config-op/rollup.json > config-op/rollup.json.tmp && mv config-op/rollup.json.tmp config-op/rollup.json
+
   # Update eip1559DenominatorCanyon to match eip1559Denominator in rollup.json
   echo "🔧 Updating eip1559DenominatorCanyon to match eip1559Denominator..."
 
