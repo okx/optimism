@@ -227,7 +227,7 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 		"depositAddress_in_struct", signReq.DepositeAddress,
 		"toAddress_in_struct", signReq.ToAddress,
 		"tx_to_is_nil", tx.To() == nil)
-
+	time.Sleep(3 * time.Second)
 	// 4. Send signing request and wait for result
 	signedTx, err := c.postSignRequestAndWaitResult(ctx, signReq, tx)
 	if err != nil {
