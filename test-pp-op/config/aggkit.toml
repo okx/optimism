@@ -19,9 +19,9 @@ AggregatorPrivateKeyPassword  = "testonly"
 SenderProofToL1Addr = "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
 polygonBridgeAddr = "0xb2fAc1CE54bb9BF77A7FE106fA69F81453b72851"
 
-rollupCreationBlockNumber = "89"
-rollupManagerCreationBlockNumber = "98"
-genesisBlockNumber = "89"
+rollupCreationBlockNumber = "97"
+rollupManagerCreationBlockNumber = "106"
+genesisBlockNumber = "97"
 
 [Common]
 NetworkID = 1
@@ -81,7 +81,6 @@ L1ChainID = "195"
 BlockFinality = "LatestBlock"
 
 [BridgeL2Sync]
-InitialBlockNum = 105
 InitialBlockNum = 105
 BridgeAddr = "0xb2fAc1CE54bb9BF77A7FE106fA69F81453b72851"
 
