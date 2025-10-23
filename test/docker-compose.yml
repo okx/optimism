@@ -199,6 +199,31 @@ services:
       retries: 10
       start_period: 3s
 
+  op-reth-seq:
+    image: "${OP_RETH_IMAGE_TAG:-op-reth:latest}"
+    container_name: op-reth-seq
+    entrypoint: /entrypoint/reth-seq.sh
+    env_file:
+      - .env
+    volumes:
+      - ./data/op-reth-seq:/datadir
+      - ./config-op/jwt.txt:/jwt.txt
+      - ./config-op/genesis-reth.json:/genesis.json
+      - ./config-op/test.reth.seq.config.toml:/config.toml
+      - ./entrypoint:/entrypoint
+    ports:
+      - "8123:8545"
+      - "7546:7546"
+      - "8552:8552"
+      - "30303:30303"
+      - "30303:30303/udp"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8545"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+
   op-geth-rpc:
     image: "${OP_GETH_IMAGE_TAG:-op-geth:latest}"
     container_name: op-geth-rpc
@@ -224,7 +249,7 @@ services:
     volumes:
       - ./data/op-reth-rpc:/datadir
       - ./config-op/jwt.txt:/jwt.txt
-      - ./config-op/genesis-rpc.json:/genesis.json
+      - ./config-op/genesis-reth.json:/genesis.json
       - ./config-op/gen.test.reth.rpc.config.toml:/config.toml
       - ./entrypoint:/entrypoint
     ports:
@@ -249,7 +274,7 @@ services:
     command:
       - /app/op-node/bin/op-node
       - --log.level=debug
-      - --l2=http://op-geth-seq:8552
+      - --l2=http://${SEQ_TYPE}:8552
       - --l2.jwt-secret=/jwt.txt
       - --sequencer.enabled
       - --sequencer.l1-confs=5
@@ -275,8 +300,7 @@ services:
       - --pprof.addr=0.0.0.0
       - --pprof.port=9091
     depends_on:
-      op-geth-seq:
-        condition: service_healthy
+      - "${SEQ_TYPE:-op-geth-seq}"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9545"]
       interval: 3s
@@ -335,7 +359,7 @@ services:
       - --log.level=debug
       # already existed service
       - --node.rpc=http://op-seq:9545
-      - --execution.rpc=http://op-geth-seq:8545
+      - --execution.rpc=http://${SEQ_TYPE}:8545
       # Raft Config
       - --raft.server.id=conductor-1
       - --raft.storage.dir=/data/raft

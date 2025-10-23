@@ -34,7 +34,7 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
 else
     echo "🔧 Configuring op-batcher for single sequencer mode..."
     # Set single sequencer mode endpoints
-    export OP_BATCHER_L2_ETH_RPC="http://op-geth-seq:8545"
+    export OP_BATCHER_L2_ETH_RPC="http://${SEQ_TYPE}:8545"
     export OP_BATCHER_ROLLUP_RPC="http://op-seq:9545"
     echo "✅ op-batcher configured for single sequencer mode"
 fi

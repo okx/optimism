@@ -26,8 +26,8 @@ sed_inplace '/"70997970c51812dc3a010c7d01b50e0d17dc79c8": {/,/}/ s/"balance": "[
 NEXT_BLOCK_NUMBER=$((FORK_BLOCK + 1))
 NEXT_BLOCK_NUMBER_HEX=$(printf "0x%x" "$NEXT_BLOCK_NUMBER")
 sed_inplace 's/"number": 0/"number": '"$NEXT_BLOCK_NUMBER"'/' ./config-op/rollup.json
-cp ./config-op/genesis.json ./config-op/genesis-rpc.json
-sed_inplace 's/"number": "0x0"/"number": "'"$NEXT_BLOCK_NUMBER_HEX"'"/' ./config-op/genesis-rpc.json
+cp ./config-op/genesis.json ./config-op/genesis-reth.json
+sed_inplace 's/"number": "0x0"/"number": "'"$NEXT_BLOCK_NUMBER_HEX"'"/' ./config-op/genesis-reth.json
 
 # Extract contract addresses from state.json and update .env file
 echo "🔧 Extracting contract addresses from state.json..."
@@ -109,10 +109,12 @@ else
     echo " ❌ state.json not found at $STATE_JSON"
 fi
 
-# init op-geth-seq and op-geth-rpc
-OP_GETH_DATADIR="$(pwd)/data/op-geth-seq"
-rm -rf "$OP_GETH_DATADIR"
-mkdir -p "$OP_GETH_DATADIR"
+# init sequencer and RPC
+OP_SEQ_DATADIR="$(pwd)/data/$SEQ_TYPE"
+rm -rf "$OP_SEQ_DATADIR"
+mkdir -p "$OP_SEQ_DATADIR"
+
+if [ "$SEQ_TYPE" = "op-geth-seq" ]; then
 docker compose run --no-deps --rm \
   -v "$(pwd)/$CONFIG_DIR/genesis.json:/genesis.json" \
   op-geth-seq \
@@ -123,13 +125,14 @@ docker compose run --no-deps --rm \
   init \
   --state.scheme=hash \
   /genesis.json 2>&1 | tee init.log
+fi
 
-# Start op-geth-seq to get the block hash at FORK_BLOCK+1
-echo "🚀 Starting op-geth-seq to get block hash at FORK_BLOCK+1..."
-docker compose up -d op-geth-seq
+# Start sequencer to get the block hash at FORK_BLOCK+1
+echo "🚀 Starting $SEQ_TYPE to get block hash at FORK_BLOCK+1..."
+docker compose up -d $SEQ_TYPE
 
-# Wait for op-geth-seq to be ready
-echo "⏳ Waiting for op-geth-seq to be ready..."
+# Wait for sequencer to be ready
+echo "⏳ Waiting for $SEQ_TYPE to be ready..."
 sleep 20
 set +x
 # Get the block hash at FORK_BLOCK+1
@@ -139,32 +142,32 @@ NEW_BLOCK_HASH=$(curl -s -X POST -H "Content-Type: application/json" --data "{\"
 echo "New block hash: $NEW_BLOCK_HASH"
 if [ -z "$NEW_BLOCK_HASH" ] || [ "$NEW_BLOCK_HASH" = "null" ] || [ "$NEW_BLOCK_HASH" = "undefined" ]; then
     echo " ❌ Failed to get block hash at block $TARGET_BLOCK"
-    echo "Please check if op-geth-seq is running and has produced enough blocks"
-    docker compose logs op-geth-seq --tail=20
+    echo "Please check if $SEQ_TYPE is running and has produced enough blocks"
+    docker compose logs $SEQ_TYPE --tail=20
     exit 1
 fi
 set -x
 
 echo " ✅ Got block hash at block $TARGET_BLOCK: $NEW_BLOCK_HASH"
 
-# Stop op-geth-seq after getting the hash
-docker compose stop op-geth-seq
+# Stop sequencer after getting the hash
+docker compose stop $SEQ_TYPE
 
 # update genesis block hash in rollup.json
 jq ".genesis.l2.hash = \"$NEW_BLOCK_HASH\"" config-op/rollup.json > config-op/rollup.json.tmp
 mv config-op/rollup.json.tmp config-op/rollup.json
 
-# Copy initialized database from op-geth-seq to other nodes
-OP_GETH_RPC_DATADIR="$(pwd)/data/op-geth-rpc"
+# Copy initialized database from sequencer to other nodes
+if [ "$SEQ_TYPE" = "op-geth-seq" ] && [ "$RPC_TYPE" = "op-geth-rpc" ]; then
+  OP_RPC_DATADIR="$(pwd)/data/$RPC_TYPE"
+  echo " 🔄 Copying database from $SEQ_TYPE to $RPC_TYPE..."
+  rm -rf "$OP_RPC_DATADIR"
+  cp -r "$OP_SEQ_DATADIR" "$OP_RPC_DATADIR"
 
-echo " 🔄 Copying database from op-geth-seq to op-geth-rpc..."
-rm -rf "$OP_GETH_RPC_DATADIR"
-cp -r "$OP_GETH_DATADIR" "$OP_GETH_RPC_DATADIR"
-
-# Remove nodekey to ensure op-geth-rpc generates a unique node ID
-echo " 🔑 Removing nodekey to generate unique node ID for op-geth-rpc..."
-rm -f "$OP_GETH_RPC_DATADIR/geth/nodekey"
-
+  # Remove nodekey to ensure op-geth-rpc generates a unique node ID
+  echo " 🔑 Removing nodekey to generate unique node ID for $RPC_TYPE..."
+  rm -f "$OP_RPC_DATADIR/geth/nodekey"
+fi
 
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     OP_GETH_DATADIR="$(pwd)/data/op-geth-seq2"
@@ -180,7 +183,6 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
       --state.scheme=hash \
       /genesis.json
 
-
     OP_GETH_DATADIR="$(pwd)/data/op-geth-seq3"
     rm -rf "$OP_GETH_DATADIR"
     mkdir -p "$OP_GETH_DATADIR"
@@ -195,7 +197,7 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
       /genesis.json
 fi
 
-echo "finished init op-geth-seq and op-geth-rpc"
+echo "finished init $SEQ_TYPE and $RPC_TYPE"
 
 # genesis.json is too large to embed in go, so we compress it now and decompress it in go code
 gzip -c config-op/genesis.json > config-op/genesis.json.gz
