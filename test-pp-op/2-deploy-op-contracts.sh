@@ -97,7 +97,7 @@ deploy_transactor() {
   FORGE_CMD="forge create --json --broadcast --legacy \
     --rpc-url $L1_RPC_URL_IN_DOCKER \
     --private-key $DEPLOYER_PRIVATE_KEY \
-    src/periphery/Transactor.sol:Transactor.0.8.30 \
+    src/periphery/Transactor.sol:Transactor \
     --constructor-args $ADMIN_OWNER_ADDRESS"
 
   echo "🔧 Executing Docker command..."

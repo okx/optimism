@@ -1,7 +1,7 @@
 PathRWData = "/tmp/"
 L1URL="http://l1-geth:8545"
 
-L2URL="http://op-geth-rpc:8545"
+L2URL="http://op-geth-seq:8545"
 
 AggLayerURL="xlayer-agglayer:4443"
 
@@ -11,24 +11,24 @@ IsValidiumMode = false
 NetworkID = 1
 
 L2Coinbase =  "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
-SequencerPrivateKeyPath = "/etc/aggkit/sequencer.keystore"
+SequencerPrivateKeyPath = "/etc/keystore/sequencer.keystore"
 SequencerPrivateKeyPassword  = "testonly"
 
-AggregatorPrivateKeyPath = "/etc/aggkit/aggregator.keystore"
+AggregatorPrivateKeyPath = "/etc/keystore/aggregator.keystore"
 AggregatorPrivateKeyPassword  = "testonly"
 SenderProofToL1Addr = "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
 polygonBridgeAddr = "0xb2fAc1CE54bb9BF77A7FE106fA69F81453b72851"
 
-rollupCreationBlockNumber = "93"
-rollupManagerCreationBlockNumber = "102"
-genesisBlockNumber = "93"
+rollupCreationBlockNumber = "156"
+rollupManagerCreationBlockNumber = "162"
+genesisBlockNumber = "156"
 
 [Common]
 NetworkID = 1
 IsValidiumMode = false
 ContractVersions = "banana"
 # TODO, should we config with base
-L2RPC = { Mode = "basic", URL = "{{L2URL}}", OpNodeURL = "http://op-rpc:8545" }
+L2RPC = { Mode = "basic", URL = "{{L2URL}}", OpNodeURL = "http://op-seq:8545" }
 
 [L1Config]
 chainId = "1337"
@@ -50,7 +50,7 @@ Port = 5576
 
 [AggSender]
 StoragePath = "/tmp/aggsender.sqlite"
-AggsenderPrivateKey = {Path = "/etc/aggkit/sequencer.keystore", Password = "testonly"}
+AggsenderPrivateKey = {Path = "/etc/keystore/sequencer.keystore", Password = "testonly"}
 CheckStatusCertificateInterval = "1s"
 Mode="PessimisticProof"
 UseAgglayerTLS = false
@@ -61,11 +61,11 @@ StopOnFinishedSendingAllCertificates = false
 [AggSender.MaxSubmitCertificateRate]
 NumRequests = 20
 Interval = "1m"
-BlockFinality = "LatestBlock"
+BlockFinality = "FinalizedBlock"
 SaveCertificatesToFilesPath = "/tmp/certificates"
 KeepCertificatesHistory = true
 [AggOracle]
-BlockFinality = "LatestBlock"
+BlockFinality = "FinalizedBlock"
 WaitPeriodNextGER = "10s"
 
 [AggOracle.EVMSender]
@@ -73,35 +73,35 @@ GlobalExitRootL2 = "0xa40d5f56745a118d0906a34e69aec8c0db1cb8fa"
 WaitPeriodMonitorTx = "10s"
 
 [AggOracle.EVMSender.EthTxManager]
-PrivateKeys = [{Path = "/etc/aggkit/aggoracle.keystore", Password = "testonly"}]
+PrivateKeys = [{Path = "/etc/keystore/aggoracle.keystore", Password = "testonly"}]
 [AggOracle.EVMSender.EthTxManager.Etherman]
 L1ChainID = "195"
 
 [BridgeL1Sync]
-BlockFinality = "LatestBlock"
+BlockFinality = "FinalizedBlock"
 
 [BridgeL2Sync]
 BridgeAddr = "0xb2fAc1CE54bb9BF77A7FE106fA69F81453b72851"
 
 DBPath = "/tmp/bridgel2sync.sqlite"
-BlockFinality = "LatestBlock"
+BlockFinality = "FinalizedBlock"
 
 SyncBlockChunkSize = 1000
 
 [ReorgDetectorL1]
 DBPath = "/tmp/reorgdetectorl1.sqlite"
-LatestBlock="LatestBlock"
+FinalizedBlock="FinalizedBlock"
 
 [ReorgDetectorL2]
 DBPath = "/tmp/reorgdetectorl2.sqlite"
-LatestBlock="LatestBlock"
+FinalizedBlock="FinalizedBlock"
 
 [L1InfoTreeSync]
 InitialBlock = "36"
-BlockFinality = "LatestBlock"
+BlockFinality = "FinalizedBlock"
 
 [LastGERSync]
-BlockFinality = "LatestBlock"
+BlockFinality = "FinalizedBlock"
 
 [ClaimSponsor]
 DBPath = "/tmp/claimsponsor.sqlite"
@@ -113,7 +113,7 @@ BridgeAddrL2 = "0xb2fAc1CE54bb9BF77A7FE106fA69F81453b72851"
 
 [ClaimSponsor.EthTxManager]
 PrivateKeys = [
-    {Path = "/etc/aggkit/claimtxmanager.keystore", Password = ""},
+    {Path = "/etc/keystore/claimtxmanager.keystore", Password = ""},
 ]
 
 StoragePath = ""
