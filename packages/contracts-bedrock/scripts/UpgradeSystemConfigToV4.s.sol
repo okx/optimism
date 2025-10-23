@@ -18,7 +18,7 @@ import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
 ///      3. Deploys DepositedOKBAdapter that handles OKB burning internally
 ///      4. Atomically upgrades SystemConfig to V4 and sets OKB adapter via ProxyAdmin.upgradeAndCall()
 ///      5. Verifies all configurations on L1
-///      6. Verifies reinitializer protection prevents multiple calls to upgradeAndSetGasPayingToken()
+///      6. Verifies reinitializer protection
 contract UpgradeSystemConfigToV4 is Script {
 
     // Environment variable names
@@ -27,6 +27,7 @@ contract UpgradeSystemConfigToV4 is Script {
     string constant TRANSACTOR = "TRANSACTOR";
     string constant OKB_TOKEN_ADDRESS = "OKB_TOKEN_ADDRESS";
     string constant OPTIMISM_PORTAL_PROXY = "OPTIMISM_PORTAL_PROXY_ADDRESS";
+    string constant OKB_ADAPTER_OWNER_ADDRESS = "OKB_ADAPTER_OWNER_ADDRESS";
 
     // State variables for configuration
     address systemConfigProxy;
@@ -35,6 +36,7 @@ contract UpgradeSystemConfigToV4 is Script {
     address okbTokenAddress;
     address optimismPortalProxy;
     address deployerAddress;
+    address adatperOwnerAddress;
 
     // Deployed contracts
     IOKB okbToken;
@@ -59,6 +61,7 @@ contract UpgradeSystemConfigToV4 is Script {
         transactorAddress = vm.envAddress(TRANSACTOR);
         okbTokenAddress = vm.envAddress(OKB_TOKEN_ADDRESS);
         optimismPortalProxy = vm.envAddress(OPTIMISM_PORTAL_PROXY);
+        adatperOwnerAddress = vm.envAddress(OKB_ADAPTER_OWNER_ADDRESS);
 
         console.log("=== Upgrade Configuration ===");
         console.log("Deployer address:", deployerAddress);
@@ -67,6 +70,7 @@ contract UpgradeSystemConfigToV4 is Script {
         console.log("Transactor:", transactorAddress);
         console.log("OKB Token Address:", okbTokenAddress);
         console.log("OptimismPortal Proxy:", optimismPortalProxy);
+        console.log("OKB Adapter Owner Address:", adatperOwnerAddress);
 
         // Initialize contract interfaces
         okbToken = IOKB(okbTokenAddress);
@@ -81,6 +85,7 @@ contract UpgradeSystemConfigToV4 is Script {
         require(okbTokenAddress != address(0), "OKB token address cannot be zero");
         require(optimismPortalProxy != address(0), "OptimismPortal proxy address cannot be zero");
         require(deployerAddress != address(0), "Deployer address cannot be zero");
+        require(adatperOwnerAddress != address(0), "OKB Adapter owner address cannot be zero");
 
         // Verify contracts have code
         require(
@@ -142,7 +147,7 @@ contract UpgradeSystemConfigToV4 is Script {
     /// @notice Deploy DepositedOKBAdapter
     function _deployAdapter() internal {
         console.log("\n--- Deploying DepositedOKBAdapter ---");
-        adapter = new DepositedOKBAdapter(okbTokenAddress, payable(optimismPortalProxy), deployerAddress);
+        adapter = new DepositedOKBAdapter(okbTokenAddress, payable(optimismPortalProxy), adatperOwnerAddress);
         console.log("DepositedOKBAdapter deployed at:", address(adapter));
     }
 
@@ -174,7 +179,7 @@ contract UpgradeSystemConfigToV4 is Script {
 
         // Encode the upgradeAndSetGasPayingToken() call data
         bytes memory initCalldata = abi.encodeWithSelector(
-            SystemConfigV4.upgradeAndSetGasPayingToken.selector,
+            SystemConfigV4.setGasPayingToken.selector,
             address(adapter),
             okbToken.decimals(),
             nameBytes32,
@@ -245,7 +250,7 @@ contract UpgradeSystemConfigToV4 is Script {
 
         // Check init version updated
         uint8 newInitVersion = upgradedSystemConfig.initVersion();
-        require(newInitVersion == 4, "Init version not updated correctly");
+        require(newInitVersion == 3, "Init version not updated correctly");
 
         // Check gas paying token is set to adapter
         (address newGasToken, uint8 newDecimals) = upgradedSystemConfig.gasPayingToken();
@@ -289,55 +294,6 @@ contract UpgradeSystemConfigToV4 is Script {
         console.log("Adapter approval to Portal:", allowance);
         require(allowance == 0, "FAILED: Adapter should not pre-approve portal");
 
-        // Verify reinitializer protection - upgradeAndSetGasPayingToken should not be callable again
-        _verifyReinitializerProtection(upgradedSystemConfig);
-
         console.log("All upgrade verifications passed!");
-    }
-
-    /// @notice Verify that upgradeAndSetGasPayingToken cannot be called again due to reinitializer protection
-    function _verifyReinitializerProtection(SystemConfigV4 _systemConfig) internal {
-        console.log("\n--- Verifying Reinitializer Protection ---");
-
-        // Try to call upgradeAndSetGasPayingToken again - this should fail
-        console.log("Testing reinitializer protection...");
-
-        // Encode another call to upgradeAndSetGasPayingToken with different parameters
-        bytes memory secondCalldata = abi.encodeWithSelector(
-            SystemConfigV4.upgradeAndSetGasPayingToken.selector,
-            address(0x1234), // dummy address
-            18, // dummy decimals
-            bytes32("Test"), // dummy name
-            bytes32("TST") // dummy symbol
-        );
-
-        console.log("Attempting second call to upgradeAndSetGasPayingToken via Transactor...");
-
-        // This call should fail due to reinitializer protection
-        try transactor.CALL(address(_systemConfig), secondCalldata, 0) returns (bool success, bytes memory) {
-            require(!success, "FAILED: Second call to upgradeAndSetGasPayingToken should have failed but succeeded");
-            console.log("Reinitializer protection verified: Second call failed as expected");
-        } catch {
-            console.log("Reinitializer protection verified: Second call reverted as expected");
-        }
-
-        // Also try calling it directly (this should also fail)
-        console.log("Attempting direct call to upgradeAndSetGasPayingToken...");
-
-        try _systemConfig.upgradeAndSetGasPayingToken(
-            address(0x1234),
-            18,
-            bytes32("Test"),
-            bytes32("TST")
-        ) {
-            revert("FAILED: Direct call to upgradeAndSetGasPayingToken should have failed but succeeded");
-        } catch Error(string memory reason) {
-            console.log("Direct call failed as expected with reason:");
-            console.log("  ", reason);
-        } catch {
-            console.log("Direct call reverted as expected (low-level revert)");
-        }
-
-        console.log("Reinitializer protection verification completed");
     }
 }

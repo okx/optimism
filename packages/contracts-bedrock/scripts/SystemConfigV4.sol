@@ -174,7 +174,7 @@ contract SystemConfigV4 is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitializa
     /// @notice Constructs the SystemConfig contract.
     /// @dev    START_BLOCK_SLOT is set to type(uint256).max here so that it will be a dead value
     ///         in the singleton.
-    constructor() ReinitializableBase(4) {
+    constructor() ReinitializableBase(3) {
         Storage.setUint(START_BLOCK_SLOT, type(uint256).max);
         _disableInitializers();
     }
@@ -597,16 +597,14 @@ contract SystemConfigV4 is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitializa
         symbol_ = GasPayingToken.getSymbol();
     }
 
-    /// @notice Sets the gas paying token and its metadata. Can only be called by the owner.
+    /// @notice Sets the gas paying token and its metadata. Can only be called by the ProxyAdmin or its owner.
     /// @param _token The address of the gas paying token.
     /// @param _decimals The decimals of the gas paying token.
     /// @param _name The name of the gas paying token as a bytes32.
     /// @param _symbol The symbol of the gas paying token as a bytes32.
-    function setGasPayingToken(address _token, uint8 _decimals, bytes32 _name, bytes32 _symbol) external onlyOwner {
-        (address gasToken,) = gasPayingToken();
-        if (gasToken != Constants.ETHER) {
-            revert SystemConfig_ValueAlreadySet();
-        }
+    function setGasPayingToken(address _token, uint8 _decimals, bytes32 _name, bytes32 _symbol) external {
+        _assertOnlyProxyAdminOrProxyAdminOwner();
+
         _setGasPayingToken(_token, _decimals, _name, _symbol);
     }
 
@@ -619,13 +617,4 @@ contract SystemConfigV4 is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitializa
         GasPayingToken.set(_token, _decimals, _name, _symbol);
     }
 
-    /// @notice Upgrade function that resets the gas paying token to allow setting it once more.
-    ///         This preserves the existing "set once" logic while allowing a fresh start.
-    /// @dev    This function can only be called during the upgrade process via reinitializer(4).
-    function upgradeAndSetGasPayingToken(address _token, uint8 _decimals, bytes32 _name, bytes32 _symbol) external reinitializer(initVersion()) {
-        // Must be called by ProxyAdmin or its owner
-        _assertOnlyProxyAdminOrProxyAdminOwner();
-
-        _setGasPayingToken(_token, _decimals, _name, _symbol);
-    }
 }
