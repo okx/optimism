@@ -8,6 +8,8 @@ cd $PWD_DIR
 
 source .env
 
+SYSTEM_CONFIG_PROXY_ADDRESS=$(jq -r '.opChainDeployments[0].SystemConfigProxy' $PWD_DIR/config-op/state.json)
+
 # Query ADAPTER_ADDRESS from SystemConfig.gasPayingToken()
 echo "📝 Querying ADAPTER_ADDRESS from SystemConfig..."
 ADAPTER_ADDRESS=$(cast call "$SYSTEM_CONFIG_PROXY_ADDRESS" "gasPayingToken()(address,uint8)" --rpc-url "$L1_RPC_URL" | head -n1)
@@ -96,15 +98,6 @@ if [ -n "$OKB_TOKEN_ADDRESS" ] && [ -n "$ADAPTER_ADDRESS" ]; then
 
   DEPOSIT_AMOUNT="7999000000000000"
 
-  # L2 recipient address
-  L2_RECIPIENT=0x70997970C51812dc3A010C7d01b50e0d17dc79C9
-
-  INIT_BALANCE=$(cast balance $L2_RECIPIENT --rpc-url $L2_RPC_URL)
-  echo "  Deposit Amount: $DEPOSIT_AMOUNT"
-  echo "  L2 Recipient:   $L2_RECIPIENT"
-  echo "  Initial Balance: $INIT_BALANCE"
-  echo ""
-
   # Get deployer address and verify it's the adapter owner
   DEPLOYER_ADDRESS=$(cast wallet address --private-key "$DEPLOYER_PRIVATE_KEY")
   ADAPTER_OWNER=$(cast call "$ADAPTER_ADDRESS" "owner()(address)" --rpc-url "$L1_RPC_URL")
@@ -130,11 +123,11 @@ if [ -n "$OKB_TOKEN_ADDRESS" ] && [ -n "$ADAPTER_ADDRESS" ]; then
 
   # Step 2a: Add deployer to whitelist
   echo "  Adding deployer to whitelist..."
-  cast send "$ADAPTER_ADDRESS" \
+  TX_HASH=$(cast send "$ADAPTER_ADDRESS" \
     "addToWhitelistBatch(address[])" \
     "[$DEPLOYER_ADDRESS]" \
     --rpc-url "$L1_RPC_URL" \
-    --private-key "$DEPLOYER_PRIVATE_KEY"
+    --private-key "$DEPLOYER_PRIVATE_KEY" --json)
   echo "  ✅ Deployer added to whitelist"
   echo ""
 
@@ -145,6 +138,16 @@ if [ -n "$OKB_TOKEN_ADDRESS" ] && [ -n "$ADAPTER_ADDRESS" ]; then
     "$DEPOSIT_AMOUNT" \
     --rpc-url "$L1_RPC_URL" \
     --private-key "$DEPLOYER_PRIVATE_KEY"
+
+  # L2 recipient address
+  L2_RECIPIENT=$DEPLOYER_ADDRESS
+
+  INIT_BALANCE=$(cast balance $L2_RECIPIENT --rpc-url $L2_RPC_URL)
+  echo "  Deposit From $DEPLOYER_ADDRESS to $L2_RECIPIENT"
+  echo "  Deposit Amount: $DEPOSIT_AMOUNT"
+  echo "  L2 Recipient:   $L2_RECIPIENT"
+  echo "  L2 Recipient Initial Balance: $INIT_BALANCE"
+  echo ""
 
   # Step 2c: Perform the deposit
   cast send "$ADAPTER_ADDRESS" \
