@@ -284,6 +284,7 @@ extract_configuration_fields() {
         echo 'DISPUTE_GAME_FINALITY_DELAY_SECONDS='\$(grep '^DISPUTE_GAME_FINALITY_DELAY_SECONDS=' .env | cut -d'=' -f2) && \
         echo 'CHALLENGE_PERIOD_SECONDS='\$(grep '^CHALLENGE_PERIOD_SECONDS=' .env | cut -d'=' -f2) && \
         echo 'WITHDRAWAL_DELAY_SECONDS='\$(grep '^WITHDRAWAL_DELAY_SECONDS=' .env | cut -d'=' -f2) && \
+        echo 'DISPUTE_GAME_FACTORY_ADDRESS='\$(grep '^DISPUTE_GAME_FACTORY_ADDRESS=' .env | cut -d'=' -f2) && \
         echo 'TRANSACTOR='\$(grep '^TRANSACTOR=' .env | cut -d'=' -f2)"
 
     echo ""
