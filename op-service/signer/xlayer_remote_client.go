@@ -199,6 +199,7 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 		"depositeAddress", depositeAddress,
 		"to", tx.To(),
 		"toAddress", toAddress,
+		"refOrderId", signReq.RefOrderID,
 		"userId", signReq.UserID,
 		"symbol", signReq.Symbol,
 		"projectSymbol", signReq.ProjectSymbol,

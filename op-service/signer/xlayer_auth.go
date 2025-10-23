@@ -45,7 +45,6 @@ func (c *XLayerRemoteClient) addAuth(req *http.Request) error {
 
 // genAuth generates authentication signature from HTTP request
 func (c *XLayerRemoteClient) genAuth(req *http.Request, algorithm string) (string, error) {
-	// 1. Process URL query parameters
 	params := req.URL.Query()
 	treeMap := make(map[string][]string)
 	for _, v := range params {
@@ -56,7 +55,8 @@ func (c *XLayerRemoteClient) genAuth(req *http.Request, algorithm string) (strin
 		treeMap[key] = v
 	}
 
-	// 2. Read request body
+	const maxBodySize = 10 * 1024 * 1024 // 10MB max body size
+
 	var body strings.Builder
 	if req.Body != nil {
 		readCloser, err := req.GetBody()
@@ -66,10 +66,16 @@ func (c *XLayerRemoteClient) genAuth(req *http.Request, algorithm string) (strin
 		defer readCloser.Close()
 
 		buffer := make([]byte, 0)
-		// Read the request body into the buffer
-		_, err = io.Copy(&bufferWriter{&buffer}, readCloser)
+		// Read the request body with size limit
+		limitedReader := io.LimitReader(readCloser, maxBodySize)
+		n, err := io.Copy(&bufferWriter{&buffer}, limitedReader)
 		if err != nil {
 			return "", fmt.Errorf("read body error: %w", err)
+		}
+
+		// Check if body was truncated (potential attack)
+		if n >= maxBodySize {
+			return "", fmt.Errorf("request body too large: exceeded %d bytes", maxBodySize)
 		}
 
 		// Append the body if present
@@ -125,7 +131,14 @@ func (c *XLayerRemoteClient) generateSignature(treeMap map[string][]string, body
 
 // encryptAES encrypts using AES ECB mode (consistent with xlayer-node)
 func encryptAES(src, key string) (string, error) {
-	block, err := aes.NewCipher([]byte(key))
+	// Security: Validate AES key length (must be 16, 24, or 32 bytes)
+	keyBytes := []byte(key)
+	keyLen := len(keyBytes)
+	if keyLen != 16 && keyLen != 24 && keyLen != 32 {
+		return "", fmt.Errorf("invalid AES key length: %d bytes (must be 16, 24, or 32)", keyLen)
+	}
+
+	block, err := aes.NewCipher(keyBytes)
 	if err != nil {
 		return "", fmt.Errorf("failed to create AES cipher: %w", err)
 	}
