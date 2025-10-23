@@ -28,8 +28,8 @@ func (c *XLayerRemoteClient) addAuth(req *http.Request) error {
 		return nil
 	}
 
-	// Set accessKey header
-	req.Header.Set(headerAccessKey, c.config.AccessKey)
+	// Set accessKey header (use array syntax for consistency with xlayer-node)
+	req.Header[headerAccessKey] = []string{c.config.AccessKey}
 
 	// Generate signature using SHA256 algorithm
 	signature, err := c.genAuth(req, algoSha256)
@@ -37,8 +37,8 @@ func (c *XLayerRemoteClient) addAuth(req *http.Request) error {
 		return fmt.Errorf("failed to generate signature: %w", err)
 	}
 
-	// Set sign header
-	req.Header.Set(headerSignKey, signature)
+	// Set sign header (use array syntax for consistency with xlayer-node)
+	req.Header[headerSignKey] = []string{signature}
 
 	return nil
 }
@@ -57,7 +57,7 @@ func (c *XLayerRemoteClient) genAuth(req *http.Request, algorithm string) (strin
 	}
 
 	// 2. Read request body
-	var body string
+	var body strings.Builder
 	if req.Body != nil {
 		readCloser, err := req.GetBody()
 		if err != nil {
@@ -65,18 +65,21 @@ func (c *XLayerRemoteClient) genAuth(req *http.Request, algorithm string) (strin
 		}
 		defer readCloser.Close()
 
-		buffer, err := io.ReadAll(readCloser)
+		buffer := make([]byte, 0)
+		// Read the request body into the buffer
+		_, err = io.Copy(&bufferWriter{&buffer}, readCloser)
 		if err != nil {
 			return "", fmt.Errorf("read body error: %w", err)
 		}
 
-		if len(buffer) > 0 {
-			body = string(buffer)
+		// Append the body if present
+		if len(buffer) != 0 {
+			body.Write(buffer)
 		}
 	}
 
 	// 3. Generate signature from treeMap and body
-	return c.generateSignature(treeMap, body, algorithm)
+	return c.generateSignature(treeMap, body.String(), algorithm)
 }
 
 // generateSignature generates signature from parameters and body
@@ -129,7 +132,7 @@ func encryptAES(src, key string) (string, error) {
 
 	ecbEncrypt := newECBEncrypter(block)
 	content := []byte(src)
-	content = pkcs5Padding(content, block.BlockSize())
+	content = PKCS5Padding(content, block.BlockSize())
 	encrypted := make([]byte, len(content))
 
 	err = ecbEncrypt.cryptBlocksWithError(encrypted, content)
@@ -140,8 +143,8 @@ func encryptAES(src, key string) (string, error) {
 	return base64.StdEncoding.EncodeToString(encrypted), nil
 }
 
-// pkcs5Padding applies PKCS5 padding
-func pkcs5Padding(ciphertext []byte, blockSize int) []byte {
+// PKCS5Padding applies PKCS5 padding (consistent with xlayer-node naming)
+func PKCS5Padding(ciphertext []byte, blockSize int) []byte {
 	padding := blockSize - len(ciphertext)%blockSize
 	padText := bytes.Repeat([]byte{byte(padding)}, padding)
 	return append(ciphertext, padText...)
@@ -201,4 +204,14 @@ func (x *ecbEncrypter) cryptBlocksWithError(dst, src []byte) error {
 	x.CryptBlocks(dst, src)
 
 	return nil
+}
+
+// bufferWriter is a simple implementation of io.Writer to write to a buffer
+type bufferWriter struct {
+	buffer *[]byte
+}
+
+func (bw *bufferWriter) Write(p []byte) (n int, err error) {
+	*bw.buffer = append(*bw.buffer, p...)
+	return len(p), nil
 }
