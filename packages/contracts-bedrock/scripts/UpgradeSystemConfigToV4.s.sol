@@ -16,10 +16,9 @@ import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
 ///      1. Reads OKB token address and Transactor address from environment variables
 ///      2. Validates ownership chain (Transactor owns ProxyAdmin, ProxyAdmin controls SystemConfig)
 ///      3. Deploys DepositedOKBAdapter that handles OKB burning internally
-///      4. Adds deployer address to whitelist for deposits
-///      5. Atomically upgrades SystemConfig to V4 and sets OKB adapter via ProxyAdmin.upgradeAndCall()
-///      6. Verifies all configurations on L1
-///      7. Verifies reinitializer protection prevents multiple calls to upgradeAndSetGasPayingToken()
+///      4. Atomically upgrades SystemConfig to V4 and sets OKB adapter via ProxyAdmin.upgradeAndCall()
+///      5. Verifies all configurations on L1
+///      6. Verifies reinitializer protection prevents multiple calls to upgradeAndSetGasPayingToken()
 contract UpgradeSystemConfigToV4 is Script {
 
     // Environment variable names
@@ -147,16 +146,6 @@ contract UpgradeSystemConfigToV4 is Script {
         console.log("DepositedOKBAdapter deployed at:", address(adapter));
     }
 
-    /// @notice Set up whitelist for authorized depositors
-    function _setupWhitelist() internal {
-        console.log("\n--- Setting up Whitelist ---");
-        console.log("Adding deployer to whitelist...");
-        address[] memory addresses = new address[](1);
-        addresses[0] = deployerAddress;
-        adapter.addToWhitelistBatch(addresses);
-        console.log("Deployer whitelisted successfully:", deployerAddress);
-    }
-
     /// @notice Perform the complete upgrade process
     function _performUpgrade() internal {
         console.log("\n=== Starting SystemConfig V4 Upgrade ===");
@@ -176,10 +165,7 @@ contract UpgradeSystemConfigToV4 is Script {
         // Step 3: Deploy DepositedOKBAdapter
         _deployAdapter();
 
-        // Step 4: Setup whitelist for deployer
-        _setupWhitelist();
-
-        // Step 5: Upgrade proxy and call upgradeAndSetGasPayingToken atomically
+        // Step 4: Upgrade proxy and call upgradeAndSetGasPayingToken atomically
         console.log("\n--- Upgrading and Initializing SystemConfig V4 via Transactor ---");
 
         // Convert string to bytes32 for SystemConfig function
@@ -217,7 +203,7 @@ contract UpgradeSystemConfigToV4 is Script {
 
         SystemConfigV4 upgradedSystemConfig = SystemConfigV4(systemConfigProxy);
 
-        // Step 6: Verify the upgrade
+        // Step 5: Verify the upgrade
         _verifyUpgrade(upgradedSystemConfig);
 
         vm.stopBroadcast();
@@ -297,11 +283,6 @@ contract UpgradeSystemConfigToV4 is Script {
         console.log("Adapter balance:", adapterBalance);
         console.log("Expected balance (OKB total supply):", expectedBalance);
         require(adapterBalance == expectedBalance, "FAILED: Adapter balance should equal OKB total supply");
-
-        // Check whitelist configuration
-        console.log("Verifying deployer whitelist...");
-        require(adapter.whitelist(deployerAddress), "FAILED: Deployer address not whitelisted");
-        console.log("Deployer whitelist verified:", deployerAddress);
 
         // Check Adapter approval to portal (should be zero initially)
         uint256 allowance = adapter.allowance(address(adapter), optimismPortalProxy);
