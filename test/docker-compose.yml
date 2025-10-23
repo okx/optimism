@@ -177,7 +177,7 @@ services:
     volumes:
       - ./data/op-geth-seq:/datadir
       - ./config-op/jwt.txt:/jwt.txt
-      - ./config-op/test.seq.config.toml:/config.toml
+      - ./config-op/test.geth.seq.config.toml:/config.toml
     ports:
       - "8123:8545"
       - "7546:7546"
@@ -342,6 +342,7 @@ services:
       - --l1.rpckind=standard
       - --rollup.l1-chain-config=/l1-genesis.json
       - --safedb.path=/data/safedb
+      - --l2.enginekind=${L2_ENGINEKIND}
     depends_on:
       - ${RPC_TYPE:-op-geth-rpc}
 
@@ -491,7 +492,7 @@ services:
     volumes:
       - ./data/op-geth-seq2:/datadir
       - ./config-op/jwt.txt:/jwt.txt
-      - ./config-op/test.seq.config.toml:/config.toml
+      - ./config-op/test.geth.seq.config.toml:/config.toml
     ports:
       - "8223:8545"
       - "30305:30303"
@@ -604,7 +605,7 @@ services:
     volumes:
       - ./data/op-geth-seq3:/datadir
       - ./config-op/jwt.txt:/jwt.txt
-      - ./config-op/test.seq.config.toml:/config.toml
+      - ./config-op/test.geth.seq.config.toml:/config.toml
     ports:
       - "8323:8545"
       - "30306:30303"
