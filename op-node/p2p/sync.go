@@ -566,6 +566,9 @@ func (s *SyncClient) peerLoop(ctx context.Context, id peer.ID) {
 	// so we don't be too aggressive to the server.
 	rl := rate.NewLimiter(peerServerBlocksRateLimit, peerServerBlocksBurst)
 
+	// Track ranges that this peer already failed to serve (by rangeReqId).
+	failedRanges := make(map[uint64]struct{})
+
 	// if onlyReqToStatic is on, ensure that only static peers are dealing with the request
 	peerRequests := s.peerRequests
 	if s.syncOnlyReqToStatic && !s.extra.IsStatic(id) {
@@ -594,6 +597,13 @@ func (s *SyncClient) peerLoop(ctx context.Context, id peer.ID) {
 				continue
 			}
 
+			// If this peer already failed on this range, don't request further blocks for it.
+			if _, failed := failedRanges[pr.rangeReqId]; failed {
+				log.Debug("skipping peer for previously failed range", "num", pr.num, "rangeReqId", pr.rangeReqId)
+				s.inFlight.delete(pr.num)
+				continue
+			}
+
 			// We already established the peer is available w.r.t. rate-limiting,
 			// and this is the only loop over this peer, so we can request now.
 			start := time.Now()
@@ -609,8 +619,9 @@ func (s *SyncClient) peerLoop(ctx context.Context, id peer.ID) {
 				if re, ok := err.(requestResultErr); ok {
 					resultCode = re.ResultCode()
 					if resultCode == ResultCodeNotFoundErr {
-						log.Warn("cancelling p2p sync range request", "rangeReqId", pr.rangeReqId)
-						s.activeRangeRequests.delete(pr.rangeReqId)
+						// Mark this range as failed for this peer only; do not affect other peers.
+						failedRanges[pr.rangeReqId] = struct{}{}
+						log.Debug("peer marked failed for range", "rangeReqId", pr.rangeReqId)
 						sendResponseError = false // don't penalize peer for this error
 					}
 				}
