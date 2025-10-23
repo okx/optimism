@@ -15,10 +15,10 @@ exec op-reth node \
       --ws.addr=0.0.0.0 \
       --ws.port=7546 \
       --ws.origins=* \
-      --ws.api=debug,eth,txpool,net \
+      --ws.api=web3,debug,eth,txpool,net \
       --disable-discovery \
-      --max-outbound-peers=0 \
-      --max-inbound-peers=0 \
+      --max-outbound-peers=10 \
+      --max-inbound-peers=10 \
       --authrpc.addr=0.0.0.0 \
       --authrpc.port=8552 \
       --authrpc.jwtsecret=/jwt.txt \
