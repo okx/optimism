@@ -34,6 +34,7 @@ echo "Step 2: Build op-migrate image"
 echo "=============================================="
 
 # Remove previous uploads to keep size of docker image small.
+echo "🗑️ Removing existing container ${UPLOAD_DIR}..."
 rm -rf $UPLOAD_DIR ${UPLOAD_DIR}.tar.gz
 
 if [ "$SKIP_BUILD_GETH" = true ]; then
