@@ -11,6 +11,7 @@ import (
 )
 
 const EnvKafkaConsumerGroupID = "REALTIME_KAFKA_CONSUMER_GROUP_ID"
+const EnvKafkaConsumerClientID = "REALTIME_KAFKA_CONSUMER_CLIENT_ID"
 
 type ApolloConfig struct {
 	Enable    bool
@@ -45,11 +46,16 @@ func applyRealtimeFlags(ctx *cli.Context, cfg *Config) {
 			// Override consumer group id if env variable is set
 			groupID = envGroupID
 		}
+		clientID := ctx.String(flags.RealtimeKafkaSyncClientID.Name)
+		if envClientID := os.Getenv(EnvKafkaConsumerClientID); envClientID != "" {
+			// Override consumer client id if env variable is set
+			clientID = envClientID
+		}
 		realtimeCfg.Kafka = realtimeKafka.KafkaConfig{
 			BootstrapServers: strings.Split(ctx.String(flags.RealtimeKafkaSyncBootstrapServers.Name), ","),
 			BlockTopic:       ctx.String(flags.RealtimeKafkaSyncBlockTopic.Name),
 			ErrorTopic:       ctx.String(flags.RealtimeKafkaSyncErrorTopic.Name),
-			ClientID:         ctx.String(flags.RealtimeKafkaSyncClientID.Name),
+			ClientID:         clientID,
 			GroupID:          groupID,
 		}
 	}
