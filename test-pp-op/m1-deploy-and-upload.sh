@@ -1,6 +1,5 @@
 #!/bin/bash
 set -e
-set -x
 
 if [ ! -f .env ];then
   echo "Please create .env file."
@@ -32,6 +31,11 @@ echo ""
 echo "=============================================="
 echo "Step 2: Build op-migrate image"
 echo "=============================================="
+
+# Remove previous uploads to keep size of docker image small.
+echo "🗑️ Removing existing container ${UPLOAD_DIR}..."
+rm -rf $UPLOAD_DIR ${UPLOAD_DIR}.tar.gz
+
 if [ "$SKIP_BUILD_GETH" = true ]; then
     echo "⏭️  Skipping build_images.sh (--skip-geth flag detected)"
 else
@@ -50,7 +54,6 @@ echo ""
 echo "=============================================="
 echo "Step 4: Create folder to store upload files"
 echo "=============================================="
-rm -rf $UPLOAD_DIR
 mkdir -p $UPLOAD_DIR
 mv ${IMAGE_NAME}.tar.gz $UPLOAD_DIR
 cp ./m2-migrate.sh $UPLOAD_DIR
@@ -73,4 +76,4 @@ echo ""
 echo "=============================================="
 echo "Step 6: Upload to OSS"
 echo "=============================================="
-echo "Please create an OSS ticket with the MD5 hash: ${MD5_HASH}."
+echo "Please create an OSS ticket using ${TAR_FILE} and its MD5 hash: ${MD5_HASH}."
