@@ -167,9 +167,7 @@ func CombineDeployConfig(intent *Intent, chainIntent *ChainIntent, state *State,
 }
 
 func calculateBatchInboxAddr(chainID common.Hash) common.Address {
-	versionByte := byte(0x00)
 	var out common.Address
-	out[0] = versionByte
 	copy(out[1:], crypto.Keccak256(chainID[:])[:19])
 	return out
 }
