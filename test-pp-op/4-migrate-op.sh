@@ -149,13 +149,24 @@ migrate() {
   fi
 
   echo "GETH_CMD: $GETH_CMD"
-  ${GETH_CMD} --datadir=${OP_DATA_DIR} --gcmode=archive migrate --state.scheme=hash --ignore-addresses=0x000000000000000000000000000000005ca1ab1e --chaindata=${ERIGON_CHAINDATA_DIR} --smt-db-path=${ERIGON_SMTDATA_DIR} --output merged.genesis.json ${OP_GENESIS_PATH} 2>&1 | tee migrate.log
+  # Build the base command
+  MIGRATE_CMD="${GETH_CMD} --datadir=${OP_DATA_DIR} --gcmode=archive migrate --state.scheme=hash --ignore-addresses=0x000000000000000000000000000000005ca1ab1e --chaindata=${ERIGON_CHAINDATA_DIR} --smt-db-path=${ERIGON_SMTDATA_DIR} --output merged.genesis.json"
 
-  LOG_BLOCK=$(grep -A 5 "Update rollup.json file with the following information l2" migrate.log | tail -n 5)
-  L2_NUMBER=$(echo "$LOG_BLOCK" | grep '"number"' | sed 's/[^0-9]*\([0-9]*\).*/\1/')
-  L2_HASH=$(echo "$LOG_BLOCK" | grep '"hash"' | sed 's/.*"\(0x[0-9a-fA-F]*\)".*/\1/')
-  echo "L2_NUMBER: $L2_NUMBER"
-  echo "L2_HASH: $L2_HASH"
+  # Add --override-proposer if TIMELOCK_OVERRIDE_PROPOSER_ADDRESS is set and non-empty
+  if [ -n "${TIMELOCK_OVERRIDE_PROPOSER_ADDRESS:-}" ]; then
+      MIGRATE_CMD="$MIGRATE_CMD --override-proposer=${TIMELOCK_OVERRIDE_PROPOSER_ADDRESS}"
+  fi
+
+  # Add --override-executor if TIMELOCK_OVERRIDE_EXECUTOR_ADDRESS is set and non-empty
+  if [ -n "${TIMELOCK_OVERRIDE_EXECUTOR_ADDRESS:-}" ]; then
+      MIGRATE_CMD="$MIGRATE_CMD --override-executor=${TIMELOCK_OVERRIDE_EXECUTOR_ADDRESS}"
+  fi
+
+  # Add the genesis path at the end
+  MIGRATE_CMD="$MIGRATE_CMD ${OP_GENESIS_PATH}"
+
+  # Execute the command
+  $MIGRATE_CMD 2>&1 | tee migrate.log
 
   # Update eip1559DenominatorCanyon to match eip1559Denominator in rollup.json
   echo "🔧 Updating eip1559DenominatorCanyon to match eip1559Denominator..."
