@@ -5,10 +5,12 @@ ROOT_DIR=$(git rev-parse --show-toplevel)
 
 cd $ROOT_DIR
 
+source test/.env
+
 STATE_JSON="$ROOT_DIR/test/config-op/state.json"
 OP_PROXY_ADMIN=$(jq -r '.opChainDeployments[0].OpChainProxyAdminImpl' "$STATE_JSON")
-
-source test/.env
+SYSTEM_CONFIG_PROXY_ADDRESS=$(jq -r '.opChainDeployments[0].SystemConfigProxy' "$STATE_JSON")
+OPTIMISM_PORTAL_PROXY_ADDRESS=$(jq -r '.opChainDeployments[0].OptimismPortalProxy' "$STATE_JSON")
 
 echo "🔧 Upgrading SystemConfig, deploying new DepositedOKBAdapter, and updating SystemConfig to use it as gas paying token..."
 cd $ROOT_DIR/packages/contracts-bedrock

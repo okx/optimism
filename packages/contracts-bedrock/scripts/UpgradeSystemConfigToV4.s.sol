@@ -165,13 +165,13 @@ contract UpgradeSystemConfigToV4 is Script {
         _logCurrentState();
 
         // Step 2: Deploy new SystemConfigV4 implementation
+        vm.startBroadcast();
+
         console.log("\n--- Deploying SystemConfigV4 Implementation ---");
         SystemConfigV4 newImplementation = new SystemConfigV4();
         console.log("SystemConfigV4 deployed at:", address(newImplementation));
         console.log("New implementation version:", newImplementation.version());
         console.log("New init version:", newImplementation.initVersion());
-
-        vm.startBroadcast();
 
         // Step 3: Deploy DepositedOKBAdapter
         _deployAdapter();
