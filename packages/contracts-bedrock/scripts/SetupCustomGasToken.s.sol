@@ -27,10 +27,11 @@ import { Predeploys } from "src/libraries/Predeploys.sol";
 /// @notice Foundry script to set up and verify custom gas token configuration
 /// @dev This script:
 ///      1. Reads OKB token address from environment variable
-///      2. Deploys DepositedOKBAdapter that handles OKB burning internally
+///      2. Deploys DepositedOKBAdapter with deployer as initial owner
 ///      3. Adds deployer address to whitelist for deposits
-///      4. Sets gas paying token in SystemConfig storage
-///      5. Verifies all configurations on L1
+///      4. Transfers adapter ownership to designated owner address
+///      5. Sets gas paying token in SystemConfig storage
+///      6. Verifies all configurations on L1
 contract SetupCustomGasToken is Script {
     using stdJson for string;
 
@@ -39,6 +40,7 @@ contract SetupCustomGasToken is Script {
     address optimismPortalProxy;
     address deployerAddress;
     address okbTokenAddress;
+    address okbAdapterOwnerAddress;
 
     // Deployed contracts
     IOKB okbToken;
@@ -53,6 +55,7 @@ contract SetupCustomGasToken is Script {
         systemConfigProxy = vm.envAddress("SYSTEM_CONFIG_PROXY_ADDRESS");
         optimismPortalProxy = vm.envAddress("OPTIMISM_PORTAL_PROXY_ADDRESS");
         okbTokenAddress = vm.envAddress("OKB_TOKEN_ADDRESS");
+        okbAdapterOwnerAddress = vm.envAddress("OKB_ADAPTER_OWNER_ADDRESS");
 
         console.log("SystemConfig Proxy:", systemConfigProxy);
         console.log("OptimismPortal Proxy:", optimismPortalProxy);
@@ -72,6 +75,8 @@ contract SetupCustomGasToken is Script {
         deployAdapter();
 
         setupWhitelist();
+
+        transferAdapterOwnership();
 
         setGasPayingToken();
 
@@ -107,10 +112,20 @@ contract SetupCustomGasToken is Script {
         console.log("  Deployer whitelisted successfully:", deployerAddress);
     }
 
+    /// @notice Transfer adapter ownership to the designated owner
+    function transferAdapterOwnership() internal {
+        console.log("  Transferring adapter ownership...");
+        console.log("    From:", deployerAddress);
+        console.log("    To:", okbAdapterOwnerAddress);
+        adapter.transferOwnership(okbAdapterOwnerAddress);
+        console.log("  Adapter ownership transferred successfully");
+    }
+
     /// @notice Deploy DepositedOKBAdapter
     function deployAdapter() internal {
         adapter = new DepositedOKBAdapter(okbTokenAddress, payable(optimismPortalProxy), deployerAddress);
         console.log("  DepositedOKBAdapter deployed at:", address(adapter));
+        console.log("  Adapter deployed with deployer as owner:", deployerAddress);
     }
 
     /// @notice Set gas paying token in SystemConfig storage
@@ -152,7 +167,7 @@ contract SetupCustomGasToken is Script {
         // Check DepositedOKBAdapter configuration
         require(address(adapter.OKB()) == okbTokenAddress, "FAILED: Adapter OKB mismatch");
         require(address(adapter.PORTAL()) == optimismPortalProxy, "FAILED: Adapter portal mismatch");
-        require(adapter.owner() == deployerAddress, "FAILED: Adapter owner mismatch");
+        require(adapter.owner() == okbAdapterOwnerAddress, "FAILED: Adapter owner mismatch");
 
         // Check adapter has preminted total supply
         uint256 adapterBalance = adapter.balanceOf(address(adapter));

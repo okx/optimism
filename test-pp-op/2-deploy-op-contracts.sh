@@ -257,6 +257,7 @@ deploy_custom_gas_token() {
   export SYSTEM_CONFIG_PROXY_ADDRESS=$SYSTEM_CONFIG_PROXY_ADDRESS
   export OPTIMISM_PORTAL_PROXY_ADDRESS=$OPTIMISM_PORTAL_PROXY_ADDRESS
   export OKB_TOKEN_ADDRESS=$OKB_TOKEN_ADDRESS
+  export OKB_ADAPTER_OWNER_ADDRESS=$OKB_ADAPTER_OWNER_ADDRESS
 
   FORGE_OUTPUT=$(forge script scripts/SetupCustomGasToken.s.sol:SetupCustomGasToken \
     --rpc-url "$L1_RPC_URL" \
@@ -279,6 +280,32 @@ deploy_custom_gas_token() {
   echo ""
   echo "   OKB Token:          $OKB_TOKEN_ADDRESS"
   echo "   Adapter:            $ADAPTER_ADDRESS"
+  echo ""
+
+  # Transfer SystemConfig ownership
+  echo "🔧 Transferring SystemConfig ownership..."
+  echo ""
+
+  # Check current owner
+  CURRENT_OWNER=$(cast call "$SYSTEM_CONFIG_PROXY_ADDRESS" "owner()(address)" --rpc-url "$L1_RPC_URL")
+  echo "📋 Current SystemConfig owner: $CURRENT_OWNER"
+  echo "📋 Target owner: $SYSTEM_CONFIG_OWNER_ADDRESS"
+
+  if [ "$CURRENT_OWNER" != "$SYSTEM_CONFIG_OWNER_ADDRESS" ]; then
+    echo "🔄 Transferring ownership to $SYSTEM_CONFIG_OWNER_ADDRESS..."
+
+    cast send "$SYSTEM_CONFIG_PROXY_ADDRESS" \
+      "transferOwnership(address)" \
+      "$SYSTEM_CONFIG_OWNER_ADDRESS" \
+      --rpc-url "$L1_RPC_URL" \
+      --private-key "$DEPLOYER_PRIVATE_KEY"
+
+    # Verify transfer
+    NEW_OWNER=$(cast call "$SYSTEM_CONFIG_PROXY_ADDRESS" "owner()(address)" --rpc-url "$L1_RPC_URL")
+    echo "✅ SystemConfig ownership transferred to: $NEW_OWNER"
+  else
+    echo "✅ SystemConfig already owned by $SYSTEM_CONFIG_OWNER_ADDRESS"
+  fi
   echo ""
 
 }
