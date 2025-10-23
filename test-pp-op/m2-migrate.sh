@@ -587,6 +587,24 @@ extract_configuration_fields "after"
 
 echo ""
 echo "=============================================="
+echo "Step 8: Copy diff.genesis.json from container"
+echo "=============================================="
+
+# Check if diff.genesis.json exists in container
+if docker exec ${CONTAINER_NAME} test -f /app/test-pp-op/diff.genesis.json; then
+    echo "Copying diff.genesis.json from container..."
+    if docker cp ${CONTAINER_NAME}:/app/test-pp-op/diff.genesis.json ${BACKUP_DIR}/diff.genesis.json; then
+        echo "✅ diff.genesis.json copied successfully to ${BACKUP_DIR}/diff.genesis.json"
+    else
+        echo "⚠️  Warning: Failed to copy diff.genesis.json"
+    fi
+else
+    echo "⚠️  Warning: diff.genesis.json not found in container"
+    echo "   Expected location: /app/test-pp-op/diff.genesis.json"
+fi
+
+echo ""
+echo "=============================================="
 echo "✅ Migration process completed successfully!"
 echo "=============================================="
 echo "Backup directory: ${BACKUP_DIR}"
