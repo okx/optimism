@@ -3,7 +3,16 @@ HTTPHost = "0.0.0.0"
 HTTPPort = 8545
 HTTPCors = ["*"]
 HTTPVirtualHosts = ["*"]
-HTTPModules = ["web3", "debug", "eth", "txpool", "net", "engine", "miner", "admin"]
+HTTPModules = [
+    "web3",
+    "debug",
+    "eth",
+    "txpool",
+    "net",
+    "engine",
+    "miner",
+    "admin",
+]
 WSHost = "0.0.0.0"
 WSPort = 7546
 WSOrigins = ["*"]
@@ -15,9 +24,9 @@ JWTSecret = "/jwt.txt"
 
 [Node.P2P]
 MaxPeers = 30
-DiscoveryV5 = true
+#DiscoveryV5 = true
 StaticNodes = []
-TrustedNodes = []
+#TrustedNodes = []
 
 [Eth]
 NetworkId = 901

@@ -196,7 +196,7 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
 fi
 
 echo "finished init op-geth-seq and op-geth-rpc"
-
+exit 0
 # genesis.json is too large to embed in go, so we compress it now and decompress it in go code
 gzip -c config-op/genesis.json > config-op/genesis.json.gz
 
