@@ -593,7 +593,8 @@ echo "Backup directory: ${BACKUP_DIR}"
 
 if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     echo ""
-    echo "   Stopping migration container at last."
+    echo "Stopping migration container at last."
+    echo ""
     docker stop ${CONTAINER_NAME} 2>/dev/null || true
 fi
 
