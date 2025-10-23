@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
-set -x
+
+# Debug mode - set to true to enable verbose output
+DEBUG=${DEBUG:-false}
+if [ "$DEBUG" = "true" ]; then
+    set -x
+fi
 
 FORK_BLOCK=$1
 
@@ -10,11 +15,11 @@ RAMDISK_PATH="/mnt/ramdisk_op"
 DATA_DIR="/data"
 ERIGON_DATA_DIR="/data/erigon-data"
 BACKUP_DIR="${DATA_DIR}/migration-backup-$(date +%Y%m%d)"
-L2_RPC_URL="${L2_RPC_URL:-http://10.2.29.232:8545}"
+L2_RPC_URL="${L2_RPC_URL:-http://10.2.29.232:18545}"
 ENV=${ENV:-mainnet}
 # Set expected chain ID based on ENV variable
 EXPECTED_CHAIN=$([ "$ENV" = "testnet" ] && echo "1952" || echo "196")
-EXPECTED_L1_CHAIN_ID=$([ "$ENV" = "testnet" ] && echo "11155111" || echo "1")
+EXPECTED_L1_CHAIN_ID=$([ "$ENV" = "testnet" ] && echo "11155111" || ([ "$ENV" = "fakemainnet" ] && echo "11155111" || echo "1"))
 CHECK_BLOCK=${CHECK_BLOCK:-true}
 
 # Check required tools
@@ -24,6 +29,24 @@ for cmd in docker jq curl sed grep; do
         exit 1
     fi
 done
+
+# Prompt to delete ${BACKUP_DIR} contents
+if [ -d $BACKUP_DIR ];then
+  echo ""
+  echo "============================================="
+  echo "Existing ${BACKUP_DIR}"
+  echo "============================================="
+  ls -la $BACKUP_DIR
+  echo ""
+  read -p "Do you want to delete the contents of ${BACKUP_DIR}? (y/n): " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+      echo "${BACKUP_DIR} contents are DELETED..."
+      rm -rf ${BACKUP_DIR}/*
+  else
+      echo "${BACKUP_DIR} contents are NOT deleted..."
+  fi
+fi
 
 # Create and verify backup directory
 mkdir -p ${BACKUP_DIR}
@@ -239,46 +262,98 @@ wait_for_enter() {
     fi
 }
 
-# Function to review configuration files interactively
-review_configuration_files() {
-    # 1. Check .env file
-    echo "=============================================="
-    echo "1. Checking .env file"
-    echo "=============================================="
-    docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && cat .env"
-    wait_for_enter "Press ENTER to continue to next check..."
+# Function to extract and display configuration fields
+extract_configuration_fields() {
+    local phase="$1"  # "before" or "after"
 
-    # 2. Check genesis.json
-    echo ""
-    echo "=============================================="
-    echo "2. Checking config-op/genesis.json"
-    echo "=============================================="
-    echo "First 50 lines:"
-    docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && cat config-op/genesis.json | head -50"
-    echo ""
-    echo "---"
-    echo "Last 10 lines:"
-    docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && cat config-op/genesis.json | tail -10"
-    wait_for_enter "Press ENTER to continue to next check..."
-
-    # 3. Check intent.toml
-    echo ""
-    echo "=============================================="
-    echo "3. Checking config-op/intent.toml"
-    echo "=============================================="
-    docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && cat config-op/intent.toml"
-    wait_for_enter "Press ENTER to continue to next check..."
-
-    # 4. Check rollup.json
-    echo ""
-    echo "=============================================="
-    echo "4. Checking config-op/rollup.json"
-    echo "=============================================="
-    docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && cat config-op/rollup.json"
-    wait_for_enter "Press ENTER to start migration..."
+    # Extract .env values
+    echo "=== .env Configuration ==="
+    docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && \
+        echo 'CHAIN_ID='\$(grep '^CHAIN_ID=' .env | cut -d'=' -f2) && \
+        echo 'OKB_TOKEN_ADDRESS='\$(grep '^OKB_TOKEN_ADDRESS=' .env | cut -d'=' -f2) && \
+        echo 'BATCHER_ADDRESS='\$(grep '^BATCHER_ADDRESS=' .env | cut -d'=' -f2) && \
+        echo 'PROPOSER_ADDRESS='\$(grep '^PROPOSER_ADDRESS=' .env | cut -d'=' -f2) && \
+        echo 'CHALLENGER_ADDRESS='\$(grep '^CHALLENGER_ADDRESS=' .env | cut -d'=' -f2) && \
+        echo 'ADMIN_OWNER_ADDRESS='\$(grep '^ADMIN_OWNER_ADDRESS=' .env | cut -d'=' -f2) && \
+        echo 'TIME_LOCK_DELAY='\$(grep '^TIME_LOCK_DELAY=' .env | cut -d'=' -f2) && \
+        echo 'TEMP_MAX_CLOCK_DURATION='\$(grep '^TEMP_MAX_CLOCK_DURATION=' .env | cut -d'=' -f2) && \
+        echo 'TEMP_CLOCK_EXTENSION='\$(grep '^TEMP_CLOCK_EXTENSION=' .env | cut -d'=' -f2) && \
+        echo 'PROOF_MATURITY_DELAY_SECONDS='\$(grep '^PROOF_MATURITY_DELAY_SECONDS=' .env | cut -d'=' -f2) && \
+        echo 'MAX_CLOCK_DURATION='\$(grep '^MAX_CLOCK_DURATION=' .env | cut -d'=' -f2) && \
+        echo 'CLOCK_EXTENSION='\$(grep '^CLOCK_EXTENSION=' .env | cut -d'=' -f2) && \
+        echo 'DISPUTE_GAME_FINALITY_DELAY_SECONDS='\$(grep '^DISPUTE_GAME_FINALITY_DELAY_SECONDS=' .env | cut -d'=' -f2) && \
+        echo 'CHALLENGE_PERIOD_SECONDS='\$(grep '^CHALLENGE_PERIOD_SECONDS=' .env | cut -d'=' -f2) && \
+        echo 'WITHDRAWAL_DELAY_SECONDS='\$(grep '^WITHDRAWAL_DELAY_SECONDS=' .env | cut -d'=' -f2) && \
+        echo 'TRANSACTOR='\$(grep '^TRANSACTOR=' .env | cut -d'=' -f2)"
 
     echo ""
-    echo "✅ Configuration verification completed"
+    echo "=== intent.toml Configuration ==="
+    docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && \
+        echo 'l1ChainID='\$(grep '^l1ChainID' config-op/intent.toml | head -1 | sed 's/.*=[[:space:]]*\\([0-9]*\\).*/\\1/') && \
+        echo 'opcmAddress='\$(grep '^opcmAddress' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
+        echo 'id='\$(grep '^[[:space:]]*id[[:space:]]*=' config-op/intent.toml | head -1 | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
+        echo 'baseFeeVaultRecipient='\$(grep 'baseFeeVaultRecipient' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
+        echo 'l1FeeVaultRecipient='\$(grep 'l1FeeVaultRecipient' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
+        echo 'sequencerFeeVaultRecipient='\$(grep 'sequencerFeeVaultRecipient' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
+        echo 'l2GenesisBlockGasLimit='\$(grep 'l2GenesisBlockGasLimit' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
+        echo 'l2GenesisBlockBaseFeePerGas='\$(grep 'l2GenesisBlockBaseFeePerGas' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
+        echo 'eip1559DenominatorCanyon='\$(grep 'eip1559DenominatorCanyon' config-op/intent.toml | cut -d'=' -f2 | tr -d ' ') && \
+        echo 'eip1559Denominator='\$(grep 'eip1559Denominator' config-op/intent.toml | head -1 | cut -d'=' -f2 | tr -d ' ') && \
+        echo 'eip1559Elasticity='\$(grep 'eip1559Elasticity' config-op/intent.toml | cut -d'=' -f2 | tr -d ' ') && \
+        echo 'operatorFeeScalar='\$(grep 'operatorFeeScalar' config-op/intent.toml | cut -d'=' -f2 | tr -d ' ') && \
+        echo 'operatorFeeConstant='\$(grep 'operatorFeeConstant' config-op/intent.toml | cut -d'=' -f2 | tr -d ' ') && \
+        echo 'gasLimit='\$(grep 'gasLimit' config-op/intent.toml | cut -d'=' -f2 | tr -d ' ') && \
+        echo 'l1ProxyAdminOwner='\$(grep 'l1ProxyAdminOwner' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
+        echo 'l2ProxyAdminOwner='\$(grep 'l2ProxyAdminOwner' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
+        echo 'systemConfigOwner='\$(grep 'systemConfigOwner' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
+        echo 'unsafeBlockSigner='\$(grep 'unsafeBlockSigner' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
+        echo 'batcher='\$(grep 'batcher' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
+        echo 'proposer='\$(grep 'proposer' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/') && \
+        echo 'challenger='\$(grep 'challenger' config-op/intent.toml | sed 's/.*\"\\(.*\\)\".*/\\1/')"
+
+    echo ""
+    echo "=== rollup.json Configuration ==="
+    docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && \
+        echo 'hash='\$(jq -r '.genesis.l2.hash' config-op/rollup.json 2>/dev/null || echo 'N/A') && \
+        echo 'number='\$(jq -r '.genesis.l2.number' config-op/rollup.json 2>/dev/null || echo 'N/A') && \
+        echo 'l1_chain_id='\$(jq -r '.l1_chain_id' config-op/rollup.json 2>/dev/null || echo 'N/A') && \
+        echo 'l2_chain_id='\$(jq -r '.l2_chain_id' config-op/rollup.json 2>/dev/null || echo 'N/A') && \
+        echo 'batch_inbox_address='\$(jq -r '.batch_inbox_address' config-op/rollup.json 2>/dev/null || echo 'N/A') && \
+        echo 'deposit_contract_address='\$(jq -r '.deposit_contract_address' config-op/rollup.json 2>/dev/null || echo 'N/A') && \
+        echo 'l1_system_config_address='\$(jq -r '.l1_system_config_address' config-op/rollup.json 2>/dev/null || echo 'N/A') && \
+        echo 'protocol_versions_address='\$(jq -r '.protocol_versions_address' config-op/rollup.json 2>/dev/null || echo 'N/A')"
+
+    # Only show merged.genesis.json if it exists (after migration)
+    if [ "$phase" = "after" ]; then
+        echo ""
+        echo "=== merged.genesis.json Configuration ==="
+        docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && \
+            echo 'chainId='\$(head -n 20 merged.genesis.json | grep -o '\"chainId\":[[:space:]]*[0-9]*' | cut -d':' -f2 | tr -d ' ' || echo 'N/A') && \
+            echo 'legacyXLayerBlock='\$(head -n 20 merged.genesis.json | grep -o '\"legacyXLayerBlock\":[[:space:]]*[0-9]*' | cut -d':' -f2 | tr -d ' ' || echo 'N/A') && \
+            echo 'eip1559Elasticity='\$(head -n 50 merged.genesis.json | grep 'eip1559Elasticity' | head -1 | cut -d':' -f2 | tr -d ' ,' || echo 'N/A') && \
+            echo 'eip1559Denominator='\$(head -n 50 merged.genesis.json | grep 'eip1559Denominator' | head -1 | cut -d':' -f2 | tr -d ' ,' || echo 'N/A') && \
+            echo 'eip1559DenominatorCanyon='\$(head -n 50 merged.genesis.json | grep 'eip1559DenominatorCanyon' | head -1 | cut -d':' -f2 | tr -d ' ,' || echo 'N/A') && \
+            echo 'parentHash='\$(tail -n 20 merged.genesis.json | grep -o '\"parentHash\":[[:space:]]*\"0x[0-9a-fA-F]*\"' | cut -d':' -f2 | tr -d ' \"' || echo 'N/A') && \
+            echo 'baseFeePerGas='\$(tail -n 20 merged.genesis.json | grep -o '\"baseFeePerGas\":[[:space:]]*\"0x[0-9a-fA-F]*\"' | cut -d':' -f2 | tr -d ' \"' || echo 'N/A') && \
+            echo 'timestamp='\$(head -n 50 merged.genesis.json | grep 'timestamp' | head -1 | cut -d':' -f2 | tr -d ' ,' || echo 'N/A')"
+
+        echo ""
+        echo "=== state.json Configuration ==="
+        docker exec ${CONTAINER_NAME} bash -c "set -e && cd /app/test-pp-op && \
+            echo 'SystemConfigProxy='\$(head -n 200 config-op/state.json | grep 'SystemConfigProxy' | head -1 | cut -d':' -f2 | tr -d ' ,' || echo 'N/A')"
+    else
+        echo ""
+        echo "=== merged.genesis.json Configuration ==="
+        echo "⚠️  merged.genesis.json will be created during migration"
+        echo "   This file contains the final genesis configuration after migration"
+    fi
+
+    echo ""
+    echo "=============================================="
+    wait_for_enter "Press ENTER to continue..."
+
+    echo ""
+    echo "✅ Configuration fields extracted and reviewed"
 }
 
 # Function to execute migration
@@ -368,9 +443,9 @@ mkdir -p ${SOURCE_PATH}
 if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     echo "🗑️  Removing existing container ${CONTAINER_NAME} for clean migration..."
 
-    # Give container time to gracefully shutdown (30 seconds)
+    # Stop container
     if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-        echo "   Stopping container (graceful shutdown, timeout 30s)..."
+        echo "   Stopping container..."
         docker stop ${CONTAINER_NAME} 2>/dev/null || true
     fi
 
@@ -401,7 +476,7 @@ fi
 
 echo ""
 echo "=============================================="
-echo "Step 3: Update ForkBlock And Check"
+echo "Step 3: Check configuration"
 echo "=============================================="
 
 if [ "$CHECK_BLOCK" = "true" ]; then
@@ -416,25 +491,15 @@ if [ "$CHECK_BLOCK" = "true" ]; then
     validate_configuration $FETCHED_TIMESTAMP
 fi
 
-# Call the review function
 echo ""
 echo "=============================================="
-echo "Step 4: Configuration Verification"
+echo "Step 4: Review Configuration Before Migration"
 echo "=============================================="
-echo "Please review the configuration files before migration"
-echo "Press ENTER to continue, any other key to abort"
-echo ""
-review_configuration_files
-
-# Execute migration and copy results
-echo ""
-echo "=============================================="
-echo "Step 5: Clean Previous Data"
-echo "=============================================="
+extract_configuration_fields "before"
 
 echo ""
 echo "=============================================="
-echo "Step 6: Execute Migration"
+echo "Step 5: Execute Migration"
 echo "=============================================="
 echo "Executing ./4-migrate-op.sh inside container..."
 echo ""
@@ -442,7 +507,7 @@ execute_migration
 
 echo ""
 echo "=============================================="
-echo "Step 7: Copy results to disk"
+echo "Step 6: Copy results to disk"
 echo "=============================================="
 
 TEMP_DIR="${BACKUP_DIR}.tmp"
@@ -516,8 +581,21 @@ echo "✅ Files copied successfully"
 
 echo ""
 echo "=============================================="
+echo "Step 7: Review Configuration After Copy"
+echo "=============================================="
+extract_configuration_fields "after"
+
+echo ""
+echo "=============================================="
 echo "✅ Migration process completed successfully!"
 echo "=============================================="
 echo "Backup directory: ${BACKUP_DIR}"
+
+if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+    echo ""
+    echo "Stopping migration container at last."
+    echo ""
+    docker stop ${CONTAINER_NAME} 2>/dev/null || true
+fi
 
 echo "=============================================="
