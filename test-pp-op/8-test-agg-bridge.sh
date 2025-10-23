@@ -8,7 +8,7 @@ BRIDGE_VALUE_SMALL="100000000000000000"  # 0.1 ETH in wei
 
 # Get Global Exit Root Manager address
 GER_MGR=$(cast call "$BRIDGE_ADDRESS" "globalExitRootManager()(address)" --rpc-url "$L1_RPC_URL")
-L2GER_MGR1=$(cast call "$BRIDGE_ADDRESS" "globalExitRootManager()(address)" --rpc-url "$L2_RPC_URL")
+L2GER_MGR1=$(cast call "$BRIDGE_ADDRESS" "globalExitRootManager()(address)" --rpc-url "$L2_SEQ_URL")
 echo "GlobalExitRootManager Address:"
 echo "  L1   ==> $GER_MGR"
 echo "  L2   ==> $L2GER_MGR1"
@@ -22,7 +22,7 @@ echo "Initial GER on L1: $GER"
 # =============================================================================
 
 # Check balance before bridging
-L2_BALANCE_BEFORE_BRIDGE=$(cast call "$L2_WETH" "balanceOf(address)(uint256)" "$DEPLOYER_ADDRESS" --rpc-url "$L2_RPC_URL" | awk '{print $1}')
+L2_BALANCE_BEFORE_BRIDGE=$(cast call "$L2_WETH" "balanceOf(address)(uint256)" "$DEPLOYER_ADDRESS" --rpc-url "$L2_SEQ_URL" | awk '{print $1}')
 
 cast send \
     --legacy \
@@ -49,7 +49,7 @@ done
 echo "Waiting for GER to sync to L2..."
 start_time=$(date +%s)
 while true; do
-    timestamp=$(cast call "$L2GER_MGR1" "globalExitRootMap(bytes32)(uint256)" "$GER" --rpc-url "$L2_RPC_URL")
+    timestamp=$(cast call "$L2GER_MGR1" "globalExitRootMap(bytes32)(uint256)" "$GER" --rpc-url "$L2_SEQ_URL")
     if [ "$timestamp" != "0" ]; then
         break
     fi
@@ -64,7 +64,7 @@ echo "Waiting for assets to be claimed by sponsor..."
 start_time=$(date +%s)
 while true; do
     sleep 60
-    balance=$(cast call "$L2_WETH" "balanceOf(address)(uint256)" "$DEPLOYER_ADDRESS" --rpc-url "$L2_RPC_URL" | awk '{print $1}')
+    balance=$(cast call "$L2_WETH" "balanceOf(address)(uint256)" "$DEPLOYER_ADDRESS" --rpc-url "$L2_SEQ_URL" | awk '{print $1}')
     balance=${balance:-0}
     increment=$(echo "$balance - $L2_BALANCE_BEFORE_BRIDGE" | bc)
     echo "Current balance on L2: $balance (increment: $increment)"
@@ -78,7 +78,7 @@ total_elapsed=$((end_time - start_time))
 echo "Balance on L2 is $balance, claim took $total_elapsed seconds"
 
 # Check balance after bridging
-L2_BALANCE_AFTER_BRIDGE=$(cast balance "$DEPLOYER_ADDRESS" --rpc-url "$L2_RPC_URL")
+L2_BALANCE_AFTER_BRIDGE=$(cast balance "$DEPLOYER_ADDRESS" --rpc-url "$L2_SEQ_URL")
 echo "Balance on L2(ETH):"
 echo "  Before bridge = $L2_BALANCE_BEFORE_BRIDGE"
 echo "  After bridge  = $L2_BALANCE_AFTER_BRIDGE"
@@ -92,7 +92,7 @@ echo -e "\n========== Bridging Assets: L2 -> L1 BRIDGE_VALUE_SMALL =========="
 echo "Approving token..."
 cast send \
   --legacy \
-  --rpc-url $L2_RPC_URL \
+  --rpc-url $L2_SEQ_URL \
   --private-key $DEPLOYER_PRIVATE_KEY \
   "$L2_WETH" \
   "function approve(address spender, uint256 amount) returns (bool)" \
@@ -103,7 +103,7 @@ cast send \
 TX_HASH=$(cast send \
     --legacy \
     --private-key $DEPLOYER_PRIVATE_KEY \
-    --rpc-url $L2_RPC_URL \
+    --rpc-url $L2_SEQ_URL \
     --json \
     $BRIDGE_ADDRESS \
     'function bridgeAsset(uint32 destinationNetwork, address destinationAddress, uint256 amount, address token, bool forceUpdateGlobalExitRoot, bytes permitData) returns()' \

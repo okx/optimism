@@ -39,8 +39,8 @@ execute_data=$(echo "$hardhat_output" | awk -F"'" '/executeData:/ {print $2}')
 echo "schedule_data: $schedule_data"
 echo "execute_data: $execute_data"
 
-cast send --rpc-url "$L2_SEQ_URL" -f $TIMELOCK_OVERRIDE_PROPOSER_ADDRESS --private-key "$TIMELOCK_OVERRIDE_PROPOSER_PRIVATE_KEY" "$TIME_LOCK_ADDRESS" "$schedule_data" --legacy
+cast send --rpc-url "$L2_SEQ_URL" -f $TIMELOCK_OVERRIDE_PROPOSER_ADDRESS --private-key "$TIMELOCK_OVERRIDE_PROPOSER_PRIVATE_KEY" "$TIME_LOCK_ADDRESS" "$schedule_data"
 sleep $TIME_LOCK_DELAY
-cast send --rpc-url "$L2_SEQ_URL" -f $TIMELOCK_OVERRIDE_EXECUTOR_ADDRESS --private-key "$TIMELOCK_OVERRIDE_EXECUTOR_PRIVATE_KEY" "$TIME_LOCK_ADDRESS" "$execute_data" --legacy
+cast send --rpc-url "$L2_SEQ_URL" -f $TIMELOCK_OVERRIDE_EXECUTOR_ADDRESS --private-key "$TIMELOCK_OVERRIDE_EXECUTOR_PRIVATE_KEY" "$TIME_LOCK_ADDRESS" "$execute_data"
 sleep 5
 cast call --rpc-url "$L2_SEQ_URL" $GER_MANAGER_ADDRESS 'GER_SOVEREIGN_VERSION()(string)'

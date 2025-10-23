@@ -19,9 +19,9 @@ AggregatorPrivateKeyPassword  = "testonly"
 SenderProofToL1Addr = "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
 polygonBridgeAddr = "0xb2fAc1CE54bb9BF77A7FE106fA69F81453b72851"
 
-rollupCreationBlockNumber = "97"
-rollupManagerCreationBlockNumber = "105"
-genesisBlockNumber = "97"
+rollupCreationBlockNumber = "92"
+rollupManagerCreationBlockNumber = "102"
+genesisBlockNumber = "92"
 
 [Common]
 NetworkID = 1
@@ -81,8 +81,8 @@ L1ChainID = "195"
 BlockFinality = "LatestBlock"
 
 [BridgeL2Sync]
-InitialBlockNum = 146
-InitialBlockNum = 105
+InitialBlockNum = 183
+
 BridgeAddr = "0xb2fAc1CE54bb9BF77A7FE106fA69F81453b72851"
 
 DBPath = "/tmp/bridgel2sync.sqlite"
