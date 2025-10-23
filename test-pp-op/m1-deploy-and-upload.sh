@@ -1,6 +1,5 @@
 #!/bin/bash
 set -e
-set -x
 
 if [ ! -f .env ];then
   echo "Please create .env file."
@@ -77,4 +76,4 @@ echo ""
 echo "=============================================="
 echo "Step 6: Upload to OSS"
 echo "=============================================="
-echo "Please create an OSS ticket with the MD5 hash: ${MD5_HASH}."
+echo "Please create an OSS ticket using ${TAR_FILE} and its MD5 hash: ${MD5_HASH}."
