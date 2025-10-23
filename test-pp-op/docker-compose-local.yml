@@ -319,7 +319,7 @@ services:
     restart: on-failure
     volumes:
       - ./data/cdk-node:/tmp
-      - ./keystore/:/etc/aggkit/
+      - ./keystore/:/etc/keystore/
       - ./config/:/etc/aggkit/
       - ./config/test.genesis.config.json:/etc/aggkit/genesis.json
     ports:

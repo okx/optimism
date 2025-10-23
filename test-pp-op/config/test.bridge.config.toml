@@ -85,24 +85,6 @@ MaxPageLimit = 1000
 # This section contains settings related to the network, including smart contract addresses and
 # L1 bridge genesis block.
 [NetworkConfig]
-L2GenBlockNumber = 26
-L2GenBlockNumber = 26
-L2GenBlockNumber = 26
-L2GenBlockNumber = 26
-L2GenBlockNumber = 26
-L2GenBlockNumber = 26
-L2GenBlockNumber = 26
-L2GenBlockNumber = 26
-L2GenBlockNumber = 26
-L2GenBlockNumber = 26
-L2GenBlockNumber = 26
-L2GenBlockNumber = 26
-L2GenBlockNumber = 26
-L2GenBlockNumber = 26
-L2GenBlockNumber = 26
-L2GenBlockNumber = 26
-L2GenBlockNumber = 26
-L2GenBlockNumber = 26
 # Block number where the L1 bridge smart contract was deployed. The bridge needs to compute the merkle tree based on events from that block.
 GenBlockNumber = 50
 # Address of the Polygon bridge smc

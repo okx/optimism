@@ -11,17 +11,17 @@ IsValidiumMode = false
 NetworkID = 1
 
 L2Coinbase =  "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
-SequencerPrivateKeyPath = "/etc/aggkit/sequencer.keystore"
+SequencerPrivateKeyPath = "/etc/keystore/sequencer.keystore"
 SequencerPrivateKeyPassword  = "testonly"
 
-AggregatorPrivateKeyPath = "/etc/aggkit/aggregator.keystore"
+AggregatorPrivateKeyPath = "/etc/keystore/aggregator.keystore"
 AggregatorPrivateKeyPassword  = "testonly"
 SenderProofToL1Addr = "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
 polygonBridgeAddr = "0xb2fAc1CE54bb9BF77A7FE106fA69F81453b72851"
 
-rollupCreationBlockNumber = "93"
-rollupManagerCreationBlockNumber = "102"
-genesisBlockNumber = "93"
+rollupCreationBlockNumber = "89"
+rollupManagerCreationBlockNumber = "98"
+genesisBlockNumber = "89"
 
 [Common]
 NetworkID = 1
@@ -50,7 +50,7 @@ Port = 5576
 
 [AggSender]
 StoragePath = "/tmp/aggsender.sqlite"
-AggsenderPrivateKey = {Path = "/etc/aggkit/sequencer.keystore", Password = "testonly"}
+AggsenderPrivateKey = {Path = "/etc/keystore/sequencer.keystore", Password = "testonly"}
 CheckStatusCertificateInterval = "1s"
 Mode="PessimisticProof"
 UseAgglayerTLS = false
@@ -73,7 +73,7 @@ GlobalExitRootL2 = "0xa40d5f56745a118d0906a34e69aec8c0db1cb8fa"
 WaitPeriodMonitorTx = "10s"
 
 [AggOracle.EVMSender.EthTxManager]
-PrivateKeys = [{Path = "/etc/aggkit/aggoracle.keystore", Password = "testonly"}]
+PrivateKeys = [{Path = "/etc/keystore/aggoracle.keystore", Password = "testonly"}]
 [AggOracle.EVMSender.EthTxManager.Etherman]
 L1ChainID = "195"
 
@@ -81,6 +81,8 @@ L1ChainID = "195"
 BlockFinality = "LatestBlock"
 
 [BridgeL2Sync]
+InitialBlockNum = 105
+InitialBlockNum = 105
 BridgeAddr = "0xb2fAc1CE54bb9BF77A7FE106fA69F81453b72851"
 
 DBPath = "/tmp/bridgel2sync.sqlite"
@@ -113,7 +115,7 @@ BridgeAddrL2 = "0xb2fAc1CE54bb9BF77A7FE106fA69F81453b72851"
 
 [ClaimSponsor.EthTxManager]
 PrivateKeys = [
-    {Path = "/etc/aggkit/claimtxmanager.keystore", Password = ""},
+    {Path = "/etc/keystore/claimtxmanager.keystore", Password = ""},
 ]
 
 StoragePath = ""

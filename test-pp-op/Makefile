@@ -148,6 +148,7 @@ clean: stop
 	rm -rf config-op/196-*
 	rm -rf config-op/195-*
 	rm -rf config-op/1952-*
+	rm -rf config/genesis.json
 	rm -rf l1-geth/consensus/beacondata/
 	rm -rf l1-geth/consensus/genesis.ssz
 	rm -rf l1-geth/consensus/validatordata/
