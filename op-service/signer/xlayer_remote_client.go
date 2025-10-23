@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -88,11 +89,13 @@ type XLayerOtherInfo struct {
 }
 
 // XLayerRemoteClient is the client for XLayer remote signing service
+// It is safe for concurrent use by multiple goroutines.
 type XLayerRemoteClient struct {
 	logger   log.Logger
 	endpoint string
 	config   XLayerConfig
 	client   *http.Client
+	mu       sync.Mutex // Protects against concurrent signing requests to ensure serialization
 }
 
 // XLayerConfig contains configuration for XLayer remote signer
@@ -126,7 +129,18 @@ func NewXLayerRemoteClient(logger log.Logger, config XLayerConfig) *XLayerRemote
 }
 
 // SignTransaction signs a transaction using XLayer remote signing service
+// This method is safe for concurrent use - requests are serialized internally to prevent
+// concurrent calls to the remote signing service, which may not support parallel requests.
 func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.Int, from common.Address, tx *types.Transaction) (*types.Transaction, error) {
+	// Serialize all signing requests to prevent concurrent calls to remote signer
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.logger.Debug("Acquired signing lock, proceeding with remote signing",
+		"from", from.Hex(),
+		"nonce", tx.Nonce(),
+		"to", tx.To())
+
 	// 1. Extract blob sidecar if it's a blob transaction
 	sidecar := tx.BlobTxSidecar()
 
