@@ -284,6 +284,7 @@ extract_configuration_fields() {
         echo 'DISPUTE_GAME_FINALITY_DELAY_SECONDS='\$(grep '^DISPUTE_GAME_FINALITY_DELAY_SECONDS=' .env | cut -d'=' -f2) && \
         echo 'CHALLENGE_PERIOD_SECONDS='\$(grep '^CHALLENGE_PERIOD_SECONDS=' .env | cut -d'=' -f2) && \
         echo 'WITHDRAWAL_DELAY_SECONDS='\$(grep '^WITHDRAWAL_DELAY_SECONDS=' .env | cut -d'=' -f2) && \
+        echo 'DISPUTE_GAME_FACTORY_ADDRESS='\$(grep '^DISPUTE_GAME_FACTORY_ADDRESS=' .env | cut -d'=' -f2) && \
         echo 'TRANSACTOR='\$(grep '^TRANSACTOR=' .env | cut -d'=' -f2)"
 
     echo ""
@@ -584,6 +585,24 @@ echo "=============================================="
 echo "Step 7: Review Configuration After Copy"
 echo "=============================================="
 extract_configuration_fields "after"
+
+echo ""
+echo "=============================================="
+echo "Step 8: Copy diff.genesis.json from container"
+echo "=============================================="
+
+# Check if diff.genesis.json exists in container
+if docker exec ${CONTAINER_NAME} test -f /app/test-pp-op/diff.genesis.json; then
+    echo "Copying diff.genesis.json from container..."
+    if docker cp ${CONTAINER_NAME}:/app/test-pp-op/diff.genesis.json ${BACKUP_DIR}/diff.genesis.json; then
+        echo "✅ diff.genesis.json copied successfully to ${BACKUP_DIR}/diff.genesis.json"
+    else
+        echo "⚠️  Warning: Failed to copy diff.genesis.json"
+    fi
+else
+    echo "⚠️  Warning: diff.genesis.json not found in container"
+    echo "   Expected location: /app/test-pp-op/diff.genesis.json"
+fi
 
 echo ""
 echo "=============================================="
