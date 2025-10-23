@@ -419,12 +419,21 @@ func (c *XLayerRemoteClient) postSignRequest(ctx context.Context, req *XLayerSig
 		return fmt.Errorf("failed to add auth: %w", err)
 	}
 
-	// Log request details before sending
-	c.logger.Info("Sending HTTP request to XLayer",
+	// Log complete request details after auth
+	c.logger.Info("HTTP Request Details After Auth",
 		"method", httpReq.Method,
 		"url", httpReq.URL.String(),
-		"content_type", httpReq.Header.Get("Content-Type"),
-		"has_auth", httpReq.Header.Get("accessKey") != "")
+		"headers", func() map[string]string {
+			headers := make(map[string]string)
+			for k, v := range httpReq.Header {
+				if len(v) > 0 {
+					headers[k] = v[0]
+				}
+			}
+			return headers
+		}(),
+		"body", string(payload),
+		"body_length", len(payload))
 
 	// 5. Send request
 	resp, err := c.client.Do(httpReq)
@@ -532,6 +541,20 @@ func (c *XLayerRemoteClient) querySignResult(ctx context.Context, req *XLayerQue
 	if err := c.addAuth(httpReq); err != nil {
 		return nil, fmt.Errorf("failed to add auth: %w", err)
 	}
+
+	// Log complete request details after auth
+	c.logger.Info("HTTP Query Request Details After Auth",
+		"method", httpReq.Method,
+		"url", httpReq.URL.String(),
+		"headers", func() map[string]string {
+			headers := make(map[string]string)
+			for k, v := range httpReq.Header {
+				if len(v) > 0 {
+					headers[k] = v[0]
+				}
+			}
+			return headers
+		}())
 
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
