@@ -227,15 +227,164 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 		"depositAddress_in_struct", signReq.DepositeAddress,
 		"toAddress_in_struct", signReq.ToAddress,
 		"tx_to_is_nil", tx.To() == nil)
-	time.Sleep(3 * time.Second)
-	// 4. Send signing request and wait for result
-	signedTx, err := c.postSignRequestAndWaitResult(ctx, signReq, tx)
-	if err != nil {
-		return nil, fmt.Errorf("remote signing failed: %w", err)
+
+	// 4. Send signing request and wait for result with intelligent retry logic
+	// Retry only for "pending transaction" errors from remote signer
+	var signedTx *types.Transaction
+	maxRetries := 3
+	retryDelay := 5 * time.Second
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			c.logger.Warn("Retrying remote signing after pending transaction error",
+				"attempt", attempt,
+				"max_retries", maxRetries,
+				"delay", retryDelay,
+				"nonce", tx.Nonce())
+
+			// Wait before retry, respecting context cancellation
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("context cancelled during retry: %w", ctx.Err())
+			case <-time.After(retryDelay):
+				// Continue to retry
+			}
+		}
+
+		var err error
+		signedTx, err = c.postSignRequestAndWaitResult(ctx, signReq, tx)
+		if err == nil {
+			// Success - transaction signed
+			if attempt > 0 {
+				c.logger.Info("Remote signing succeeded after retry",
+					"attempt", attempt,
+					"nonce", tx.Nonce())
+			}
+			break
+		}
+
+		// Check if error is "pending transaction" related
+		errStr := err.Error()
+		isPendingTxError := strings.Contains(errStr, "未完成交易") ||
+			strings.Contains(errStr, "pending transaction") ||
+			strings.Contains(errStr, "相同地址有未完成交易") ||
+			strings.Contains(errStr, "has pending transactions")
+
+		if !isPendingTxError {
+			// Not a pending tx error - fail immediately without retry
+			c.logger.Error("Remote signing failed with non-retryable error",
+				"error", err,
+				"nonce", tx.Nonce())
+			return nil, fmt.Errorf("remote signing failed: %w", err)
+		}
+
+		if attempt == maxRetries {
+			// Max retries reached for pending tx error
+			c.logger.Error("Remote signing failed after max retries",
+				"max_retries", maxRetries,
+				"error", err,
+				"nonce", tx.Nonce())
+			return nil, fmt.Errorf("remote signing failed after %d retries (pending transaction): %w", maxRetries, err)
+		}
+
+		// Will retry - log the pending transaction error
+		c.logger.Info("Remote signer reported pending transaction, will retry",
+			"nonce", tx.Nonce(),
+			"attempt", attempt+1,
+			"max_retries", maxRetries,
+			"next_retry_in", retryDelay)
+	}
+
+	// Sanity check: ensure signedTx is not nil or invalid
+	if signedTx == nil {
+		c.logger.Error("signedTx is nil after all retries")
+		return nil, fmt.Errorf("signedTx is nil")
+	}
+
+	// Log signed transaction details with safe nil handling
+	c.logger.Info("Remote signing completed successfully",
+		"tx_hash", signedTx.Hash().Hex(),
+		"tx_type", signedTx.Type(),
+		"nonce", signedTx.Nonce(),
+		"to", func() string {
+			if signedTx.To() == nil {
+				return "<nil>"
+			}
+			return signedTx.To().Hex()
+		}(),
+		"value", func() string {
+			if signedTx.Value() == nil {
+				return "<nil>"
+			}
+			return signedTx.Value().String()
+		}(),
+		"gas", signedTx.Gas(),
+		"gas_price", func() string {
+			if signedTx.GasPrice() == nil {
+				return "<nil>"
+			}
+			return signedTx.GasPrice().String()
+		}(),
+		"gas_fee_cap", func() string {
+			if signedTx.GasFeeCap() == nil {
+				return "<nil>"
+			}
+			return signedTx.GasFeeCap().String()
+		}(),
+		"gas_tip_cap", func() string {
+			if signedTx.GasTipCap() == nil {
+				return "<nil>"
+			}
+			return signedTx.GasTipCap().String()
+		}(),
+		"data_len", len(signedTx.Data()),
+		"chain_id", func() string {
+			if signedTx.ChainId() == nil {
+				return "<nil>"
+			}
+			return signedTx.ChainId().String()
+		}())
+
+	// Extract and log signature components with nil checks
+	v, r, s := signedTx.RawSignatureValues()
+	c.logger.Debug("Signed transaction signature details",
+		"v", func() string {
+			if v == nil {
+				return "<nil>"
+			}
+			return v.String()
+		}(),
+		"r", func() string {
+			if r == nil {
+				return "<nil>"
+			}
+			return r.String()
+		}(),
+		"s", func() string {
+			if s == nil {
+				return "<nil>"
+			}
+			return s.String()
+		}())
+
+	// Check if signature is valid
+	if v == nil || r == nil || s == nil {
+		c.logger.Error("Signed transaction has invalid signature components",
+			"v_nil", v == nil,
+			"r_nil", r == nil,
+			"s_nil", s == nil)
 	}
 
 	// 5. Verify signed transaction consistency
 	if err := c.verifySignedTransaction(tx, signedTx); err != nil {
+		c.logger.Error("Signed transaction verification failed",
+			"error", err,
+			"original_to", tx.To(),
+			"signed_to", signedTx.To(),
+			"original_nonce", tx.Nonce(),
+			"signed_nonce", signedTx.Nonce(),
+			"original_data_len", len(tx.Data()),
+			"signed_data_len", len(signedTx.Data()))
 		return nil, fmt.Errorf("signed transaction verification failed: %w", err)
 	}
 
@@ -310,21 +459,72 @@ func (c *XLayerRemoteClient) postSignRequestAndWaitResult(ctx context.Context, r
 
 	// 2. Wait for signing result
 	result, err := c.waitSignResult(ctx, req.RefOrderID)
-	log.Info("RefOrderID IS ", req.RefOrderID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to wait sign result: %w", err)
 	}
 
+	// Log raw response from remote signer
+	c.logger.Info("Received signing result from remote signer",
+		"refOrderId", req.RefOrderID,
+		"status", result.Status,
+		"success", result.Success,
+		"msg", result.Msg,
+		"data_length", len(result.Data),
+		"data_preview", func() string {
+			if len(result.Data) > 100 {
+				return result.Data[:100] + "..."
+			}
+			return result.Data
+		}())
+
+	// Log full signed transaction hex for debugging
+	c.logger.Debug("Full signed transaction hex from remote signer",
+		"full_hex", result.Data)
+
 	// 3. Parse signed transaction
 	txData, err := hexutil.Decode(result.Data)
 	if err != nil {
+		c.logger.Error("Failed to decode signed transaction hex",
+			"error", err,
+			"data", result.Data)
 		return nil, fmt.Errorf("failed to decode signed transaction: %w", err)
 	}
 
+	c.logger.Debug("Decoded transaction binary",
+		"binary_length", len(txData),
+		"binary_hex", hexutil.Encode(txData))
+
 	var signedTx types.Transaction
 	if err := signedTx.UnmarshalBinary(txData); err != nil {
+		c.logger.Error("Failed to unmarshal signed transaction",
+			"error", err,
+			"binary_length", len(txData))
 		return nil, fmt.Errorf("failed to unmarshal signed transaction: %w", err)
 	}
+
+	// Check if signedTx is properly initialized
+	if signedTx.Type() == 0 && signedTx.Nonce() == 0 && signedTx.Gas() == 0 {
+		c.logger.Error("Signed transaction appears to be uninitialized or invalid",
+			"tx_type", signedTx.Type(),
+			"nonce", signedTx.Nonce(),
+			"gas", signedTx.Gas(),
+			"to", signedTx.To(),
+			"value", signedTx.Value())
+	}
+
+	c.logger.Info("Successfully parsed signed transaction from remote signer",
+		"tx_hash", signedTx.Hash().Hex(),
+		"tx_type", signedTx.Type(),
+		"nonce", signedTx.Nonce(),
+		"to", func() string {
+			if signedTx.To() == nil {
+				return "<nil>"
+			}
+			return signedTx.To().Hex()
+		}(),
+		"value", signedTx.Value().String(),
+		"gas", signedTx.Gas(),
+		"data_len", len(signedTx.Data()))
 
 	// 4. For blob transactions, attach sidecar
 	// Do not reassemble! Use the transaction returned by remote signer directly
