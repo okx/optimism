@@ -29,7 +29,7 @@ sleep 2
 
 # Run verification
 echo "Running verification..."
-docker exec -it ${CONTAINER_NAME} geth verifyMigrate \
+docker exec -w /app/test-pp-op -it ${CONTAINER_NAME} geth verifyMigrate \
     --chaindata=/data/erigon-data/chaindata \
     --datadir=${OP_GETH_DATA_DIR} \
     --standalone-smt=true
