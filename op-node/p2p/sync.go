@@ -254,10 +254,9 @@ type SyncClient struct {
 	inFlight       *requestIdMap
 	inFlightChecks chan inFlightCheck
 
-	rangeRequests       chan rangeRequest
-	activeRangeRequests *requestIdMap
-	rangeReqId          uint64
-	peerRequests        chan peerRequest
+	rangeRequests chan rangeRequest
+	rangeReqId    uint64
+	peerRequests  chan peerRequest
 
 	results chan syncResult
 
@@ -285,24 +284,23 @@ func NewSyncClient(log log.Logger, cfg *rollup.Config, host HostNewStream, rcv r
 	ctx, cancel := context.WithCancel(context.Background())
 
 	c := &SyncClient{
-		log:                 log,
-		cfg:                 cfg,
-		metrics:             metrics,
-		appScorer:           appScorer,
-		newStreamFn:         host.NewStream,
-		payloadByNumber:     PayloadByNumberProtocolID(cfg.L2ChainID),
-		peers:               make(map[peer.ID]context.CancelFunc),
-		quarantineByNum:     make(map[uint64]common.Hash),
-		rangeRequests:       make(chan rangeRequest), // blocking
-		activeRangeRequests: newRequestIdMap(),
-		peerRequests:        make(chan peerRequest, 128),
-		results:             make(chan syncResult, 128),
-		inFlight:            newRequestIdMap(),
-		inFlightChecks:      make(chan inFlightCheck, 128),
-		globalRL:            rate.NewLimiter(globalServerBlocksRateLimit, globalServerBlocksBurst),
-		resCtx:              ctx,
-		resCancel:           cancel,
-		receivePayload:      rcv,
+		log:             log,
+		cfg:             cfg,
+		metrics:         metrics,
+		appScorer:       appScorer,
+		newStreamFn:     host.NewStream,
+		payloadByNumber: PayloadByNumberProtocolID(cfg.L2ChainID),
+		peers:           make(map[peer.ID]context.CancelFunc),
+		quarantineByNum: make(map[uint64]common.Hash),
+		rangeRequests:   make(chan rangeRequest), // blocking
+		peerRequests:    make(chan peerRequest, 128),
+		results:         make(chan syncResult, 128),
+		inFlight:        newRequestIdMap(),
+		inFlightChecks:  make(chan inFlightCheck, 128),
+		globalRL:        rate.NewLimiter(globalServerBlocksRateLimit, globalServerBlocksBurst),
+		resCtx:          ctx,
+		resCancel:       cancel,
+		receivePayload:  rcv,
 	}
 	if extra, ok := host.(ExtraHostFeatures); ok && extra.SyncOnlyReqToStatic() {
 		c.extra = extra
@@ -374,17 +372,14 @@ func (s *SyncClient) RequestL2Range(ctx context.Context, start, end eth.L2BlockR
 		s.log.Debug("P2P sync client received range signal, but cannot sync open-ended chain: need sync target to verify blocks through parent-hashes", "start", start)
 		return 0, nil
 	}
-	// Create shared rangeReqId so associated peerRequests can all be cancelled by setting a single flag
+	// Create shared rangeReqId for tracking this range request
 	rangeReqId := atomic.AddUint64(&s.rangeReqId, 1)
-	// need to flag request as active before adding request to s.rangeRequests to avoid race
-	s.activeRangeRequests.set(rangeReqId, true)
 
 	// synchronize requests with the main loop for state access
 	select {
 	case s.rangeRequests <- rangeRequest{start: start.Number, end: end, id: rangeReqId}:
 		return rangeReqId, nil
 	case <-ctx.Done():
-		s.activeRangeRequests.delete(rangeReqId)
 		return rangeReqId, fmt.Errorf("too busy with P2P results/requests: %w", ctx.Err())
 	}
 }
@@ -591,12 +586,6 @@ func (s *SyncClient) peerLoop(ctx context.Context, id peer.ID) {
 		// once the peer is available, wait for a sync request.
 		select {
 		case pr := <-peerRequests:
-			if !s.activeRangeRequests.get(pr.rangeReqId) {
-				log.Debug("dropping cancelled p2p sync request", "num", pr.num)
-				s.inFlight.delete(pr.num)
-				continue
-			}
-
 			// If this peer already failed on this range, don't request further blocks for it.
 			if _, failed := failedRanges[pr.rangeReqId]; failed {
 				log.Debug("skipping peer for previously failed range", "num", pr.num, "rangeReqId", pr.rangeReqId)
