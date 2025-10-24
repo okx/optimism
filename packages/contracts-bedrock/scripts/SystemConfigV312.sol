@@ -23,7 +23,7 @@ import { IGasToken } from "src/libraries/GasPayingToken.sol";
 /// @notice The SystemConfigV312 contract is used to manage configuration of an Optimism network.
 ///         All configuration is stored on L1 and picked up by L2 as part of the derviation of
 ///         the L2 chain.
-/// @dev    Purpuse: upgrade DevNet OKB adapter
+/// @dev    Key changes: allow ProxyAdmin to set gas paying token multiple times
 contract SystemConfigV312 is ProxyAdminOwnedBase, OwnableUpgradeable, ReinitializableBase, ISemver, IGasToken {
     /// @notice Enum representing different types of updates.
     /// @custom:value BATCHER              Represents an update to the batcher hash.
@@ -617,5 +617,4 @@ contract SystemConfigV312 is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitiali
     function _setGasPayingToken(address _token, uint8 _decimals, bytes32 _name, bytes32 _symbol) internal {
         GasPayingToken.set(_token, _decimals, _name, _symbol);
     }
-
 }
