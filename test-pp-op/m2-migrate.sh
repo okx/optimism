@@ -374,6 +374,8 @@ execute_migration() {
         cp .env ${BACKUP_DIR}/ || exit 1
         cp merged.genesis.json ${BACKUP_DIR}/ || exit 1
         cp -rf config-op ${BACKUP_DIR}/config-op || exit 1
+
+        [ -f migrate.log ] && cp migrate.log ${BACKUP_DIR}/
     "; then
         echo ""
         echo "✅ Migration completed successfully inside container"
