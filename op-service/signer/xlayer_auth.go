@@ -17,7 +17,6 @@ import (
 
 const (
 	algoSha256      = "sha256"
-	algoMd5         = "md5"
 	headerSignKey   = "sign"
 	headerAccessKey = "accessKey"
 )
@@ -101,8 +100,6 @@ func (c *XLayerRemoteClient) generateSignature(treeMap map[string][]string, body
 	switch strings.ToLower(algorithm) {
 	case "sha256":
 		hash = signBySha256(content.String())
-	case "md5":
-		hash = signByMd5(content.String())
 	default:
 		// Handle unsupported algorithm
 		return "", fmt.Errorf("unsupported algorithm: %v", algorithm)
