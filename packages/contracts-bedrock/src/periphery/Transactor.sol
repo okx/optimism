@@ -27,7 +27,7 @@ contract Transactor is Owned {
         returns (bool success_, bytes memory data_)
     {
         (success_, data_) = _target.call{ value: _value }(_data);
-        require(success_, "Transactor: CALL failed");
+        require(success_, string(abi.encodePacked("Transactor: CALL failed: ", data_)));
     }
 
     /// @notice Sends a DELEGATECALL to a target address.
@@ -46,6 +46,6 @@ contract Transactor is Owned {
     {
         // slither-disable-next-line controlled-delegatecall
         (success_, data_) = _target.delegatecall(_data);
-        require(success_, "Transactor: DELEGATECALL failed");
+        require(success_, string(abi.encodePacked("Transactor: DELEGATECALL failed: ", data_)));
     }
 }
