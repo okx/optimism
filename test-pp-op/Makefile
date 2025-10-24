@@ -31,10 +31,10 @@ PAUSE := $(DOCKER_COMPOSE) down --remove-orphans; \
 
 
 DEPLOY_ERC20_L1 := cd contracts && forge create OKBToken.sol:StandardERC20 --private-key $(SEQUENCER_PRIVATE_KEY) --rpc-url $(L1_RPC_URL) --legacy --broadcast --constructor-args "OKBToken" "OKB" 1000000000
-INIT_ACCOUNT_1 := cast send -f $(SEQUENCER_ADDRESS)  --private-key $(SEQUENCER_PRIVATE_KEY) --value 1000ether $(DEPLOYER_ADDRESS) --legacy --rpc-url $(L1_RPC_URL)
-INIT_ACCOUNT_2 := cast send -f $(SEQUENCER_ADDRESS)  --private-key $(SEQUENCER_PRIVATE_KEY) --value 1000ether $(AGGREGATOR_ADDRESS) --legacy --rpc-url $(L1_RPC_URL)
-INIT_ACCOUNT_3 := cast send -f $(SEQUENCER_ADDRESS)  --private-key $(SEQUENCER_PRIVATE_KEY) --value 1000ether $(RICH_ADDRESS) --legacy --rpc-url $(L1_RPC_URL)
-INIT_ACCOUNT_4 := cast send -f $(SEQUENCER_ADDRESS)  --private-key $(SEQUENCER_PRIVATE_KEY) --value 1000ether $(CHALLENGER_ADDRESS) --legacy --rpc-url $(L1_RPC_URL)
+INIT_ACCOUNT_1 := cast send -f $(SEQUENCER_ADDRESS)  --private-key $(SEQUENCER_PRIVATE_KEY) --value 10ether $(DEPLOYER_ADDRESS) --legacy --rpc-url $(L1_RPC_URL)
+INIT_ACCOUNT_2 := cast send -f $(SEQUENCER_ADDRESS)  --private-key $(SEQUENCER_PRIVATE_KEY) --value 10ether $(AGGREGATOR_ADDRESS) --legacy --rpc-url $(L1_RPC_URL)
+INIT_ACCOUNT_3 := cast send -f $(SEQUENCER_ADDRESS)  --private-key $(SEQUENCER_PRIVATE_KEY) --value 10ether $(RICH_ADDRESS) --legacy --rpc-url $(L1_RPC_URL)
+INIT_ACCOUNT_4 := cast send -f $(SEQUENCER_ADDRESS)  --private-key $(SEQUENCER_PRIVATE_KEY) --value 10ether $(CHALLENGER_ADDRESS) --legacy --rpc-url $(L1_RPC_URL)
 
 INIT_BRIDGE_ACCOUNT := cast send -f $(DEPLOYER_ADDRESS)  --private-key $(DEPLOYER_PRIVATE_KEY) --value 0.01ether $(SEQUENCER_ADDRESS) --legacy --rpc-url $(L2_ERIGON_RPC_URL)
 
