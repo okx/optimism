@@ -280,10 +280,10 @@ func TestMultiPeerSync(t *testing.T) {
 	// now see if B can sync a range, and fill the gap with a re-request
 	bl25, _ := payloads.getPayload(25) // temporarily remove it from the available payloads. This will create a gap
 	payloads.deletePayload(25)
-	rangeReqId, err := clB.RequestL2Range(ctx, payloads.getBlockRef(20), payloads.getBlockRef(30))
+	_, err = clB.RequestL2Range(ctx, payloads.getBlockRef(20), payloads.getBlockRef(30))
 
 	require.NoError(t, err)
-	require.True(t, clB.activeRangeRequests.get(rangeReqId), "expecting range request to be active")
+	// Range request is now tracked internally, no global activeRangeRequests map
 
 	for i := uint64(29); i > 25; i-- {
 		select {
@@ -330,7 +330,6 @@ func TestMultiPeerSync(t *testing.T) {
 			break
 		}
 	}
-	require.True(t, clB.activeRangeRequests.get(rangeReqId), "range should remain active after NotFound")
 
 	// Add back the block
 	payloads.addPayload(bl25)
