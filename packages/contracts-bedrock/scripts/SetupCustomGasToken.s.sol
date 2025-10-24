@@ -19,9 +19,8 @@ import { Constants } from "src/libraries/Constants.sol";
 /// @dev This script:
 ///      1. Pre-checks L1 configuration
 ///      2. Deploys DepositedOKBAdapter with designated owner
-///      3. Adds designated owner address to whitelist for deposits
-///      4. Sets gas paying token in SystemConfig storage
-///      5. Post-checks configuration
+///      3. Sets gas paying token in SystemConfig storage
+///      4. Post-checks configuration
 contract SetupCustomGasToken is Script {
     // Addresses to be loaded from deployment artifacts
     address systemConfigProxy;
