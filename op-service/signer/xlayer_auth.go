@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/md5"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -98,7 +97,7 @@ func (c *XLayerRemoteClient) generateSignature(treeMap map[string][]string, body
 	// Calculate the hash based on the selected algorithm
 	var hash []byte
 	switch strings.ToLower(algorithm) {
-	case "sha256":
+	case algoSha256:
 		hash = signBySha256(content.String())
 	default:
 		// Handle unsupported algorithm
@@ -120,12 +119,6 @@ type bufferWriter struct {
 func (bw *bufferWriter) Write(p []byte) (n int, err error) {
 	*bw.buffer = append(*bw.buffer, p...)
 	return len(p), nil
-}
-
-func signByMd5(content string) []byte {
-	hash := md5.New() // golint:ignore
-	hash.Write([]byte(content))
-	return []byte(hex.EncodeToString(hash.Sum(nil)))
 }
 
 func signBySha256(content string) []byte {
