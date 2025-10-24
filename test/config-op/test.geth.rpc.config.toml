@@ -16,10 +16,14 @@ JWTSecret = "/jwt.txt"
 [Node.P2P]
 MaxPeers = 30
 DiscoveryV5 = true
+StaticNodes = []
+TrustedNodes = []
 
 [Eth]
 NetworkId = 901
 SyncMode = "full"
+
+[Eth.XLayer]
 EnableInnerTx = true
 
 

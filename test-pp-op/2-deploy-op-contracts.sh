@@ -97,7 +97,7 @@ deploy_transactor() {
   FORGE_CMD="forge create --json --broadcast --legacy \
     --rpc-url $L1_RPC_URL_IN_DOCKER \
     --private-key $DEPLOYER_PRIVATE_KEY \
-    src/periphery/Transactor.sol:Transactor \
+    src/periphery/Transactor.sol:Transactor.0.8.30 \
     --constructor-args $ADMIN_OWNER_ADDRESS"
 
   echo "🔧 Executing Docker command..."
@@ -240,6 +240,31 @@ deploy_custom_gas_token() {
   echo "🔧 Setting up Custom Gas Token (CGT) configuration..."
   echo ""
 
+  # Extract parameters from intent.toml BEFORE changing directory
+  GAS_LIMIT=$(grep -E "^[[:space:]]*gasLimit[[:space:]]*=" "$CONFIG_DIR/intent.toml" | sed -E 's/^[[:space:]]*gasLimit[[:space:]]*=[[:space:]]*([0-9]+).*/\1/')
+  EIP1559_DENOMINATOR=$(grep -E "^[[:space:]]*eip1559Denominator[[:space:]]*=" "$CONFIG_DIR/intent.toml" | sed -E 's/^[[:space:]]*eip1559Denominator[[:space:]]*=[[:space:]]*([0-9]+).*/\1/')
+  EIP1559_ELASTICITY=$(grep -E "^[[:space:]]*eip1559Elasticity[[:space:]]*=" "$CONFIG_DIR/intent.toml" | sed -E 's/^[[:space:]]*eip1559Elasticity[[:space:]]*=[[:space:]]*([0-9]+).*/\1/')
+
+  echo "📋 Configuration from intent.toml:"
+  echo "   Gas Limit: $GAS_LIMIT"
+  echo "   EIP1559 Denominator: $EIP1559_DENOMINATOR"
+  echo "   EIP1559 Elasticity: $EIP1559_ELASTICITY"
+  echo ""
+
+  # Validate extracted parameters
+  if [ -z "$GAS_LIMIT" ]; then
+    echo "❌ Failed to extract gasLimit from intent.toml"
+    exit 1
+  fi
+  if [ -z "$EIP1559_DENOMINATOR" ]; then
+    echo "❌ Failed to extract eip1559Denominator from intent.toml"
+    exit 1
+  fi
+  if [ -z "$EIP1559_ELASTICITY" ]; then
+    echo "❌ Failed to extract eip1559Elasticity from intent.toml"
+    exit 1
+  fi
+
   SYSTEM_CONFIG_PROXY_ADDRESS=$(jq -r '.opChainDeployments[0].SystemConfigProxy' "$CONFIG_DIR/state.json")
   OPTIMISM_PORTAL_PROXY_ADDRESS=$(jq -r '.opChainDeployments[0].OptimismPortalProxy' "$CONFIG_DIR/state.json")
 
@@ -256,6 +281,8 @@ deploy_custom_gas_token() {
   cd $ROOT_DIR/packages/contracts-bedrock
   export SYSTEM_CONFIG_PROXY_ADDRESS=$SYSTEM_CONFIG_PROXY_ADDRESS
   export OPTIMISM_PORTAL_PROXY_ADDRESS=$OPTIMISM_PORTAL_PROXY_ADDRESS
+  export OKB_TOKEN_ADDRESS=$OKB_TOKEN_ADDRESS
+  export OKB_ADAPTER_OWNER_ADDRESS=$OKB_ADAPTER_OWNER_ADDRESS
 
   FORGE_OUTPUT=$(forge script scripts/SetupCustomGasToken.s.sol:SetupCustomGasToken \
     --rpc-url "$L1_RPC_URL" \
@@ -265,20 +292,77 @@ deploy_custom_gas_token() {
   echo "$FORGE_OUTPUT"
 
   # Extract contract addresses from forge output
-  OKB_TOKEN=$(echo "$FORGE_OUTPUT" | grep "MockOKB deployed at:" | awk '{print $NF}')
   ADAPTER_ADDRESS=$(echo "$FORGE_OUTPUT" | grep "DepositedOKBAdapter deployed at:" | awk '{print $NF}')
 
   # Query initial OKB total supply
-  INIT_TOTAL_SUPPLY=$(cast call "$OKB_TOKEN" "totalSupply()(uint256)" --rpc-url "$L1_RPC_URL")
+  INIT_TOTAL_SUPPLY=$(cast call "$OKB_TOKEN_ADDRESS" "totalSupply()(uint256)" --rpc-url "$L1_RPC_URL")
   echo ""
   echo "📊 Initial OKB Total Supply: $INIT_TOTAL_SUPPLY"
 
   echo ""
   echo "✅ L1 Custom Gas Token setup complete!"
-  echo ""
   echo "📋 Deployed Contract Addresses:"
-  echo "   OKB Token:          $OKB_TOKEN"
+  echo ""
+  echo "   OKB Token:          $OKB_TOKEN_ADDRESS"
   echo "   Adapter:            $ADAPTER_ADDRESS"
+  echo ""
+
+  # Set gas config to 0 for custom gas token (Ecotone upgrade)
+  echo "🔧 Setting gas config for Ecotone (Custom Gas Token)..."
+  cast send "$SYSTEM_CONFIG_PROXY_ADDRESS" \
+    "setGasConfigEcotone(uint32,uint32)" \
+    0 \
+    0 \
+    --rpc-url "$L1_RPC_URL" \
+    --private-key "$DEPLOYER_PRIVATE_KEY"
+  echo "✅ Gas config set to (0, 0) for Custom Gas Token"
+  echo ""
+
+  # Set gas limit
+  echo "🔧 Setting gas limit to $GAS_LIMIT..."
+  cast send "$SYSTEM_CONFIG_PROXY_ADDRESS" \
+    "setGasLimit(uint64)" \
+    "$GAS_LIMIT" \
+    --rpc-url "$L1_RPC_URL" \
+    --private-key "$DEPLOYER_PRIVATE_KEY"
+  echo "✅ Gas limit set successfully"
+  echo ""
+
+  # Set EIP-1559 parameters
+  echo "🔧 Setting EIP-1559 parameters (denominator: $EIP1559_DENOMINATOR, elasticity: $EIP1559_ELASTICITY)..."
+  cast send "$SYSTEM_CONFIG_PROXY_ADDRESS" \
+    "setEIP1559Params(uint32,uint32)" \
+    "$EIP1559_DENOMINATOR" \
+    "$EIP1559_ELASTICITY" \
+    --rpc-url "$L1_RPC_URL" \
+    --private-key "$DEPLOYER_PRIVATE_KEY"
+  echo "✅ EIP-1559 parameters set successfully"
+  echo ""
+
+  # Transfer SystemConfig ownership
+  echo "🔧 Transferring SystemConfig ownership..."
+  echo ""
+
+  # Check current owner
+  CURRENT_OWNER=$(cast call "$SYSTEM_CONFIG_PROXY_ADDRESS" "owner()(address)" --rpc-url "$L1_RPC_URL")
+  echo "📋 Current SystemConfig owner: $CURRENT_OWNER"
+  echo "📋 Target owner: $SYSTEM_CONFIG_OWNER_ADDRESS"
+
+  if [ "$CURRENT_OWNER" != "$SYSTEM_CONFIG_OWNER_ADDRESS" ]; then
+    echo "🔄 Transferring ownership to $SYSTEM_CONFIG_OWNER_ADDRESS..."
+
+    cast send "$SYSTEM_CONFIG_PROXY_ADDRESS" \
+      "transferOwnership(address)" \
+      "$SYSTEM_CONFIG_OWNER_ADDRESS" \
+      --rpc-url "$L1_RPC_URL" \
+      --private-key "$DEPLOYER_PRIVATE_KEY"
+
+    # Verify transfer
+    NEW_OWNER=$(cast call "$SYSTEM_CONFIG_PROXY_ADDRESS" "owner()(address)" --rpc-url "$L1_RPC_URL")
+    echo "✅ SystemConfig ownership transferred to: $NEW_OWNER"
+  else
+    echo "✅ SystemConfig already owned by $SYSTEM_CONFIG_OWNER_ADDRESS"
+  fi
   echo ""
 
 }

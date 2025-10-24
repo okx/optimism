@@ -1,19 +1,18 @@
 #!/bin/bash
-set -x
 set -e
+
+# Debug mode - set to true to enable verbose output
+DEBUG=${DEBUG:-false}
+
+if [ "$DEBUG" = "true" ]; then
+    set -x
+fi
+
 source .env
 source tools.sh
 source utils.sh
 
-
 prepare() {
-  # Check if FORK_BLOCK is set
-  if [ -z "$FORK_BLOCK" ]; then
-      echo " ❌ FORK_BLOCK environment variable is not set"
-      echo "Please set FORK_BLOCK in your .env file"
-      exit 1
-  fi
-
   # Check required files exist
   if [ ! -f "./config-op/genesis.json" ]; then
     echo "❌ ERROR: ./config-op/genesis.json not found!"
@@ -27,11 +26,6 @@ prepare() {
 
   cp ./config-op/genesis.json ./config-op/genesis-op-raw.json
   cp ./config-op/genesis.json ./config-op/genesis-op-before-number.json
-
-  jq '.config.legacyXLayerBlock = '"$FORK_BLOCK" ./config-op/genesis.json > temp_genesis.json && mv temp_genesis.json ./config-op/genesis.json
-  sed_inplace 's/"parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000"/"parentHash": "'"$PARENT_HASH"'"/' ./config-op/genesis.json
-  jq '.genesis.l2.number = '"$FORK_BLOCK" ./config-op/rollup.json > temp_rollup.json && mv temp_rollup.json ./config-op/rollup.json
-
   cp ./config-op/genesis.json ./config-op/genesis-op-after-number.json
 
   # Extract contract addresses from state.json and update .env file
@@ -155,9 +149,24 @@ migrate() {
   fi
 
   echo "GETH_CMD: $GETH_CMD"
-  ${GETH_CMD} --datadir=${OP_DATA_DIR} --gcmode=archive migrate --state.scheme=hash --ignore-addresses=0x000000000000000000000000000000005ca1ab1e --chaindata=${ERIGON_CHAINDATA_DIR} --smt-db-path=${ERIGON_SMTDATA_DIR} --no-verify --output merged.genesis.json ${OP_GENESIS_PATH} 2>&1 | tee migrate.log
+  # Build the base command
+  MIGRATE_CMD="${GETH_CMD} --datadir=${OP_DATA_DIR} --gcmode=archive migrate --state.scheme=hash --ignore-addresses=0x000000000000000000000000000000005ca1ab1e --chaindata=${ERIGON_CHAINDATA_DIR} --smt-db-path=${ERIGON_SMTDATA_DIR} --output merged.genesis.json"
 
-  sleep 5
+  # Add --override-proposer if TIMELOCK_OVERRIDE_PROPOSER_ADDRESS is set and non-empty
+  if [ -n "${TIMELOCK_OVERRIDE_PROPOSER_ADDRESS:-}" ]; then
+      MIGRATE_CMD="$MIGRATE_CMD --override-proposer=${TIMELOCK_OVERRIDE_PROPOSER_ADDRESS}"
+  fi
+
+  # Add --override-executor if TIMELOCK_OVERRIDE_EXECUTOR_ADDRESS is set and non-empty
+  if [ -n "${TIMELOCK_OVERRIDE_EXECUTOR_ADDRESS:-}" ]; then
+      MIGRATE_CMD="$MIGRATE_CMD --override-executor=${TIMELOCK_OVERRIDE_EXECUTOR_ADDRESS}"
+  fi
+
+  # Add the genesis path at the end
+  MIGRATE_CMD="$MIGRATE_CMD ${OP_GENESIS_PATH}"
+
+  # Execute the command
+  $MIGRATE_CMD 2>&1 | tee migrate.log
 
   LOG_BLOCK=$(grep -A 5 "Update rollup.json file with the following information l2" migrate.log | tail -n 5)
   L2_NUMBER=$(echo "$LOG_BLOCK" | grep '"number"' | sed 's/[^0-9]*\([0-9]*\).*/\1/')
@@ -168,6 +177,29 @@ migrate() {
   jq --argjson num "$L2_NUMBER" --arg hash "$L2_HASH" \
      '.genesis.l2.number = $num | .genesis.l2.hash = $hash' \
      config-op/rollup.json > config-op/rollup.json.tmp && mv config-op/rollup.json.tmp config-op/rollup.json
+
+  # Update eip1559DenominatorCanyon to match eip1559Denominator in rollup.json
+  echo "🔧 Updating eip1559DenominatorCanyon to match eip1559Denominator..."
+
+  # Extract eip1559Denominator from rollup.json
+  EIP1559_DENOMINATOR=$(jq -r '.chain_op_config.eip1559Denominator' config-op/rollup.json)
+  echo "eip1559Denominator value from rollup.json: $EIP1559_DENOMINATOR"
+
+  # Debug: Check current rollup.json structure
+  echo "🔍 Current rollup.json chain_op_config structure:"
+  jq '.chain_op_config' config-op/rollup.json
+
+  # Update rollup.json with the eip1559DenominatorCanyon value
+  echo "🔧 Updating rollup.json chain_op_config..."
+  jq --argjson denominator "$EIP1559_DENOMINATOR" \
+     '.chain_op_config.eip1559DenominatorCanyon = $denominator' \
+     config-op/rollup.json > config-op/rollup.json.tmp && mv config-op/rollup.json.tmp config-op/rollup.json
+
+  # Verify the update
+  echo "🔍 Updated rollup.json chain_op_config structure:"
+  jq '.chain_op_config' config-op/rollup.json
+
+  echo "✅ Updated eip1559DenominatorCanyon to $EIP1559_DENOMINATOR in rollup.json"
 
   echo "finished migrate op-geth"
 }

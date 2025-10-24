@@ -1,6 +1,5 @@
 #!/bin/bash
 set -e
-set -x
 
 # init-erigon.sh runs outside the container.
 ROOT_DIR=$(which git &>/dev/null && git rev-parse --show-toplevel || echo "/data")
