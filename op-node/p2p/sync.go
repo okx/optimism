@@ -148,6 +148,60 @@ func (r *requestIdMap) delete(key uint64) {
 	r.mu.Unlock()
 }
 
+// rangeRequestMap tracks active ranges and which peers have failed for each range
+type rangeRequestMap struct {
+	ranges map[uint64]map[peer.ID]struct{} // rangeReqId -> set of failed peers (nil = active, no failures yet)
+	mu     sync.Mutex
+}
+
+func newRangeRequestMap() *rangeRequestMap {
+	return &rangeRequestMap{
+		ranges: make(map[uint64]map[peer.ID]struct{}),
+	}
+}
+
+func (r *rangeRequestMap) set(rangeReqId uint64) {
+	r.mu.Lock()
+	r.ranges[rangeReqId] = nil // active, no failures
+	r.mu.Unlock()
+}
+
+func (r *rangeRequestMap) isActive(rangeReqId uint64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, exists := r.ranges[rangeReqId]
+	return exists
+}
+
+func (r *rangeRequestMap) markPeerFailed(rangeReqId uint64, peerID peer.ID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.ranges[rangeReqId]; !exists {
+		return // range not active
+	}
+	if r.ranges[rangeReqId] == nil {
+		r.ranges[rangeReqId] = make(map[peer.ID]struct{})
+	}
+	r.ranges[rangeReqId][peerID] = struct{}{}
+}
+
+func (r *rangeRequestMap) hasPeerFailed(rangeReqId uint64, peerID peer.ID) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	peers, exists := r.ranges[rangeReqId]
+	if !exists || peers == nil {
+		return false
+	}
+	_, failed := peers[peerID]
+	return failed
+}
+
+func (r *rangeRequestMap) delete(rangeReqId uint64) {
+	r.mu.Lock()
+	delete(r.ranges, rangeReqId)
+	r.mu.Unlock()
+}
+
 type SyncClientMetrics interface {
 	ClientPayloadByNumberEvent(num uint64, resultCode byte, duration time.Duration)
 	PayloadsQuarantineSize(n int)
@@ -255,7 +309,7 @@ type SyncClient struct {
 	inFlightChecks chan inFlightCheck
 
 	rangeRequests       chan rangeRequest
-	activeRangeRequests *requestIdMap
+	activeRangeRequests *rangeRequestMap
 	rangeReqId          uint64
 	peerRequests        chan peerRequest
 
@@ -294,7 +348,7 @@ func NewSyncClient(log log.Logger, cfg *rollup.Config, host HostNewStream, rcv r
 		peers:               make(map[peer.ID]context.CancelFunc),
 		quarantineByNum:     make(map[uint64]common.Hash),
 		rangeRequests:       make(chan rangeRequest), // blocking
-		activeRangeRequests: newRequestIdMap(),
+		activeRangeRequests: newRangeRequestMap(),
 		peerRequests:        make(chan peerRequest, 128),
 		results:             make(chan syncResult, 128),
 		inFlight:            newRequestIdMap(),
@@ -377,7 +431,7 @@ func (s *SyncClient) RequestL2Range(ctx context.Context, start, end eth.L2BlockR
 	// Create shared rangeReqId so associated peerRequests can all be cancelled by setting a single flag
 	rangeReqId := atomic.AddUint64(&s.rangeReqId, 1)
 	// need to flag request as active before adding request to s.rangeRequests to avoid race
-	s.activeRangeRequests.set(rangeReqId, true)
+	s.activeRangeRequests.set(rangeReqId)
 
 	// synchronize requests with the main loop for state access
 	select {
@@ -588,8 +642,15 @@ func (s *SyncClient) peerLoop(ctx context.Context, id peer.ID) {
 		// once the peer is available, wait for a sync request.
 		select {
 		case pr := <-peerRequests:
-			if !s.activeRangeRequests.get(pr.rangeReqId) {
+			if !s.activeRangeRequests.isActive(pr.rangeReqId) {
 				log.Debug("dropping cancelled p2p sync request", "num", pr.num)
+				s.inFlight.delete(pr.num)
+				continue
+			}
+
+			// If this peer already failed on this range, don't request further blocks for it.
+			if s.activeRangeRequests.hasPeerFailed(pr.rangeReqId, id) {
+				log.Debug("skipping peer for previously failed range", "num", pr.num, "rangeReqId", pr.rangeReqId)
 				s.inFlight.delete(pr.num)
 				continue
 			}
@@ -609,8 +670,9 @@ func (s *SyncClient) peerLoop(ctx context.Context, id peer.ID) {
 				if re, ok := err.(requestResultErr); ok {
 					resultCode = re.ResultCode()
 					if resultCode == ResultCodeNotFoundErr {
-						log.Warn("cancelling p2p sync range request", "rangeReqId", pr.rangeReqId)
-						s.activeRangeRequests.delete(pr.rangeReqId)
+						// Mark this range as failed for this peer only; do not affect other peers.
+						s.activeRangeRequests.markPeerFailed(pr.rangeReqId, id)
+						log.Debug("peer marked failed for range", "rangeReqId", pr.rangeReqId)
 						sendResponseError = false // don't penalize peer for this error
 					}
 				}
