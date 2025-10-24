@@ -283,7 +283,6 @@ func TestMultiPeerSync(t *testing.T) {
 	_, err = clB.RequestL2Range(ctx, payloads.getBlockRef(20), payloads.getBlockRef(30))
 
 	require.NoError(t, err)
-	// Range request is now tracked internally, no global activeRangeRequests map
 
 	for i := uint64(29); i > 25; i-- {
 		select {
