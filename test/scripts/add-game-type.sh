@@ -164,7 +164,10 @@ add_game_type_via_safe() {
     # Convert deployer address to uint256(uint160(address)) format
     # This is equivalent to: uint256(uint160(msg.sender))
     DEPLOYER_ADDRESS_NO_PREFIX=${DEPLOYER_ADDRESS#0x}
-    DEPLOYER_ADDRESS_PADDED=$(printf "%064s" $DEPLOYER_ADDRESS_NO_PREFIX)
+    ADDRESS_LENGTH=${#DEPLOYER_ADDRESS_NO_PREFIX}
+    ZEROS_NEEDED=$((64 - ADDRESS_LENGTH))
+    ZEROS=$(printf "%0${ZEROS_NEEDED}d" 0)
+    DEPLOYER_ADDRESS_PADDED="${ZEROS}${DEPLOYER_ADDRESS_NO_PREFIX}"
 
     # Build signature: uint256(uint160(msg.sender)) + bytes32(0) + uint8(1)
     # This is exactly what abi.encodePacked(uint256(uint160(msg.sender)), bytes32(0), uint8(1)) produces
