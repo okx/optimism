@@ -187,7 +187,7 @@ services:
       - "30303:30303/udp"
       - "9090:9090"  # pprof port
     command:
-      - --verbosity=5
+      - --verbosity=3
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
       - --config=${CONFIG_FILE:-/config.toml}
@@ -221,7 +221,7 @@ services:
       - "30304:30303/udp"
       - "6061:6061"  # pprof port
     command:
-      - --verbosity=5
+      - --verbosity=3
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
       - --config=${CONFIG_FILE:-/config.toml}
@@ -486,6 +486,7 @@ services:
       - --rpc.enable-admin
       - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
       - --private-key=${OP_BATCHER_PRIVATE_KEY}
+      - --throttle.block-size-lower-limit=600000
       - --throttle.block-size-upper-limit=1300000
       - --active-sequencer-check-duration=5s
 
