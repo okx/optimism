@@ -20,9 +20,6 @@ DiscoveryV5 = true
 [Eth]
 NetworkId = 901
 SyncMode = "full"
-EnableInnerTx = true
-
-
 
 [Eth.TxPool]
 GlobalSlots = 500000
@@ -30,6 +27,8 @@ GlobalQueue = 100000
 AccountSlots = 50000
 AccountQueue = 10000
 
+[Eth.XLayer]
+EnableInnerTx = false
 
 [Eth.GPO]
 Blocks = 20
