@@ -561,8 +561,13 @@ func (s *SyncClient) peerLoop(ctx context.Context, id peer.ID) {
 	// so we don't be too aggressive to the server.
 	rl := rate.NewLimiter(peerServerBlocksRateLimit, peerServerBlocksBurst)
 
-	// Track ranges that this peer already failed to serve (by rangeReqId).
-	failedRanges := make(map[uint64]struct{})
+	// Track ranges that this peer already failed to serve (by rangeReqId), bounded without cleanup.
+	const failedCap = 128
+	type failedSlot struct {
+		id   uint64
+		used bool
+	}
+	var failedSlots [failedCap]failedSlot
 
 	// if onlyReqToStatic is on, ensure that only static peers are dealing with the request
 	peerRequests := s.peerRequests
@@ -587,7 +592,9 @@ func (s *SyncClient) peerLoop(ctx context.Context, id peer.ID) {
 		select {
 		case pr := <-peerRequests:
 			// If this peer already failed on this range, don't request further blocks for it.
-			if _, failed := failedRanges[pr.rangeReqId]; failed {
+			idx := pr.rangeReqId % failedCap
+			slot := failedSlots[idx]
+			if slot.used && slot.id == pr.rangeReqId {
 				log.Debug("skipping peer for previously failed range", "num", pr.num, "rangeReqId", pr.rangeReqId)
 				s.inFlight.delete(pr.num)
 				continue
@@ -609,7 +616,7 @@ func (s *SyncClient) peerLoop(ctx context.Context, id peer.ID) {
 					resultCode = re.ResultCode()
 					if resultCode == ResultCodeNotFoundErr {
 						// Mark this range as failed for this peer only; do not affect other peers.
-						failedRanges[pr.rangeReqId] = struct{}{}
+						failedSlots[idx] = failedSlot{id: pr.rangeReqId, used: true}
 						log.Debug("peer marked failed for range", "rangeReqId", pr.rangeReqId)
 						sendResponseError = false // don't penalize peer for this error
 					}
