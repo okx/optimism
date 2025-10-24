@@ -36,7 +36,7 @@ export OP_PROXY_ADMIN=$OP_PROXY_ADMIN
 export TRANSACTOR=$TRANSACTOR
 export OKB_ADAPTER_OWNER_ADDRESS=$OKB_ADAPTER_OWNER_ADDRESS
 
-forge script scripts/UpgradeSystemConfigToV4.s.sol:UpgradeSystemConfigToV4 \
+forge script scripts/UpgradeSystemConfigToV312.s.sol:UpgradeSystemConfig \
   --rpc-url $L1_RPC_URL \
   --private-key $DEPLOYER_PRIVATE_KEY \
   --broadcast
