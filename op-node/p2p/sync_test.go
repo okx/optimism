@@ -330,7 +330,7 @@ func TestMultiPeerSync(t *testing.T) {
 			break
 		}
 	}
-	require.False(t, clB.activeRangeRequests.get(rangeReqId), "expecting range request to be cancelled")
+	require.True(t, clB.activeRangeRequests.get(rangeReqId), "range should remain active after NotFound")
 
 	// Add back the block
 	payloads.addPayload(bl25)
