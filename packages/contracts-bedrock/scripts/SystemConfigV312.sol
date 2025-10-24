@@ -19,11 +19,12 @@ import { ISuperchainConfig } from "interfaces/L1/ISuperchainConfig.sol";
 import { IGasToken } from "src/libraries/GasPayingToken.sol";
 
 /// @custom:proxied true
-/// @title SystemConfigV4
-/// @notice The SystemConfigV4 contract is used to manage configuration of an Optimism network.
+/// @title SystemConfigV312
+/// @notice The SystemConfigV312 contract is used to manage configuration of an Optimism network.
 ///         All configuration is stored on L1 and picked up by L2 as part of the derviation of
 ///         the L2 chain.
-contract SystemConfigV4 is ProxyAdminOwnedBase, OwnableUpgradeable, ReinitializableBase, ISemver, IGasToken {
+/// @dev    Purpuse: upgrade DevNet OKB adapter
+contract SystemConfigV312 is ProxyAdminOwnedBase, OwnableUpgradeable, ReinitializableBase, ISemver, IGasToken {
     /// @notice Enum representing different types of updates.
     /// @custom:value BATCHER              Represents an update to the batcher hash.
     /// @custom:value FEE_SCALARS          Represents an update to l1 data fee scalars.
@@ -202,7 +203,7 @@ contract SystemConfigV4 is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitializa
         address _unsafeBlockSigner,
         IResourceMetering.ResourceConfig memory _config,
         address _batchInbox,
-        SystemConfigV4.Addresses memory _addresses,
+        SystemConfigV312.Addresses memory _addresses,
         uint256 _l2ChainId,
         ISuperchainConfig _superchainConfig
     )

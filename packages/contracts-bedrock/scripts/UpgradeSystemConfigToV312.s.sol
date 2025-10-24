@@ -3,23 +3,23 @@ pragma solidity ^0.8.0;
 
 import { Script } from "forge-std/Script.sol";
 import { console } from "forge-std/console.sol";
-import { SystemConfigV4 } from "scripts/SystemConfigV4.sol";
+import { SystemConfigV312 } from "scripts/SystemConfigV312.sol";
 import { IProxyAdmin } from "interfaces/universal/IProxyAdmin.sol";
 import { IOKB } from "interfaces/L1/IOKB.sol";
 import { DepositedOKBAdapter } from "src/L1/DepositedOKBAdapter.sol";
 import { Transactor } from "src/periphery/Transactor.sol";
 import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
 
-/// @title UpgradeSystemConfigToV4
-/// @notice Custom script to upgrade SystemConfig to V4 and set OKB adapter as gas paying token via Transactor
+/// @title UpgradeSystemConfig
+/// @notice Custom script to upgrade SystemConfig to V3.12 and set OKB adapter as gas paying token via Transactor
 /// @dev This script:
 ///      1. Reads OKB token address and Transactor address from environment variables
 ///      2. Validates ownership chain (Transactor owns ProxyAdmin, ProxyAdmin controls SystemConfig)
 ///      3. Deploys DepositedOKBAdapter that handles OKB burning internally
-///      4. Atomically upgrades SystemConfig to V4 and sets OKB adapter via ProxyAdmin.upgradeAndCall()
+///      4. Atomically upgrades SystemConfig to V3.12 and sets OKB adapter via ProxyAdmin.upgradeAndCall()
 ///      5. Verifies all configurations on L1
 ///      6. Verifies reinitializer protection
-contract UpgradeSystemConfigToV4 is Script {
+contract UpgradeSystemConfig is Script {
 
     // Environment variable names
     string constant SYSTEM_CONFIG_PROXY = "SYSTEM_CONFIG_PROXY_ADDRESS";
@@ -153,17 +153,17 @@ contract UpgradeSystemConfigToV4 is Script {
 
     /// @notice Perform the complete upgrade process
     function _performUpgrade() internal {
-        console.log("\n=== Starting SystemConfig V4 Upgrade ===");
+        console.log("\n=== Starting SystemConfig V3.12 Upgrade ===");
 
         // Step 1: Check current state
         _logCurrentState();
 
-        // Step 2: Deploy new SystemConfigV4 implementation
+        // Step 2: Deploy new SystemConfigV312 implementation
         vm.startBroadcast();
 
-        console.log("\n--- Deploying SystemConfigV4 Implementation ---");
-        SystemConfigV4 newImplementation = new SystemConfigV4();
-        console.log("SystemConfigV4 deployed at:", address(newImplementation));
+        console.log("\n--- Deploying SystemConfigV312 Implementation ---");
+        SystemConfigV312 newImplementation = new SystemConfigV312();
+        console.log("SystemConfigV312 deployed at:", address(newImplementation));
         console.log("New implementation version:", newImplementation.version());
         console.log("New init version:", newImplementation.initVersion());
 
@@ -171,7 +171,7 @@ contract UpgradeSystemConfigToV4 is Script {
         _deployAdapter();
 
         // Step 4: Upgrade proxy and call upgradeAndSetGasPayingToken atomically
-        console.log("\n--- Upgrading and Initializing SystemConfig V4 via Transactor ---");
+        console.log("\n--- Upgrading and Initializing SystemConfig V3.12 via Transactor ---");
 
         // Convert string to bytes32 for SystemConfig function
         bytes32 nameBytes32 = bytes32(bytes(okbToken.name()));
@@ -179,7 +179,7 @@ contract UpgradeSystemConfigToV4 is Script {
 
         // Encode the upgradeAndSetGasPayingToken() call data
         bytes memory initCalldata = abi.encodeWithSelector(
-            SystemConfigV4.setGasPayingToken.selector,
+            SystemConfigV312.setGasPayingToken.selector,
             address(adapter),
             okbToken.decimals(),
             nameBytes32,
@@ -206,14 +206,14 @@ contract UpgradeSystemConfigToV4 is Script {
         require(success, "Transactor CALL to ProxyAdmin.upgradeAndCall failed");
         console.log("Atomic upgrade and initialization completed successfully");
 
-        SystemConfigV4 upgradedSystemConfig = SystemConfigV4(systemConfigProxy);
+        SystemConfigV312 upgradedSystemConfig = SystemConfigV312(systemConfigProxy);
 
         // Step 5: Verify the upgrade
         _verifyUpgrade(upgradedSystemConfig);
 
         vm.stopBroadcast();
 
-        console.log("\n=== SystemConfig V4 Upgrade Completed Successfully ===");
+        console.log("\n=== SystemConfig V3.12 Upgrade Completed Successfully ===");
     }
 
     /// @notice Log the current state before upgrade
@@ -238,7 +238,7 @@ contract UpgradeSystemConfigToV4 is Script {
     }
 
     /// @notice Verify the upgrade was successful
-    function _verifyUpgrade(SystemConfigV4 upgradedSystemConfig) internal {
+    function _verifyUpgrade(SystemConfigV312 upgradedSystemConfig) internal {
         console.log("\n--- Verifying Upgrade Results ---");
 
         // Check version updated
@@ -248,7 +248,7 @@ contract UpgradeSystemConfigToV4 is Script {
             "Version not updated correctly"
         );
 
-        // Check init version updated
+        // Check init version
         uint8 newInitVersion = upgradedSystemConfig.initVersion();
         require(newInitVersion == 3, "Init version not updated correctly");
 
