@@ -1,10 +1,16 @@
 #!/bin/bash
-set -x
 set -e
+
+# Debug mode - set to true to enable verbose output
+DEBUG=${DEBUG:-false}
+
+if [ "$DEBUG" = "true" ]; then
+    set -x
+fi
+
 source .env
 source tools.sh
 source utils.sh
-
 
 prepare() {
   # Check required files exist
@@ -171,6 +177,29 @@ migrate() {
   jq --argjson num "$L2_NUMBER" --arg hash "$L2_HASH" \
      '.genesis.l2.number = $num | .genesis.l2.hash = $hash' \
      config-op/rollup.json > config-op/rollup.json.tmp && mv config-op/rollup.json.tmp config-op/rollup.json
+
+  # Update eip1559DenominatorCanyon to match eip1559Denominator in rollup.json
+  echo "🔧 Updating eip1559DenominatorCanyon to match eip1559Denominator..."
+
+  # Extract eip1559Denominator from rollup.json
+  EIP1559_DENOMINATOR=$(jq -r '.chain_op_config.eip1559Denominator' config-op/rollup.json)
+  echo "eip1559Denominator value from rollup.json: $EIP1559_DENOMINATOR"
+
+  # Debug: Check current rollup.json structure
+  echo "🔍 Current rollup.json chain_op_config structure:"
+  jq '.chain_op_config' config-op/rollup.json
+
+  # Update rollup.json with the eip1559DenominatorCanyon value
+  echo "🔧 Updating rollup.json chain_op_config..."
+  jq --argjson denominator "$EIP1559_DENOMINATOR" \
+     '.chain_op_config.eip1559DenominatorCanyon = $denominator' \
+     config-op/rollup.json > config-op/rollup.json.tmp && mv config-op/rollup.json.tmp config-op/rollup.json
+
+  # Verify the update
+  echo "🔍 Updated rollup.json chain_op_config structure:"
+  jq '.chain_op_config' config-op/rollup.json
+
+  echo "✅ Updated eip1559DenominatorCanyon to $EIP1559_DENOMINATOR in rollup.json"
 
   echo "finished migrate op-geth"
 }
