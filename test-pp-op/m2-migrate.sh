@@ -608,16 +608,11 @@ fi
 
 echo ""
 echo "=============================================="
-echo "Step 9: Verifying md5 mounted data and backup"
+echo "Step 9: Check for differences between mounted data and backup"
 echo "=============================================="
 
-OUTPUT=$(diff -r $SOURCE_PATH $BACKUP_DIR/op-geth-seq)
-if [ $? -eq 0 ]; then
-    echo "✅ Contents of ${SOURCE_PATH} matches ${BACKUP_DIR}/op-geth-seq"
-else
-    echo "$OUTPUT"
-    exit 1
-fi
+diff -r $SOURCE_PATH $BACKUP_DIR/op-geth-seq # exit script on failure (set -e)
+echo "✅ Contents of ${SOURCE_PATH} matches ${BACKUP_DIR}/op-geth-seq"
 
 echo ""
 echo "=============================================="
