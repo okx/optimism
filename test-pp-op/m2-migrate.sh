@@ -619,13 +619,15 @@ dirmd5() {
    find $dir -type f -print0 | sort -z | xargs -0 md5 | md5sum -q
 }
 
-mem_mount_hash=$(dirmd5 $RAMDISK_PATH/test-pp-op/data/op-geth-seq)
+mem_mount_hash=$(dirmd5 $SOURCE_PATH)
 backup_hash=$(dirmd5 $BACKUP_DIR/op-geth-seq)
 
 if [ "$mem_mount_hash" != "$backup_hash" ];then
-  echo "❌ Error: op-geth-seq data is /mnt/ramdisk_op does not match ${BACKUP_DIR}"
+  echo "❌ Error: op-geth-seq data is ${SOURCE_PATH} does not match ${BACKUP_DIR}/op-geth-seq"
   exit 1
 fi
+
+echo "✅ Contents of ${SOURCE_PATH} matches ${BACKUP_DIR}/op-geth-seq"
 
 echo ""
 echo "=============================================="
