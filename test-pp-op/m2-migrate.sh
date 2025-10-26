@@ -611,23 +611,13 @@ echo "=============================================="
 echo "Step 9: Verifying md5 mounted data and backup"
 echo "=============================================="
 
-dirmd5() {
-   local dir=$1
-   if [ ! -d $dir ];then
-     dir="."
-   fi
-   find $dir -type f -print0 | sort -z | xargs -0 md5 | md5sum -q
-}
-
-mem_mount_hash=$(dirmd5 $SOURCE_PATH)
-backup_hash=$(dirmd5 $BACKUP_DIR/op-geth-seq)
-
-if [ "$mem_mount_hash" != "$backup_hash" ];then
-    echo "❌ Error: op-geth-seq data is ${SOURCE_PATH} does not match ${BACKUP_DIR}/op-geth-seq"
+OUTPUT=$(diff -r $SOURCE_PATH $BACKUP_DIR/op-geth-seq)
+if [ $? -eq 0 ]; then
+    echo "✅ Contents of ${SOURCE_PATH} matches ${BACKUP_DIR}/op-geth-seq"
+else
+    echo "$OUTPUT"
     exit 1
 fi
-
-echo "✅ Contents of ${SOURCE_PATH} matches ${BACKUP_DIR}/op-geth-seq"
 
 echo ""
 echo "=============================================="
