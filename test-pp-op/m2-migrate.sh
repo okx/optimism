@@ -608,6 +608,27 @@ fi
 
 echo ""
 echo "=============================================="
+echo "Step 9: Verifying md5 mounted data and backup"
+echo "=============================================="
+
+dirmd5() {
+   local dir=$1
+   if [ ! -d $dir ];then
+     dir="."
+   fi
+   find $dir -type f -print0 | sort -z | xargs -0 md5 | md5sum -q
+}
+
+mem_mount_hash=$(dirmd5 $RAMDISK_PATH/test-pp-op/data/op-geth-seq)
+backup_hash=$(dirmd5 $BACKUP_DIR/op-geth-seq)
+
+if [ "$mem_mount_hash" != "$backup_hash" ];then
+  echo "❌ Error: op-geth-seq data is /mnt/ramdisk_op does not match ${BACKUP_DIR}"
+  exit 1
+fi
+
+echo ""
+echo "=============================================="
 echo "✅ Migration process completed successfully!"
 echo "=============================================="
 echo "Backup directory: ${BACKUP_DIR}"
