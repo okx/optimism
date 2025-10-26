@@ -74,7 +74,7 @@ deploy_transactor() {
   echo "DOCKER_NETWORK: $DOCKER_NETWORK"
   echo "L1_RPC_URL_IN_DOCKER: $L1_RPC_URL_IN_DOCKER"
   echo "DEPLOYER_PRIVATE_KEY: ${DEPLOYER_PRIVATE_KEY:0:10}..."
-  echo "ADMIN_OWNER_ADDRESS: $ADMIN_OWNER_ADDRESS"
+  echo "DEPLOYER_ADDRESS: $DEPLOYER_ADDRESS"
   echo "OP_CONTRACTS_IMAGE_TAG: $OP_CONTRACTS_IMAGE_TAG"
 
   # Build docker run command with conditional network flag
@@ -98,7 +98,7 @@ deploy_transactor() {
     --rpc-url $L1_RPC_URL_IN_DOCKER \
     --private-key $DEPLOYER_PRIVATE_KEY \
     src/periphery/Transactor.sol:Transactor.0.8.30 \
-    --constructor-args $ADMIN_OWNER_ADDRESS"
+    --constructor-args $DEPLOYER_ADDRESS"
 
   echo "🔧 Executing Docker command..."
   echo "Command: docker run ${DOCKER_ARGS[*]} $FORGE_CMD"
@@ -365,6 +365,55 @@ deploy_custom_gas_token() {
   fi
   echo ""
 
+  # Set init bond for game type 1
+  set_init_bond
+
+  # Transfer Transactor ownership
+  echo "🔧 Transferring Transactor ownership..."
+  echo ""
+
+  # Check current Transactor owner
+  CURRENT_TRANSACTOR_OWNER=$(cast call "$TRANSACTOR_ADDRESS" "owner()(address)" --rpc-url "$L1_RPC_URL")
+  echo "📋 Current Transactor owner: $CURRENT_TRANSACTOR_OWNER"
+  echo "📋 Target owner: $ADMIN_OWNER_ADDRESS"
+
+  if [ "$CURRENT_TRANSACTOR_OWNER" != "$ADMIN_OWNER_ADDRESS" ]; then
+    echo "🔄 Transferring Transactor ownership to $ADMIN_OWNER_ADDRESS..."
+
+    cast send "$TRANSACTOR_ADDRESS" \
+      "setOwner(address)" \
+      "$ADMIN_OWNER_ADDRESS" \
+      --rpc-url "$L1_RPC_URL" \
+      --private-key "$DEPLOYER_PRIVATE_KEY"
+
+    # Verify transfer
+    NEW_TRANSACTOR_OWNER=$(cast call "$TRANSACTOR_ADDRESS" "owner()(address)" --rpc-url "$L1_RPC_URL")
+    echo "✅ Transactor ownership transferred to: $NEW_TRANSACTOR_OWNER"
+  else
+    echo "✅ Transactor already owned by $ADMIN_OWNER_ADDRESS"
+  fi
+  echo ""
+  
+}
+
+set_init_bond() {
+  echo "🔧 Setting init bond for game type 1..."
+  echo ""
+  
+  # Get DisputeGameFactory address from state.json
+  DISPUTE_GAME_FACTORY_ADDRESS=$(cat ./config-op/state.json | jq -r '.opChainDeployments[0].DisputeGameFactoryProxy')
+  echo "📋 DisputeGameFactory Address: $DISPUTE_GAME_FACTORY_ADDRESS"
+  
+  # Set init bond using the script
+  bash ./scripts/set-init-bond.sh \
+    --game-type 1 \
+    --init-bond 10000000000 \
+    --transactor $TRANSACTOR_ADDRESS \
+    --dispute-game-factory $DISPUTE_GAME_FACTORY_ADDRESS \
+    --private-key $DEPLOYER_PRIVATE_KEY \
+    --rpc-url $L1_RPC_URL
+  
+  echo ""
 }
 
 echo "CGT_ENABLED: ${CGT_ENABLED}"
