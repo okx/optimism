@@ -393,26 +393,26 @@ deploy_custom_gas_token() {
     echo "✅ Transactor already owned by $ADMIN_OWNER_ADDRESS"
   fi
   echo ""
-  
+
 }
 
 set_init_bond() {
   echo "🔧 Setting init bond for game type 1..."
   echo ""
-  
+
   # Get DisputeGameFactory address from state.json
-  DISPUTE_GAME_FACTORY_ADDRESS=$(cat ./config-op/state.json | jq -r '.opChainDeployments[0].DisputeGameFactoryProxy')
+  DISPUTE_GAME_FACTORY_ADDRESS=$(cat $ROOT_DIR/test-pp-op/config-op/state.json | jq -r '.opChainDeployments[0].DisputeGameFactoryProxy')
   echo "📋 DisputeGameFactory Address: $DISPUTE_GAME_FACTORY_ADDRESS"
-  
+
   # Set init bond using the script
-  bash ./scripts/set-init-bond.sh \
+  bash $ROOT_DIR/test-pp-op/scripts/set-init-bond.sh \
     --game-type 1 \
     --init-bond $INITIAL_BOND \
     --transactor $TRANSACTOR_ADDRESS \
     --dispute-game-factory $DISPUTE_GAME_FACTORY_ADDRESS \
     --private-key $DEPLOYER_PRIVATE_KEY \
     --rpc-url $L1_RPC_URL
-  
+
   echo ""
 }
 
