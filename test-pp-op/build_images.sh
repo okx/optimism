@@ -137,18 +137,12 @@ fi
 build_patched_zkevm_bridge_service_image() {
   echo "build patched zkevm bridge service image"
   PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  rm -rf $PWD_DIR/tmp/zkevm-bridge-service
+  rm -rf $PWD_DIR/tmp/xlayer-bridge-service
   mkdir -p $PWD_DIR/tmp
   cd $PWD_DIR/tmp/
-  git clone -b v0.6.0-RC16 https://github.com/0xPolygon/zkevm-bridge-service.git
+  git clone -b add-patch https://github.com/okx/xlayer-bridge-service
     # it has docker file
-  cd zkevm-bridge-service
-
-  # patch zkevm-bridge-service
-  git apply $PWD_DIR/patch/xlayer-bridge-service-0001-support-sync-L2-block-at-given-number.patch
-  git apply $PWD_DIR/patch/xlayer-bridge-service-0002-skip-reorg-check-after-regenesis.patch
-  git apply $PWD_DIR/patch/xlayer-bridge-service-0003-skip-syncing-blocks-before-regenesis.patch
-
+  cd xlayer-bridge-service
   docker build --platform $ARCH -t $XLAYER_BRIDGE_SERVICE_IMAGE_TAG .
   cd $PWD_DIR
 }

@@ -1,7 +1,7 @@
 PathRWData = "/tmp/"
 L1URL="http://l1-geth:8545"
 
-L2URL="http://op-geth-rpc:8545"
+L2URL="http://op-geth-seq:8545"
 
 AggLayerURL="xlayer-agglayer:4443"
 
@@ -19,16 +19,16 @@ AggregatorPrivateKeyPassword  = "testonly"
 SenderProofToL1Addr = "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
 polygonBridgeAddr = "0xb2fAc1CE54bb9BF77A7FE106fA69F81453b72851"
 
-rollupCreationBlockNumber = "95"
-rollupManagerCreationBlockNumber = "105"
-genesisBlockNumber = "95"
+rollupCreationBlockNumber = "156"
+rollupManagerCreationBlockNumber = "162"
+genesisBlockNumber = "156"
 
 [Common]
 NetworkID = 1
 IsValidiumMode = false
 ContractVersions = "banana"
 # TODO, should we config with base
-L2RPC = { Mode = "basic", URL = "{{L2URL}}", OpNodeURL = "http://op-rpc:8545" }
+L2RPC = { Mode = "basic", URL = "{{L2URL}}", OpNodeURL = "http://op-seq:8545" }
 
 [L1Config]
 chainId = "1337"
@@ -61,11 +61,11 @@ StopOnFinishedSendingAllCertificates = false
 [AggSender.MaxSubmitCertificateRate]
 NumRequests = 20
 Interval = "1m"
-BlockFinality = "LatestBlock"
+BlockFinality = "FinalizedBlock"
 SaveCertificatesToFilesPath = "/tmp/certificates"
 KeepCertificatesHistory = true
 [AggOracle]
-BlockFinality = "LatestBlock"
+BlockFinality = "FinalizedBlock"
 WaitPeriodNextGER = "10s"
 
 [AggOracle.EVMSender]
@@ -78,32 +78,30 @@ PrivateKeys = [{Path = "/etc/keystore/aggoracle.keystore", Password = "testonly"
 L1ChainID = "195"
 
 [BridgeL1Sync]
-BlockFinality = "LatestBlock"
+BlockFinality = "FinalizedBlock"
 
 [BridgeL2Sync]
-InitialBlockNum = 183
-
 BridgeAddr = "0xb2fAc1CE54bb9BF77A7FE106fA69F81453b72851"
 
 DBPath = "/tmp/bridgel2sync.sqlite"
-BlockFinality = "LatestBlock"
+BlockFinality = "FinalizedBlock"
 
 SyncBlockChunkSize = 1000
 
 [ReorgDetectorL1]
 DBPath = "/tmp/reorgdetectorl1.sqlite"
-LatestBlock="LatestBlock"
+FinalizedBlock="FinalizedBlock"
 
 [ReorgDetectorL2]
 DBPath = "/tmp/reorgdetectorl2.sqlite"
-LatestBlock="LatestBlock"
+FinalizedBlock="FinalizedBlock"
 
 [L1InfoTreeSync]
 InitialBlock = "36"
-BlockFinality = "LatestBlock"
+BlockFinality = "FinalizedBlock"
 
 [LastGERSync]
-BlockFinality = "LatestBlock"
+BlockFinality = "FinalizedBlock"
 
 [ClaimSponsor]
 DBPath = "/tmp/claimsponsor.sqlite"

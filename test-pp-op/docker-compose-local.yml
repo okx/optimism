@@ -242,7 +242,7 @@ services:
     image: ${XLAYER_BRIDGE_SERVICE_IMAGE_TAG}
     ports:
       - 8080:8080
-      - 9090:9090
+      - 9099:9090
     environment:
       - ZKEVM_BRIDGE_DATABASE_USER=test_user
       - ZKEVM_BRIDGE_DATABASE_PASSWORD=test_password
@@ -250,13 +250,12 @@ services:
       - ZKEVM_BRIDGE_DATABASE_HOST=xlayer-bridge-db
       - ZKEVM_BRIDGE_DATABASE_PORT=5432
     volumes:
-      - ./keystore/sequencer.keystore:/pk/keystore.claimtxmanager
+      - ./keystore/:/pk/
       - ./config/test.bridge.config.toml:/app/config.toml
     command:
       - "/bin/sh"
       - "-c"
       - "/app/zkevm-bridge run --cfg /app/config.toml"
-
   xlayer-bridge-ui:
     container_name: xlayer-bridge-ui
     image: hermeznetwork/zkevm-bridge-ui:latest
@@ -320,9 +319,8 @@ services:
     restart: on-failure
     volumes:
       - ./data/cdk-node:/tmp
-      - ./keystore/aggregator.keystore:/etc/aggkit/aggregator.keystore
-      - ./keystore/sequencer.keystore:/etc/aggkit/sequencer.keystore
-      - ./config/aggkit.toml:/etc/aggkit/aggkit.toml
+      - ./keystore/:/etc/keystore/
+      - ./config/:/etc/aggkit/
       - ./config/test.genesis.config.json:/etc/aggkit/genesis.json
     ports:
       - 5576:5576
@@ -410,12 +408,13 @@ services:
     image: aggkit:local
     volumes:
       - ./data/oracle:/tmp
-      - ./keystore/aggoracle.keystore:/etc/aggkit/aggoracle.keystore
-      - ./config-op/aggkit.toml:/etc/aggkit/aggkit.toml
+      - ./keystore/:/etc/keystore/
+      - ./config-op/:/etc/aggkit/
       - ./config/test.genesis.config.json:/etc/aggkit/genesis.json
     ports:
       - 15576:5576
     command: ["run", "--cfg=/etc/aggkit/aggkit.toml", "--components=aggoracle"]
+
   op-geth-seq:
     image: "${OP_GETH_IMAGE_TAG}"
     container_name: op-geth-seq
@@ -438,7 +437,6 @@ services:
       - --config=/config.toml
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
-      - --pp-rpc-legacy-header-sync-rate-limit=10000
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
       interval: 3s
@@ -466,7 +464,6 @@ services:
       - --gcmode=archive
       # - --rollup.sequencerhttp=http://op-geth-seq:8545
       - --rollup.enabletxpooladmission
-      - --pp-rpc-legacy-header-sync-rate-limit=10000
 
   op-seq:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -715,7 +712,6 @@ services:
       - --config=/config.toml
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
-      - --pp-rpc-legacy-header-sync-rate-limit=10000
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
       interval: 3s
@@ -829,7 +825,6 @@ services:
       - --config=/config.toml
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
-      - --pp-rpc-legacy-header-sync-rate-limit=10000
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
       interval: 3s
