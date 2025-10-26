@@ -407,7 +407,7 @@ set_init_bond() {
   # Set init bond using the script
   bash ./scripts/set-init-bond.sh \
     --game-type 1 \
-    --init-bond 10000000000 \
+    --init-bond $INITIAL_BOND \
     --transactor $TRANSACTOR_ADDRESS \
     --dispute-game-factory $DISPUTE_GAME_FACTORY_ADDRESS \
     --private-key $DEPLOYER_PRIVATE_KEY \
