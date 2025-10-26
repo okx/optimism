@@ -29,7 +29,7 @@ l2ContractsLocator = "file:///app/packages/contracts-bedrock/forge-artifacts"
   [chains.roles]
     l1ProxyAdminOwner = "0x0000000000000000000000000000000000000000"
     l2ProxyAdminOwner = "0xF21637a6d8407aaE4bB0a051986261832dD91DDD"
-    systemConfigOwner = "0x65a6092f9813BB87a0F640C5E1BF57942339cd56"
+    systemConfigOwner = "0xAd9bCE315bF77C0Ade22097199953381C6Cc72eE"
     unsafeBlockSigner = "0x09dA216351B5E3df326220DaDA71cCCEEcD0D2f3"
     batcher = "0xdfd6C636Dcb5a013c2431316c4A0762B84e70a5d"
     proposer = "0xE43944421681170648E10007f73816e04F74394F"
