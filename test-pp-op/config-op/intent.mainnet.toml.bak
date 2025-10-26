@@ -7,17 +7,17 @@ l2ContractsLocator = "file:///app/packages/contracts-bedrock/forge-artifacts"
 
 [[chains]]
   id = "0x00000000000000000000000000000000000000000000000000000000000000C4"
-  baseFeeVaultRecipient = "0x98245d0adf4595c66f0a9db8e13c44cbff6be459"
-  l1FeeVaultRecipient = "0x98245d0adf4595c66f0a9db8e13c44cbff6be459"
-  sequencerFeeVaultRecipient = "0x98245d0adf4595c66f0a9db8e13c44cbff6be459"
+  baseFeeVaultRecipient = "0x610DE9141a2c51A9A9624278AA97fbE54b27c102"
+  l1FeeVaultRecipient = "0x610DE9141a2c51A9A9624278AA97fbE54b27c102"
+  sequencerFeeVaultRecipient = "0x610DE9141a2c51A9A9624278AA97fbE54b27c102"
   eip1559DenominatorCanyon = 100000000
   eip1559Denominator = 100000000
   eip1559Elasticity = 1
   operatorFeeScalar = 0
   operatorFeeConstant = 0
-  gasLimit = 30000000
+  gasLimit = 50000000
   [chains.deployOverrides]
-      l2GenesisBlockGasLimit = "0x1C9C380"
+      l2GenesisBlockGasLimit = "0x2faf080"
       l2GenesisBlockBaseFeePerGas = "0x5FC01C5"
       l2BlockTime = 1
       sequencerWindowSize = 7200
@@ -28,9 +28,9 @@ l2ContractsLocator = "file:///app/packages/contracts-bedrock/forge-artifacts"
       initialLiquidity = "0x0"
   [chains.roles]
     l1ProxyAdminOwner = "0x0000000000000000000000000000000000000000"
-    l2ProxyAdminOwner = "0x45985c85b6A2E4833824470F086556Bfd19f66f9"
+    l2ProxyAdminOwner = "0xF21637a6d8407aaE4bB0a051986261832dD91DDD"
     systemConfigOwner = "0xAd9bCE315bF77C0Ade22097199953381C6Cc72eE"
-    unsafeBlockSigner = "0xC76b075B8B84eeB0402D7DC846Ce0759C1816Aab"
+    unsafeBlockSigner = "0x09dA216351B5E3df326220DaDA71cCCEEcD0D2f3"
     batcher = "0xdfd6C636Dcb5a013c2431316c4A0762B84e70a5d"
-    proposer = "0xe43944421681170648e10007f73816e04f74394f"
-    challenger = "0x736e68af2cbf2ab0e46e4310fe5ae568b3642ff6"
+    proposer = "0xE43944421681170648E10007f73816e04F74394F"
+    challenger = "0x736E68Af2CbF2aB0E46E4310fE5Ae568b3642FF6"
