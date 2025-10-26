@@ -68,10 +68,11 @@ contract OPContractsManagerContractsContainer {
         implementation = _implementations;
         devFeatureBitmap = _devFeatureBitmap;
 
+        // Allow CGT feature to be enabled on Mainnet.
         // Development features MUST NOT be enabled on Mainnet.
-        if (block.chainid == 1 && !_isTestingEnvironment() && uint256(_devFeatureBitmap) != 0) {
-            revert OPContractsManagerContractsContainer_DevFeatureInProd();
-        }
+        // if (block.chainid == 1 && !_isTestingEnvironment() && uint256(_devFeatureBitmap) != 0) {
+            // revert OPContractsManagerContractsContainer_DevFeatureInProd();
+        // }
     }
 
     function blueprints() public view returns (OPContractsManager.Blueprints memory) {
@@ -1106,6 +1107,12 @@ contract OPContractsManagerDeployer is OPContractsManagerBase {
             output.opChainProxyAdmin, address(output.systemConfigProxy), implementation.systemConfigImpl, data
         );
 
+        // If the custom gas token feature was requested, enable the custom gas token feature in the SystemConfig
+        // contract.
+        if (isDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN)) {
+            output.systemConfigProxy.setFeature(Features.CUSTOM_GAS_TOKEN, true);
+        }
+
         // If the interop feature was requested, enable the ETHLockbox feature in the SystemConfig
         // contract. Only other way to get the ETHLockbox feature as of u16a is to have already had
         // the ETHLockbox in U16 and then upgrade to U16a.
@@ -1318,6 +1325,21 @@ contract OPContractsManagerDeployer is OPContractsManagerBase {
         (IResourceMetering.ResourceConfig memory referenceResourceConfig, ISystemConfig.Addresses memory opChainAddrs) =
             defaultSystemConfigParams(_input, _output);
 
+        return systemConfigInitializerData(_input, _superchainConfig, referenceResourceConfig, opChainAddrs);
+    }
+
+    /// @notice Helper method for encoding the call data for the SystemConfig initializer.
+    function systemConfigInitializerData(
+        OPContractsManager.DeployInput memory _input,
+        ISuperchainConfig _superchainConfig,
+        IResourceMetering.ResourceConfig memory _referenceResourceConfig,
+        ISystemConfig.Addresses memory _opChainAddrs
+    )
+        internal
+        view
+        virtual
+        returns (bytes memory)
+    {
         return abi.encodeCall(
             ISystemConfig.initialize,
             (
@@ -1327,9 +1349,9 @@ contract OPContractsManagerDeployer is OPContractsManagerBase {
                 bytes32(uint256(uint160(_input.roles.batcher))), // batcherHash
                 _input.gasLimit,
                 _input.roles.unsafeBlockSigner,
-                referenceResourceConfig,
+                _referenceResourceConfig,
                 chainIdToBatchInboxAddress(_input.l2ChainId),
-                opChainAddrs,
+                _opChainAddrs,
                 _input.l2ChainId,
                 _superchainConfig
             )

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"math/big"
 	"testing"
 
 	"github.com/ethereum-optimism/optimism/op-chain-ops/addresses"
@@ -32,6 +33,12 @@ func TestCombineDeployConfig(t *testing.T) {
 			L2ProxyAdminOwner: common.HexToAddress("0x789"),
 			UnsafeBlockSigner: common.HexToAddress("0xabc"),
 			Batcher:           common.HexToAddress("0xdef"),
+		},
+		CustomGasToken: CustomGasToken{
+			Enabled:          false,
+			Name:             "",
+			Symbol:           "",
+			InitialLiquidity: (*hexutil.Big)(big.NewInt(0)),
 		},
 	}
 	state := State{
