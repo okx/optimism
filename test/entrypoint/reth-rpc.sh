@@ -23,4 +23,5 @@ exec op-reth node \
       --authrpc.port=8552 \
       --authrpc.jwtsecret=/jwt.txt \
       --rollup.disable-tx-pool-gossip \
-      --rollup.sequencer-http=http://op-geth-seq:8545
+      --rollup.sequencer-http=http://op-geth-seq:8545 \
+      --gpo.ignoreprice=1
