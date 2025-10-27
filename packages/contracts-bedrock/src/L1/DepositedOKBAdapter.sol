@@ -62,11 +62,6 @@ contract DepositedOKBAdapter is ERC20, Ownable, ReentrancyGuard {
     /// @notice Thrown when balance is insufficient.
     error InsufficientBalance();
 
-    /// @notice Thrown when transfer fails.
-    error TransferFailed();
-
-    /// @notice Thrown when transfer OKB from user fails.
-    error TransferFromUserFailed();
 
     /// @notice Thrown when OKB balance is not equal to the amount deposited.
     error OKBBalanceMismatch();
@@ -144,24 +139,15 @@ contract DepositedOKBAdapter is ERC20, Ownable, ReentrancyGuard {
         if (_amount == 0) {
             revert AmountMustBeGreaterThanZero();
         }
-        if (OKB.balanceOf(msg.sender) < _amount) {
-            revert InsufficientBalance();
-        }
-
         // Transfer any remaining OKB to rescuer.
         // If someone mistakenly directly transfer OKB to this contract, transfer it to the owner.
-        if (OKB.balanceOf(address(this)) > 0) {
-            bool transferSuccess = OKB.transfer(owner(), OKB.balanceOf(address(this)));
-            if (!transferSuccess) {
-                revert TransferFailed();
-            }
+        uint256 existingBalance = OKB.balanceOf(address(this));
+        if (existingBalance > 0) {
+            IERC20(address(OKB)).safeTransfer(owner(), existingBalance);
         }
 
         // Transfer OKB from user to this contract first
-        bool transferFromUserSuccess = OKB.transferFrom(msg.sender, address(this), _amount);
-        if (!transferFromUserSuccess) {
-            revert TransferFromUserFailed();
-        }
+        IERC20(address(OKB)).safeTransferFrom(msg.sender, address(this), _amount);
 
         // Check invariant: the amount of OKB in this contract should be equal to the amount deposited.
         if (OKB.balanceOf(address(this)) != _amount) {
