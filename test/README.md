@@ -25,7 +25,9 @@
 OP_RETH_LOCAL_DIRECTORY=<absolute path to your reth repository>
 OP_RETH_BRANCH=<reth repository branch (if not set, default branch is used)>
 SKIP_OP_RETH_BUILD=false
-RPC_TYPE=op-reth-rpc
+# L2_ENGINEKIND (RPC type): geth or reth
+L2_ENGINEKIND=reth
+RPC_TYPE=op-$L2_ENGINEKIND-rpc
 ```
 
 For testing, we recommend using Reth v1.8.2, as follows:
