@@ -590,7 +590,7 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
         if (!_isUsingCustomGasToken()) {
             revert OptimismPortal_OnlyCustomGasToken();
         }
-        if (_mint!=_value){
+        if (_mint != _value) {
             revert OptimismPortal_InsufficientDeposit();
         }
 
@@ -665,7 +665,7 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
         if (_isUsingCustomGasToken()) {
             if (msg.value > 0) revert OptimismPortal_NotAllowedOnCGTMode();
         }
-        if (msg.value!=_value){
+        if (msg.value != _value) {
             revert OptimismPortal_InsufficientDeposit();
         }
 
