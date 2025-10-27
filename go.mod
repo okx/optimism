@@ -193,6 +193,7 @@ require (
 	github.com/libp2p/go-netroute v0.2.1 // indirect
 	github.com/libp2p/go-reuseport v0.4.0 // indirect
 	github.com/libp2p/go-yamux/v4 v4.0.1 // indirect
+	github.com/linxGnu/grocksdb v1.10.2 // indirect
 	github.com/lufia/plan9stats v0.0.0-20240513124658-fba389f38bae // indirect
 	github.com/magiconair/properties v1.8.5 // indirect
 	github.com/marten-seemann/tcp v0.0.0-20210406111302-dfbc87cc63fd // indirect
@@ -320,9 +321,9 @@ require (
 	lukechampine.com/blake3 v1.3.0 // indirect
 )
 
-//replace github.com/ethereum/go-ethereum => github.com/ethereum-optimism/op-geth v1.101603.1-rc.1
+replace github.com/ethereum/go-ethereum => github.com/okx/op-geth v0.0.6
 
-replace github.com/ethereum/go-ethereum => ./op-geth
+//replace github.com/ethereum/go-ethereum => ./op-geth
 
 // replace github.com/ethereum-optimism/superchain-registry/superchain => ../superchain-registry/superchain
 
