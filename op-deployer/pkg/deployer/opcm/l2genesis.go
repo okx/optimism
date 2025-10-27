@@ -28,6 +28,10 @@ type L2GenesisInput struct {
 	DeployCrossL2Inbox                       bool
 	EnableGovernance                         bool
 	FundDevAccounts                          bool
+	UseCustomGasToken                        bool
+	GasPayingTokenName                       string
+	GasPayingTokenSymbol                     string
+	NativeAssetLiquidityAmount               *big.Int
 }
 
 type L2GenesisScript script.DeployScriptWithoutOutput[L2GenesisInput]

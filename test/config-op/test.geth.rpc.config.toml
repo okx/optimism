@@ -22,6 +22,8 @@ TrustedNodes = []
 [Eth]
 NetworkId = 901
 SyncMode = "full"
+
+[Eth.XLayer]
 EnableInnerTx = true
 
 
