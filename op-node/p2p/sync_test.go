@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/big"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -549,4 +550,106 @@ func TestMutexUnlocks(t *testing.T) {
 			t.Fatal("Mutex deadlock detected - bug exists")
 		}
 	})
+}
+
+// TestRangeNotCancelledOnMissingBlock verifies that when a block is missing from all peers,
+// the range request is not cancelled: blocks after the missing block are promoted, while blocks
+// before it are fetched but remain in quarantine.
+func TestRangeNotCancelledOnMissingBlock(t *testing.T) {
+	t.Parallel()
+
+	log := testlog.Logger(t, log.LevelError)
+	cfg, payloads := setupSyncTestData(50)
+
+	mnet, err := mocknet.FullMeshConnected(3)
+	require.NoError(t, err)
+	defer mnet.Close()
+	hosts := mnet.Hosts()
+	clientHost, peerAHost, peerBHost := hosts[0], hosts[1], hosts[2]
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// Both peers are missing block 35
+	servePayload := func(n uint64) (*eth.ExecutionPayloadEnvelope, error) {
+		if n == 35 {
+			return nil, ethereum.NotFound
+		}
+		p, ok := payloads.getPayload(n)
+		if !ok {
+			return nil, ethereum.NotFound
+		}
+		return p, nil
+	}
+
+	peerASrv := NewReqRespServer(cfg, mockPayloadFn(servePayload), metrics.NoopMetrics)
+	peerAPayloadByNumber := MakeStreamHandler(ctx, log.New("serve", "peerA"), peerASrv.HandleSyncRequest)
+	peerAHost.SetStreamHandler(PayloadByNumberProtocolID(cfg.L2ChainID), peerAPayloadByNumber)
+
+	peerBSrv := NewReqRespServer(cfg, mockPayloadFn(servePayload), metrics.NoopMetrics)
+	peerBPayloadByNumber := MakeStreamHandler(ctx, log.New("serve", "peerB"), peerBSrv.HandleSyncRequest)
+	peerBHost.SetStreamHandler(PayloadByNumberProtocolID(cfg.L2ChainID), peerBPayloadByNumber)
+
+	received := make(chan *eth.ExecutionPayloadEnvelope, 100)
+	receivePayload := receivePayloadFn(func(ctx context.Context, from peer.ID, payload *eth.ExecutionPayloadEnvelope) error {
+		received <- payload
+		return nil
+	})
+
+	client := NewSyncClient(log.New("role", "client"), cfg, clientHost, receivePayload, metrics.NoopMetrics, &NoopApplicationScorer{})
+	client.AddPeer(peerAHost.ID())
+	client.AddPeer(peerBHost.ID())
+	client.Start()
+	defer client.Close()
+
+	_, err = client.RequestL2Range(ctx, payloads.getBlockRef(30), payloads.getBlockRef(40))
+	require.NoError(t, err)
+
+	receivedNums := make(map[uint64]struct{})
+	deadline := time.After(10 * time.Second)
+
+	for len(receivedNums) < 4 {
+		select {
+		case p := <-received:
+			receivedNums[uint64(p.ExecutionPayload.BlockNumber)] = struct{}{}
+		case <-deadline:
+			goto verify
+		}
+	}
+
+	time.Sleep(2 * time.Second)
+	for {
+		select {
+		case p := <-received:
+			receivedNums[uint64(p.ExecutionPayload.BlockNumber)] = struct{}{}
+		default:
+			goto verify
+		}
+	}
+
+verify:
+	// Verify blocks 36-39 were promoted
+	require.Equal(t, 4, len(receivedNums))
+	for i := uint64(36); i <= 39; i++ {
+		require.Contains(t, receivedNums, i)
+	}
+
+	// Verify block 35 and blocks 31-34 were NOT promoted
+	for i := uint64(31); i <= 35; i++ {
+		require.NotContains(t, receivedNums, i)
+	}
+
+	// Verify blocks 31-34 are in quarantine
+	clientValue := reflect.ValueOf(client).Elem()
+	quarantineByNumField := clientValue.FieldByName("quarantineByNum")
+	quarantineByNumField = reflect.NewAt(
+		quarantineByNumField.Type(),
+		quarantineByNumField.Addr().UnsafePointer(),
+	).Elem()
+	quarantineByNum := quarantineByNumField.Interface().(map[uint64]common.Hash)
+
+	require.Equal(t, 4, len(quarantineByNum))
+	for i := uint64(31); i <= 34; i++ {
+		require.Contains(t, quarantineByNum, i)
+	}
 }
