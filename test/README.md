@@ -28,6 +28,14 @@ SKIP_OP_RETH_BUILD=false
 RPC_TYPE=op-reth-rpc
 ```
 
+For testing, we recommend using Reth v1.8.2, as follows:
+```bash
+git clone -b dev-1.8.2 https://github.com/okx/reth.git
+cd reth
+docker build -t op-reth:1.8.2 -f DockerfileOp .
+docker tag op-reth:1.8.2 op-reth:latest
+```
+
 ### Code Updates and Image Rebuilding (Optional)
 If you've updated the Optimism codebase and need to rebuild Docker images:
 
