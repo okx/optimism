@@ -218,6 +218,9 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
     /// @notice Thrown when trying to use depositERC20Transaction but gas token not set.
     error OptimismPortal_InvalidGasToken();
 
+    /// @notice Thrown when msg.value less than value.
+    error OptimismPortal_InsufficientDeposit();
+
     /// @notice Semantic version.
     /// @custom:semver 5.2.0
     function version() public pure virtual returns (string memory) {
@@ -587,6 +590,9 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
         if (!_isUsingCustomGasToken()) {
             revert OptimismPortal_OnlyCustomGasToken();
         }
+        if (_mint!=_value){
+            revert OptimismPortal_InsufficientDeposit();
+        }
 
         // Transfer the custom gas token from the caller to this contract
         (address token,) = systemConfig.gasPayingToken();
@@ -658,6 +664,9 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
     {
         if (_isUsingCustomGasToken()) {
             if (msg.value > 0) revert OptimismPortal_NotAllowedOnCGTMode();
+        }
+        if (msg.value!=_value){
+            revert OptimismPortal_InsufficientDeposit();
         }
 
         // If using ETHLockbox, lock the ETH in the ETHLockbox.
