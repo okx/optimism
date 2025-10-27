@@ -187,7 +187,7 @@ services:
       - "30303:30303/udp"
       - "9090:9090"  # pprof port
     command:
-      - --verbosity=3
+      - --verbosity=5
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
       - --config=${CONFIG_FILE:-/config.toml}
@@ -449,7 +449,7 @@ services:
       - --rpc.enable-proxy=true
       # Healthcheck Config
       - --healthcheck.interval=1
-      - --healthcheck.unsafe-interval=5
+      - --healthcheck.unsafe-interval=7
       - --healthcheck.min-peer-count=1
       - --rollup.config=/rollup.json
     depends_on:
@@ -674,7 +674,7 @@ services:
       - --rpc.enable-proxy=true
       # Healthcheck Config
       - --healthcheck.interval=1
-      - --healthcheck.unsafe-interval=3
+      - --healthcheck.unsafe-interval=7
       - --healthcheck.min-peer-count=1
       - --rollup.config=/rollup.json
     depends_on:
@@ -795,7 +795,7 @@ services:
       - --rpc.enable-proxy=true
       # Healthcheck Config
       - --healthcheck.interval=1
-      - --healthcheck.unsafe-interval=3
+      - --healthcheck.unsafe-interval=7
       - --healthcheck.min-peer-count=1
       - --rollup.config=/rollup.json
     depends_on:
