@@ -2,6 +2,7 @@ package state
 
 import (
 	"fmt"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -56,6 +57,13 @@ type L2DevGenesisParams struct {
 	Prefund map[common.Address]*hexutil.U256 `json:"prefund" toml:"prefund"`
 }
 
+type CustomGasToken struct {
+	Enabled          bool         `json:"enabled" toml:"enabled"`
+	Name             string       `json:"name,omitempty" toml:"name,omitempty"`
+	Symbol           string       `json:"symbol,omitempty" toml:"symbol,omitempty"`
+	InitialLiquidity *hexutil.Big `json:"initialLiquidity,omitempty" toml:"initialLiquidity,omitempty"`
+}
+
 type ChainIntent struct {
 	ID                         common.Hash               `json:"id" toml:"id"`
 	BaseFeeVaultRecipient      common.Address            `json:"baseFeeVaultRecipient" toml:"baseFeeVaultRecipient"`
@@ -73,7 +81,7 @@ type ChainIntent struct {
 	OperatorFeeConstant        uint64                    `json:"operatorFeeConstant,omitempty" toml:"operatorFeeConstant,omitempty"`
 	L1StartBlockHash           *common.Hash              `json:"l1StartBlockHash,omitempty" toml:"l1StartBlockHash,omitempty"`
 	MinBaseFee                 uint64                    `json:"minBaseFee,omitempty" toml:"minBaseFee,omitempty"`
-
+	CustomGasToken             CustomGasToken            `json:"customGasToken" toml:"customGasToken"`
 	// Optional. For development purposes only. Only enabled if the operation mode targets a genesis-file output.
 	L2DevGenesisParams *L2DevGenesisParams `json:"l2DevGenesisParams,omitempty" toml:"l2DevGenesisParams,omitempty"`
 }
@@ -119,9 +127,32 @@ func (c *ChainIntent) Check() error {
 		return fmt.Errorf("%w: chainId=%s", ErrFeeVaultZeroAddress, c.ID)
 	}
 
+	if c.CustomGasToken.Enabled {
+		if c.CustomGasToken.Name == "" {
+			return fmt.Errorf("%w: CustomGasToken.Name cannot be empty when enabled, chainId=%s", ErrIncompatibleValue, c.ID)
+		}
+		if c.CustomGasToken.Symbol == "" {
+			return fmt.Errorf("%w: CustomGasToken.Symbol cannot be empty when enabled, chainId=%s", ErrIncompatibleValue, c.ID)
+		}
+
+		if c.CustomGasToken.InitialLiquidity == nil || c.CustomGasToken.InitialLiquidity.ToInt().Sign() < 0 {
+			return fmt.Errorf("%w: CustomGasToken.InitialLiquidity must be set and non-negative when custom gas token is enabled, chainId=%s", ErrIncompatibleValue, c.ID)
+		}
+	}
+
 	if c.DangerousAltDAConfig.UseAltDA {
 		return c.DangerousAltDAConfig.Check(nil)
 	}
 
 	return nil
+}
+
+// GetInitialLiquidity returns the native asset liquidity amount for the chain.
+// If not set, returns the default value of zero.
+func (c *ChainIntent) GetInitialLiquidity() *big.Int {
+	if c.CustomGasToken.InitialLiquidity != nil {
+		return c.CustomGasToken.InitialLiquidity.ToInt()
+	}
+
+	return (*hexutil.Big)(big.NewInt(0)).ToInt()
 }

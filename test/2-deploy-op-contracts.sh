@@ -24,7 +24,7 @@ deploy_safe() {
         -e DEPLOYER_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY" \
         -w /app/packages/contracts-bedrock \
         "${OP_CONTRACTS_IMAGE_TAG}" \
-        forge script --json --broadcast \
+        forge script --json --broadcast --legacy \
           --rpc-url $L1_RPC_URL_IN_DOCKER \
           --private-key $DEPLOYER_PRIVATE_KEY \
           scripts/deploy/DeploySimpleSafe.s.sol:DeploySimpleSafe)
@@ -86,6 +86,7 @@ PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd $PWD_DIR
 
 source .env
+source ./setup-cgt-function.sh
 
 # Validate OWNER_TYPE configuration
 if [ "$OWNER_TYPE" != "transactor" ] && [ "$OWNER_TYPE" != "safe" ]; then
@@ -161,8 +162,10 @@ docker run --rm \
       --challenge-period-seconds $CHALLENGE_PERIOD_SECONDS \
       --withdrawal-delay-seconds $WITHDRAWAL_DELAY_SECONDS \
       --proof-maturity-delay-seconds $WITHDRAWAL_DELAY_SECONDS \
-      --dispute-game-finality-delay-seconds $DISPUTE_GAME_FINALITY_DELAY_SECONDS
+      --dispute-game-finality-delay-seconds $DISPUTE_GAME_FINALITY_DELAY_SECONDS \
+      --dev-feature-bitmap 0x0000000000000000000000000000000000000000000000000000000000001000
   "
+# Enable custom gas token feature: --dev-feature-bitmap 0x0000000000000000000000000000000000000000000000000000000000001000
 
 cp ./config-op/intent.toml.bak ./config-op/intent.toml
 cp ./config-op/state.json.bak ./config-op/state.json
@@ -218,3 +221,10 @@ docker run --rm \
 echo "genesis.json and rollup.json are generated in deployments folder"
 
 echo "🎉 OP Stack deployment preparation completed!"
+
+echo ""
+echo "🔧 Setting up Custom Gas Token (CGT)..."
+setup_cgt
+
+echo ""
+echo "🎉 Complete setup with Custom Gas Token finished!"

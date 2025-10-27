@@ -14,6 +14,7 @@ import { DeployUtils } from "scripts/libraries/DeployUtils.sol";
 
 // Contracts
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import { DevFeatures } from "src/libraries/DevFeatures.sol";
 
 // Libraries
 import { console } from "forge-std/console.sol";
@@ -34,6 +35,7 @@ contract CommonTest is Test, Setup, Events {
 
     bool useAltDAOverride;
     bool useInteropOverride;
+    bool useCustomGasToken;
 
     /// @dev This value is only used in forked tests. During forked tests, the default is to perform the upgrade before
     ///      running the tests.
@@ -73,6 +75,16 @@ contract CommonTest is Test, Setup, Events {
         }
         if (useUpgradedFork) {
             deploy.cfg().setUseUpgradedFork(true);
+        }
+        if (isDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN)) {
+            console.log("CommonTest: enabling custom gas token");
+            deploy.cfg().setUseCustomGasToken(true);
+            deploy.cfg().setGasPayingTokenName("Custom Gas Token");
+            deploy.cfg().setGasPayingTokenSymbol("CGT");
+            deploy.cfg().setNativeAssetLiquidityAmount(type(uint248).max);
+            deploy.cfg().setBaseFeeVaultWithdrawalNetwork(1);
+            deploy.cfg().setL1FeeVaultWithdrawalNetwork(1);
+            deploy.cfg().setSequencerFeeVaultWithdrawalNetwork(1);
         }
 
         if (isForkTest()) {
