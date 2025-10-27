@@ -98,6 +98,11 @@ interface ISystemConfig is IProxyAdminOwnedBase {
     function guardian() external view returns (address);
     function setFeature(bytes32 _feature, bool _enabled) external;
     function isFeatureEnabled(bytes32) external view returns (bool);
+    function isCustomGasToken() external view returns (bool);
+    function gasPayingToken() external view returns (address address_, uint8 decimals_);
+    function gasPayingTokenName() external view returns (string memory name_);
+    function gasPayingTokenSymbol() external view returns (string memory symbol_);
+    function setGasPayingToken(address _token, uint8 _decimals, bytes32 _name, bytes32 _symbol) external;
 
     function __constructor__() external;
 }

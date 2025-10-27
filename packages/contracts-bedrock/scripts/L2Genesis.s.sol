@@ -30,6 +30,8 @@ import { ICrossDomainMessenger } from "interfaces/universal/ICrossDomainMessenge
 import { IL2CrossDomainMessenger } from "interfaces/L2/IL2CrossDomainMessenger.sol";
 import { IGasPriceOracle } from "interfaces/L2/IGasPriceOracle.sol";
 import { IL1Block } from "interfaces/L2/IL1Block.sol";
+import { ILiquidityController } from "interfaces/L2/ILiquidityController.sol";
+import { IL1BlockCGT } from "interfaces/L2/IL1BlockCGT.sol";
 
 /// @title L2Genesis
 /// @notice Generates the genesis state for the L2 network.
@@ -60,6 +62,10 @@ contract L2Genesis is Script {
         bool deployCrossL2Inbox;
         bool enableGovernance;
         bool fundDevAccounts;
+        bool useCustomGasToken;
+        string gasPayingTokenName;
+        string gasPayingTokenSymbol;
+        uint256 nativeAssetLiquidityAmount;
     }
 
     using ForkUtils for Fork;
@@ -118,6 +124,7 @@ contract L2Genesis is Script {
         if (_input.fundDevAccounts) {
             fundDevAccounts();
         }
+
         vm.stopPrank();
         vm.deal(deployer, 0);
         vm.resetNonce(deployer);
@@ -195,7 +202,8 @@ contract L2Genesis is Script {
             vm.etch(addr, code);
             EIP1967Helper.setAdmin(addr, Predeploys.PROXY_ADMIN);
 
-            if (Predeploys.isSupportedPredeploy(addr, _input.fork, _input.deployCrossL2Inbox)) {
+            if (Predeploys.isSupportedPredeploy(addr, _input.fork, _input.deployCrossL2Inbox, _input.useCustomGasToken))
+            {
                 address implementation = Predeploys.predeployToCodeNamespace(addr);
                 EIP1967Helper.setImplementation(addr, implementation);
             }
@@ -219,8 +227,8 @@ contract L2Genesis is Script {
         setOptimismMintableERC20Factory(); // 12
         setL1BlockNumber(); // 13
         setL2ERC721Bridge(_input.l1ERC721BridgeProxy); // 14
-        setL1Block(); // 15
-        setL2ToL1MessagePasser(); // 16
+        setL1Block(_input.useCustomGasToken); // 15
+        setL2ToL1MessagePasser(_input.useCustomGasToken); // 16
         setOptimismMintableERC721Factory(_input); // 17
         setProxyAdmin(_input); // 18
         setBaseFeeVault(_input); // 19
@@ -235,6 +243,10 @@ contract L2Genesis is Script {
                 setCrossL2Inbox(); // 22
             }
             setL2ToL2CrossDomainMessenger(); // 23
+        }
+        if (_input.useCustomGasToken) {
+            setLiquidityController(_input); // 29
+            setNativeAssetLiquidity(_input); // 2A
         }
     }
 
@@ -252,8 +264,14 @@ contract L2Genesis is Script {
         vm.store(impl, _ownerSlot, bytes32(uint256(uint160(_input.opChainProxyAdminOwner))));
     }
 
-    function setL2ToL1MessagePasser() internal {
-        _setImplementationCode(Predeploys.L2_TO_L1_MESSAGE_PASSER);
+    function setL2ToL1MessagePasser(bool _useCustomGasToken) internal {
+        if (_useCustomGasToken) {
+            string memory cname = "L2ToL1MessagePasserCGT";
+            address impl = Predeploys.predeployToCodeNamespace(Predeploys.L2_TO_L1_MESSAGE_PASSER);
+            vm.etch(impl, vm.getDeployedCode(string.concat(cname, ".sol:", cname)));
+        } else {
+            _setImplementationCode(Predeploys.L2_TO_L1_MESSAGE_PASSER);
+        }
     }
 
     /// @notice This predeploy is following the safety invariant #1.
@@ -289,6 +307,12 @@ contract L2Genesis is Script {
 
     /// @notice This predeploy is following the safety invariant #2,
     function setSequencerFeeVault(Input memory _input) internal {
+        Types.WithdrawalNetwork withdrawalNetwork = Types.WithdrawalNetwork(_input.sequencerFeeVaultWithdrawalNetwork);
+
+        if (_input.useCustomGasToken && withdrawalNetwork == Types.WithdrawalNetwork.L1) {
+            revert("SequencerFeeVault: withdrawalNetwork type cannot be L1 when custom gas token is enabled");
+        }
+
         ISequencerFeeVault vault = ISequencerFeeVault(
             DeployUtils.create1({
                 _name: "SequencerFeeVault",
@@ -298,7 +322,7 @@ contract L2Genesis is Script {
                         (
                             _input.sequencerFeeVaultRecipient,
                             _input.sequencerFeeVaultMinimumWithdrawalAmount,
-                            Types.WithdrawalNetwork(_input.sequencerFeeVaultWithdrawalNetwork)
+                            withdrawalNetwork
                         )
                     )
                 )
@@ -346,10 +370,20 @@ contract L2Genesis is Script {
     }
 
     /// @notice This predeploy is following the safety invariant #1.
-    function setL1Block() internal {
-        // Note: L1 block attributes are set to 0.
-        // Before the first user-tx the state is overwritten with actual L1 attributes.
-        _setImplementationCode(Predeploys.L1_BLOCK_ATTRIBUTES);
+    function setL1Block(bool _useCustomGasToken) internal {
+        if (_useCustomGasToken) {
+            // Set the implementation code for L1BlockCGT
+            string memory cname = "L1BlockCGT";
+            address impl = Predeploys.predeployToCodeNamespace(Predeploys.L1_BLOCK_ATTRIBUTES);
+            vm.etch(impl, vm.getDeployedCode(string.concat(cname, ".sol:", cname)));
+
+            // Set the custom gas token flag
+            vm.startPrank(IL1BlockCGT(Predeploys.L1_BLOCK_ATTRIBUTES).DEPOSITOR_ACCOUNT());
+            IL1BlockCGT(Predeploys.L1_BLOCK_ATTRIBUTES).setCustomGasToken();
+            vm.stopPrank();
+        } else {
+            _setImplementationCode(Predeploys.L1_BLOCK_ATTRIBUTES);
+        }
     }
 
     /// @notice This predeploy is following the safety invariant #1.
@@ -381,17 +415,19 @@ contract L2Genesis is Script {
 
     /// @notice This predeploy is following the safety invariant #2.
     function setBaseFeeVault(Input memory _input) internal {
+        Types.WithdrawalNetwork withdrawalNetwork = Types.WithdrawalNetwork(_input.baseFeeVaultWithdrawalNetwork);
+
+        if (_input.useCustomGasToken && withdrawalNetwork == Types.WithdrawalNetwork.L1) {
+            revert("BaseFeeVault: withdrawalNetwork type cannot be L1 when custom gas token is enabled");
+        }
+
         IBaseFeeVault vault = IBaseFeeVault(
             DeployUtils.create1({
                 _name: "BaseFeeVault",
                 _args: DeployUtils.encodeConstructor(
                     abi.encodeCall(
                         IBaseFeeVault.__constructor__,
-                        (
-                            _input.baseFeeVaultRecipient,
-                            _input.baseFeeVaultMinimumWithdrawalAmount,
-                            Types.WithdrawalNetwork(_input.baseFeeVaultWithdrawalNetwork)
-                        )
+                        (_input.baseFeeVaultRecipient, _input.baseFeeVaultMinimumWithdrawalAmount, withdrawalNetwork)
                     )
                 )
             })
@@ -407,17 +443,19 @@ contract L2Genesis is Script {
 
     /// @notice This predeploy is following the safety invariant #2.
     function setL1FeeVault(Input memory _input) internal {
+        Types.WithdrawalNetwork withdrawalNetwork = Types.WithdrawalNetwork(_input.l1FeeVaultWithdrawalNetwork);
+
+        if (_input.useCustomGasToken && withdrawalNetwork == Types.WithdrawalNetwork.L1) {
+            revert("L1FeeVault: withdrawalNetwork type cannot be L1 when custom gas token is enabled");
+        }
+
         IL1FeeVault vault = IL1FeeVault(
             DeployUtils.create1({
                 _name: "L1FeeVault",
                 _args: DeployUtils.encodeConstructor(
                     abi.encodeCall(
                         IL1FeeVault.__constructor__,
-                        (
-                            _input.l1FeeVaultRecipient,
-                            _input.l1FeeVaultMinimumWithdrawalAmount,
-                            Types.WithdrawalNetwork(_input.l1FeeVaultWithdrawalNetwork)
-                        )
+                        (_input.l1FeeVaultRecipient, _input.l1FeeVaultMinimumWithdrawalAmount, withdrawalNetwork)
                     )
                 )
             })
@@ -544,6 +582,32 @@ contract L2Genesis is Script {
     ///         This contract has no initializer.
     function setSuperchainTokenBridge() internal {
         _setImplementationCode(Predeploys.SUPERCHAIN_TOKEN_BRIDGE);
+    }
+
+    /// @notice This predeploy is following the safety invariant #1.
+    function setLiquidityController(Input memory _input) internal {
+        address impl = _setImplementationCode(Predeploys.LIQUIDITY_CONTROLLER);
+
+        ILiquidityController(impl).initialize({ _gasPayingTokenName: "", _gasPayingTokenSymbol: "" });
+
+        ILiquidityController(Predeploys.LIQUIDITY_CONTROLLER).initialize({
+            _gasPayingTokenName: _input.gasPayingTokenName,
+            _gasPayingTokenSymbol: _input.gasPayingTokenSymbol
+        });
+    }
+
+    /// @notice This predeploy is following the safety invariant #1.
+    ///         This contract has no initializer.
+    function setNativeAssetLiquidity(Input memory _input) internal {
+        _setImplementationCode(Predeploys.NATIVE_ASSET_LIQUIDITY);
+
+        require(
+            _input.nativeAssetLiquidityAmount <= type(uint248).max,
+            "L2Genesis: native asset liquidity amount must be less than or equal to type(uint248).max"
+        );
+
+        // Pre-fund the liquidity contract with the specified amount
+        vm.deal(Predeploys.NATIVE_ASSET_LIQUIDITY, _input.nativeAssetLiquidityAmount);
     }
 
     /// @notice Sets all the preinstalls.
