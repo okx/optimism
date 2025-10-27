@@ -5,6 +5,7 @@ pragma solidity 0.8.15;
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 // Interfaces
 import { IOKB } from "interfaces/L1/IOKB.sol";
@@ -23,7 +24,7 @@ import { IOptimismPortal2 } from "interfaces/L1/IOptimismPortal2.sol";
 ///         - Automatically initiates L2 deposit transaction
 ///
 /// @dev This token is set as the gasPayingToken on SystemConfig.
-contract DepositedOKBAdapter is ERC20, Ownable {
+contract DepositedOKBAdapter is ERC20, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     /// @notice Address of the OptimismPortal2 contract that this adapter works with.
@@ -136,7 +137,7 @@ contract DepositedOKBAdapter is ERC20, Ownable {
     ///         7. Initiates an L2 deposit transaction via the portal
     /// @param _to         Target address on L2 to receive the tokens.
     /// @param _amount     Amount of OKB to burn and deposit.
-    function deposit(address _to, uint256 _amount) external {
+    function deposit(address _to, uint256 _amount) external nonReentrant {
         if (!whitelist[msg.sender]) {
             revert NotWhitelisted();
         }
@@ -213,7 +214,7 @@ contract DepositedOKBAdapter is ERC20, Ownable {
     /// @param _token   Address of the ERC20 token to rescue.
     /// @param _to      Address to send the tokens to.
     /// @param _amount  Amount of tokens to rescue.
-    function rescueERC20(address _token, address _to, uint256 _amount) external onlyOwner {
+    function rescueERC20(address _token, address _to, uint256 _amount) external onlyOwner nonReentrant {
         if (_token == address(0)) {
             revert AddressCannotBeZero();
         }
