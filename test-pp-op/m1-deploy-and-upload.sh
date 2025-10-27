@@ -57,6 +57,7 @@ echo "=============================================="
 mkdir -p $UPLOAD_DIR
 mv ${IMAGE_NAME}.tar.gz $UPLOAD_DIR
 cp ./m2-migrate.sh $UPLOAD_DIR
+cp ./m3-verify.sh $UPLOAD_DIR
 tar -czvf $UPLOAD_DIR.tar.gz $UPLOAD_DIR
 echo "✅ Upload file ${TAR_FILE} is created."
 
