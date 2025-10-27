@@ -449,7 +449,7 @@ services:
       - --rpc.enable-proxy=true
       # Healthcheck Config
       - --healthcheck.interval=1
-      - --healthcheck.unsafe-interval=3
+      - --healthcheck.unsafe-interval=5
       - --healthcheck.min-peer-count=1
       - --rollup.config=/rollup.json
     depends_on:
