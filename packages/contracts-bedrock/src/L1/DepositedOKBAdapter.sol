@@ -5,7 +5,8 @@ pragma solidity 0.8.15;
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-
+import { ReentrancyGuard } from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 // Interfaces
 import { IOKB } from "interfaces/L1/IOKB.sol";
 import { IOptimismPortal2 } from "interfaces/L1/IOptimismPortal2.sol";
@@ -23,7 +24,9 @@ import { IOptimismPortal2 } from "interfaces/L1/IOptimismPortal2.sol";
 ///         - Automatically initiates L2 deposit transaction
 ///
 /// @dev This token is set as the gasPayingToken on SystemConfig.
-contract DepositedOKBAdapter is ERC20, Ownable {
+contract DepositedOKBAdapter is ERC20, Ownable, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
     /// @notice Address of the OptimismPortal2 contract that this adapter works with.
     IOptimismPortal2 public immutable PORTAL;
 
@@ -59,11 +62,6 @@ contract DepositedOKBAdapter is ERC20, Ownable {
     /// @notice Thrown when balance is insufficient.
     error InsufficientBalance();
 
-    /// @notice Thrown when transfer fails.
-    error TransferFailed();
-
-    /// @notice Thrown when transfer OKB from user fails.
-    error TransferFromUserFailed();
 
     /// @notice Thrown when OKB balance is not equal to the amount deposited.
     error OKBBalanceMismatch();
@@ -134,31 +132,22 @@ contract DepositedOKBAdapter is ERC20, Ownable {
     ///         7. Initiates an L2 deposit transaction via the portal
     /// @param _to         Target address on L2 to receive the tokens.
     /// @param _amount     Amount of OKB to burn and deposit.
-    function deposit(address _to, uint256 _amount) external {
+    function deposit(address _to, uint256 _amount) external nonReentrant {
         if (!whitelist[msg.sender]) {
             revert NotWhitelisted();
         }
         if (_amount == 0) {
             revert AmountMustBeGreaterThanZero();
         }
-        if (OKB.balanceOf(msg.sender) < _amount) {
-            revert InsufficientBalance();
-        }
-
         // Transfer any remaining OKB to rescuer.
         // If someone mistakenly directly transfer OKB to this contract, transfer it to the owner.
-        if (OKB.balanceOf(address(this)) > 0) {
-            bool transferSuccess = OKB.transfer(owner(), OKB.balanceOf(address(this)));
-            if (!transferSuccess) {
-                revert TransferFailed();
-            }
+        uint256 existingBalance = OKB.balanceOf(address(this));
+        if (existingBalance > 0) {
+            IERC20(address(OKB)).safeTransfer(owner(), existingBalance);
         }
 
         // Transfer OKB from user to this contract first
-        bool transferFromUserSuccess = OKB.transferFrom(msg.sender, address(this), _amount);
-        if (!transferFromUserSuccess) {
-            revert TransferFromUserFailed();
-        }
+        IERC20(address(OKB)).safeTransferFrom(msg.sender, address(this), _amount);
 
         // Check invariant: the amount of OKB in this contract should be equal to the amount deposited.
         if (OKB.balanceOf(address(this)) != _amount) {
@@ -211,7 +200,7 @@ contract DepositedOKBAdapter is ERC20, Ownable {
     /// @param _token   Address of the ERC20 token to rescue.
     /// @param _to      Address to send the tokens to.
     /// @param _amount  Amount of tokens to rescue.
-    function rescueERC20(address _token, address _to, uint256 _amount) external onlyOwner {
+    function rescueERC20(address _token, address _to, uint256 _amount) external onlyOwner nonReentrant {
         if (_token == address(0)) {
             revert AddressCannotBeZero();
         }
@@ -222,9 +211,6 @@ contract DepositedOKBAdapter is ERC20, Ownable {
             revert AmountMustBeGreaterThanZero();
         }
 
-        bool transferSuccess = IERC20(_token).transfer(_to, _amount);
-        if (!transferSuccess) {
-            revert TransferFailed();
-        }
+        IERC20(_token).safeTransfer(_to, _amount);
     }
 }
