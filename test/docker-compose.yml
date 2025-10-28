@@ -111,7 +111,7 @@ services:
       - ./l1-geth/execution/jwtsecret:/execution/jwtsecret
       - ./l1-geth/execution/geth_password.txt:/execution/geth_password.txt
     healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
+      test: ["CMD", "curl", "-f", "http://localhost:8545"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -193,7 +193,7 @@ services:
       - --rollup.disabletxpoolgossip=false
       - --nodekeyhex=1aba031aeb5aa8aedadaf04159d20e7d58eeefb3280176c7d59040476c2ab21b
     healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
+      test: ["CMD", "curl", "-f", "http://localhost:8545"]
       interval: 3s
       timeout: 3s
       retries: 10
@@ -233,7 +233,7 @@ services:
       - --rollup.disable-tx-pool-gossip
       - --rollup.sequencer=http://op-seq:8547
     healthcheck:
-      test: [ "CMD", "wget", "--spider", "--quiet", "http://localhost:8545" ]
+      test: ["CMD", "curl", "-f", "http://localhost:8545" ]
       interval: 3s
       timeout: 3s
       retries: 10
@@ -533,7 +533,7 @@ services:
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
     healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
+      test: ["CMD", "curl", "-f", "http://localhost:8545"]
       interval: 3s
       timeout: 3s
       retries: 10
@@ -572,7 +572,7 @@ services:
       - --trusted-peers=enode://ef8135659def07b48b54fe2de7d0368e3eaa0a080ef13dde560169357900954be1a1e890b5973a821f9158e512a2da3ff600368f44e18e725a86931eaae5ef64@op-reth-seq:30303
 
     healthcheck:
-      test: [ "CMD", "wget", "--spider", "--quiet", "http://localhost:8545" ]
+      test: ["CMD", "curl", "-f", "http://localhost:8545" ]
       interval: 3s
       timeout: 3s
       retries: 10
@@ -681,7 +681,7 @@ services:
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
     healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
+      test: ["CMD", "curl", "-f", "http://localhost:8545"]
       interval: 3s
       timeout: 3s
       retries: 10
