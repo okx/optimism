@@ -13,7 +13,7 @@ echo "🔗 Setting up P2P static connections between op-geth nodes..."
 # Function to get enode from a geth container
 get_enode() {
     local container_name=$1
-    local enode=$(docker logs $container_name 2>&1 | head -n 100 | grep "enode" | tail -1 | cut -d '=' -f 2 | tr -d '"')
+    local enode=$(docker logs $container_name 2>&1 | head -n 100 | grep --color=never "enode" | tail -1 | cut -d '=' -f 2 | tr -d '"' | sed 's/\x1b\[[0-9;]*m//g')
     echo "$enode"
 }
 

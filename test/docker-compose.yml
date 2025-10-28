@@ -252,6 +252,7 @@ services:
       - ./config-op/genesis-reth.json:/genesis.json
       - ./config-op/gen.test.reth.rpc.config.toml:/config.toml
       - ./entrypoint:/entrypoint
+      - ./.env:/.env
     ports:
       - "8124:8545"
       - "30304:30303"
@@ -389,7 +390,7 @@ services:
     command:
       - /app/op-batcher/bin/op-batcher
       - --log.level=debug
-      - --l2-eth-rpc=${OP_BATCHER_L2_ETH_RPC:-http://op-geth-seq:8545}
+      - --l2-eth-rpc=${OP_BATCHER_L2_ETH_RPC:-http://${SEQ_TYPE}:8545}
       - --rollup-rpc=${OP_BATCHER_ROLLUP_RPC:-http://op-seq:9545}
       # - --txmgr.enable-cell-proofs=true
       - --wait-node-sync=true
