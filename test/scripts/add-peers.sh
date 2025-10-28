@@ -107,13 +107,13 @@ if [ "$LAUNCH_RPC_NODE" = "true" ]; then
     if [ "$CONDUCTOR_ENABLED" = "true" ]; then
         OP_RPC_TRUSTED_NODES="\"$OP_GETH_SEQ_ENODE\",\"$OP_GETH_SEQ2_ENODE\",\"$OP_GETH_SEQ3_ENODE\""
     fi
-    if [ "$RPC_TYPE" = "op-geth-rpc" ]; then
+    if [ "$RPC_TYPE" = "geth" ]; then
         cp ./config-op/test.geth.rpc.config.toml ./config-op/gen.test.geth.rpc.config.toml
         # Here we use # as delimiter to avoid escaping // in enode URLs
         # Add as both StaticNodes for peers, and TrustedNodes to bypass peer limits
         sed_inplace 's#StaticNodes = \[\]#StaticNodes = \['"$OP_RPC_TRUSTED_NODES"'\]#' ./config-op/gen.test.geth.rpc.config.toml
         sed_inplace 's#TrustedNodes = \[\]#TrustedNodes = \['"$OP_RPC_TRUSTED_NODES"'\]#' ./config-op/gen.test.geth.rpc.config.toml
-    elif [ "$RPC_TYPE" = "op-reth-rpc" ]; then
+    elif [ "$RPC_TYPE" = "reth" ]; then
         cp ./config-op/test.reth.rpc.config.toml ./config-op/gen.test.reth.rpc.config.toml
         # Here we use # as delimiter to avoid escaping // in enode URLs
         sed_inplace 's#trusted_nodes = \[\]#trusted_nodes = \['"$OP_RPC_TRUSTED_NODES"'\]#' ./config-op/gen.test.reth.rpc.config.toml
