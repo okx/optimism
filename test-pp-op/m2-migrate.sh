@@ -32,20 +32,20 @@ done
 
 # Prompt to delete ${BACKUP_DIR} contents
 if [ -d $BACKUP_DIR ];then
-  echo ""
-  echo "============================================="
-  echo "Existing ${BACKUP_DIR}"
-  echo "============================================="
-  ls -la $BACKUP_DIR
-  echo ""
-  read -p "Do you want to delete the contents of ${BACKUP_DIR}? (y/n): " -n 1 -r
-  echo
-  if [[ $REPLY =~ ^[Yy]$ ]]; then
-      echo "${BACKUP_DIR} contents are DELETED..."
-      rm -rf ${BACKUP_DIR}/*
-  else
-      echo "${BACKUP_DIR} contents are NOT deleted..."
-  fi
+    echo ""
+    echo "============================================="
+    echo "Existing ${BACKUP_DIR}"
+    echo "============================================="
+    ls -la $BACKUP_DIR
+    echo ""
+    read -p "Do you want to delete the contents of ${BACKUP_DIR}? (y/n): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo "${BACKUP_DIR} contents are DELETED..."
+        rm -rf ${BACKUP_DIR}/*
+    else
+        echo "${BACKUP_DIR} contents are NOT deleted..."
+    fi
 fi
 
 # Create and verify backup directory
@@ -374,6 +374,8 @@ execute_migration() {
         cp .env ${BACKUP_DIR}/ || exit 1
         cp merged.genesis.json ${BACKUP_DIR}/ || exit 1
         cp -rf config-op ${BACKUP_DIR}/config-op || exit 1
+
+        [ -f migrate.log ] && cp migrate.log ${BACKUP_DIR}/
     "; then
         echo ""
         echo "✅ Migration completed successfully inside container"
@@ -603,6 +605,14 @@ else
     echo "⚠️  Warning: diff.genesis.json not found in container"
     echo "   Expected location: /app/test-pp-op/diff.genesis.json"
 fi
+
+echo ""
+echo "=============================================="
+echo "Step 9: Check for differences between mounted data and backup"
+echo "=============================================="
+
+diff -r $SOURCE_PATH $BACKUP_DIR/op-geth-seq # exit script on failure (set -e)
+echo "✅ Contents of ${SOURCE_PATH} matches ${BACKUP_DIR}/op-geth-seq"
 
 echo ""
 echo "=============================================="
