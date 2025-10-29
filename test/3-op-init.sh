@@ -195,9 +195,6 @@ echo "✅ Finished init op-$SEQ_TYPE-seq and op-$RPC_TYPE-rpc."
 # genesis.json is too large to embed in go, so we compress it now and decompress it in go code
 gzip -c config-op/genesis.json > config-op/genesis.json.gz
 
-cp -r saved-cannon-data data/cannon-data
-exit 0
-
 # Ensure prestate files exist and devnetL1.json is consistent before deploying contracts
 EXPORT_DIR="$PWD_DIR/data/cannon-data"
 SAVED_CANNON_DATA_DIR="$PWD_DIR/saved-cannon-data"
