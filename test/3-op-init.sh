@@ -132,80 +132,59 @@ docker compose run --no-deps --rm \
   --datadir "/datadir" \
   --gcmode=archive \
   --db.engine=$DB_ENGINE \
-  --log.format json \
   init \
   --state.scheme=hash \
-  /genesis.json 2>&1 | tee init.log
-fi
+  /genesis.json
 
-# Start sequencer to get the block hash at FORK_BLOCK+1
-echo "🚀 Starting $SEQ_TYPE to get block hash at FORK_BLOCK+1..."
-docker compose up -d $SEQ_TYPE
+# Remove nodekey to ensure other nodes generates a unique node ID
+echo " 🔑 Removing nodekey to generate unique node ID for other nodes..."
+rm -f "$OP_GETH_DATADIR/geth/nodekey"
 
-# Wait for sequencer to be ready
-echo "⏳ Waiting for $SEQ_TYPE to be ready..."
-sleep 20
-set +x
-# Get the block hash at FORK_BLOCK+1
-TARGET_BLOCK=$((FORK_BLOCK + 1))
-echo "🔍 Getting block hash at block number: $TARGET_BLOCK"
-NEW_BLOCK_HASH=$(curl -s -X POST -H "Content-Type: application/json" --data "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x$(printf "%x" $TARGET_BLOCK)\",false],\"id\":1}" http://localhost:8123 | jq -r '.result.hash' 2>/dev/null)
-echo "New block hash: $NEW_BLOCK_HASH"
-if [ -z "$NEW_BLOCK_HASH" ] || [ "$NEW_BLOCK_HASH" = "null" ] || [ "$NEW_BLOCK_HASH" = "undefined" ]; then
-    echo " ❌ Failed to get block hash at block $TARGET_BLOCK"
-    echo "Please check if $SEQ_TYPE is running and has produced enough blocks"
-    docker compose logs $SEQ_TYPE --tail=20
-    exit 1
-fi
-set -x
+OP_RETH_DATADIR="$(pwd)/data/op-reth-seq"
+rm -rf "$OP_RETH_DATADIR"
+mkdir -p "$OP_RETH_DATADIR"
+INIT_LOG=$(docker compose run --no-deps --rm \
+  -v "$(pwd)/$CONFIG_DIR/genesis-reth.json:/genesis.json" \
+  op-reth-seq \
+  init \
+  --datadir="/datadir" \
+  --chain=/genesis.json \
+  --log.stdout.format=json | tee init.log)
 
-echo " ✅ Got block hash at block $TARGET_BLOCK: $NEW_BLOCK_HASH"
+NEW_BLOCK_HASH=$(tail -n 1 init.log | jq -r .fields.hash)
+echo "NEW_BLOCK_HASH=$NEW_BLOCK_HASH"
+sed_inplace "s/NEW_BLOCK_HASH=.*/NEW_BLOCK_HASH=$NEW_BLOCK_HASH/" .env
 
-# Stop sequencer after getting the hash
-docker compose stop $SEQ_TYPE
 
-# update genesis block hash in rollup.json
-jq ".genesis.l2.hash = \"$NEW_BLOCK_HASH\"" config-op/rollup.json > config-op/rollup.json.tmp
-mv config-op/rollup.json.tmp config-op/rollup.json
+# Copy initialized database from op-geth-seq to other nodes
+OP_GETH_RPC_DATADIR="$(pwd)/data/op-geth-rpc"
 
-# Copy initialized database from sequencer to other nodes
-if [ "$SEQ_TYPE" = "op-geth-seq" ] && [ "$RPC_TYPE" = "op-geth-rpc" ]; then
-  OP_RPC_DATADIR="$(pwd)/data/$RPC_TYPE"
-  echo " 🔄 Copying database from $SEQ_TYPE to $RPC_TYPE..."
-  rm -rf "$OP_RPC_DATADIR"
-  cp -r "$OP_SEQ_DATADIR" "$OP_RPC_DATADIR"
-
-  # Remove nodekey to ensure op-geth-rpc generates a unique node ID
-  echo " 🔑 Removing nodekey to generate unique node ID for $RPC_TYPE..."
-  rm -f "$OP_RPC_DATADIR/geth/nodekey"
-fi
+echo " 🔄 Copying database from op-geth-seq to op-geth-rpc..."
+rm -rf "$OP_GETH_RPC_DATADIR"
+cp -r "$OP_GETH_DATADIR" "$OP_GETH_RPC_DATADIR"
 
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
-    OP_GETH_DATADIR="$(pwd)/data/op-geth-seq2"
-    rm -rf "$OP_GETH_DATADIR"
-    mkdir -p "$OP_GETH_DATADIR"
-    docker compose run --no-deps \
-      -v "$(pwd)/$CONFIG_DIR/genesis.json:/genesis.json" \
-      op-geth-seq2 \
-      --datadir "/datadir" \
-      --gcmode=archive \
-      --db.engine=$DB_ENGINE \
-      init \
-      --state.scheme=hash \
-      /genesis.json
+    if [ "$SEQ_TYPE" = "geth" ]; then
+        OP_GETH_DATADIR2="$(pwd)/data/op-geth-seq2"
+        rm -rf "$OP_GETH_DATADIR2"
+        cp -r $OP_GETH_DATADIR $OP_GETH_DATADIR2
 
-    OP_GETH_DATADIR="$(pwd)/data/op-geth-seq3"
-    rm -rf "$OP_GETH_DATADIR"
-    mkdir -p "$OP_GETH_DATADIR"
-    docker compose run --no-deps \
-      -v "$(pwd)/$CONFIG_DIR/genesis.json:/genesis.json" \
-      op-geth-seq3 \
-      --datadir "/datadir" \
-      --gcmode=archive \
-      --db.engine=$DB_ENGINE \
-      init \
-      --state.scheme=hash \
-      /genesis.json
+        OP_GETH_DATADIR3="$(pwd)/data/op-geth-seq3"
+        rm -rf "$OP_GETH_DATADIR3"
+        cp -r $OP_GETH_DATADIR $OP_GETH_DATADIR3
+    elif [ "$SEQ_TYPE" = "reth" ]; then
+        OP_RETH_DATADIR2="$(pwd)/data/op-reth-seq2"
+        rm -rf "$OP_RETH_DATADIR2"
+        cp -r $OP_RETH_DATADIR $OP_RETH_DATADIR2
+
+        OP_RETH_DATADIR3="$(pwd)/data/op-reth-seq3"
+        rm -rf "$OP_RETH_DATADIR3"
+        cp -r $OP_RETH_DATADIR $OP_RETH_DATADIR3
+    fi
+fi
+
+if [ "$SEQ_TYPE" = "reth" ]; then
+  echo -n "1aba031aeb5aa8aedadaf04159d20e7d58eeefb3280176c7d59040476c2ab21b" > $OP_RETH_DATADIR/discovery-secret
 fi
 
 echo "finished init $SEQ_TYPE and $RPC_TYPE"

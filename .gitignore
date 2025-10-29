@@ -56,6 +56,7 @@ crytic-export
 test/l1-geth/consensus/beacondata
 test/l1-geth/consensus/validatordata
 test/config-op/genesis.json
+test/config-op/genesis-reth.json
 test/config-op/genesis.json.gz
 test/config-op/genesis-reth.json
 test/config-op/gen.test.geth.rpc.config.toml
