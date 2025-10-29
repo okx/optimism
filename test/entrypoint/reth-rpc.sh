@@ -5,12 +5,11 @@ set -e
 exec op-reth node \
       --datadir=/datadir \
       --chain=/genesis.json \
-      --config=/config.toml \
       --http \
       --http.corsdomain=* \
       --http.port=8545 \
       --http.addr=0.0.0.0 \
-      --http.api=web3,debug,eth,txpool,net,miner \
+      --http.api=web3,debug,eth,txpool,net,miner,admin \
       --ws \
       --ws.addr=0.0.0.0 \
       --ws.port=7546 \
@@ -23,4 +22,5 @@ exec op-reth node \
       --authrpc.port=8552 \
       --authrpc.jwtsecret=/jwt.txt \
       --rollup.disable-tx-pool-gossip \
-      --rollup.sequencer-http=http://op-geth-seq:8545
+      --rollup.sequencer-http=http://op-${SEQ_TYPE}-seq:8545
+      --trusted-peers=enode://ef8135659def07b48b54fe2de7d0368e3eaa0a080ef13dde560169357900954be1a1e890b5973a821f9158e512a2da3ff600368f44e18e725a86931eaae5ef64@op-${SEQ_TYPE}-seq:30303
