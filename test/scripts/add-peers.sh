@@ -13,7 +13,7 @@ echo "🔗 Setting up P2P static connections between op-geth nodes..."
 # Function to get enode from a geth container
 get_enode() {
     local container_name=$1
-    local enode=$(docker logs $container_name 2>&1 | head -n 100 | grep "enode" | tail -1 | cut -d '=' -f 2 | tr -d '"')
+    local enode=$(docker logs $container_name 2>&1 | head -n 100 | grep --color=never "enode" | tail -1 | cut -d '=' -f 2 | tr -d '"' | sed 's/\x1b\[[0-9;]*m//g')
     echo "$enode"
 }
 
@@ -36,9 +36,9 @@ sed_inplace() {
 echo "📡 Getting enode addresses..."
 
 # Get enodes
-OP_GETH_SEQ_ENODE=$(get_enode "op-geth-seq")
-if [ -z "$OP_GETH_SEQ_ENODE" ]; then
-    echo "❌ Failed to get enode for op-geth-seq"
+OP_SEQ_ENODE=$(get_enode "op-${SEQ_TYPE}-seq")
+if [ -z "$OP_SEQ_ENODE" ]; then
+    echo "❌ Failed to get enode for ${SEQ_TYPE}"
     exit 1
 fi
 
@@ -56,7 +56,7 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
 fi
 
 # Replace 127.0.0.1 with container names
-OP_GETH_SEQ_ENODE=$(replace_enode_ip "$OP_GETH_SEQ_ENODE" "op-geth-seq")
+OP_SEQ_ENODE=$(replace_enode_ip "$OP_SEQ_ENODE" "op-${SEQ_TYPE}-seq")
 
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     OP_GETH_SEQ2_ENODE=$(replace_enode_ip "$OP_GETH_SEQ2_ENODE" "op-geth-seq2")
@@ -64,7 +64,7 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
 fi
 
 echo "✅ Enode addresses:"
-echo "  op-geth-seq: $OP_GETH_SEQ_ENODE"
+echo "  op-${SEQ_TYPE}-seq: $OP_SEQ_ENODE"
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     echo "  op-geth-seq2: $OP_GETH_SEQ2_ENODE"
     echo "  op-geth-seq3: $OP_GETH_SEQ3_ENODE"
@@ -81,8 +81,8 @@ add_peer() {
 # Setup static connections between sequencer nodes
 echo "🔗 Setting up static connections between sequencer nodes..."
 
-# Add peers to op-geth-seq (connect to other sequencers)
-echo "🔗 Setting up peers for op-geth-seq..."
+# Add peers to sequencer (connect to other sequencers)
+echo "🔗 Setting up peers for op-${SEQ_TYPE}-seq..."
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     add_peer "op-geth-seq" "$OP_GETH_SEQ2_ENODE"
     add_peer "op-geth-seq" "$OP_GETH_SEQ3_ENODE"
@@ -103,9 +103,9 @@ fi
 # Setup RPC node to connect to all sequencer nodes
 if [ "$LAUNCH_RPC_NODE" = "true" ]; then
     echo "🔗 Setting up RPC node to connect to all sequencer nodes..."
-    OP_RPC_TRUSTED_NODES="\"$OP_GETH_SEQ_ENODE\""
+    OP_RPC_TRUSTED_NODES="\"$OP_SEQ_ENODE\""
     if [ "$CONDUCTOR_ENABLED" = "true" ]; then
-        OP_RPC_TRUSTED_NODES="\"$OP_GETH_SEQ_ENODE\",\"$OP_GETH_SEQ2_ENODE\",\"$OP_GETH_SEQ3_ENODE\""
+        OP_RPC_TRUSTED_NODES="\"$OP_SEQ_ENODE\",\"$OP_GETH_SEQ2_ENODE\",\"$OP_GETH_SEQ3_ENODE\""
     fi
     if [ "$RPC_TYPE" = "geth" ]; then
         cp ./config-op/test.geth.rpc.config.toml ./config-op/gen.test.geth.rpc.config.toml

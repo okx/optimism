@@ -68,6 +68,8 @@ else
     docker compose up -d op-seq
 fi
 
+sleep 5
+
 #$SCRIPTS_DIR/add-peers.sh
 
 if [ "$LAUNCH_RPC_NODE" = "true" ]; then
@@ -81,6 +83,12 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     export OP_BATCHER_L2_ETH_RPC="http://op-conductor:8547,http://op-conductor2:8547,http://op-conductor3:8547"
     export OP_BATCHER_ROLLUP_RPC="http://op-conductor:8547,http://op-conductor2:8547,http://op-conductor3:8547"
     echo "✅ op-batcher configured for conductor mode (connecting to conductor RPC endpoints)"
+else
+    echo "🔧 Configuring op-batcher for single sequencer mode..."
+    # Set single sequencer mode endpoints
+    export OP_BATCHER_L2_ETH_RPC="http://op-${SEQ_TYPE}-seq:8545"
+    export OP_BATCHER_ROLLUP_RPC="http://op-seq:9545"
+    echo "✅ op-batcher configured for single sequencer mode"
 fi
 
 docker compose up -d op-batcher
