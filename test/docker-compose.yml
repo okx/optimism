@@ -192,8 +192,49 @@ services:
       - --config=/config.toml
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
+      - -nodekeyhex=1aba031aeb5aa8aedadaf04159d20e7d58eeefb3280176c7d59040476c2ab21b
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+
+  op-reth-seq:
+    image: "${OP_RETH_IMAGE_TAG}"
+    container_name: op-reth-seq
+    volumes:
+      - ./data/op-reth-seq:/datadir
+      - ./config-op/jwt.txt:/jwt.txt
+      - ./config-op/genesis-reth.json:/genesis.json
+    ports:
+      - "8123:8545"
+      - "7546:7546"
+      - "8552:8552"
+      - "30303:30303"
+      - "30303:30303/udp"
+      - "9090:9090"  # pprof port
+    command:
+      - node
+      - --datadir=/datadir
+      - --chain=/genesis.json
+      - --http
+      - --http.corsdomain=*
+      - --http.port=8545
+      - --http.addr=0.0.0.0
+      - --http.api=web3,debug,eth,txpool,net,miner,admin
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=7546
+      - --ws.origins=*
+      - --ws.api=debug,eth,txpool,net
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.port=8552
+      - --authrpc.jwtsecret=/jwt.txt
+      - --rollup.disable-tx-pool-gossip
+      - --rollup.sequencer=http://op-seq:8547
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8545" ]
       interval: 3s
       timeout: 3s
       retries: 10
@@ -202,11 +243,10 @@ services:
   op-geth-rpc:
     image: "${OP_GETH_IMAGE_TAG}"
     container_name: op-geth-rpc
-    entrypoint: geth
     volumes:
       - ./data/op-geth-rpc:/datadir
       - ./config-op/jwt.txt:/jwt.txt
-      - ./config-op/gen.test.geth.rpc.config.toml:/config.toml
+      - ./config-op/test.geth.rpc.config.toml:/config.toml
     ports:
       - "8124:8545"
       - "30304:30303"
@@ -222,12 +262,10 @@ services:
   op-reth-rpc:
     image: "${OP_RETH_IMAGE_TAG}"
     container_name: op-reth-rpc
-    entrypoint: op-reth
     volumes:
       - ./data/op-reth-rpc:/datadir
       - ./config-op/jwt.txt:/jwt.txt
-      - ./config-op/genesis-rpc.json:/genesis.json
-      - ./config-op/gen.test.reth.rpc.config.toml:/config.toml
+      - ./config-op/genesis-reth.json:/genesis.json
     ports:
       - "8124:8545"
       - "30304:30303"
@@ -241,19 +279,17 @@ services:
       - --http.corsdomain=*
       - --http.port=8545
       - --http.addr=0.0.0.0
-      - --http.api=web3,debug,eth,txpool,net,miner
+      - --http.api=web3,debug,eth,txpool,net,miner,admin
       - --ws
       - --ws.addr=0.0.0.0
       - --ws.port=7546
       - --ws.origins=*
       - --ws.api=debug,eth,txpool,net
-      - --disable-discovery
-      - --max-outbound-peers=0
-      - --max-inbound-peers=0
       - --authrpc.addr=0.0.0.0
       - --authrpc.port=8552
       - --authrpc.jwtsecret=/jwt.txt
       - --rollup.disable-tx-pool-gossip
+      - --trusted-peers=enode://ef8135659def07b48b54fe2de7d0368e3eaa0a080ef13dde560169357900954be1a1e890b5973a821f9158e512a2da3ff600368f44e18e725a86931eaae5ef64@op-${SEQ_TYPE}-seq:30303
 
   op-seq:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -272,7 +308,7 @@ services:
     command:
       - /app/op-node/bin/op-node
       - --log.level=debug
-      - --l2=http://op-geth-seq:8552
+      - --l2=http://op-${SEQ_TYPE}-seq:8552
       - --l2.jwt-secret=/jwt.txt
       - --sequencer.enabled
       - --sequencer.l1-confs=5
@@ -297,9 +333,9 @@ services:
       - --pprof.enabled
       - --pprof.addr=0.0.0.0
       - --pprof.port=9091
+      - --l2.enginekind=${SEQ_TYPE}
     depends_on:
-      op-geth-seq:
-        condition: service_healthy
+      - op-${SEQ_TYPE}-seq
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9545"]
       interval: 3s
@@ -314,14 +350,13 @@ services:
       - ./data/op-rpc:/data
       - ./config-op/rollup.json:/rollup.json
       - ./config-op/jwt.txt:/jwt.txt
-      - ./config-op/oprpc_p2p_priv.txt:/opnode_p2p_priv.txt
       - ./l1-geth/execution/genesis.json:/l1-genesis.json
     ports:
       - "9555:9545"
     command:
       - /app/op-node/bin/op-node
       - --log.level=debug
-      - --l2=http://${RPC_TYPE:-op-geth-rpc}:8552
+      - --l2=http://op-${RPC_TYPE}-rpc:8552
       - --l2.jwt-secret=/jwt.txt
       - --sequencer.enabled=false
       - --verifier.l1-confs=1
@@ -341,8 +376,9 @@ services:
       - --l1.rpckind=standard
       - --rollup.l1-chain-config=/l1-genesis.json
       - --safedb.path=/data/safedb
+      - --l2.enginekind=${RPC_TYPE}
     depends_on:
-      - ${RPC_TYPE:-op-geth-rpc}
+      - op-${RPC_TYPE}-rpc
 
   op-conductor:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -358,7 +394,7 @@ services:
       - --log.level=debug
       # already existed service
       - --node.rpc=http://op-seq:9545
-      - --execution.rpc=http://op-geth-seq:8545
+      - --execution.rpc=http://op-${RPC_TYPE}-seq:8545
       # Raft Config
       - --raft.server.id=conductor-1
       - --raft.storage.dir=/data/raft
@@ -378,8 +414,6 @@ services:
     depends_on:
       op-seq:
         condition: service_healthy
-      op-geth-seq:
-        condition: service_healthy
 
   op-batcher:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -387,7 +421,7 @@ services:
     command:
       - /app/op-batcher/bin/op-batcher
       - --log.level=debug
-      - --l2-eth-rpc=${OP_BATCHER_L2_ETH_RPC:-http://op-geth-seq:8545}
+      - --l2-eth-rpc=${OP_BATCHER_L2_ETH_RPC:-http://op-${SEQ_TYPE}-seq:8545}
       - --rollup-rpc=${OP_BATCHER_ROLLUP_RPC:-http://op-seq:9545}
       # - --txmgr.enable-cell-proofs=true
       - --wait-node-sync=true
@@ -456,7 +490,7 @@ services:
       - --log.level=debug
       - --l1-eth-rpc=${L1_RPC_URL_IN_DOCKER}
       - --l1-beacon=${L1_BEACON_URL_IN_DOCKER}
-      - --l2-eth-rpc=http://op-geth-rpc:8545
+      - --l2-eth-rpc=http://op-${RPC_TYPE}-rpc:8545
       - --rollup-rpc=http://op-rpc:9545
       - --game-factory-address=${DISPUTE_GAME_FACTORY_ADDRESS}
       - --cannon-bin=/app/cannon/bin/cannon
@@ -509,6 +543,44 @@ services:
       retries: 10
       start_period: 3s
 
+  op-reth-seq2:
+    image: "${OP_RETH_IMAGE_TAG}"
+    container_name: op-reth-seq2
+    volumes:
+      - ./data/op-reth-seq2:/datadir
+      - ./config-op/jwt.txt:/jwt.txt
+      - ./config-op/genesis-reth.json:/genesis.json
+    ports:
+      - "8223:8545"
+      - "30305:30303"
+      - "30305:30303/udp"
+    command:
+      - node
+      - --datadir=/datadir
+      - --chain=/genesis.json
+      - --http
+      - --http.corsdomain=*
+      - --http.port=8545
+      - --http.addr=0.0.0.0
+      - --http.api=web3,debug,eth,txpool,net,miner,admin
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=7546
+      - --ws.origins=*
+      - --ws.api=debug,eth,txpool,net
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.port=8552
+      - --authrpc.jwtsecret=/jwt.txt
+      - --rollup.disable-tx-pool-gossip
+      - --rollup.sequencer=http://op-seq:8547
+      - --trusted-peers=enode://ef8135659def07b48b54fe2de7d0368e3eaa0a080ef13dde560169357900954be1a1e890b5973a821f9158e512a2da3ff600368f44e18e725a86931eaae5ef64@op-reth-seq:30303
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8545" ]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+
   op-seq2:
     image: "${OP_STACK_IMAGE_TAG}"
     container_name: op-seq2
@@ -525,7 +597,7 @@ services:
     command:
       - /app/op-node/bin/op-node
       - --log.level=info
-      - --l2=http://op-geth-seq2:8552
+      - --l2=http://op-${SEQ_TYPE}-seq2:8552
       - --l2.jwt-secret=/jwt.txt
       - --sequencer.enabled
       - --sequencer.stopped
@@ -549,9 +621,9 @@ services:
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor2:8547
+      - --l2.enginekind=${SEQ_TYPE}
     depends_on:
-      op-geth-seq2:
-        condition: service_healthy
+      - op-${SEQ_TYPE}-seq2
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9545"]
       interval: 3s
@@ -573,7 +645,7 @@ services:
       - --log.level=debug
       # already existed service
       - --node.rpc=http://op-seq2:9545
-      - --execution.rpc=http://op-geth-seq2:8545
+      - --execution.rpc=http://op-${SEQ_TYPE}-seq2:8545
       # Raft Config
       - --raft.server.id=conductor-2
       - --raft.storage.dir=/data/raft
@@ -592,8 +664,6 @@ services:
       - --rollup.config=/rollup.json
     depends_on:
       op-seq2:
-        condition: service_healthy
-      op-geth-seq2:
         condition: service_healthy
 
   op-geth-seq3:
@@ -622,6 +692,38 @@ services:
       retries: 10
       start_period: 3s
 
+  op-reth-seq3:
+    image: "${OP_RETH_IMAGE_TAG}"
+    container_name: op-reth-seq3
+    volumes:
+      - ./data/op-reth-seq3:/datadir
+      - ./config-op/jwt.txt:/jwt.txt
+      - ./config-op/genesis-reth.json:/genesis.json
+    command:
+      - node
+      - --datadir=/datadir
+      - --chain=/genesis.json
+      - --http
+      - --http.corsdomain=*
+      - --http.port=8545
+      - --http.addr=0.0.0.0
+      - --http.api=web3,debug,eth,txpool,net,miner,admin
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=7546
+      - --ws.origins=*
+      - --ws.api=debug,eth,txpool,net
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.port=8552
+      - --authrpc.jwtsecret=/jwt.txt
+      - --rollup.disable-tx-pool-gossip
+      - --rollup.sequencer=http://op-seq:8547
+      - --trusted-peers=enode://ef8135659def07b48b54fe2de7d0368e3eaa0a080ef13dde560169357900954be1a1e890b5973a821f9158e512a2da3ff600368f44e18e725a86931eaae5ef64@op-reth-seq:30303
+    ports:
+      - "8323:8545"
+      - "30306:30303"
+      - "30306:30303/udp"
+
   op-seq3:
     image: "${OP_STACK_IMAGE_TAG}"
     container_name: op-seq3
@@ -638,7 +740,7 @@ services:
     command:
       - /app/op-node/bin/op-node
       - --log.level=info
-      - --l2=http://op-geth-seq3:8552
+      - --l2=http://op-${SEQ_TYPE}-seq3:8552
       - --l2.jwt-secret=/jwt.txt
       - --sequencer.enabled
       - --sequencer.stopped
@@ -662,9 +764,9 @@ services:
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor3:8547
+      - --l2.enginekind=${SEQ_TYPE}
     depends_on:
-      op-geth-seq3:
-        condition: service_healthy
+      - op-${SEQ_TYPE}-seq3
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9545"]
       interval: 3s
@@ -686,7 +788,7 @@ services:
       - --log.level=debug
       # already existed service
       - --node.rpc=http://op-seq3:9545
-      - --execution.rpc=http://op-geth-seq3:8545
+      - --execution.rpc=http://op-${SEQ_TYPE}-seq3:8545
       # Raft Config
       - --raft.server.id=conductor-3
       - --raft.storage.dir=/data/raft
@@ -705,6 +807,4 @@ services:
       - --rollup.config=/rollup.json
     depends_on:
       op-seq3:
-        condition: service_healthy
-      op-geth-seq3:
         condition: service_healthy
