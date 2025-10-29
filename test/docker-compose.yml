@@ -210,8 +210,8 @@ services:
       - ./data/op-reth-seq:/datadir
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/genesis-reth.json:/genesis.json
-      - ./config-op/test.reth.seq.config.toml:/config.toml
       - ./entrypoint:/entrypoint
+      - ./.env:/.env
     ports:
       - "8123:8545"
       - "7546:7546"
@@ -514,34 +514,19 @@ services:
   op-reth-seq2:
     image: "${OP_RETH_IMAGE_TAG}"
     container_name: op-reth-seq2
+    entrypoint: /entrypoint/reth-seq.sh
+    env_file:
+      - ./.env
     volumes:
       - ./data/op-reth-seq2:/datadir
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/genesis-reth.json:/genesis.json
+      - ./entrypoint:/entrypoint
+      - ./.env:/.env
     ports:
       - "8223:8545"
       - "30305:30303"
       - "30305:30303/udp"
-    command:
-      - node
-      - --datadir=/datadir
-      - --chain=/genesis.json
-      - --http
-      - --http.corsdomain=*
-      - --http.port=8545
-      - --http.addr=0.0.0.0
-      - --http.api=web3,debug,eth,txpool,net,miner,admin
-      - --ws
-      - --ws.addr=0.0.0.0
-      - --ws.port=7546
-      - --ws.origins=*
-      - --ws.api=debug,eth,txpool,net
-      - --authrpc.addr=0.0.0.0
-      - --authrpc.port=8552
-      - --authrpc.jwtsecret=/jwt.txt
-      - --rollup.disable-tx-pool-gossip
-      - --rollup.sequencer=http://op-seq:8547
-      - --trusted-peers=enode://ef8135659def07b48b54fe2de7d0368e3eaa0a080ef13dde560169357900954be1a1e890b5973a821f9158e512a2da3ff600368f44e18e725a86931eaae5ef64@op-reth-seq:30303
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8545" ]
       interval: 3s
@@ -663,34 +648,25 @@ services:
   op-reth-seq3:
     image: "${OP_RETH_IMAGE_TAG}"
     container_name: op-reth-seq3
+    entrypoint: /entrypoint/reth-seq.sh
+    env_file:
+      - ./.env
     volumes:
       - ./data/op-reth-seq3:/datadir
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/genesis-reth.json:/genesis.json
-    command:
-      - node
-      - --datadir=/datadir
-      - --chain=/genesis.json
-      - --http
-      - --http.corsdomain=*
-      - --http.port=8545
-      - --http.addr=0.0.0.0
-      - --http.api=web3,debug,eth,txpool,net,miner,admin
-      - --ws
-      - --ws.addr=0.0.0.0
-      - --ws.port=7546
-      - --ws.origins=*
-      - --ws.api=debug,eth,txpool,net
-      - --authrpc.addr=0.0.0.0
-      - --authrpc.port=8552
-      - --authrpc.jwtsecret=/jwt.txt
-      - --rollup.disable-tx-pool-gossip
-      - --rollup.sequencer=http://op-seq:8547
-      - --trusted-peers=enode://ef8135659def07b48b54fe2de7d0368e3eaa0a080ef13dde560169357900954be1a1e890b5973a821f9158e512a2da3ff600368f44e18e725a86931eaae5ef64@op-reth-seq:30303
+      - ./entrypoint:/entrypoint
+      - ./.env:/.env
     ports:
       - "8323:8545"
       - "30306:30303"
       - "30306:30303/udp"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8545"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
 
   op-seq3:
     image: "${OP_STACK_IMAGE_TAG}"
