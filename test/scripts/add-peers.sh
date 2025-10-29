@@ -36,7 +36,7 @@ sed_inplace() {
 echo "📡 Getting enode addresses..."
 
 # Get enodes
-OP_SEQ_ENODE=$(get_enode "${SEQ_TYPE}")
+OP_SEQ_ENODE=$(get_enode "op-${SEQ_TYPE}-seq")
 if [ -z "$OP_SEQ_ENODE" ]; then
     echo "❌ Failed to get enode for ${SEQ_TYPE}"
     exit 1
@@ -56,7 +56,7 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
 fi
 
 # Replace 127.0.0.1 with container names
-OP_SEQ_ENODE=$(replace_enode_ip "$OP_SEQ_ENODE" "${SEQ_TYPE}")
+OP_SEQ_ENODE=$(replace_enode_ip "$OP_SEQ_ENODE" "op-${SEQ_TYPE}-seq")
 
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     OP_GETH_SEQ2_ENODE=$(replace_enode_ip "$OP_GETH_SEQ2_ENODE" "op-geth-seq2")
@@ -64,7 +64,7 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
 fi
 
 echo "✅ Enode addresses:"
-echo "  ${SEQ_TYPE}: $OP_SEQ_ENODE"
+echo "  op-${SEQ_TYPE}-seq: $OP_SEQ_ENODE"
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     echo "  op-geth-seq2: $OP_GETH_SEQ2_ENODE"
     echo "  op-geth-seq3: $OP_GETH_SEQ3_ENODE"
@@ -82,7 +82,7 @@ add_peer() {
 echo "🔗 Setting up static connections between sequencer nodes..."
 
 # Add peers to sequencer (connect to other sequencers)
-echo "🔗 Setting up peers for ${SEQ_TYPE}..."
+echo "🔗 Setting up peers for op-${SEQ_TYPE}-seq..."
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     add_peer "op-geth-seq" "$OP_GETH_SEQ2_ENODE"
     add_peer "op-geth-seq" "$OP_GETH_SEQ3_ENODE"

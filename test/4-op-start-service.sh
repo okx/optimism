@@ -68,6 +68,8 @@ else
     docker compose up -d op-seq
 fi
 
+sleep 5
+
 #$SCRIPTS_DIR/add-peers.sh
 
 if [ "$LAUNCH_RPC_NODE" = "true" ]; then

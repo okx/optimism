@@ -68,6 +68,9 @@ incoming_ip_throttle_duration = "30s"
 max_outbound = 100
 max_inbound = 30
 max_concurrent_outbound_dials = 15
+trusted_nodes = ["enode://ef8135659def07b48b54fe2de7d0368e3eaa0a080ef13dde560169357900954be1a1e890b5973a821f9158e512a2da3ff600368f44e18e725a86931eaae5ef64@op-geth-seq:30303",
+"enode://ef8135659def07b48b54fe2de7d0368e3eaa0a080ef13dde560169357900954be1a1e890b5973a821f9158e512a2da3ff600368f44e18e725a86931eaae5ef64@op-reth-seq:30303"]
+trusted_nodes_only = true
 
 [peers.reputation_weights]
 bad_message = -16384

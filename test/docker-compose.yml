@@ -192,7 +192,7 @@ services:
       - --config=/config.toml
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
-      - -nodekeyhex=1aba031aeb5aa8aedadaf04159d20e7d58eeefb3280176c7d59040476c2ab21b
+      - --nodekeyhex=1aba031aeb5aa8aedadaf04159d20e7d58eeefb3280176c7d59040476c2ab21b
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
       interval: 3s
@@ -201,132 +201,63 @@ services:
       start_period: 3s
 
   op-reth-seq:
-<<<<<<< HEAD
-    image: "${OP_RETH_IMAGE_TAG:-op-reth:latest}"
+    image: "${OP_RETH_IMAGE_TAG}"
     container_name: op-reth-seq
     entrypoint: /entrypoint/reth-seq.sh
     env_file:
       - .env
-=======
-    image: "${OP_RETH_IMAGE_TAG}"
-    container_name: op-reth-seq
->>>>>>> dev
     volumes:
       - ./data/op-reth-seq:/datadir
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/genesis-reth.json:/genesis.json
-<<<<<<< HEAD
       - ./config-op/test.reth.seq.config.toml:/config.toml
       - ./entrypoint:/entrypoint
-=======
->>>>>>> dev
     ports:
       - "8123:8545"
       - "7546:7546"
       - "8552:8552"
       - "30303:30303"
       - "30303:30303/udp"
-<<<<<<< HEAD
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8545"]
-=======
-      - "9090:9090"  # pprof port
-    command:
-      - node
-      - --datadir=/datadir
-      - --chain=/genesis.json
-      - --http
-      - --http.corsdomain=*
-      - --http.port=8545
-      - --http.addr=0.0.0.0
-      - --http.api=web3,debug,eth,txpool,net,miner,admin
-      - --ws
-      - --ws.addr=0.0.0.0
-      - --ws.port=7546
-      - --ws.origins=*
-      - --ws.api=debug,eth,txpool,net
-      - --authrpc.addr=0.0.0.0
-      - --authrpc.port=8552
-      - --authrpc.jwtsecret=/jwt.txt
-      - --rollup.disable-tx-pool-gossip
-      - --rollup.sequencer=http://op-seq:8547
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8545" ]
->>>>>>> dev
       interval: 3s
       timeout: 3s
       retries: 10
       start_period: 3s
 
   op-geth-rpc:
-    image: "${OP_GETH_IMAGE_TAG:-op-geth:latest}"
+    image: "${OP_GETH_IMAGE_TAG}"
     container_name: op-geth-rpc
-<<<<<<< HEAD
     entrypoint: /entrypoint/geth-rpc.sh
     env_file:
       - .env
     volumes:
       - ./data/op-geth-rpc:/datadir
       - ./config-op/jwt.txt:/jwt.txt
-      - ./config-op/gen.test.geth.rpc.config.toml:/config.toml
-      - ./entrypoint:/entrypoint
-=======
-    volumes:
-      - ./data/op-geth-rpc:/datadir
-      - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/test.geth.rpc.config.toml:/config.toml
->>>>>>> dev
+      - ./entrypoint:/entrypoint
     ports:
       - "8124:8545"
       - "30304:30303"
       - "30304:30303/udp"
 
   op-reth-rpc:
-    image: "${OP_RETH_IMAGE_TAG:-op-reth:latest}"
+    image: "${OP_RETH_IMAGE_TAG}"
     container_name: op-reth-rpc
-<<<<<<< HEAD
     entrypoint: /entrypoint/reth-rpc.sh
     env_file:
       - .env
-=======
->>>>>>> dev
     volumes:
       - ./data/op-reth-rpc:/datadir
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/genesis-reth.json:/genesis.json
-<<<<<<< HEAD
-      - ./config-op/gen.test.reth.rpc.config.toml:/config.toml
+      - ./config-op/test.reth.rpc.config.toml:/config.toml
       - ./entrypoint:/entrypoint
       - ./.env:/.env
-=======
->>>>>>> dev
     ports:
       - "8124:8545"
       - "30304:30303"
       - "30304:30303/udp"
-<<<<<<< HEAD
-=======
-    command:
-      - node
-      - --datadir=/datadir
-      - --chain=/genesis.json
-      - --config=/config.toml
-      - --http
-      - --http.corsdomain=*
-      - --http.port=8545
-      - --http.addr=0.0.0.0
-      - --http.api=web3,debug,eth,txpool,net,miner,admin
-      - --ws
-      - --ws.addr=0.0.0.0
-      - --ws.port=7546
-      - --ws.origins=*
-      - --ws.api=debug,eth,txpool,net
-      - --authrpc.addr=0.0.0.0
-      - --authrpc.port=8552
-      - --authrpc.jwtsecret=/jwt.txt
-      - --rollup.disable-tx-pool-gossip
-      - --trusted-peers=enode://ef8135659def07b48b54fe2de7d0368e3eaa0a080ef13dde560169357900954be1a1e890b5973a821f9158e512a2da3ff600368f44e18e725a86931eaae5ef64@op-${SEQ_TYPE}-seq:30303
->>>>>>> dev
 
   op-seq:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -345,11 +276,7 @@ services:
     command:
       - /app/op-node/bin/op-node
       - --log.level=debug
-<<<<<<< HEAD
-      - --l2=http://${SEQ_TYPE}:8552
-=======
       - --l2=http://op-${SEQ_TYPE}-seq:8552
->>>>>>> dev
       - --l2.jwt-secret=/jwt.txt
       - --sequencer.enabled
       - --sequencer.l1-confs=5
@@ -376,11 +303,7 @@ services:
       - --pprof.port=9091
       - --l2.enginekind=${SEQ_TYPE}
     depends_on:
-<<<<<<< HEAD
-      - "${SEQ_TYPE:-op-geth-seq}"
-=======
       - op-${SEQ_TYPE}-seq
->>>>>>> dev
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9545"]
       interval: 3s
@@ -421,11 +344,7 @@ services:
       - --l1.rpckind=standard
       - --rollup.l1-chain-config=/l1-genesis.json
       - --safedb.path=/data/safedb
-<<<<<<< HEAD
-      - --l2.enginekind=${L2_ENGINEKIND}
-=======
       - --l2.enginekind=${RPC_TYPE}
->>>>>>> dev
     depends_on:
       - op-${RPC_TYPE}-rpc
 
@@ -443,11 +362,7 @@ services:
       - --log.level=debug
       # already existed service
       - --node.rpc=http://op-seq:9545
-<<<<<<< HEAD
-      - --execution.rpc=http://${SEQ_TYPE}:8545
-=======
       - --execution.rpc=http://op-${RPC_TYPE}-seq:8545
->>>>>>> dev
       # Raft Config
       - --raft.server.id=conductor-1
       - --raft.storage.dir=/data/raft
@@ -474,11 +389,7 @@ services:
     command:
       - /app/op-batcher/bin/op-batcher
       - --log.level=debug
-<<<<<<< HEAD
-      - --l2-eth-rpc=${OP_BATCHER_L2_ETH_RPC:-http://${SEQ_TYPE}:8545}
-=======
       - --l2-eth-rpc=${OP_BATCHER_L2_ETH_RPC:-http://op-${SEQ_TYPE}-seq:8545}
->>>>>>> dev
       - --rollup-rpc=${OP_BATCHER_ROLLUP_RPC:-http://op-seq:9545}
       # - --txmgr.enable-cell-proofs=true
       - --wait-node-sync=true
