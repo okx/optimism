@@ -7,7 +7,6 @@ source /.env
 exec op-reth node \
       --datadir=/datadir \
       --chain=/genesis.json \
-      --config=/config.toml \
       --http \
       --http.corsdomain=* \
       --http.port=8545 \
