@@ -23,6 +23,8 @@ FORK_BLOCK_HEX=$(printf "0x%x" "$FORK_BLOCK")
 sed_inplace '/"config": {/,/}/ s/"optimism": {/"legacyXLayerBlock": '"$((FORK_BLOCK + 1))"',\n    "optimism": {/' ./config-op/genesis.json
 sed_inplace 's/"parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000"/"parentHash": "'"$PARENT_HASH"'"/' ./config-op/genesis.json
 sed_inplace '/"70997970c51812dc3a010c7d01b50e0d17dc79c8": {/,/}/ s/"balance": "[^"]*"/"balance": "0x446c3b15f9926687d2c40534fdb564000000000000"/' ./config-op/genesis.json
+jq '.alloc["e09CD061594aC075EA8899ECe8BFAAD549e792FD"].balance = "0x446c3b15f9926687d2c40534fdb564000000000000"' config-op/genesis.json > tmp.json
+mv tmp.json config-op/genesis.json
 NEXT_BLOCK_NUMBER=$((FORK_BLOCK + 1))
 NEXT_BLOCK_NUMBER_HEX=$(printf "0x%x" "$NEXT_BLOCK_NUMBER")
 sed_inplace 's/"number": 0/"number": '"$NEXT_BLOCK_NUMBER"'/' ./config-op/rollup.json
