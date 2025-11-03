@@ -362,7 +362,7 @@ services:
       - --log.level=debug
       # already existed service
       - --node.rpc=http://op-seq:9545
-      - --execution.rpc=http://op-${RPC_TYPE}-seq:8545
+      - --execution.rpc=http://op-${SEQ_TYPE}-seq:8545
       # Raft Config
       - --raft.server.id=conductor-1
       - --raft.storage.dir=/data/raft
