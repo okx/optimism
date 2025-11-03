@@ -1,5 +1,22 @@
 # Optimism Test Environment Setup Guide
 
+## Environment Configuration
+
+Configure `example.env` (do not modify `.env` directly) and run `./clean.sh` to sync changes.
+
+| Case | .env Configuration |
+|------|---------------------|
+| **Geth as Sequencer** | `SEQ_TYPE=geth`<br>`SKIP_OP_RETH_BUILD=true`<br>`DB_ENGINE=pebble` |
+| **Reth as Sequencer** | `SEQ_TYPE=reth`<br>`SKIP_OP_RETH_BUILD=false`<br>`OP_RETH_LOCAL_DIRECTORY=/absolute/path/to/reth/repository`<br>`OP_RETH_BRANCH=dev` |
+| **Geth as RPC** | `RPC_TYPE=geth`<br>`LAUNCH_RPC_NODE=true`<br>`SKIP_OP_RETH_BUILD=true`<br>`DB_ENGINE=pebble` |
+| **Reth as RPC** | `RPC_TYPE=reth`<br>`LAUNCH_RPC_NODE=true`<br>`SKIP_OP_RETH_BUILD=false`<br>`OP_RETH_LOCAL_DIRECTORY=/absolute/path/to/reth/repository`<br>`OP_RETH_BRANCH=dev` |
+
+**Notes:**
+- Always modify `example.env`, then run `./clean.sh` to sync to `.env`
+- For Reth configurations, `OP_RETH_LOCAL_DIRECTORY` must be an absolute path
+- Run `./init.sh` to build Docker images after configuration changes
+- `DB_ENGINE` can be `pebble` or `leveldb` (only required for Geth)
+
 ## Prerequisites
 
 ### System Requirements
