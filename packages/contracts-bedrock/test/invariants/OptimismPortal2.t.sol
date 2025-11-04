@@ -14,6 +14,7 @@ import { ResourceMetering } from "src/L1/ResourceMetering.sol";
 // Libraries
 import { Constants } from "src/libraries/Constants.sol";
 import { Types } from "src/libraries/Types.sol";
+import { Features } from "src/libraries/Features.sol";
 import "src/dispute/lib/Types.sol";
 
 // Interfaces
@@ -67,6 +68,11 @@ contract OptimismPortal2_Depositor is StdUtils, ResourceMetering {
         uint256 preDepositBalance = address(this).balance;
         uint256 value = bound(preDepositvalue, 0, preDepositBalance);
 
+        // If custom gas token is enabled, set deposit value to 0
+        if (portal.systemConfig().isFeatureEnabled(Features.CUSTOM_GAS_TOKEN)) {
+            value = 0;
+        }
+
         (, uint64 cachedPrevBoughtGas,) = ResourceMetering(address(portal)).params();
         ResourceMetering.ResourceConfig memory rcfg = resourceConfig();
         uint256 maxResourceLimit = uint64(rcfg.maxResourceLimit);
@@ -75,8 +81,9 @@ contract OptimismPortal2_Depositor is StdUtils, ResourceMetering {
         );
 
         try portal.depositTransaction{ value: value }(_to, value, gasLimit, _isCreation, _data) {
-            // Do nothing; Call succeeded
-        } catch {
+        // Do nothing; Call succeeded
+        }
+        catch {
             failedToComplete = true;
         }
     }
@@ -99,13 +106,14 @@ contract OptimismPortal2_Invariant_Harness is DisputeGameFactory_TestInit {
         super.setUp();
 
         _defaultTx = Types.WithdrawalTransaction({
-            nonce: 0,
-            sender: alice,
-            target: bob,
-            value: 100,
-            gasLimit: 100_000,
-            data: hex""
+            nonce: 0, sender: alice, target: bob, value: 100, gasLimit: 100_000, data: hex""
         });
+
+        // If custom gas token is enabled, set deposit value to 0
+        if (systemConfig.isFeatureEnabled(Features.CUSTOM_GAS_TOKEN)) {
+            _defaultTx.value = 0;
+        }
+
         // Get withdrawal proof data we can use for testing.
         (_stateRoot, _storageRoot, _outputRoot, _withdrawalHash, _withdrawalProof) =
             ffi.getProveWithdrawalTransactionInputs(_defaultTx);
@@ -126,13 +134,13 @@ contract OptimismPortal2_Invariant_Harness is DisputeGameFactory_TestInit {
         // Create a dispute game with the output root we've proposed.
         _proposedBlockNumber = 0xFF;
         IFaultDisputeGame game = IFaultDisputeGame(
-            payable(
-                address(
-                    disputeGameFactory.create{ value: disputeGameFactory.initBonds(optimismPortal2.respectedGameType()) }(
+            payable(address(
+                    disputeGameFactory.create{
+                        value: disputeGameFactory.initBonds(optimismPortal2.respectedGameType())
+                    }(
                         optimismPortal2.respectedGameType(), Claim.wrap(_outputRoot), abi.encode(_proposedBlockNumber)
                     )
-                )
-            )
+                ))
         );
         _proposedGameIndex = disputeGameFactory.gameCount() - 1;
 

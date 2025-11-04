@@ -1,0 +1,46 @@
+# Contracts build stage
+FROM okexchain/go-builder:v1 AS contracts-builder
+
+
+WORKDIR /app
+
+# Copy the entire project (needed for git submodules)
+COPY . .
+
+# Initialize submodules and build contracts
+WORKDIR /app/packages/contracts-bedrock
+RUN git submodule update --init --recursive || echo "No submodules found"
+RUN --mount=type=cache,target=/root/.foundry \
+    --mount=type=cache,target=/root/.cache \
+    forge build --skip "/**/test/**"
+
+# Build op-deployer
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/root/.cache \
+    --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+RUN --mount=type=cache,target=/root/.cache \
+    --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    go build -o /app/op-deployer/bin/op-deployer ./op-deployer/cmd/op-deployer
+
+# Create final contracts image with artifacts, foundry tools, and op-deployer
+FROM debian:bookworm-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y ca-certificates && update-ca-certificates
+
+# Set environment variables for Go
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV SSL_CERT_DIR=/etc/ssl/certs
+
+# Copy foundry tools for runtime use
+COPY --from=contracts-builder /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil /usr/local/bin/
+# Copy op-deployer binary
+COPY --from=contracts-builder /app/op-deployer/bin/ ./op-deployer/bin/
+
+# Copy contract artifacts and config (copy essential files only)
+COPY --from=contracts-builder /app/packages/contracts-bedrock/ ./packages/contracts-bedrock/
+
+CMD ["echo", "Contracts and op-deployer ready"]

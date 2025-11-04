@@ -254,8 +254,7 @@ contract SuperFaultDisputeGame_Constructor_Test is SuperFaultDisputeGame_TestIni
             _args: DeployUtils.encodeConstructor(
                 abi.encodeCall(
                     ISuperFaultDisputeGame.__constructor__,
-                    (
-                        ISuperFaultDisputeGame.GameConstructorParams({
+                    (ISuperFaultDisputeGame.GameConstructorParams({
                             gameType: GAME_TYPE,
                             absolutePrestate: absolutePrestate,
                             maxGameDepth: _maxGameDepth,
@@ -266,8 +265,7 @@ contract SuperFaultDisputeGame_Constructor_Test is SuperFaultDisputeGame_TestIni
                             weth: IDelayedWETH(payable(address(0))),
                             anchorStateRegistry: IAnchorStateRegistry(address(0)),
                             l2ChainId: 0
-                        })
-                    )
+                        }))
                 )
             )
         });
@@ -298,8 +296,7 @@ contract SuperFaultDisputeGame_Constructor_Test is SuperFaultDisputeGame_TestIni
             _args: DeployUtils.encodeConstructor(
                 abi.encodeCall(
                     ISuperFaultDisputeGame.__constructor__,
-                    (
-                        ISuperFaultDisputeGame.GameConstructorParams({
+                    (ISuperFaultDisputeGame.GameConstructorParams({
                             gameType: GAME_TYPE,
                             absolutePrestate: absolutePrestate,
                             maxGameDepth: 2 ** 3,
@@ -310,8 +307,7 @@ contract SuperFaultDisputeGame_Constructor_Test is SuperFaultDisputeGame_TestIni
                             weth: IDelayedWETH(payable(address(0))),
                             anchorStateRegistry: IAnchorStateRegistry(address(0)),
                             l2ChainId: 0
-                        })
-                    )
+                        }))
                 )
             )
         });
@@ -338,8 +334,7 @@ contract SuperFaultDisputeGame_Constructor_Test is SuperFaultDisputeGame_TestIni
             _args: DeployUtils.encodeConstructor(
                 abi.encodeCall(
                     ISuperFaultDisputeGame.__constructor__,
-                    (
-                        ISuperFaultDisputeGame.GameConstructorParams({
+                    (ISuperFaultDisputeGame.GameConstructorParams({
                             gameType: GAME_TYPE,
                             absolutePrestate: absolutePrestate,
                             maxGameDepth: maxGameDepth,
@@ -350,8 +345,7 @@ contract SuperFaultDisputeGame_Constructor_Test is SuperFaultDisputeGame_TestIni
                             weth: IDelayedWETH(payable(address(0))),
                             anchorStateRegistry: IAnchorStateRegistry(address(0)),
                             l2ChainId: 0
-                        })
-                    )
+                        }))
                 )
             )
         });
@@ -378,8 +372,7 @@ contract SuperFaultDisputeGame_Constructor_Test is SuperFaultDisputeGame_TestIni
             _args: DeployUtils.encodeConstructor(
                 abi.encodeCall(
                     ISuperFaultDisputeGame.__constructor__,
-                    (
-                        ISuperFaultDisputeGame.GameConstructorParams({
+                    (ISuperFaultDisputeGame.GameConstructorParams({
                             gameType: GAME_TYPE,
                             absolutePrestate: absolutePrestate,
                             maxGameDepth: 2 ** 3,
@@ -390,8 +383,7 @@ contract SuperFaultDisputeGame_Constructor_Test is SuperFaultDisputeGame_TestIni
                             weth: IDelayedWETH(payable(address(0))),
                             anchorStateRegistry: IAnchorStateRegistry(address(0)),
                             l2ChainId: 0
-                        })
-                    )
+                        }))
                 )
             )
         });
@@ -426,8 +418,7 @@ contract SuperFaultDisputeGame_Constructor_Test is SuperFaultDisputeGame_TestIni
             _args: DeployUtils.encodeConstructor(
                 abi.encodeCall(
                     ISuperFaultDisputeGame.__constructor__,
-                    (
-                        ISuperFaultDisputeGame.GameConstructorParams({
+                    (ISuperFaultDisputeGame.GameConstructorParams({
                             gameType: GAME_TYPE,
                             absolutePrestate: absolutePrestate,
                             maxGameDepth: 16,
@@ -438,8 +429,7 @@ contract SuperFaultDisputeGame_Constructor_Test is SuperFaultDisputeGame_TestIni
                             weth: IDelayedWETH(payable(address(0))),
                             anchorStateRegistry: IAnchorStateRegistry(address(0)),
                             l2ChainId: 0
-                        })
-                    )
+                        }))
                 )
             )
         });
@@ -464,8 +454,7 @@ contract SuperFaultDisputeGame_Constructor_Test is SuperFaultDisputeGame_TestIni
             _args: DeployUtils.encodeConstructor(
                 abi.encodeCall(
                     ISuperFaultDisputeGame.__constructor__,
-                    (
-                        ISuperFaultDisputeGame.GameConstructorParams({
+                    (ISuperFaultDisputeGame.GameConstructorParams({
                             gameType: GameType.wrap(type(uint32).max),
                             absolutePrestate: absolutePrestate,
                             maxGameDepth: 16,
@@ -476,8 +465,7 @@ contract SuperFaultDisputeGame_Constructor_Test is SuperFaultDisputeGame_TestIni
                             weth: IDelayedWETH(payable(address(0))),
                             anchorStateRegistry: IAnchorStateRegistry(address(0)),
                             l2ChainId: 0
-                        })
-                    )
+                        }))
                 )
             )
         });
@@ -507,13 +495,11 @@ contract SuperFaultDisputeGame_Initialize_Test is SuperFaultDisputeGame_TestInit
 
         assertEq(address(gameProxy).balance, 0);
         gameProxy = ISuperFaultDisputeGame(
-            payable(
-                address(
+            payable(address(
                     disputeGameFactory.create{ value: _value }(
                         GAME_TYPE, arbitaryRootClaim, abi.encode(validl2SequenceNumber)
                     )
-                )
-            )
+                ))
         );
         assertEq(address(gameProxy).balance, 0);
         assertEq(delayedWeth.balanceOf(address(gameProxy)), _value);

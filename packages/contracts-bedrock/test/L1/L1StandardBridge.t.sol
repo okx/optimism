@@ -15,6 +15,7 @@ import { Predeploys } from "src/libraries/Predeploys.sol";
 import { AddressAliasHelper } from "src/vendor/AddressAliasHelper.sol";
 import { EIP1967Helper } from "test/mocks/EIP1967Helper.sol";
 import { Features } from "src/libraries/Features.sol";
+import { DevFeatures } from "src/libraries/DevFeatures.sol";
 
 // Interfaces
 import { ICrossDomainMessenger } from "interfaces/universal/ICrossDomainMessenger.sol";
@@ -271,10 +272,7 @@ contract L1StandardBridge_Paused_Test is CommonTest {
         vm.prank(address(l1StandardBridge.messenger()));
         vm.expectRevert("StandardBridge: paused");
         l1StandardBridge.finalizeBridgeETH{ value: 100 }({
-            _from: address(2),
-            _to: address(3),
-            _amount: 100,
-            _extraData: hex""
+            _from: address(2), _to: address(3), _amount: 100, _extraData: hex""
         });
     }
 
@@ -286,10 +284,7 @@ contract L1StandardBridge_Paused_Test is CommonTest {
         vm.prank(address(l1StandardBridge.messenger()));
         vm.expectRevert("StandardBridge: paused");
         l1StandardBridge.finalizeETHWithdrawal{ value: 100 }({
-            _from: address(2),
-            _to: address(3),
-            _amount: 100,
-            _extraData: hex""
+            _from: address(2), _to: address(3), _amount: 100, _extraData: hex""
         });
     }
 
@@ -332,6 +327,7 @@ contract L1StandardBridge_Paused_Test is CommonTest {
 contract L1StandardBridge_Receive_Test is CommonTest {
     /// @notice Tests receive bridges ETH successfully.
     function test_receive_succeeds() external {
+        skipIfDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN);
         uint256 portalBalanceBefore = address(optimismPortal2).balance;
         uint256 ethLockboxBalanceBefore = address(ethLockbox).balance;
 
@@ -371,8 +367,9 @@ contract L1StandardBridge_Receive_Test is CommonTest {
         vm.etch(alice, hex"ffff");
         vm.deal(alice, 100);
         vm.prank(alice);
-        vm.expectRevert("StandardBridge: function can only be called from an EOA");
-        l1StandardBridge.depositETH{ value: 100 }(50000, hex"");
+        vm.expectRevert(bytes("StandardBridge: function can only be called from an EOA"));
+        (bool revertsAsExpected,) = address(l1StandardBridge).call{ value: 100 }(hex"");
+        assertTrue(revertsAsExpected, "expectRevert: call did not revert");
     }
 }
 
@@ -385,6 +382,7 @@ contract L1StandardBridge_DepositETH_Test is L1StandardBridge_TestInit {
     ///         Only EOA can call depositETH.
     ///         ETH ends up in the optimismPortal.
     function test_depositETH_fromEOA_succeeds() external {
+        skipIfDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN);
         _preBridgeETH({ isLegacy: true, value: 500 });
         uint256 portalBalanceBefore = address(optimismPortal2).balance;
         uint256 ethLockboxBalanceBefore = address(ethLockbox).balance;
@@ -400,6 +398,7 @@ contract L1StandardBridge_DepositETH_Test is L1StandardBridge_TestInit {
 
     /// @notice Tests that depositing ETH succeeds for an EOA using 7702 delegation.
     function test_depositETH_fromEOA7702_succeeds() external {
+        skipIfDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN);
         // Set alice to have 7702 code.
         vm.etch(alice, abi.encodePacked(hex"EF0100", address(0)));
 
@@ -434,6 +433,7 @@ contract L1StandardBridge_DepositETHTo_Test is L1StandardBridge_TestInit {
     ///         EOA or contract can call depositETHTo.
     ///         ETH ends up in the optimismPortal.
     function test_depositETHTo_succeeds() external {
+        skipIfDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN);
         _preBridgeETHTo({ isLegacy: true, value: 600 });
         uint256 portalBalanceBefore = address(optimismPortal2).balance;
         uint256 ethLockboxBalanceBefore = address(ethLockbox).balance;
@@ -451,6 +451,7 @@ contract L1StandardBridge_DepositETHTo_Test is L1StandardBridge_TestInit {
     /// @param _to Random recipient address
     /// @param _amount Random ETH amount to deposit
     function testFuzz_depositETHTo_randomRecipient_succeeds(address _to, uint256 _amount) external {
+        skipIfDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN);
         vm.assume(_to != address(0));
         _amount = bound(_amount, 1, 10 ether);
 
@@ -702,9 +703,8 @@ contract L1StandardBridge_FinalizeERC20Withdrawal_Test is CommonTest {
     function test_finalizeERC20Withdrawal_succeeds() external {
         deal(address(L1Token), address(l1StandardBridge), 100, true);
 
-        uint256 slot = stdstore.target(address(l1StandardBridge)).sig("deposits(address,address)").with_key(
-            address(L1Token)
-        ).with_key(address(L2Token)).find();
+        uint256 slot = stdstore.target(address(l1StandardBridge)).sig("deposits(address,address)")
+            .with_key(address(L1Token)).with_key(address(L2Token)).find();
 
         // Give the L1 bridge some ERC20 tokens
         vm.store(address(l1StandardBridge), bytes32(slot), bytes32(uint256(100)));
@@ -779,6 +779,7 @@ contract L1StandardBridge_Uncategorized_Test is L1StandardBridge_TestInit {
     ///         Only EOA can call bridgeETH.
     ///         ETH ends up in the optimismPortal.
     function test_bridgeETH_succeeds() external {
+        skipIfDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN);
         _preBridgeETH({ isLegacy: false, value: 500 });
         uint256 portalBalanceBefore = address(optimismPortal2).balance;
         uint256 ethLockboxBalanceBefore = address(ethLockbox).balance;
@@ -798,6 +799,7 @@ contract L1StandardBridge_Uncategorized_Test is L1StandardBridge_TestInit {
     ///         Only EOA can call bridgeETHTo.
     ///         ETH ends up in the optimismPortal.
     function test_bridgeETHTo_succeeds() external {
+        skipIfDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN);
         _preBridgeETHTo({ isLegacy: false, value: 600 });
         uint256 portalBalanceBefore = address(optimismPortal2).balance;
         uint256 ethLockboxBalanceBefore = address(ethLockbox).balance;

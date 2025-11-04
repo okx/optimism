@@ -14,6 +14,7 @@ import { OptimismMintableERC20 } from "src/universal/OptimismMintableERC20.sol";
 import { Predeploys } from "src/libraries/Predeploys.sol";
 import { Hashing } from "src/libraries/Hashing.sol";
 import { Types } from "src/libraries/Types.sol";
+import { DevFeatures } from "src/libraries/DevFeatures.sol";
 
 // Interfaces
 import { ICrossDomainMessenger } from "interfaces/universal/ICrossDomainMessenger.sol";
@@ -231,6 +232,7 @@ contract L2StandardBridge_Initialize_Test is L2StandardBridge_TestInit {
 contract L2StandardBridge_Receive_Test is L2StandardBridge_TestInit {
     /// @notice Tests that the bridge receives ETH and successfully initiates a withdrawal.
     function test_receive_succeeds() external {
+        skipIfDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN);
         assertEq(address(l2ToL1MessagePasser).balance, 0);
         uint256 nonce = l2CrossDomainMessenger.messageNonce();
 
@@ -323,17 +325,13 @@ contract L2StandardBridge_Withdraw_Test is L2StandardBridge_TestInit {
     /// @notice Tests that the legacy `withdraw` interface on the L2StandardBridge sucessfully
     ///         initiates a withdrawal.
     function test_withdraw_ether_succeeds() external {
+        skipIfDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN);
         assertTrue(alice.balance >= 100);
         assertEq(Predeploys.L2_TO_L1_MESSAGE_PASSER.balance, 0);
 
         vm.expectEmit(address(l2StandardBridge));
         emit WithdrawalInitiated({
-            l1Token: address(0),
-            l2Token: Predeploys.LEGACY_ERC20_ETH,
-            from: alice,
-            to: alice,
-            amount: 100,
-            data: hex""
+            l1Token: address(0), l2Token: Predeploys.LEGACY_ERC20_ETH, from: alice, to: alice, amount: 100, data: hex""
         });
 
         vm.expectEmit(address(l2StandardBridge));
@@ -341,10 +339,7 @@ contract L2StandardBridge_Withdraw_Test is L2StandardBridge_TestInit {
 
         vm.prank(alice, alice);
         l2StandardBridge.withdraw{ value: 100 }({
-            _l2Token: Predeploys.LEGACY_ERC20_ETH,
-            _amount: 100,
-            _minGasLimit: 1000,
-            _extraData: hex""
+            _l2Token: Predeploys.LEGACY_ERC20_ETH, _amount: 100, _minGasLimit: 1000, _extraData: hex""
         });
 
         assertEq(Predeploys.L2_TO_L1_MESSAGE_PASSER.balance, 100);
@@ -464,7 +459,14 @@ contract L2StandardBridge_Uncategorized_Test is L2StandardBridge_TestInit {
     }
 
     /// @notice Tests that bridging ETH succeeds.
-    function testFuzz_bridgeETH_succeeds(uint256 _value, uint32 _minGasLimit, bytes calldata _extraData) external {
+    function testFuzz_bridgeETH_succeeds(
+        uint256 _value,
+        uint32 _minGasLimit,
+        bytes calldata _extraData
+    )
+        external
+    {
+        skipIfDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN);
         uint256 nonce = l2CrossDomainMessenger.messageNonce();
 
         bytes memory message = abi.encodeCall(IStandardBridge.finalizeBridgeETH, (alice, alice, _value, _extraData));
@@ -497,7 +499,14 @@ contract L2StandardBridge_Uncategorized_Test is L2StandardBridge_TestInit {
     }
 
     /// @notice Tests that bridging ETH to a different address succeeds.
-    function testFuzz_bridgeETHTo_succeeds(uint256 _value, uint32 _minGasLimit, bytes calldata _extraData) external {
+    function testFuzz_bridgeETHTo_succeeds(
+        uint256 _value,
+        uint32 _minGasLimit,
+        bytes calldata _extraData
+    )
+        external
+    {
+        skipIfDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN);
         uint256 nonce = l2CrossDomainMessenger.messageNonce();
 
         vm.expectCall(

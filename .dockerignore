@@ -1,13 +1,44 @@
-.github
-.vscode
+# All the files we depend on. We are using a negative pattern to not include anything by accident.
+# node_modules, packages (contains git submodules and node modules etc.), devnet dirs etc. all add up a lot.
+*
 
+# Include contracts
+!/packages/contracts-bedrock
+# Exclude generated files and node modules from contracts
+/packages/contracts-bedrock/forge-artifacts
+/packages/contracts-bedrock/artifacts
+/packages/contracts-bedrock/cache
+/packages/contracts-bedrock/broadcast
+
+!/cannon
+!/devnet-sdk
+!/op-batcher
+!/op-chain-ops
+!/op-deployer
+!/op-dripper
+!/op-challenger
+!/op-dispute-mon
+!/op-conductor
+!/op-node
+!/op-preimage
+!/op-program
+!/op-proposer
+!/op-service
+!/op-supervisor
+!/op-test-sequencer
+!/op-wheel
+!/op-alt-da
+!/op-faucet
+!/op-interop-mon
+!/go.mod
+!/go.sum
+!/justfiles
+!/mise.toml
+!/op-e2e/e2eutils
+!/op-geth
+!Makefile
+
+**/bin
+**/testdata
+**/tests
 .env
-.envrc
-**/.env
-
-test
-**/*_test.go
-build/_workspace
-build/bin
-build/_bin
-tests/testdata

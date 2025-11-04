@@ -300,7 +300,9 @@ contract DeployDisputeGame is Script {
                 DeployUtils.createDeterministic({
                     _name: "PermissionedDisputeGame",
                     _args: DeployUtils.encodeConstructor(
-                        abi.encodeCall(IPermissionedDisputeGame.__constructor__, (args, _dgi.proposer(), _dgi.challenger()))
+                        abi.encodeCall(
+                            IPermissionedDisputeGame.__constructor__, (args, _dgi.proposer(), _dgi.challenger())
+                        )
                     ),
                     _salt: DeployUtils.DEFAULT_SALT
                 })

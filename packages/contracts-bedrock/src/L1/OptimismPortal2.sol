@@ -17,6 +17,7 @@ import { SecureMerkleTrie } from "src/libraries/trie/SecureMerkleTrie.sol";
 import { AddressAliasHelper } from "src/vendor/AddressAliasHelper.sol";
 import { GameStatus, GameType } from "src/dispute/lib/Types.sol";
 import { Features } from "src/libraries/Features.sol";
+import { GasPayingToken } from "src/libraries/GasPayingToken.sol";
 
 // Interfaces
 import { ISemver } from "interfaces/universal/ISemver.sol";
@@ -27,6 +28,8 @@ import { IDisputeGame } from "interfaces/dispute/IDisputeGame.sol";
 import { IAnchorStateRegistry } from "interfaces/dispute/IAnchorStateRegistry.sol";
 import { IETHLockbox } from "interfaces/L1/IETHLockbox.sol";
 import { ISuperchainConfig } from "interfaces/L1/ISuperchainConfig.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @custom:proxied true
 /// @title OptimismPortal2
@@ -34,6 +37,8 @@ import { ISuperchainConfig } from "interfaces/L1/ISuperchainConfig.sol";
 ///         and L2. Messages sent directly to the OptimismPortal have no form of replayability.
 ///         Users are encouraged to use the L1CrossDomainMessenger for a higher-level interface.
 contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase, ProxyAdminOwnedBase, ISemver {
+    using SafeERC20 for IERC20;
+
     /// @notice Represents a proven withdrawal.
     /// @custom:field disputeGameProxy Game that the withdrawal was proven against.
     /// @custom:field timestamp        Timestamp at which the withdrawal was proven.
@@ -168,6 +173,9 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
     /// @notice Thrown when the portal is paused.
     error OptimismPortal_CallPaused();
 
+    /// @notice Thrown when a CGT withdrawal is not allowed.
+    error OptimismPortal_NotAllowedOnCGTMode();
+
     /// @notice Thrown when a gas estimation transaction is being executed.
     error OptimismPortal_GasEstimation();
 
@@ -204,10 +212,19 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
     /// @notice Thrown when ETHLockbox is set/unset incorrectly depending on the feature flag.
     error OptimismPortal_InvalidLockboxState();
 
+    /// @notice Thrown when trying to use depositERC20Transaction on a non-CGT chain.
+    error OptimismPortal_OnlyCustomGasToken();
+
+    /// @notice Thrown when trying to use depositERC20Transaction but gas token not set.
+    error OptimismPortal_InvalidGasToken();
+
+    /// @notice Thrown when msg.value less than value.
+    error OptimismPortal_InsufficientDeposit();
+
     /// @notice Semantic version.
-    /// @custom:semver 5.1.1
+    /// @custom:semver 5.2.0
     function version() public pure virtual returns (string memory) {
-        return "5.1.1";
+        return "5.2.0";
     }
 
     /// @param _proofMaturityDelaySeconds The proof maturity delay in seconds.
@@ -342,13 +359,18 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
         // Cannot prove withdrawal transactions while the system is paused.
         _assertNotPaused();
 
-        // Fetch the dispute game proxy from the `DisputeGameFactory` contract.
-        (,, IDisputeGame disputeGameProxy) = disputeGameFactory().gameAtIndex(_disputeGameIndex);
-
         // Make sure that the target address is safe.
         if (_isUnsafeTarget(_tx.target)) {
             revert OptimismPortal_BadTarget();
         }
+
+        // Cannot prove withdrawal with value when custom gas token mode is enabled.
+        if (_isUsingCustomGasToken()) {
+            if (_tx.value > 0) revert OptimismPortal_NotAllowedOnCGTMode();
+        }
+
+        // Fetch the dispute game proxy from the `DisputeGameFactory` contract.
+        (,, IDisputeGame disputeGameProxy) = disputeGameFactory().gameAtIndex(_disputeGameIndex);
 
         // Game must be a Proper Game.
         if (!anchorStateRegistry.isGameProper(disputeGameProxy)) {
@@ -397,11 +419,11 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
         // be relayed on L1.
         if (
             SecureMerkleTrie.verifyInclusionProof({
-                _key: abi.encode(storageKey),
-                _value: hex"01",
-                _proof: _withdrawalProof,
-                _root: _outputRootProof.messagePasserStorageRoot
-            }) == false
+                    _key: abi.encode(storageKey),
+                    _value: hex"01",
+                    _proof: _withdrawalProof,
+                    _root: _outputRootProof.messagePasserStorageRoot
+                }) == false
         ) {
             revert OptimismPortal_InvalidMerkleProof();
         }
@@ -437,6 +459,11 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
     {
         // Cannot finalize withdrawal transactions while the system is paused.
         _assertNotPaused();
+
+        // Cannot finalize withdrawal with value when custom gas token mode is enabled.
+        if (_isUsingCustomGasToken()) {
+            if (_tx.value > 0) revert OptimismPortal_NotAllowedOnCGTMode();
+        }
 
         // Make sure that the l2Sender has not yet been set. The l2Sender is set to a value other
         // than the default value when a withdrawal transaction is being finalized. This check is
@@ -538,6 +565,81 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
         }
     }
 
+    /// @notice Accepts deposits of ERC20 (custom gas token) and data, and emits a TransactionDeposited
+    ///         event for use in deriving deposit transactions. This function is specifically for depositing
+    ///         the custom gas token on CGT-enabled chains. Users must approve this contract to spend their
+    ///         tokens before calling this function.
+    /// @param _to         Target address on L2.
+    /// @param _mint       Amount of custom gas token to mint on L2 (transferred from msg.sender).
+    /// @param _value      Amount of custom gas token to send to the recipient on L2.
+    /// @param _gasLimit   Amount of L2 gas to purchase by burning gas on L1.
+    /// @param _isCreation Whether or not the transaction is a contract creation.
+    /// @param _data       Data to trigger the recipient with.
+    function depositERC20Transaction(
+        address _to,
+        uint256 _mint,
+        uint256 _value,
+        uint64 _gasLimit,
+        bool _isCreation,
+        bytes memory _data
+    )
+        public
+        metered(_gasLimit)
+    {
+        // Only allow ERC20 deposits if custom gas token mode is enabled
+        if (!_isUsingCustomGasToken()) {
+            revert OptimismPortal_OnlyCustomGasToken();
+        }
+        if (_mint != _value) {
+            revert OptimismPortal_InsufficientDeposit();
+        }
+
+        // Transfer the custom gas token from the caller to this contract
+        (address token,) = systemConfig.gasPayingToken();
+        if (token == Constants.ETHER) {
+            revert OptimismPortal_InvalidGasToken();
+        }
+
+        if (_mint > 0) {
+            IERC20(token).safeTransferFrom(msg.sender, address(this), _mint);
+        }
+
+        // Just to be safe, make sure that people specify address(0) as the target when doing
+        // contract creations.
+        if (_isCreation && _to != address(0)) {
+            revert OptimismPortal_BadTarget();
+        }
+
+        // Prevent depositing transactions that have too small of a gas limit. Users should pay
+        // more for more resource usage.
+        if (_gasLimit < minimumGasLimit(uint64(_data.length))) {
+            revert OptimismPortal_GasLimitTooLow();
+        }
+
+        // Prevent the creation of deposit transactions that have too much calldata. This gives an
+        // upper limit on the size of unsafe blocks over the p2p network. 120kb is chosen to ensure
+        // that the transaction can fit into the p2p network policy of 128kb even though deposit
+        // transactions are not gossipped over the p2p network.
+        if (_data.length > 120_000) {
+            revert OptimismPortal_CalldataTooLarge();
+        }
+
+        // Transform the from-address to its alias if the caller is a contract.
+        address from = msg.sender;
+        if (!EOA.isSenderEOA()) {
+            from = AddressAliasHelper.applyL1ToL2Alias(msg.sender);
+        }
+
+        // Compute the opaque data that will be emitted as part of the TransactionDeposited event.
+        // We use opaque data so that we can update the TransactionDeposited event in the future
+        // without breaking the current interface.
+        bytes memory opaqueData = abi.encodePacked(_mint, _value, _gasLimit, _isCreation, _data);
+
+        // Emit a TransactionDeposited event so that the rollup node can derive a deposit
+        // transaction for this deposit.
+        emit TransactionDeposited(from, _to, DEPOSIT_VERSION, opaqueData);
+    }
+
     /// @notice Accepts deposits of ETH and data, and emits a TransactionDeposited event for use in
     ///         deriving deposit transactions. Note that if a deposit is made by a contract, its
     ///         address will be aliased when retrieved using `tx.origin` or `msg.sender`. Consider
@@ -560,6 +662,13 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
         payable
         metered(_gasLimit)
     {
+        if (_isUsingCustomGasToken()) {
+            if (msg.value > 0) revert OptimismPortal_NotAllowedOnCGTMode();
+        }
+        if (msg.value != _value) {
+            revert OptimismPortal_InsufficientDeposit();
+        }
+
         // If using ETHLockbox, lock the ETH in the ETHLockbox.
         if (_isUsingLockbox()) {
             if (msg.value > 0) ethLockbox.lockETH{ value: msg.value }();
@@ -612,6 +721,14 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
     /// @return bool True if the ETHLockbox feature is enabled.
     function _isUsingLockbox() internal view returns (bool) {
         return systemConfig.isFeatureEnabled(Features.ETH_LOCKBOX) && address(ethLockbox) != address(0);
+    }
+
+    /// @notice Checks if the Custom Gas Token feature is enabled.
+    /// @return bool True if the Custom Gas Token feature is enabled.
+    function _isUsingCustomGasToken() internal view returns (bool) {
+        // NOTE: Chains are not supposed to enable Custom Gas Token (CGT) mode after initial deployment.
+        //       Enabling CGT post-deployment is strongly discouraged and may lead to unexpected behavior.
+        return systemConfig.isFeatureEnabled(Features.CUSTOM_GAS_TOKEN);
     }
 
     /// @notice Asserts that the contract is not paused.

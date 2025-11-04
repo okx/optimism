@@ -392,8 +392,9 @@ contract OPContractsManagerStandardValidator is ISemver {
         _errors = internalRequire(
             LibString.eq(getVersion(address(_bridge)), getVersion(l1ERC721BridgeImpl)), "L721B-10", _errors
         );
-        _errors =
-            internalRequire(getProxyImplementation(_admin, address(_bridge)) == l1ERC721BridgeImpl, "L721B-20", _errors);
+        _errors = internalRequire(
+            getProxyImplementation(_admin, address(_bridge)) == l1ERC721BridgeImpl, "L721B-20", _errors
+        );
 
         IL1CrossDomainMessenger _l1XDM = IL1CrossDomainMessenger(_sysCfg.l1CrossDomainMessenger());
         _errors = internalRequire(address(_bridge.OTHER_BRIDGE()) == Predeploys.L2_ERC721_BRIDGE, "L721B-30", _errors);
@@ -630,8 +631,9 @@ contract OPContractsManagerStandardValidator is ISemver {
         );
         _errors = internalRequire(_game.l2ChainId == _l2ChainID, string.concat(_errorPrefix, "-60"), _errors);
         _errors = internalRequire(_game.l2SequenceNumber == 0, string.concat(_errorPrefix, "-70"), _errors);
-        _errors =
-            internalRequire(Duration.unwrap(_game.clockExtension) == 10800, string.concat(_errorPrefix, "-80"), _errors);
+        _errors = internalRequire(
+            Duration.unwrap(_game.clockExtension) == 10800, string.concat(_errorPrefix, "-80"), _errors
+        );
         _errors = internalRequire(_game.splitDepth == 30, string.concat(_errorPrefix, "-90"), _errors);
         _errors = internalRequire(_game.maxGameDepth == 73, string.concat(_errorPrefix, "-100"), _errors);
         _errors = internalRequire(

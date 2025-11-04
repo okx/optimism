@@ -7,6 +7,20 @@ import { CommonTest } from "test/setup/CommonTest.sol";
 // Libraries
 import { Types } from "src/libraries/Types.sol";
 import { Hashing } from "src/libraries/Hashing.sol";
+import { DevFeatures } from "src/libraries/DevFeatures.sol";
+
+// Interfaces
+import { IL2ToL1MessagePasserCGT } from "interfaces/L2/IL2ToL1MessagePasserCGT.sol";
+
+/// @title L2ToL1MessagePasser_Version_Test
+/// @notice Tests the `version` function of the `L2ToL1MessagePasser` contract.
+contract L2ToL1MessagePasser_Version_Test is CommonTest {
+    /// @notice Tests that the `version` function returns the correct string. We avoid testing the
+    ///         specific value of the string as it changes frequently.
+    function test_version_succeeds() external view {
+        assert(bytes(l2ToL1MessagePasser.version()).length > 0);
+    }
+}
 
 /// @title L2ToL1MessagePasser_InitiateWithdrawal_Test
 /// @notice Tests the `initiateWithdrawal` function of the `L2ToL1MessagePasser` contract.
@@ -22,16 +36,14 @@ contract L2ToL1MessagePasser_InitiateWithdrawal_Test is CommonTest {
     )
         external
     {
+        if (isDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN)) {
+            _value = 0;
+        }
         uint256 nonce = l2ToL1MessagePasser.messageNonce();
 
         bytes32 withdrawalHash = Hashing.hashWithdrawal(
             Types.WithdrawalTransaction({
-                nonce: nonce,
-                sender: _sender,
-                target: _target,
-                value: _value,
-                gasLimit: _gasLimit,
-                data: _data
+                nonce: nonce, sender: _sender, target: _target, value: _value, gasLimit: _gasLimit, data: _data
             })
         );
 
@@ -59,6 +71,7 @@ contract L2ToL1MessagePasser_InitiateWithdrawal_Test is CommonTest {
     )
         external
     {
+        skipIfDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN);
         bytes32 withdrawalHash = Hashing.hashWithdrawal(
             Types.WithdrawalTransaction({
                 nonce: l2ToL1MessagePasser.messageNonce(),
@@ -89,6 +102,7 @@ contract L2ToL1MessagePasser_InitiateWithdrawal_Test is CommonTest {
     )
         external
     {
+        skipIfDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN);
         uint256 nonce = l2ToL1MessagePasser.messageNonce();
 
         // EOA emulation
@@ -100,12 +114,33 @@ contract L2ToL1MessagePasser_InitiateWithdrawal_Test is CommonTest {
         vm.expectEmit(address(l2ToL1MessagePasser));
         emit MessagePassed(nonce, alice, _target, _value, _gasLimit, _data, withdrawalHash);
 
-        l2ToL1MessagePasser.initiateWithdrawal{ value: _value }({ _target: _target, _gasLimit: _gasLimit, _data: _data });
+        l2ToL1MessagePasser.initiateWithdrawal{ value: _value }({
+            _target: _target, _gasLimit: _gasLimit, _data: _data
+        });
 
         // the sent messages mapping is filled
         assertEq(l2ToL1MessagePasser.sentMessages(withdrawalHash), true);
         // the nonce increments
         assertEq(nonce + 1, l2ToL1MessagePasser.messageNonce());
+    }
+
+    /// @notice Tests that `initiateWithdrawal` fails when called with value and custom gas token
+    ///         is enabled.
+    function testFuzz_initiateWithdrawal_withValueAndCustomGasToken_fails(
+        address _randomAddress,
+        uint256 _value
+    )
+        external
+    {
+        skipIfDevFeatureDisabled(DevFeatures.CUSTOM_GAS_TOKEN);
+        // Set initial state
+        _value = bound(_value, 1, type(uint256).max);
+        vm.deal(_randomAddress, _value);
+
+        // Expect revert with NotAllowedOnCGTMode
+        vm.prank(_randomAddress);
+        vm.expectRevert(IL2ToL1MessagePasserCGT.L2ToL1MessagePasserCGT_NotAllowedOnCGTMode.selector);
+        l2ToL1MessagePasser.initiateWithdrawal{ value: _value }({ _target: address(0), _gasLimit: 1, _data: "" });
     }
 }
 
@@ -113,10 +148,20 @@ contract L2ToL1MessagePasser_InitiateWithdrawal_Test is CommonTest {
 /// @notice Tests the `burn` function of the `L2ToL1MessagePasser` contract.
 contract L2ToL1MessagePasser_Burn_Test is CommonTest {
     /// @notice Tests that `burn` succeeds and destroys the ETH held in the contract.
-    function testFuzz_burn_succeeds(uint256 _value, address _target, uint256 _gasLimit, bytes memory _data) external {
+    function testFuzz_burn_succeeds(
+        uint256 _value,
+        address _target,
+        uint256 _gasLimit,
+        bytes memory _data
+    )
+        external
+    {
+        skipIfDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN);
         vm.deal(address(this), _value);
 
-        l2ToL1MessagePasser.initiateWithdrawal{ value: _value }({ _target: _target, _gasLimit: _gasLimit, _data: _data });
+        l2ToL1MessagePasser.initiateWithdrawal{ value: _value }({
+            _target: _target, _gasLimit: _gasLimit, _data: _data
+        });
 
         assertEq(address(l2ToL1MessagePasser).balance, _value);
         emit WithdrawerBalanceBurnt(_value);

@@ -70,10 +70,11 @@ contract OPContractsManagerContractsContainer {
         implementation = _implementations;
         devFeatureBitmap = _devFeatureBitmap;
 
+        // Allow CGT feature to be enabled on Mainnet.
         // Development features MUST NOT be enabled on Mainnet.
-        if (block.chainid == 1 && !_isTestingEnvironment() && uint256(_devFeatureBitmap) != 0) {
-            revert OPContractsManagerContractsContainer_DevFeatureInProd();
-        }
+        // if (block.chainid == 1 && !_isTestingEnvironment() && uint256(_devFeatureBitmap) != 0) {
+        // revert OPContractsManagerContractsContainer_DevFeatureInProd();
+        // }
     }
 
     function blueprints() public view returns (OPContractsManager.Blueprints memory) {
@@ -484,7 +485,13 @@ abstract contract OPContractsManagerBase {
     /// @param _dgf The dispute game factory
     /// @param _gameType The game type
     /// @param _newGame The new game implementation
-    function setDGFImplementation(IDisputeGameFactory _dgf, GameType _gameType, IDisputeGame _newGame) internal {
+    function setDGFImplementation(
+        IDisputeGameFactory _dgf,
+        GameType _gameType,
+        IDisputeGame _newGame
+    )
+        internal
+    {
         _dgf.setImplementation(_gameType, _newGame);
     }
 
@@ -526,7 +533,9 @@ contract OPContractsManagerGameTypeAdder is OPContractsManagerBase {
 
     /// @notice Constructor to initialize the immutable thisOPCM variable and contract addresses
     /// @param _contractsContainer The blueprint contract addresses and implementation contract addresses
-    constructor(OPContractsManagerContractsContainer _contractsContainer) OPContractsManagerBase(_contractsContainer) { }
+    constructor(OPContractsManagerContractsContainer _contractsContainer)
+        OPContractsManagerBase(_contractsContainer)
+    { }
 
     /// @notice Deploys a new dispute game and installs it into the DisputeGameFactory. Inputted
     ///         game configs must be added in ascending GameType order.
@@ -569,14 +578,12 @@ contract OPContractsManagerGameTypeAdder is OPContractsManagerBase {
                 // Deploy the DelayedWETH proxy. We use the chain ID and the game type in the
                 // contract name to ensure that the contract is unique across chains.
                 outputs[i].delayedWETH = IDelayedWETH(
-                    payable(
-                        deployProxy(
+                    payable(deployProxy(
                             l2ChainId,
                             gameConfig.proxyAdmin,
                             gameConfig.saltMixer,
                             string.concat("DelayedWETH-", Strings.toString(uint256(gameTypeInt)))
-                        )
-                    )
+                        ))
                 );
 
                 // Initialize the proxy.
@@ -606,10 +613,8 @@ contract OPContractsManagerGameTypeAdder is OPContractsManagerBase {
             ) {
                 if (
                     gameConfig.disputeGameType.raw() == GameTypes.CANNON.raw()
-                        || (
-                            isDevFeatureEnabled(DevFeatures.CANNON_KONA)
-                                && gameConfig.disputeGameType.raw() == GameTypes.CANNON_KONA.raw()
-                        )
+                        || (isDevFeatureEnabled(DevFeatures.CANNON_KONA)
+                            && gameConfig.disputeGameType.raw() == GameTypes.CANNON_KONA.raw())
                 ) {
                     address impl = implementations().faultDisputeGameV2Impl;
                     bytes memory gameArgs = abi.encodePacked(
@@ -655,10 +660,8 @@ contract OPContractsManagerGameTypeAdder is OPContractsManagerBase {
                     // Determine the contract name and blueprints for the game type.
                     if (
                         gameConfig.disputeGameType.raw() == GameTypes.CANNON.raw()
-                            || (
-                                isDevFeatureEnabled(DevFeatures.CANNON_KONA)
-                                    && gameConfig.disputeGameType.raw() == GameTypes.CANNON_KONA.raw()
-                            )
+                            || (isDevFeatureEnabled(DevFeatures.CANNON_KONA)
+                                && gameConfig.disputeGameType.raw() == GameTypes.CANNON_KONA.raw())
                     ) {
                         gameContractName = "FaultDisputeGame";
                         blueprint1 = bps.permissionlessDisputeGame1;
@@ -671,10 +674,8 @@ contract OPContractsManagerGameTypeAdder is OPContractsManagerBase {
                         gameL2ChainId = l2ChainId;
                     } else if (
                         gameConfig.disputeGameType.raw() == GameTypes.SUPER_CANNON.raw()
-                            || (
-                                isDevFeatureEnabled(DevFeatures.CANNON_KONA)
-                                    && gameConfig.disputeGameType.raw() == GameTypes.SUPER_CANNON_KONA.raw()
-                            )
+                            || (isDevFeatureEnabled(DevFeatures.CANNON_KONA)
+                                && gameConfig.disputeGameType.raw() == GameTypes.SUPER_CANNON_KONA.raw())
                     ) {
                         gameContractName = "SuperFaultDisputeGame";
                         blueprint1 = bps.superPermissionlessDisputeGame1;
@@ -813,7 +814,7 @@ contract OPContractsManagerGameTypeAdder is OPContractsManagerBase {
 
                 // Select the prestate to use
                 Claim prestate = gameType.raw() == GameTypes.CANNON_KONA.raw()
-                    || gameType.raw() == GameTypes.SUPER_CANNON_KONA.raw()
+                        || gameType.raw() == GameTypes.SUPER_CANNON_KONA.raw()
                     ? _prestateUpdateInputs[i].cannonKonaPrestate
                     : _prestateUpdateInputs[i].cannonPrestate;
 
@@ -865,7 +866,9 @@ contract OPContractsManagerUpgrader is OPContractsManagerBase {
     error OPContractsManagerUpgrader_SuperchainConfigAlreadyUpToDate();
 
     /// @param _contractsContainer The OPContractsManagerContractsContainer to use.
-    constructor(OPContractsManagerContractsContainer _contractsContainer) OPContractsManagerBase(_contractsContainer) { }
+    constructor(OPContractsManagerContractsContainer _contractsContainer)
+        OPContractsManagerBase(_contractsContainer)
+    { }
 
     /// @notice Upgrades a set of chains to the latest implementation contracts
     /// @param _opChainConfigs Array of OpChain structs, one per chain to upgrade
@@ -1012,7 +1015,9 @@ contract OPContractsManagerUpgrader is OPContractsManagerBase {
                 _l2ChainId: _l2ChainId,
                 _disputeGame: permissionedDisputeGame,
                 _newDelayedWeth: getWETHV1(IFaultDisputeGame(address(permissionedDisputeGame))),
-                _newAnchorStateRegistryProxy: getAnchorStateRegistryV1(IFaultDisputeGame(address(permissionedDisputeGame))),
+                _newAnchorStateRegistryProxy: getAnchorStateRegistryV1(
+                    IFaultDisputeGame(address(permissionedDisputeGame))
+                ),
                 _gameType: GameTypes.PERMISSIONED_CANNON,
                 _opChainConfig: _opChainConfig
             });
@@ -1057,7 +1062,9 @@ contract OPContractsManagerUpgrader is OPContractsManagerBase {
                     _l2ChainId: _l2ChainId,
                     _disputeGame: permissionlessDisputeGame,
                     _newDelayedWeth: getWETH(dgf, permissionlessDisputeGame, GameTypes.CANNON),
-                    _newAnchorStateRegistryProxy: getAnchorStateRegistry(dgf, permissionlessDisputeGame, GameTypes.CANNON),
+                    _newAnchorStateRegistryProxy: getAnchorStateRegistry(
+                        dgf, permissionlessDisputeGame, GameTypes.CANNON
+                    ),
                     _gameType: GameTypes.CANNON,
                     _opChainConfig: _opChainConfig
                 });
@@ -1071,11 +1078,9 @@ contract OPContractsManagerUpgrader is OPContractsManagerBase {
     /// @dev This function will revert if the SuperchainConfig is already at or above the target version.
     function upgradeSuperchainConfig(ISuperchainConfig _superchainConfig) external {
         // Only upgrade the superchainConfig if the current version is less than the target version.
-        if (
-            SemverComp.gte(
+        if (SemverComp.gte(
                 _superchainConfig.version(), ISuperchainConfig(getImplementations().superchainConfigImpl).version()
-            )
-        ) {
+            )) {
             revert OPContractsManagerUpgrader_SuperchainConfigAlreadyUpToDate();
         }
 
@@ -1271,7 +1276,9 @@ contract OPContractsManagerDeployer is OPContractsManagerBase {
     /// @param deployOutput ABI-encoded output of the deployment.
     event Deployed(uint256 indexed l2ChainId, address indexed deployer, bytes deployOutput);
 
-    constructor(OPContractsManagerContractsContainer _contractsContainer) OPContractsManagerBase(_contractsContainer) { }
+    constructor(OPContractsManagerContractsContainer _contractsContainer)
+        OPContractsManagerBase(_contractsContainer)
+    { }
 
     /// @notice Deploys a new OP Stack chain.
     /// @param _input The deploy input parameters for the deployment.
@@ -1320,8 +1327,9 @@ contract OPContractsManagerDeployer is OPContractsManagerBase {
         // -------- Deploy Proxy Contracts --------
 
         // Deploy ERC-1967 proxied contracts.
-        output.l1ERC721BridgeProxy =
-            IL1ERC721Bridge(deployProxy(_input.l2ChainId, output.opChainProxyAdmin, _input.saltMixer, "L1ERC721Bridge"));
+        output.l1ERC721BridgeProxy = IL1ERC721Bridge(
+            deployProxy(_input.l2ChainId, output.opChainProxyAdmin, _input.saltMixer, "L1ERC721Bridge")
+        );
         output.optimismPortalProxy = IOptimismPortal(
             payable(deployProxy(_input.l2ChainId, output.opChainProxyAdmin, _input.saltMixer, "OptimismPortal"))
         );
@@ -1341,13 +1349,11 @@ contract OPContractsManagerDeployer is OPContractsManagerBase {
 
         // Deploy legacy proxied contracts.
         output.l1StandardBridgeProxy = IL1StandardBridge(
-            payable(
-                Blueprint.deployFrom(
+            payable(Blueprint.deployFrom(
                     blueprint.l1ChugSplashProxy,
                     computeSalt(_input.l2ChainId, _input.saltMixer, "L1StandardBridge"),
                     abi.encode(output.opChainProxyAdmin)
-                )
-            )
+                ))
         );
         output.opChainProxyAdmin.setProxyType(address(output.l1StandardBridgeProxy), IProxyAdmin.ProxyType.CHUGSPLASH);
         string memory contractName = "OVM_L1CrossDomainMessenger";
@@ -1358,16 +1364,15 @@ contract OPContractsManagerDeployer is OPContractsManagerBase {
                 abi.encode(output.addressManager, contractName)
             )
         );
-        output.opChainProxyAdmin.setProxyType(
-            address(output.l1CrossDomainMessengerProxy), IProxyAdmin.ProxyType.RESOLVED
-        );
+        output.opChainProxyAdmin
+            .setProxyType(address(output.l1CrossDomainMessengerProxy), IProxyAdmin.ProxyType.RESOLVED);
         output.opChainProxyAdmin.setImplementationName(address(output.l1CrossDomainMessengerProxy), contractName);
 
         // Eventually we will switch from DelayedWETHPermissionedGameProxy to DelayedWETHPermissionlessGameProxy.
         output.delayedWETHPermissionedGameProxy = IDelayedWETH(
-            payable(
-                deployProxy(_input.l2ChainId, output.opChainProxyAdmin, _input.saltMixer, "DelayedWETHPermissionedGame")
-            )
+            payable(deployProxy(
+                    _input.l2ChainId, output.opChainProxyAdmin, _input.saltMixer, "DelayedWETHPermissionedGame"
+                ))
         );
 
         if (!isDevFeatureEnabled(DevFeatures.DEPLOY_V2_DISPUTE_GAMES)) {
@@ -1412,6 +1417,12 @@ contract OPContractsManagerDeployer is OPContractsManagerBase {
         upgradeToAndCall(
             output.opChainProxyAdmin, address(output.systemConfigProxy), implementation.systemConfigImpl, data
         );
+
+        // If the custom gas token feature was requested, enable the custom gas token feature in the SystemConfig
+        // contract.
+        if (isDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN)) {
+            output.systemConfigProxy.setFeature(Features.CUSTOM_GAS_TOKEN, true);
+        }
 
         // If the interop feature was requested, enable the ETHLockbox feature in the SystemConfig
         // contract. Only other way to get the ETHLockbox feature as of u16a is to have already had
@@ -1578,8 +1589,9 @@ contract OPContractsManagerDeployer is OPContractsManagerBase {
         virtual
         returns (bytes memory)
     {
-        return
-            abi.encodeCall(IL1ERC721Bridge.initialize, (_output.l1CrossDomainMessengerProxy, _output.systemConfigProxy));
+        return abi.encodeCall(
+            IL1ERC721Bridge.initialize, (_output.l1CrossDomainMessengerProxy, _output.systemConfigProxy)
+        );
     }
 
     /// @notice Helper method for encoding the OptimismPortal initializer data.
@@ -1632,6 +1644,21 @@ contract OPContractsManagerDeployer is OPContractsManagerBase {
         (IResourceMetering.ResourceConfig memory referenceResourceConfig, ISystemConfig.Addresses memory opChainAddrs) =
             defaultSystemConfigParams(_input, _output);
 
+        return systemConfigInitializerData(_input, _superchainConfig, referenceResourceConfig, opChainAddrs);
+    }
+
+    /// @notice Helper method for encoding the call data for the SystemConfig initializer.
+    function systemConfigInitializerData(
+        OPContractsManager.DeployInput memory _input,
+        ISuperchainConfig _superchainConfig,
+        IResourceMetering.ResourceConfig memory _referenceResourceConfig,
+        ISystemConfig.Addresses memory _opChainAddrs
+    )
+        internal
+        view
+        virtual
+        returns (bytes memory)
+    {
         return abi.encodeCall(
             ISystemConfig.initialize,
             (
@@ -1641,9 +1668,9 @@ contract OPContractsManagerDeployer is OPContractsManagerBase {
                 bytes32(uint256(uint160(_input.roles.batcher))), // batcherHash
                 _input.gasLimit,
                 _input.roles.unsafeBlockSigner,
-                referenceResourceConfig,
+                _referenceResourceConfig,
                 chainIdToBatchInboxAddress(_input.l2ChainId),
-                opChainAddrs,
+                _opChainAddrs,
                 _input.l2ChainId,
                 _superchainConfig
             )
@@ -1667,8 +1694,9 @@ contract OPContractsManagerDeployer is OPContractsManagerBase {
         virtual
         returns (bytes memory)
     {
-        return
-            abi.encodeCall(IL1CrossDomainMessenger.initialize, (_output.systemConfigProxy, _output.optimismPortalProxy));
+        return abi.encodeCall(
+            IL1CrossDomainMessenger.initialize, (_output.systemConfigProxy, _output.optimismPortalProxy)
+        );
     }
 
     /// @notice Helper method for encoding the L1StandardBridge initializer data.
@@ -1757,7 +1785,9 @@ contract OPContractsManagerInteropMigrator is OPContractsManagerBase {
     }
 
     /// @param _contractsContainer Container of blueprints and implementations.
-    constructor(OPContractsManagerContractsContainer _contractsContainer) OPContractsManagerBase(_contractsContainer) { }
+    constructor(OPContractsManagerContractsContainer _contractsContainer)
+        OPContractsManagerBase(_contractsContainer)
+    { }
 
     /// @notice Migrates one or more OP Stack chains to use the Super Root dispute games and shared
     ///         dispute game contracts.
@@ -1908,14 +1938,12 @@ contract OPContractsManagerInteropMigrator is OPContractsManagerBase {
         {
             // Deploy a new DelayedWETH proxy for the permissioned game.
             IDelayedWETH newPermissionedDelayedWETHProxy = IDelayedWETH(
-                payable(
-                    deployProxy({
+                payable(deployProxy({
                         _l2ChainId: block.timestamp,
                         _proxyAdmin: _input.opChainConfigs[0].proxyAdmin,
                         _saltMixer: reusableSaltMixer(_input.opChainConfigs[0].systemConfigProxy),
                         _contractName: "DelayedWETH-Interop-Permissioned"
-                    })
-                )
+                    }))
             );
 
             // Initialize the new DelayedWETH proxy.
@@ -1941,21 +1969,21 @@ contract OPContractsManagerInteropMigrator is OPContractsManagerBase {
                         "SuperPermissionedDisputeGame"
                     ),
                     encodePermissionedSuperFDGConstructor(
-                        ISuperFaultDisputeGame.GameConstructorParams({
-                            gameType: GameTypes.SUPER_PERMISSIONED_CANNON,
-                            absolutePrestate: _input.opChainConfigs[0].absolutePrestate,
-                            maxGameDepth: _input.gameParameters.maxGameDepth,
-                            splitDepth: _input.gameParameters.splitDepth,
-                            clockExtension: _input.gameParameters.clockExtension,
-                            maxClockDuration: _input.gameParameters.maxClockDuration,
-                            vm: IBigStepper(getImplementations().mipsImpl),
-                            weth: newPermissionedDelayedWETHProxy,
-                            anchorStateRegistry: newAnchorStateRegistry,
-                            l2ChainId: 0
-                        }),
-                        _input.gameParameters.proposer,
-                        _input.gameParameters.challenger
-                    )
+                            ISuperFaultDisputeGame.GameConstructorParams({
+                                gameType: GameTypes.SUPER_PERMISSIONED_CANNON,
+                                absolutePrestate: _input.opChainConfigs[0].absolutePrestate,
+                                maxGameDepth: _input.gameParameters.maxGameDepth,
+                                splitDepth: _input.gameParameters.splitDepth,
+                                clockExtension: _input.gameParameters.clockExtension,
+                                maxClockDuration: _input.gameParameters.maxClockDuration,
+                                vm: IBigStepper(getImplementations().mipsImpl),
+                                weth: newPermissionedDelayedWETHProxy,
+                                anchorStateRegistry: newAnchorStateRegistry,
+                                l2ChainId: 0
+                            }),
+                            _input.gameParameters.proposer,
+                            _input.gameParameters.challenger
+                        )
                 )
             );
 
@@ -1970,14 +1998,12 @@ contract OPContractsManagerInteropMigrator is OPContractsManagerBase {
         if (_input.usePermissionlessGame) {
             // Deploy a new DelayedWETH proxy for the permissionless game.
             IDelayedWETH newPermissionlessDelayedWETHProxy = IDelayedWETH(
-                payable(
-                    deployProxy({
+                payable(deployProxy({
                         _l2ChainId: block.timestamp,
                         _proxyAdmin: _input.opChainConfigs[0].proxyAdmin,
                         _saltMixer: reusableSaltMixer(_input.opChainConfigs[0].systemConfigProxy),
                         _contractName: "DelayedWETH-Interop-Permissionless"
-                    })
-                )
+                    }))
             );
 
             // Initialize the new DelayedWETH proxy.
@@ -1999,19 +2025,19 @@ contract OPContractsManagerInteropMigrator is OPContractsManagerBase {
                         "SuperFaultDisputeGame"
                     ),
                     encodePermissionlessSuperFDGConstructor(
-                        ISuperFaultDisputeGame.GameConstructorParams({
-                            gameType: GameTypes.SUPER_CANNON,
-                            absolutePrestate: _input.opChainConfigs[0].absolutePrestate,
-                            maxGameDepth: _input.gameParameters.maxGameDepth,
-                            splitDepth: _input.gameParameters.splitDepth,
-                            clockExtension: _input.gameParameters.clockExtension,
-                            maxClockDuration: _input.gameParameters.maxClockDuration,
-                            vm: IBigStepper(getImplementations().mipsImpl),
-                            weth: newPermissionlessDelayedWETHProxy,
-                            anchorStateRegistry: newAnchorStateRegistry,
-                            l2ChainId: 0
-                        })
-                    )
+                            ISuperFaultDisputeGame.GameConstructorParams({
+                                gameType: GameTypes.SUPER_CANNON,
+                                absolutePrestate: _input.opChainConfigs[0].absolutePrestate,
+                                maxGameDepth: _input.gameParameters.maxGameDepth,
+                                splitDepth: _input.gameParameters.splitDepth,
+                                clockExtension: _input.gameParameters.clockExtension,
+                                maxClockDuration: _input.gameParameters.maxClockDuration,
+                                vm: IBigStepper(getImplementations().mipsImpl),
+                                weth: newPermissionlessDelayedWETHProxy,
+                                anchorStateRegistry: newAnchorStateRegistry,
+                                l2ChainId: 0
+                            })
+                        )
                 )
             );
 

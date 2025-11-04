@@ -71,6 +71,13 @@ func CombineDeployConfig(intent *Intent, chainIntent *ChainIntent, state *State,
 				EIP1559Elasticity:        chainIntent.Eip1559Elasticity,
 			},
 
+			GasTokenDeployConfig: genesis.GasTokenDeployConfig{
+				UseCustomGasToken:          chainIntent.CustomGasToken.Enabled,
+				GasPayingTokenName:         chainIntent.CustomGasToken.Name,
+				GasPayingTokenSymbol:       chainIntent.CustomGasToken.Symbol,
+				NativeAssetLiquidityAmount: chainIntent.CustomGasToken.InitialLiquidity,
+			},
+
 			// STOP! This struct sets the _default_ upgrade schedule for all chains.
 			// Any upgrades you enable here will be enabled for all new deployments.
 			// In-development hardforks should never be activated here. Instead, they
@@ -112,15 +119,11 @@ func CombineDeployConfig(intent *Intent, chainIntent *ChainIntent, state *State,
 
 	if chainState.StartBlock == nil {
 		// These are dummy variables - see below for rationale.
-		num := rpc.LatestBlockNumber
-		cfg.L1StartingBlockTag = &genesis.MarshalableRPCBlockNumberOrHash{
-			BlockNumber: &num,
-		}
+		blockNumOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+		cfg.L1StartingBlockTag = (*genesis.MarshalableRPCBlockNumberOrHash)(&blockNumOrHash)
 	} else {
-		startHash := chainState.StartBlock.Hash
-		cfg.L1StartingBlockTag = &genesis.MarshalableRPCBlockNumberOrHash{
-			BlockHash: &startHash,
-		}
+		blockNumOrHash := rpc.BlockNumberOrHashWithHash(chainState.StartBlock.Hash, false)
+		cfg.L1StartingBlockTag = (*genesis.MarshalableRPCBlockNumberOrHash)(&blockNumOrHash)
 	}
 
 	if chainIntent.DangerousAltDAConfig.UseAltDA {
@@ -171,7 +174,9 @@ func CombineDeployConfig(intent *Intent, chainIntent *ChainIntent, state *State,
 }
 
 func calculateBatchInboxAddr(chainID common.Hash) common.Address {
+	versionByte := byte(0x00)
 	var out common.Address
+	out[0] = versionByte
 	copy(out[1:], crypto.Keccak256(chainID[:])[:19])
 	return out
 }

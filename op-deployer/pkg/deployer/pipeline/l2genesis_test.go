@@ -43,17 +43,11 @@ func TestCalculateL2GenesisOverrides(t *testing.T) {
 			},
 			chainIntent: &state.ChainIntent{},
 			expectError: false,
-			expectedOverrides: l2GenesisOverrides{
-				FundDevAccounts:                          true,
-				BaseFeeVaultMinimumWithdrawalAmount:      standard.VaultMinWithdrawalAmount,
-				L1FeeVaultMinimumWithdrawalAmount:        standard.VaultMinWithdrawalAmount,
-				SequencerFeeVaultMinimumWithdrawalAmount: standard.VaultMinWithdrawalAmount,
-				BaseFeeVaultWithdrawalNetwork:            "local",
-				L1FeeVaultWithdrawalNetwork:              "local",
-				SequencerFeeVaultWithdrawalNetwork:       "local",
-				EnableGovernance:                         false,
-				GovernanceTokenOwner:                     standard.GovernanceTokenOwner,
-			},
+			expectedOverrides: func() l2GenesisOverrides {
+				defaults := defaultOverrides()
+				defaults.FundDevAccounts = true
+				return defaults
+			}(),
 			expectedSchedule: func() *genesis.UpgradeScheduleDeployConfig {
 				return standard.DefaultHardforkScheduleForTag("")
 			},
@@ -73,21 +67,28 @@ func TestCalculateL2GenesisOverrides(t *testing.T) {
 					"enableGovernance":                         true,
 					"governanceTokenOwner":                     "0x1111111111111111111111111111111111111111",
 					"l2GenesisInteropTimeOffset":               "0x1234",
+					"useCustomGasToken":                        false,
+					"gasPayingTokenName":                       "",
+					"gasPayingTokenSymbol":                     "",
+					"nativeAssetLiquidityAmount":               "0x0",
 				},
 			},
 			chainIntent: &state.ChainIntent{},
 			expectError: false,
-			expectedOverrides: l2GenesisOverrides{
-				FundDevAccounts:                          true,
-				BaseFeeVaultMinimumWithdrawalAmount:      (*hexutil.Big)(hexutil.MustDecodeBig("0x1234")),
-				L1FeeVaultMinimumWithdrawalAmount:        (*hexutil.Big)(hexutil.MustDecodeBig("0x2345")),
-				SequencerFeeVaultMinimumWithdrawalAmount: (*hexutil.Big)(hexutil.MustDecodeBig("0x3456")),
-				BaseFeeVaultWithdrawalNetwork:            "remote",
-				L1FeeVaultWithdrawalNetwork:              "remote",
-				SequencerFeeVaultWithdrawalNetwork:       "remote",
-				EnableGovernance:                         true,
-				GovernanceTokenOwner:                     common.HexToAddress("0x1111111111111111111111111111111111111111"),
-			},
+			expectedOverrides: func() l2GenesisOverrides {
+				defaults := defaultOverrides()
+				defaults.FundDevAccounts = true
+				defaults.BaseFeeVaultMinimumWithdrawalAmount = (*hexutil.Big)(hexutil.MustDecodeBig("0x1234"))
+				defaults.L1FeeVaultMinimumWithdrawalAmount = (*hexutil.Big)(hexutil.MustDecodeBig("0x2345"))
+				defaults.SequencerFeeVaultMinimumWithdrawalAmount = (*hexutil.Big)(hexutil.MustDecodeBig("0x3456"))
+				defaults.BaseFeeVaultWithdrawalNetwork = "remote"
+				defaults.L1FeeVaultWithdrawalNetwork = "remote"
+				defaults.SequencerFeeVaultWithdrawalNetwork = "remote"
+				defaults.EnableGovernance = true
+				defaults.GovernanceTokenOwner = common.HexToAddress("0x1111111111111111111111111111111111111111")
+				defaults.NativeAssetLiquidityAmount = (*hexutil.Big)(hexutil.MustDecodeBig("0x0"))
+				return defaults
+			}(),
 			expectedSchedule: func() *genesis.UpgradeScheduleDeployConfig {
 				sched := standard.DefaultHardforkScheduleForTag("")
 				sched.L2GenesisInteropTimeOffset = op_service.U64UtilPtr(0x1234)
@@ -114,20 +115,27 @@ func TestCalculateL2GenesisOverrides(t *testing.T) {
 					"enableGovernance":                         true,
 					"governanceTokenOwner":                     "0x1111111111111111111111111111111111111111",
 					"l2GenesisInteropTimeOffset":               "0x1234",
+					"useCustomGasToken":                        false,
+					"gasPayingTokenName":                       "",
+					"gasPayingTokenSymbol":                     "",
+					"nativeAssetLiquidityAmount":               "0x0",
 				},
 			},
 			expectError: false,
-			expectedOverrides: l2GenesisOverrides{
-				FundDevAccounts:                          true,
-				BaseFeeVaultMinimumWithdrawalAmount:      (*hexutil.Big)(hexutil.MustDecodeBig("0x1234")),
-				L1FeeVaultMinimumWithdrawalAmount:        (*hexutil.Big)(hexutil.MustDecodeBig("0x2345")),
-				SequencerFeeVaultMinimumWithdrawalAmount: (*hexutil.Big)(hexutil.MustDecodeBig("0x3456")),
-				BaseFeeVaultWithdrawalNetwork:            "remote",
-				L1FeeVaultWithdrawalNetwork:              "remote",
-				SequencerFeeVaultWithdrawalNetwork:       "remote",
-				EnableGovernance:                         true,
-				GovernanceTokenOwner:                     common.HexToAddress("0x1111111111111111111111111111111111111111"),
-			},
+			expectedOverrides: func() l2GenesisOverrides {
+				defaults := defaultOverrides()
+				defaults.FundDevAccounts = true
+				defaults.BaseFeeVaultMinimumWithdrawalAmount = (*hexutil.Big)(hexutil.MustDecodeBig("0x1234"))
+				defaults.L1FeeVaultMinimumWithdrawalAmount = (*hexutil.Big)(hexutil.MustDecodeBig("0x2345"))
+				defaults.SequencerFeeVaultMinimumWithdrawalAmount = (*hexutil.Big)(hexutil.MustDecodeBig("0x3456"))
+				defaults.BaseFeeVaultWithdrawalNetwork = "remote"
+				defaults.L1FeeVaultWithdrawalNetwork = "remote"
+				defaults.SequencerFeeVaultWithdrawalNetwork = "remote"
+				defaults.EnableGovernance = true
+				defaults.GovernanceTokenOwner = common.HexToAddress("0x1111111111111111111111111111111111111111")
+				defaults.NativeAssetLiquidityAmount = (*hexutil.Big)(hexutil.MustDecodeBig("0x0"))
+				return defaults
+			}(),
 			expectedSchedule: func() *genesis.UpgradeScheduleDeployConfig {
 				sched := standard.DefaultHardforkScheduleForTag("")
 				sched.L2GenesisInteropTimeOffset = op_service.U64UtilPtr(0x1234)
@@ -140,11 +148,17 @@ func TestCalculateL2GenesisOverrides(t *testing.T) {
 				L1ContractsLocator: &artifacts.Locator{},
 				GlobalDeployOverrides: map[string]any{
 					"l2GenesisInteropTimeOffset": "0x0",
+					"nativeAssetLiquidityAmount": "0x0",
 				},
 			},
-			chainIntent:       &state.ChainIntent{},
-			expectError:       false,
-			expectedOverrides: defaultOverrides(),
+			chainIntent: &state.ChainIntent{},
+			expectError: false,
+			expectedOverrides: func() l2GenesisOverrides {
+				defaults := defaultOverrides()
+				// Override with the same value that comes from JSON merge to match internal representation
+				defaults.NativeAssetLiquidityAmount = (*hexutil.Big)(hexutil.MustDecodeBig("0x0"))
+				return defaults
+			}(),
 			expectedSchedule: func() *genesis.UpgradeScheduleDeployConfig {
 				schedule := standard.DefaultHardforkScheduleForTag("")
 				schedule.L2GenesisInteropTimeOffset = op_service.U64UtilPtr(0)
