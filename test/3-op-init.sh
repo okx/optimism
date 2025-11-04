@@ -171,19 +171,16 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
         OP_GETH_DATADIR2="$(pwd)/data/op-geth-seq2"
         rm -rf "$OP_GETH_DATADIR2"
         cp -r $OP_GETH_DATADIR $OP_GETH_DATADIR2
-
-        OP_GETH_DATADIR3="$(pwd)/data/op-geth-seq3"
-        rm -rf "$OP_GETH_DATADIR3"
-        cp -r $OP_GETH_DATADIR $OP_GETH_DATADIR3
     elif [ "$SEQ_TYPE" = "reth" ]; then
         OP_RETH_DATADIR2="$(pwd)/data/op-reth-seq2"
         rm -rf "$OP_RETH_DATADIR2"
         cp -r $OP_RETH_DATADIR $OP_RETH_DATADIR2
-
-        OP_RETH_DATADIR3="$(pwd)/data/op-reth-seq3"
-        rm -rf "$OP_RETH_DATADIR3"
-        cp -r $OP_RETH_DATADIR $OP_RETH_DATADIR3
     fi
+
+    # op-seq3 default EL is always op-geth to ensure multiple seqs' geth and reth compatibilities
+    OP_GETH_DATADIR3="$(pwd)/data/op-geth-seq3"
+    rm -rf "$OP_GETH_DATADIR3"
+    cp -r $OP_GETH_DATADIR $OP_GETH_DATADIR3
 fi
 
 if [ "$SEQ_TYPE" = "reth" ]; then
