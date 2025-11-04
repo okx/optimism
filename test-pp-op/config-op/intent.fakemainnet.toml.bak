@@ -1,0 +1,35 @@
+configType = "standard-overrides"
+l1ChainID = 11155111
+fundDevAccounts = false
+opcmAddress = "0x0000000000000000000000000000000000000000"
+l1ContractsLocator = "file:///app/packages/contracts-bedrock/forge-artifacts"
+l2ContractsLocator = "file:///app/packages/contracts-bedrock/forge-artifacts"
+
+[[chains]]
+  id = "0x00000000000000000000000000000000000000000000000000000000000000C4"
+  baseFeeVaultRecipient = "0x27a6a7B5E972aC6D0e7A12BdA1ffAD37Dc7777A2"
+  l1FeeVaultRecipient = "0x27a6a7B5E972aC6D0e7A12BdA1ffAD37Dc7777A2"
+  sequencerFeeVaultRecipient = "0x27a6a7B5E972aC6D0e7A12BdA1ffAD37Dc7777A2"
+  eip1559DenominatorCanyon = 100000000
+  eip1559Denominator = 100000000
+  eip1559Elasticity = 1
+  operatorFeeScalar = 0
+  operatorFeeConstant = 0
+  gasLimit = 50000000
+  [chains.deployOverrides]
+      l2GenesisBlockGasLimit = "0x2faf080"
+      l2GenesisBlockBaseFeePerGas = "0x5FC01C5"
+      l2BlockTime = 1
+  [chains.customGasToken]
+      enabled = true
+      name = "OKB"
+      symbol = "OKB"
+      initialLiquidity = "0x0"
+  [chains.roles]
+    l1ProxyAdminOwner = "0x27a6a7B5E972aC6D0e7A12BdA1ffAD37Dc7777A2"
+    l2ProxyAdminOwner = "0x27a6a7B5E972aC6D0e7A12BdA1ffAD37Dc7777A2"
+    systemConfigOwner = "0x1183f158515091c94188C13Cd16923cee663d4c4"
+    unsafeBlockSigner = "0xe44FaF74D0EA83D962BB8cE077F69e449c6D8c4a"
+    batcher = "0x02E0eF87B04FD60E7F2215D1932420a80Cc35c55"
+    proposer = "0xe43944421681170648e10007f73816e04f74394f"
+    challenger = "0x736e68af2cbf2ab0e46e4310fe5ae568b3642ff6"

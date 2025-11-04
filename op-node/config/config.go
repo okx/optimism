@@ -90,6 +90,17 @@ type Config struct {
 
 	// Experimental. Enables new opstack RPC namespace. Used by op-test-sequencer.
 	ExperimentalOPStackAPI bool
+
+	// For X Layer
+	Apollo ApolloConfig
+}
+
+type ApolloConfig struct {
+	Enable    bool
+	AppID     string
+	IP        string
+	Cluster   string
+	Namespace string
 }
 
 // ConductorRPCFunc retrieves the endpoint. The RPC may not immediately be available.

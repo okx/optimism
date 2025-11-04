@@ -30,6 +30,9 @@ packages/contracts-bedrock/deployments/anvil
 # jetbrains
 .idea/
 
+# vscode
+.vscode/
+
 .secrets
 .env
 .env*
@@ -49,5 +52,35 @@ __pycache__
 # Ignore echidna artifacts
 crytic-export
 
+# Ignore test files
+test/l1-geth/consensus/beacondata
+test/l1-geth/consensus/validatordata
+test/config-op/genesis.json
+test/config-op/genesis-reth.json
+test/config-op/genesis.json.gz
+test/config-op/genesis-reth.json
+test/config-op/gen.test.geth.rpc.config.toml
+test/config-op/gen.test.reth.rpc.config.toml
+test/config-op/implementations.json
+test/config-op/intent.toml
+test/config-op/rollup.json
+test/config-op/state.json
+test/config-op/superchain.json
+test/l1-geth/consensus/genesis.ssz
+test/l1-geth/execution/geth/genesis.json
+test/l1-geth/execution/geth
+test/data
+
 # ignore local asdf config
 .tool-versions
+test/l1-geth/execution/genesis.json
+test/tmp
+
+# Ignore test apollo files
+test-apollo/l1-geth
+test-apollo/config-op
+test-apollo/data
+
+test-pp-op/testnet.env
+test-pp-op/mainnet.env
+test-pp-op/fakemainnet.env
