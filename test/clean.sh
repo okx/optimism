@@ -6,6 +6,9 @@ echo " 🧹 Cleaning up Optimism test environment..."
 echo " 📦 Stopping Docker containers..."
 [ -f .env ] && docker compose down
 
+echo " 🔄 Syncing .env from example.env..."
+[ -f example.env ] && cp example.env .env && echo "   ✅ .env synced from example.env"
+
 echo " 🗑️  Removing generated files..."
 rm -rf data
 rm -rf config-op/genesis.json

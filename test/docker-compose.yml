@@ -645,29 +645,7 @@ services:
       retries: 10
       start_period: 3s
 
-  op-reth-seq3:
-    image: "${OP_RETH_IMAGE_TAG}"
-    container_name: op-reth-seq3
-    entrypoint: /entrypoint/reth-seq.sh
-    env_file:
-      - ./.env
-    volumes:
-      - ./data/op-reth-seq3:/datadir
-      - ./config-op/jwt.txt:/jwt.txt
-      - ./config-op/genesis-reth.json:/genesis.json
-      - ./entrypoint:/entrypoint
-      - ./.env:/.env
-    ports:
-      - "8323:8545"
-      - "30306:30303"
-      - "30306:30303/udp"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8545"]
-      interval: 3s
-      timeout: 3s
-      retries: 10
-      start_period: 3s
-
+ # Keep op-seq3 to run op-geth as default EL 
   op-seq3:
     image: "${OP_STACK_IMAGE_TAG}"
     container_name: op-seq3
@@ -684,7 +662,7 @@ services:
     command:
       - /app/op-node/bin/op-node
       - --log.level=info
-      - --l2=http://op-${SEQ_TYPE}-seq3:8552
+      - --l2=http://op-geth-seq3:8552
       - --l2.jwt-secret=/jwt.txt
       - --sequencer.enabled
       - --sequencer.stopped
@@ -708,9 +686,9 @@ services:
       - --safedb.path=/data/safedb
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor3:8547
-      - --l2.enginekind=${SEQ_TYPE}
+      - --l2.enginekind=geth
     depends_on:
-      - op-${SEQ_TYPE}-seq3
+      - op-geth-seq3
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9545"]
       interval: 3s
@@ -732,7 +710,7 @@ services:
       - --log.level=debug
       # already existed service
       - --node.rpc=http://op-seq3:9545
-      - --execution.rpc=http://op-${SEQ_TYPE}-seq3:8545
+      - --execution.rpc=http://op-geth-seq3:8545
       # Raft Config
       - --raft.server.id=conductor-3
       - --raft.storage.dir=/data/raft
@@ -752,3 +730,10 @@ services:
     depends_on:
       op-seq3:
         condition: service_healthy
+
+  mempool-rebroadcaster:
+    image: xlayerdev/mempool-rebroadcaster
+    container_name: mempool-rebroadcaster
+    command:
+    - --geth-mempool-endpoint=http://op-reth-seq:8545
+    - --reth-mempool-endpoint=http://op-geth-seq3:8545
