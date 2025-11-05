@@ -204,6 +204,7 @@ services:
     image: "${OP_RETH_IMAGE_TAG}"
     container_name: op-reth-seq
     entrypoint: /entrypoint/reth-seq.sh
+    command: ["1"]
     env_file:
       - .env
     volumes:
