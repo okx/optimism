@@ -35,7 +35,7 @@ start_op_reth_node() {
           --txpool.max-account-slots=10000 \
           --txpool.disable-transactions-backup \
           --log.file.directory "$log_path" \
-          --log.stdout.filter "info,txpool=trace,payload_builder=debug,engine=debug,network=debug" \
+          --log.file.filter "info,txpool=trace,payload_builder=debug,engine=debug,network=debug" \
           --trusted-peers=enode://ef8135659def07b48b54fe2de7d0368e3eaa0a080ef13dde560169357900954be1a1e890b5973a821f9158e512a2da3ff600368f44e18e725a86931eaae5ef64@op-${SEQ_TYPE}-seq:30303
 }
 
