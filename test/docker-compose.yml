@@ -212,6 +212,7 @@ services:
       - /var/log/:/var/log/
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/genesis-reth.json:/genesis.json
+      - ./config-op/test.reth.seq.config.toml:/config.toml
       - ./entrypoint:/entrypoint
       - ./.env:/.env
     ports:
@@ -517,6 +518,7 @@ services:
     image: "${OP_RETH_IMAGE_TAG}"
     container_name: op-reth-seq2
     entrypoint: /entrypoint/reth-seq.sh
+    command: ["2"]
     env_file:
       - ./.env
     volumes:
@@ -524,6 +526,7 @@ services:
       - /var/log/:/var/log/
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/genesis-reth.json:/genesis.json
+      - ./config-op/test.reth.seq.config.toml:/config.toml
       - ./entrypoint:/entrypoint
       - ./.env:/.env
     ports:
@@ -652,6 +655,7 @@ services:
     image: "${OP_RETH_IMAGE_TAG}"
     container_name: op-reth-seq3
     entrypoint: /entrypoint/reth-seq.sh
+    command: ["3"]
     env_file:
       - ./.env
     volumes:
@@ -659,6 +663,7 @@ services:
       - /var/log/:/var/log/
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/genesis-reth.json:/genesis.json
+      - ./config-op/test.reth.seq.config.toml:/config.toml
       - ./entrypoint:/entrypoint
       - ./.env:/.env
     ports:
