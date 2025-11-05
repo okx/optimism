@@ -209,6 +209,7 @@ services:
       - .env
     volumes:
       - ./data/op-reth-seq:/datadir
+      - /var/log/:/var/log/
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/genesis-reth.json:/genesis.json
       - ./entrypoint:/entrypoint
@@ -520,6 +521,7 @@ services:
       - ./.env
     volumes:
       - ./data/op-reth-seq2:/datadir
+      - /var/log/:/var/log/
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/genesis-reth.json:/genesis.json
       - ./entrypoint:/entrypoint
@@ -654,6 +656,7 @@ services:
       - ./.env
     volumes:
       - ./data/op-reth-seq3:/datadir
+      - /var/log/:/var/log/
       - ./config-op/jwt.txt:/jwt.txt
       - ./config-op/genesis-reth.json:/genesis.json
       - ./entrypoint:/entrypoint
