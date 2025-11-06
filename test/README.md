@@ -1,5 +1,22 @@
 # Optimism Test Environment Setup Guide
 
+## Environment Configuration
+
+Configure `example.env` (do not modify `.env` directly) and run `./clean.sh` to sync changes.
+
+| Case | .env Configuration |
+|------|---------------------|
+| **Geth as Sequencer** | `SEQ_TYPE=geth`<br>`SKIP_OP_RETH_BUILD=true`<br>`DB_ENGINE=pebble` |
+| **Reth as Sequencer** | `SEQ_TYPE=reth`<br>`SKIP_OP_RETH_BUILD=false`<br>`OP_RETH_LOCAL_DIRECTORY=/absolute/path/to/reth/repository`<br>`OP_RETH_BRANCH=dev` |
+| **Geth as RPC** | `RPC_TYPE=geth`<br>`LAUNCH_RPC_NODE=true`<br>`SKIP_OP_RETH_BUILD=true`<br>`DB_ENGINE=pebble` |
+| **Reth as RPC** | `RPC_TYPE=reth`<br>`LAUNCH_RPC_NODE=true`<br>`SKIP_OP_RETH_BUILD=false`<br>`OP_RETH_LOCAL_DIRECTORY=/absolute/path/to/reth/repository`<br>`OP_RETH_BRANCH=dev` |
+
+**Notes:**
+- Always modify `example.env`, then run `./clean.sh` to sync to `.env`
+- For Reth configurations, `OP_RETH_LOCAL_DIRECTORY` must be an absolute path
+- Run `./init.sh` to build Docker images after configuration changes
+- `DB_ENGINE` can be `pebble` or `leveldb` (only required for Geth)
+
 ## Prerequisites
 
 ### System Requirements
@@ -19,6 +36,24 @@
    - Prepare base environment
 
 > Important: `init.sh` should only be run once during initial setup. Re-run only if you need to rebuild Docker images after code changes.
+
+> Important: by default, `op-reth` image is not built. `op-geth` is used as RPC by default. If you want to run a Reth RPC node, please set the following variables in `example.env`:
+```bash
+OP_RETH_LOCAL_DIRECTORY=<absolute path to your reth repository>
+OP_RETH_BRANCH=<reth repository branch (if not set, default branch is used)>
+SKIP_OP_RETH_BUILD=false
+# L2_ENGINEKIND (RPC type): geth or reth
+L2_ENGINEKIND=reth
+RPC_TYPE=op-$L2_ENGINEKIND-rpc
+```
+
+For testing, we recommend using Reth v1.8.2, as follows:
+```bash
+git clone -b dev-1.8.2 https://github.com/okx/reth.git
+cd reth
+docker build -t op-reth:1.8.2 -f DockerfileOp .
+docker tag op-reth:1.8.2 op-reth:latest
+```
 
 ### Code Updates and Image Rebuilding (Optional)
 If you've updated the Optimism codebase and need to rebuild Docker images:
@@ -62,6 +97,7 @@ test/
 │   ├── deposit-from-l1.sh      # L1 to L2 deposit script
 │   ├── deposit-from-banker.sh  # transfer ETH from banker script
 │   └── show-dev-accounts.sh   # Display dev accounts info
+|   └── mempool-rebroadcaster-secheduler.sh # Compares and rebroadcasts missing txs between reth and geth
 ├── config-op/          # Configuration directory
 ├── data/              # Data storage directory
 ├── contracts/         # Smart contracts
@@ -298,6 +334,25 @@ The `scripts/show-dev-accounts.sh` script displays all development accounts with
 
 #### Important Notes
 - **Balance Status**: Most dev accounts are pre-funded with 10,000 ETH, but some accounts may have zero initial balance
+
+### Mempool rebroadcaster scheduler
+
+The `scripts/mempool-rebroadcaster-scheduler.sh` script facilitates running the mempool rebroadcaster tool periodically in a default 1 minute interval.
+
+### Usage
+
+- The mempool rebroadcaster tool is crucial to ensure reth and geth transaction pool consistency.
+- In production, the mempool-rebroadcaster should be running inside a scheduler or cron job.
+- For our local devnet, we can deploy the tool inside the scheduler by running the script.
+
+### Reth vs geth txpool
+
+- There are slight differences in the txpool behaviour between opgeth and reth which thus the need for the tool.
+
+||Geth|Reth|
+|---------|------|------|
+|Pending| Next nonce transactions with no nonce gap | Next nonce transactions with a fee higher than the base fee|
+|Queued| Transactions with a nonce gap | Transactions below the base fee, even if they are next nonce, and transactions with a nonce gap|
 
 ## Troubleshooting
 
