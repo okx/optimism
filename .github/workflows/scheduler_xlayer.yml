@@ -28,7 +28,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout current branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           ref: ${{ github.ref }}
           fetch-depth: 0
@@ -72,6 +72,7 @@ jobs:
         run: |
           echo "Pushing changes to origin..."
           git push origin HEAD:${{ github.ref_name }}
+          echo "✅ Successfully synced from upstream and pushed to origin"
 
       - name: Generate sync summary
         if: always()
@@ -117,27 +118,27 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           ref: ${{ github.ref }}
           submodules: recursive
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973f39f4a  # v5.1.0
         with:
           go-version: '1.22'
           cache: true
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@6c7a3d8a12309b1d071646c71f59e18e1ca1c11f  # v1.2.0
         with:
           version: nightly
 
       - name: Install Just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@2cf9497133985a70e2c90f7a2c22a8f5eb9b28f6  # v2.0.0
 
       - name: Cache Go modules
-        uses: actions/cache@v4
+        uses: actions/cache@6849a6489940f00c2f30c0fb92c6274307ccb58a  # v4.1.2
         with:
           path: |
             ~/.cache/go-build
@@ -147,7 +148,7 @@ jobs:
             ${{ runner.os }}-go-
 
       - name: Cache Forge dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@6849a6489940f00c2f30c0fb92c6274307ccb58a  # v4.1.2
         with:
           path: |
             ~/.foundry/cache
@@ -169,7 +170,7 @@ jobs:
           make make-pre-test
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b  # v4.4.3
         with:
           name: build-artifacts
           path: |
@@ -199,19 +200,19 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           ref: ${{ github.ref }}
           submodules: recursive
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973f39f4a  # v5.1.0
         with:
           go-version: '1.22'
           cache: true
 
       - name: Install golangci-lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@971e284b6050e8a5849b72094c50ab08da042db8  # v4.0.1
         with:
           version: latest
           args: --timeout=10m
@@ -238,16 +239,16 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           ref: ${{ github.ref }}
           fetch-depth: 0
 
       - name: Install Semgrep
-        run: python3 -m pip install semgrep
+        run: python3 -m pip install semgrep==1.96.0  # Fixed version for security
 
       - name: Install Just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@2cf9497133985a70e2c90f7a2c22a8f5eb9b28f6  # v2.0.0
 
       - name: Run Semgrep
         continue-on-error: true
@@ -271,7 +272,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           ref: ${{ github.ref }}
 
@@ -279,7 +280,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y shellcheck
 
       - name: Install Just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@2cf9497133985a70e2c90f7a2c22a8f5eb9b28f6  # v2.0.0
 
       - name: Run ShellCheck
         continue-on-error: true
@@ -302,27 +303,27 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           ref: ${{ github.ref }}
           submodules: recursive
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973f39f4a  # v5.1.0
         with:
           go-version: '1.22'
           cache: true
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@6c7a3d8a12309b1d071646c71f59e18e1ca1c11f  # v1.2.0
         with:
           version: nightly
 
       - name: Install Just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@2cf9497133985a70e2c90f7a2c22a8f5eb9b28f6  # v2.0.0
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
         with:
           name: build-artifacts
 
@@ -351,30 +352,30 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           ref: ${{ github.ref }}
           submodules: recursive
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973f39f4a  # v5.1.0
         with:
           go-version: '1.22'
           cache: true
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@6c7a3d8a12309b1d071646c71f59e18e1ca1c11f  # v1.2.0
         with:
           version: nightly
 
       - name: Install Just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@2cf9497133985a70e2c90f7a2c22a8f5eb9b28f6  # v2.0.0
 
       - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@latest
+        run: go install gotest.tools/gotestsum@v1.12.0  # Fixed version for security
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
         with:
           name: build-artifacts
 
@@ -388,7 +389,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b  # v4.4.3
         with:
           name: go-test-results
           path: |
@@ -414,30 +415,30 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           ref: ${{ github.ref }}
           submodules: recursive
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973f39f4a  # v5.1.0
         with:
           go-version: '1.22'
           cache: true
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@6c7a3d8a12309b1d071646c71f59e18e1ca1c11f  # v1.2.0
         with:
           version: nightly
 
       - name: Install Just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@2cf9497133985a70e2c90f7a2c22a8f5eb9b28f6  # v2.0.0
 
       - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@latest
+        run: go install gotest.tools/gotestsum@v1.12.0  # Fixed version for security
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
         with:
           name: build-artifacts
 
@@ -451,7 +452,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b  # v4.4.3
         with:
           name: go-test-short-results
           path: |
@@ -476,30 +477,30 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           ref: ${{ github.ref }}
           submodules: recursive
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973f39f4a  # v5.1.0
         with:
           go-version: '1.22'
           cache: true
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@6c7a3d8a12309b1d071646c71f59e18e1ca1c11f  # v1.2.0
         with:
           version: nightly
 
       - name: Install Just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@2cf9497133985a70e2c90f7a2c22a8f5eb9b28f6  # v2.0.0
 
       - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@latest
+        run: go install gotest.tools/gotestsum@v1.12.0  # Fixed version for security
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
         with:
           name: build-artifacts
 
@@ -513,7 +514,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b  # v4.4.3
         with:
           name: fraud-proof-test-results
           path: |
@@ -539,27 +540,27 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           ref: ${{ github.ref }}
           submodules: recursive
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973f39f4a  # v5.1.0
         with:
           go-version: '1.22'
           cache: true
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@6c7a3d8a12309b1d071646c71f59e18e1ca1c11f  # v1.2.0
         with:
           version: nightly
 
       - name: Install Just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@2cf9497133985a70e2c90f7a2c22a8f5eb9b28f6  # v2.0.0
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
         with:
           name: build-artifacts
 
@@ -588,27 +589,27 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           ref: ${{ github.ref }}
           submodules: recursive
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973f39f4a  # v5.1.0
         with:
           go-version: '1.22'
           cache: true
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@6c7a3d8a12309b1d071646c71f59e18e1ca1c11f  # v1.2.0
         with:
           version: nightly
 
       - name: Install Just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@2cf9497133985a70e2c90f7a2c22a8f5eb9b28f6  # v2.0.0
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
         with:
           name: build-artifacts
 
@@ -638,27 +639,27 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           ref: ${{ github.ref }}
           submodules: recursive
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973f39f4a  # v5.1.0
         with:
           go-version: '1.22'
           cache: true
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@6c7a3d8a12309b1d071646c71f59e18e1ca1c11f  # v1.2.0
         with:
           version: nightly
 
       - name: Install Just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@2cf9497133985a70e2c90f7a2c22a8f5eb9b28f6  # v2.0.0
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
         with:
           name: build-artifacts
 
@@ -715,27 +716,27 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           ref: ${{ github.ref }}
           submodules: recursive
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973f39f4a  # v5.1.0
         with:
           go-version: '1.22'
           cache: true
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@6c7a3d8a12309b1d071646c71f59e18e1ca1c11f  # v1.2.0
         with:
           version: nightly
 
       - name: Install Just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@2cf9497133985a70e2c90f7a2c22a8f5eb9b28f6  # v2.0.0
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
         with:
           name: build-artifacts
 
@@ -765,27 +766,27 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           ref: ${{ github.ref }}
           submodules: recursive
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973f39f4a  # v5.1.0
         with:
           go-version: '1.22'
           cache: true
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@6c7a3d8a12309b1d071646c71f59e18e1ca1c11f  # v1.2.0
         with:
           version: nightly
 
       - name: Install Just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@2cf9497133985a70e2c90f7a2c22a8f5eb9b28f6  # v2.0.0
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
         with:
           name: build-artifacts
 
@@ -815,24 +816,24 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           ref: ${{ github.ref }}
           submodules: recursive
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973f39f4a  # v5.1.0
         with:
           go-version: '1.22'
           cache: true
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@6c7a3d8a12309b1d071646c71f59e18e1ca1c11f  # v1.2.0
         with:
           version: nightly
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
         with:
           name: build-artifacts
 
@@ -1066,7 +1067,7 @@ jobs:
           echo "View detailed logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload summary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b  # v4.4.3
         with:
           name: ci-summary
           path: status.txt
@@ -1334,11 +1335,11 @@ jobs:
 
             if [ "$http_code" -eq 200 ]; then
               echo "✅ Lark notification sent successfully"
-              echo "Response: $response_body"
+              # Response body hidden for security
             else
               echo "❌ Failed to send Lark notification"
               echo "HTTP Code: $http_code"
-              echo "Response: $response_body"
+              # Response body hidden for security
             fi
           else
             echo "⚠️ LARK_WEBHOOK_URL not configured. Skipping notification."
@@ -1347,8 +1348,5 @@ jobs:
             echo "1. Go to GitHub repository Settings → Secrets → Actions"
             echo "2. Add a new secret named 'LARK_WEBHOOK_URL'"
             echo "3. Paste your Lark webhook URL as the value"
-            echo ""
-            echo "Generated card preview:"
-            cat lark_card.json | jq '.'
           fi
 
