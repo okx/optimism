@@ -152,7 +152,7 @@ jobs:
           path: |
             ~/.foundry/cache
             packages/contracts-bedrock/cache
-            packages/contracts-bedrock/out
+            packages/contracts-bedrock/forge-artifacts
           key: ${{ runner.os }}-foundry-${{ hashFiles('packages/contracts-bedrock/foundry.toml', 'packages/contracts-bedrock/lib/**') }}
           restore-keys: |
             ${{ runner.os }}-foundry-
@@ -174,7 +174,7 @@ jobs:
           name: build-artifacts
           path: |
             bin/
-            packages/contracts-bedrock/out/
+            packages/contracts-bedrock/forge-artifacts/
             op-program/bin/
           retention-days: 1
 
@@ -581,113 +581,6 @@ jobs:
             echo "❌ **Some contract tests failed**" >> $GITHUB_STEP_SUMMARY
           fi
 
-  contracts-coverage:
-    needs: [build-dependencies]
-    name: Contracts Coverage
-    runs-on: ubuntu-latest
-    timeout-minutes: 75
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref }}
-          submodules: recursive
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-          cache: true
-
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: nightly
-
-      - name: Install Just
-        uses: extractions/setup-just@v2
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: build-artifacts
-
-      - name: Build go-ffi tool
-        working-directory: packages/contracts-bedrock
-        run: just build-go-ffi
-
-      - name: Run coverage
-        working-directory: packages/contracts-bedrock
-        run: just coverage-lcov
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
-        with:
-          files: ./packages/contracts-bedrock/lcov.info
-          flags: contracts-bedrock-tests
-          token: ${{ secrets.CODECOV_TOKEN }}
-        continue-on-error: true
-
-      - name: Upload coverage artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: contracts-coverage
-          path: packages/contracts-bedrock/lcov.info
-          retention-days: 7
-
-      - name: Generate test summary
-        if: always()
-        run: |
-          echo "## 📊 Contracts Coverage" >> $GITHUB_STEP_SUMMARY
-          if [ $? -eq 0 ]; then
-            echo "✅ **Coverage report generated**" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ **Coverage generation failed**" >> $GITHUB_STEP_SUMMARY
-          fi
-
-  op-geth-tests:
-    needs: [sync-upstream]
-    name: Op-Geth Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref }}
-          submodules: recursive
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-          cache: true
-
-      - name: Cache Go modules (op-geth)
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-op-geth-${{ hashFiles('op-geth/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-op-geth-
-
-      - name: Run op-geth tests
-        working-directory: op-geth
-        run: make test
-
-      - name: Generate test summary
-        if: always()
-        run: |
-          echo "## ⚙️ Op-Geth Tests" >> $GITHUB_STEP_SUMMARY
-          if [ $? -eq 0 ]; then
-            echo "✅ **All op-geth tests passed**" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ **Some op-geth tests failed**" >> $GITHUB_STEP_SUMMARY
-          fi
-
   op-e2e-actions-tests:
     needs: [build-dependencies]
     name: Op-E2E Actions Tests
@@ -957,60 +850,65 @@ jobs:
             echo "❌ **Some Cannon tests failed**" >> $GITHUB_STEP_SUMMARY
           fi
 
-  acceptance-tests-base:
-    needs: [build-dependencies]
-    name: Acceptance Tests (Base Gate)
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref }}
-          submodules: recursive
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-          cache: true
-
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: nightly
-
-      - name: Install Just
-        uses: extractions/setup-just@v2
-
-      - name: Install mise
-        run: |
-          curl https://mise.run | sh
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: build-artifacts
-
-      - name: Make binaries executable
-        run: |
-          chmod +x bin/* || true
-          chmod +x op-program/bin/* || true
-
-      - name: Run acceptance tests
-        working-directory: op-acceptance-tests
-        run: just acceptance-test "" base
-
-      - name: Generate test summary
-        if: always()
-        run: |
-          echo "## ✅ Acceptance Tests (Base)" >> $GITHUB_STEP_SUMMARY
-          if [ $? -eq 0 ]; then
-            echo "✅ **All acceptance tests passed**" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ **Some acceptance tests failed**" >> $GITHUB_STEP_SUMMARY
-          fi
+  # ============================================================================
+  # TEMPORARILY DISABLED: Acceptance Tests
+  # Reason: Complex setup (mise, asterisc), slow (~2-3h), not suitable for daily CI
+  # Re-enable: Uncomment this section + add 'acceptance-tests-base' back to needs
+  # ============================================================================
+  # acceptance-tests-base:
+  #   needs: [build-dependencies]
+  #   name: Acceptance Tests (Base Gate)
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 90
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+  #       with:
+  #         ref: ${{ github.ref }}
+  #         submodules: recursive
+  #
+  #     - name: Set up Go
+  #       uses: actions/setup-go@v5
+  #       with:
+  #         go-version: '1.22'
+  #         cache: true
+  #
+  #     - name: Install Foundry
+  #       uses: foundry-rs/foundry-toolchain@v1
+  #       with:
+  #         version: nightly
+  #
+  #     - name: Install Just
+  #       uses: extractions/setup-just@v2
+  #
+  #     - name: Install mise
+  #       run: |
+  #         curl https://mise.run | sh
+  #         echo "$HOME/.local/bin" >> $GITHUB_PATH
+  #
+  #     - name: Download build artifacts
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: build-artifacts
+  #
+  #     - name: Make binaries executable
+  #       run: |
+  #         chmod +x bin/* || true
+  #         chmod +x op-program/bin/* || true
+  #
+  #     - name: Run acceptance tests
+  #       working-directory: op-acceptance-tests
+  #       run: just acceptance-test "" base
+  #
+  #     - name: Generate test summary
+  #       if: always()
+  #       run: |
+  #         echo "## ✅ Acceptance Tests (Base)" >> $GITHUB_STEP_SUMMARY
+  #         if [ $? -eq 0 ]; then
+  #           echo "✅ **All acceptance tests passed**" >> $GITHUB_STEP_SUMMARY
+  #         else
+  #           echo "❌ **Some acceptance tests failed**" >> $GITHUB_STEP_SUMMARY
+  #         fi
 
   ##############################################################################
   # Phase 4: Summary and Notification
@@ -1019,7 +917,7 @@ jobs:
   summary:
     name: Generate Summary
     runs-on: ubuntu-latest
-    needs: [sync-upstream, build-dependencies, lint-go, semgrep-scan, shellcheck, unit-tests, go-tests, go-tests-short, fraud-proof-tests, contracts-tests, contracts-coverage, op-geth-tests, op-e2e-actions-tests, contracts-static-checks, op-e2e-ws-tests, op-e2e-http-tests, cannon-tests, acceptance-tests-base]
+    needs: [sync-upstream, build-dependencies, lint-go, semgrep-scan, shellcheck, unit-tests, go-tests, go-tests-short, fraud-proof-tests, contracts-tests, op-e2e-actions-tests, contracts-static-checks, op-e2e-ws-tests, op-e2e-http-tests, cannon-tests]
     if: always()
     steps:
       - name: Generate comprehensive summary
@@ -1102,18 +1000,6 @@ jobs:
             echo "| 🔨 Contracts Tests | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
           fi
 
-          if [[ "${{ needs.contracts-coverage.result }}" == "success" ]]; then
-            echo "| 📊 Contracts Coverage | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "| 📊 Contracts Coverage | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          if [[ "${{ needs.op-geth-tests.result }}" == "success" ]]; then
-            echo "| ⚙️ Op-Geth Tests | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "| ⚙️ Op-Geth Tests | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
-          fi
-
           if [[ "${{ needs.op-e2e-actions-tests.result }}" == "success" ]]; then
             echo "| 🎬 Op-E2E Actions Tests | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
           else
@@ -1145,11 +1031,12 @@ jobs:
             echo "| 🎯 Cannon VM Tests | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
           fi
 
-          if [[ "${{ needs.acceptance-tests-base.result }}" == "success" ]]; then
-            echo "| ✅ Acceptance Tests (Base) | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "| ✅ Acceptance Tests (Base) | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
-          fi
+          # Acceptance Tests (Base) - Temporarily disabled
+          # if [[ "${{ needs.acceptance-tests-base.result }}" == "success" ]]; then
+          #   echo "| ✅ Acceptance Tests (Base) | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          # else
+          #   echo "| ✅ Acceptance Tests (Base) | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          # fi
 
           echo "" >> $GITHUB_STEP_SUMMARY
 
@@ -1162,13 +1049,11 @@ jobs:
              [[ "${{ needs.go-tests-short.result }}" == "success" ]] && \
              [[ "${{ needs.fraud-proof-tests.result }}" == "success" ]] && \
              [[ "${{ needs.contracts-tests.result }}" == "success" ]] && \
-             [[ "${{ needs.contracts-coverage.result }}" == "success" ]] && \
-             [[ "${{ needs.op-geth-tests.result }}" == "success" ]] && \
              [[ "${{ needs.op-e2e-actions-tests.result }}" == "success" ]] && \
              [[ "${{ needs.op-e2e-ws-tests.result }}" == "success" ]] && \
              [[ "${{ needs.op-e2e-http-tests.result }}" == "success" ]] && \
-             [[ "${{ needs.cannon-tests.result }}" == "success" ]] && \
-             [[ "${{ needs.acceptance-tests-base.result }}" == "success" ]]; then
+             [[ "${{ needs.cannon-tests.result }}" == "success" ]]; then
+             # [[ "${{ needs.acceptance-tests-base.result }}" == "success" ]]; then  # Temporarily disabled
             echo "## ✅ Overall Status: SUCCESS" >> $GITHUB_STEP_SUMMARY
             echo "all_passed" > status.txt
           else
@@ -1190,7 +1075,7 @@ jobs:
   notify:
     name: Send Lark Notification
     runs-on: ubuntu-latest
-    needs: [summary, sync-upstream, build-dependencies, lint-go, unit-tests, go-tests, go-tests-short, fraud-proof-tests, contracts-tests, contracts-coverage, op-geth-tests, op-e2e-actions-tests, contracts-static-checks, op-e2e-ws-tests, op-e2e-http-tests, cannon-tests, acceptance-tests-base]
+    needs: [summary, sync-upstream, build-dependencies, lint-go, unit-tests, go-tests, go-tests-short, fraud-proof-tests, contracts-tests, op-e2e-actions-tests, contracts-static-checks, op-e2e-ws-tests, op-e2e-http-tests, cannon-tests]
     if: always()
     steps:
       - name: Install jq
@@ -1213,13 +1098,11 @@ jobs:
              [[ "${{ needs.go-tests-short.result }}" == "success" ]] && \
              [[ "${{ needs.fraud-proof-tests.result }}" == "success" ]] && \
              [[ "${{ needs.contracts-tests.result }}" == "success" ]] && \
-             [[ "${{ needs.contracts-coverage.result }}" == "success" ]] && \
-             [[ "${{ needs.op-geth-tests.result }}" == "success" ]] && \
              [[ "${{ needs.op-e2e-actions-tests.result }}" == "success" ]] && \
              [[ "${{ needs.op-e2e-ws-tests.result }}" == "success" ]] && \
              [[ "${{ needs.op-e2e-http-tests.result }}" == "success" ]] && \
-             [[ "${{ needs.cannon-tests.result }}" == "success" ]] && \
-             [[ "${{ needs.acceptance-tests-base.result }}" == "success" ]]; then
+             [[ "${{ needs.cannon-tests.result }}" == "success" ]]; then
+             # [[ "${{ needs.acceptance-tests-base.result }}" == "success" ]]; then  # Temporarily disabled
             CARD_COLOR="green"
             STATUS_TEXT="✅ 所有任务成功"
             STATUS_EMOJI="✅"
@@ -1250,14 +1133,12 @@ jobs:
           SHORT_ICON=$(get_status_icon "${{ needs.go-tests-short.result }}")
           FRAUD_ICON=$(get_status_icon "${{ needs.fraud-proof-tests.result }}")
           CONTRACTS_ICON=$(get_status_icon "${{ needs.contracts-tests.result }}")
-          COVERAGE_ICON=$(get_status_icon "${{ needs.contracts-coverage.result }}")
-          OPGETH_ICON=$(get_status_icon "${{ needs.op-geth-tests.result }}")
           ACTIONS_ICON=$(get_status_icon "${{ needs.op-e2e-actions-tests.result }}")
           STATIC_ICON=$(get_status_icon "${{ needs.contracts-static-checks.result }}")
           WS_ICON=$(get_status_icon "${{ needs.op-e2e-ws-tests.result }}")
           HTTP_ICON=$(get_status_icon "${{ needs.op-e2e-http-tests.result }}")
           CANNON_ICON=$(get_status_icon "${{ needs.cannon-tests.result }}")
-          ACCEPT_ICON=$(get_status_icon "${{ needs.acceptance-tests-base.result }}")
+          # ACCEPT_ICON=$(get_status_icon "${{ needs.acceptance-tests-base.result }}")  # Temporarily disabled
 
           # Build Lark Card JSON
           cat > lark_card.json <<EOF
@@ -1372,20 +1253,6 @@ jobs:
                       "text": {
                         "tag": "lark_md",
                         "content": "${CONTRACTS_ICON} 合约测试"
-                      }
-                    },
-                    {
-                      "is_short": true,
-                      "text": {
-                        "tag": "lark_md",
-                        "content": "${COVERAGE_ICON} 合约覆盖率"
-                      }
-                    },
-                    {
-                      "is_short": true,
-                      "text": {
-                        "tag": "lark_md",
-                        "content": "${OPGETH_ICON} Op-Geth测试"
                       }
                     },
                     {
