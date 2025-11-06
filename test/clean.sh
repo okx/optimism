@@ -27,8 +27,17 @@ done
 
 echo " 🧹 Cleaning up Optimism test environment..."
 
+# Stop Docker containers before handling .env file
+# This ensures docker-compose has access to the current .env file
 echo " 📦 Stopping Docker containers..."
-[ -f .env ] && docker compose down
+if [ -f .env ]; then
+    docker compose down 2>/dev/null || true
+elif [ -f example.env ]; then
+    # If .env doesn't exist but example.env does, temporarily use it for docker compose down
+    cp example.env .env.tmp
+    docker compose --env-file .env.tmp down 2>/dev/null || true
+    rm -f .env.tmp
+fi
 
 # Handle .env file
 if [ "$FORCE_ENV" = true ]; then
