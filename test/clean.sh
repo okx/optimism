@@ -1,13 +1,56 @@
 #!/bin/bash
 set -e
 
+# Parse command line arguments
+FORCE_ENV=false
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --force-env|-f)
+            FORCE_ENV=true
+            shift
+            ;;
+        --help|-h)
+            echo "Usage: $0 [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --force-env, -f    Force update .env file from example.env"
+            echo "  --help, -h         Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
 echo " 🧹 Cleaning up Optimism test environment..."
 
 echo " 📦 Stopping Docker containers..."
 [ -f .env ] && docker compose down
 
-echo " 🔄 Syncing .env from example.env..."
-[ -f example.env ] && cp example.env .env && echo "   ✅ .env synced from example.env"
+# Handle .env file
+if [ "$FORCE_ENV" = true ]; then
+    echo " 🔄 Force updating .env from example.env..."
+    if [ -f example.env ]; then
+        cp example.env .env
+        echo "   ✅ .env has been force updated from example.env"
+    else
+        echo "   ⚠️  example.env not found, skipping .env update"
+    fi
+elif [ ! -f .env ]; then
+    echo " 📝 .env file not found, creating from example.env..."
+    if [ -f example.env ]; then
+        cp example.env .env
+        echo "   ✅ .env created from example.env"
+    else
+        echo "   ⚠️  example.env not found, please create .env manually"
+    fi
+else
+    echo " ✓ .env file exists, keeping current configuration"
+    echo "   💡 Use --force-env flag to update .env from example.env"
+fi
 
 echo " 🗑️  Removing generated files..."
 rm -rf data
