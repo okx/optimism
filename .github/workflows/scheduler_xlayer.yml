@@ -1,9 +1,9 @@
 name: X Layer Optimism Scheduled CI
 
-# Schedule daily runs at 5:00 PM Beijing Time (UTC+8)
+# Schedule daily runs at 2:00 PM Beijing Time (UTC+8)
 on:
   schedule:
-    - cron: '0 9 * * *'   # 17:00 Beijing Time (UTC+8 = 09:00 UTC)
+    - cron: '0 6 * * *'   # 14:00 Beijing Time (UTC+8 = 06:00 UTC)
   workflow_dispatch:      # Allow manual trigger
 
 # Ensure only one workflow runs at a time
@@ -1104,11 +1104,11 @@ jobs:
              [[ "${{ needs.cannon-tests.result }}" == "success" ]]; then
              # [[ "${{ needs.acceptance-tests-base.result }}" == "success" ]]; then  # Temporarily disabled
             CARD_COLOR="green"
-            STATUS_TEXT="✅ 所有任务成功"
+            STATUS_TEXT="✅ All tasks succeeded"
             STATUS_EMOJI="✅"
           else
             CARD_COLOR="red"
-            STATUS_TEXT="❌ 部分任务失败"
+            STATUS_TEXT="❌ Some tasks failed"
             STATUS_EMOJI="❌"
           fi
 
@@ -1148,7 +1148,7 @@ jobs:
               "header": {
                 "title": {
                   "tag": "plain_text",
-                  "content": "${STATUS_EMOJI} X Layer Optimism 定时 CI 报告"
+                  "content": "${STATUS_EMOJI} X Layer Optimism Scheduled CI Report"
                 },
                 "template": "${CARD_COLOR}"
               },
@@ -1160,14 +1160,14 @@ jobs:
                       "is_short": true,
                       "text": {
                         "tag": "lark_md",
-                        "content": "**📅 运行时间**\n${CURRENT_TIME}"
+                        "content": "**📅 Run Time**\n${CURRENT_TIME}"
                       }
                     },
                     {
                       "is_short": true,
                       "text": {
                         "tag": "lark_md",
-                        "content": "**🔀 分支**\n${{ github.ref_name }}"
+                        "content": "**🔀 Branch**\n${{ github.ref_name }}"
                       }
                     },
                     {
@@ -1193,7 +1193,7 @@ jobs:
                   "tag": "div",
                   "text": {
                     "tag": "lark_md",
-                    "content": "**检查项状态**"
+                    "content": "**Check Status**"
                   }
                 },
                 {
@@ -1203,56 +1203,56 @@ jobs:
                       "is_short": true,
                       "text": {
                         "tag": "lark_md",
-                        "content": "${SYNC_ICON} 上游同步"
+                        "content": "${SYNC_ICON} Upstream Sync"
                       }
                     },
                     {
                       "is_short": true,
                       "text": {
                         "tag": "lark_md",
-                        "content": "${BUILD_ICON} 构建依赖"
+                        "content": "${BUILD_ICON} Build Dependencies"
                       }
                     },
                     {
                       "is_short": true,
                       "text": {
                         "tag": "lark_md",
-                        "content": "${LINT_ICON} 代码检查"
+                        "content": "${LINT_ICON} Go Linting"
                       }
                     },
                     {
                       "is_short": true,
                       "text": {
                         "tag": "lark_md",
-                        "content": "${UNIT_ICON} 单元测试"
+                        "content": "${UNIT_ICON} Unit Tests"
                       }
                     },
                     {
                       "is_short": true,
                       "text": {
                         "tag": "lark_md",
-                        "content": "${FULL_ICON} Go完整测试"
+                        "content": "${FULL_ICON} Go Tests (Full)"
                       }
                     },
                     {
                       "is_short": true,
                       "text": {
                         "tag": "lark_md",
-                        "content": "${SHORT_ICON} Go快速测试"
+                        "content": "${SHORT_ICON} Go Tests (Short)"
                       }
                     },
                     {
                       "is_short": true,
                       "text": {
                         "tag": "lark_md",
-                        "content": "${FRAUD_ICON} 欺诈证明"
+                        "content": "${FRAUD_ICON} Fraud Proof Tests"
                       }
                     },
                     {
                       "is_short": true,
                       "text": {
                         "tag": "lark_md",
-                        "content": "${CONTRACTS_ICON} 合约测试"
+                        "content": "${CONTRACTS_ICON} Contracts Tests"
                       }
                     },
                     {
@@ -1266,7 +1266,7 @@ jobs:
                       "is_short": true,
                       "text": {
                         "tag": "lark_md",
-                        "content": "${STATIC_ICON} 静态检查"
+                        "content": "${STATIC_ICON} Static Checks"
                       }
                     },
                     {
@@ -1289,13 +1289,6 @@ jobs:
                         "tag": "lark_md",
                         "content": "${CANNON_ICON} Cannon VM"
                       }
-                    },
-                    {
-                      "is_short": true,
-                      "text": {
-                        "tag": "lark_md",
-                        "content": "${ACCEPT_ICON} 验收测试"
-                      }
                     }
                   ]
                 },
@@ -1316,7 +1309,7 @@ jobs:
                       "tag": "button",
                       "text": {
                         "tag": "plain_text",
-                        "content": "查看详细日志"
+                        "content": "View Detailed Logs"
                       },
                       "type": "primary",
                       "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
