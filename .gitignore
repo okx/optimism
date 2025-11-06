@@ -75,6 +75,7 @@ test/data
 .tool-versions
 test/l1-geth/execution/genesis.json
 test/tmp
+test/saved-cannon-data
 
 # Ignore test apollo files
 test-apollo/l1-geth
