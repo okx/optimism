@@ -1,9 +1,9 @@
 name: X Layer Optimism Scheduled CI
 
-# Schedule daily runs at 2:00 PM Beijing Time (UTC+8)
+# Schedule daily runs at 2:30 PM Beijing Time (UTC+8)
 on:
   schedule:
-    - cron: '0 6 * * *'   # 14:00 Beijing Time (UTC+8 = 06:00 UTC)
+    - cron: '30 6 * * *'   # 14:30 Beijing Time (UTC+8 = 06:30 UTC)
   workflow_dispatch:      # Allow manual trigger
 
 # Ensure only one workflow runs at a time
