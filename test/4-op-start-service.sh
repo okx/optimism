@@ -72,7 +72,7 @@ sleep 5
 
 #$SCRIPTS_DIR/add-peers.sh
 
-if [ "$LAUNCH_RPC_NODE" = "true" ]; then
+if [ "$LAUNCH_RPC_NODE" = "rpc" ]; then
     docker compose up -d op-rpc
 fi
 
