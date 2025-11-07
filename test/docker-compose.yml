@@ -323,7 +323,7 @@ services:
       - "9555:9545"
     command:
       - /app/op-node/bin/op-node
-      - --log.level=debug
+      - --log.level=info
       - --l2=http://op-${RPC_TYPE}-rpc:8552
       - --l2.jwt-secret=/jwt.txt
       - --sequencer.enabled=false
@@ -336,7 +336,7 @@ services:
       - --p2p.priv.raw=604557d042fbea9ed42f46c0c95c346a932b6a5ef0c0dd07a00dbf95801a2510
       - --p2p.peerstore.path=/data/p2p/opnode_peerstore_db
       - --p2p.discovery.path=/data/p2p/opnode_discovery_db
-      - --p2p.static=/dns4/op-seq/tcp/9223/p2p/16Uiu2HAkzHdkbmS2VrCsccLibsu7MvGHpmFUMJnMTkKifrtS5m65
+      #- --p2p.static=/dns4/op-seq/tcp/9223/p2p/16Uiu2HAkzHdkbmS2VrCsccLibsu7MvGHpmFUMJnMTkKifrtS5m65
       - --p2p.no-discovery
       - --rpc.enable-admin=true
       - --l1=${L1_RPC_URL_IN_DOCKER}
@@ -388,19 +388,19 @@ services:
     container_name: op-batcher
     command:
       - /app/op-batcher/bin/op-batcher
-      - --log.level=debug
+      - --log.level=info
       - --l2-eth-rpc=${OP_BATCHER_L2_ETH_RPC:-http://op-${SEQ_TYPE}-seq:8545}
       - --rollup-rpc=${OP_BATCHER_ROLLUP_RPC:-http://op-seq:9545}
       # - --txmgr.enable-cell-proofs=true
       - --wait-node-sync=true
       - --check-recent-txs-depth=5
-      - --poll-interval=5s
+      - --poll-interval=1s
       - --batch-type=1
       - --compression-algo=brotli-11
       - --data-availability-type=auto
-      - --max-channel-duration=30
-      - --target-num-frames=5
-      - --sub-safety-margin=6
+      - --max-channel-duration=10
+      #- --target-num-frames=5
+      - --sub-safety-margin=10
       - --num-confirmations=4
       - --network-timeout=10s
       - --safe-abort-nonce-too-low-count=3
@@ -645,7 +645,7 @@ services:
       retries: 10
       start_period: 3s
 
- # Keep op-seq3 to run op-geth as default EL 
+ # Keep op-seq3 to run op-geth as default EL
   op-seq3:
     image: "${OP_STACK_IMAGE_TAG}"
     container_name: op-seq3

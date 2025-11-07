@@ -17,10 +17,7 @@ JWTSecret = "/jwt.txt"
 MaxPeers = 30
 DiscoveryV5 = true
 # we add both geth and reth to static nodes, but only one is live
-StaticNodes = [
-  "enode://ef8135659def07b48b54fe2de7d0368e3eaa0a080ef13dde560169357900954be1a1e890b5973a821f9158e512a2da3ff600368f44e18e725a86931eaae5ef64@op-geth-seq:30303",
-  "enode://ef8135659def07b48b54fe2de7d0368e3eaa0a080ef13dde560169357900954be1a1e890b5973a821f9158e512a2da3ff600368f44e18e725a86931eaae5ef64@op-reth-seq:30303"
-]
+StaticNodes = []
 
 [Eth]
 NetworkId = 901

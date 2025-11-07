@@ -29,6 +29,10 @@ sed_inplace 's/"number": 0/"number": '"$NEXT_BLOCK_NUMBER"'/' ./config-op/rollup
 cp ./config-op/genesis.json ./config-op/genesis-reth.json
 sed_inplace 's/"number": "0x0"/"number": "'"$NEXT_BLOCK_NUMBER_HEX"'"/' ./config-op/genesis-reth.json
 
+CURRENT_VALUE=$(jq -r '.genesis.l2_time' ./config-op/rollup.json)
+NEW_VALUE=$((CURRENT_VALUE - 200))
+sed_inplace "s/\"l2_time\": $CURRENT_VALUE/\"l2_time\": $NEW_VALUE/" ./config-op/rollup.json
+
 # Extract contract addresses from state.json and update .env file
 echo "🔧 Extracting contract addresses from state.json..."
 PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -188,6 +192,8 @@ if [ "$SEQ_TYPE" = "reth" ]; then
 fi
 
 echo "✅ Finished init op-$SEQ_TYPE-seq and op-$RPC_TYPE-rpc."
+
+exit 0
 
 # genesis.json is too large to embed in go, so we compress it now and decompress it in go code
 gzip -c config-op/genesis.json > config-op/genesis.json.gz
