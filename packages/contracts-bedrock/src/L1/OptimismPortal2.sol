@@ -665,9 +665,9 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
         if (_isUsingCustomGasToken()) {
             if (msg.value > 0) revert OptimismPortal_NotAllowedOnCGTMode();
         }
-        if (msg.value != _value) {
-            revert OptimismPortal_InsufficientDeposit();
-        }
+        // if (msg.value != _value) {
+        //     revert OptimismPortal_InsufficientDeposit();
+        // }
 
         // If using ETHLockbox, lock the ETH in the ETHLockbox.
         if (_isUsingLockbox()) {
@@ -741,8 +741,8 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
     /// @notice Asserts that the ETHLockbox is set/unset correctly depending on the feature flag.
     function _assertValidLockboxState() internal view {
         if (
-            systemConfig.isFeatureEnabled(Features.ETH_LOCKBOX) && address(ethLockbox) == address(0)
-                || !systemConfig.isFeatureEnabled(Features.ETH_LOCKBOX) && address(ethLockbox) != address(0)
+            (systemConfig.isFeatureEnabled(Features.ETH_LOCKBOX) && address(ethLockbox) == address(0))
+                || (!systemConfig.isFeatureEnabled(Features.ETH_LOCKBOX) && address(ethLockbox) != address(0))
         ) {
             revert OptimismPortal_InvalidLockboxState();
         }
