@@ -85,7 +85,7 @@ func TestERC20BridgeDeposits(t *testing.T) {
 	// Bridge the WETH
 	l1StandardBridge, err := bindings.NewL1StandardBridge(cfg.L1Deployments.L1StandardBridgeProxy, l1Client)
 	require.NoError(t, err)
-	tx, err = transactions.PadGasEstimate(opts, 1.1, func(opts *bind.TransactOpts) (*types.Transaction, error) {
+	_, err = transactions.PadGasEstimate(opts, 1.1, func(opts *bind.TransactOpts) (*types.Transaction, error) {
 		return l1StandardBridge.BridgeERC20(opts, wethAddress, event.LocalToken, big.NewInt(100), 100000, []byte{})
 	})
 	// For X Layer: expect error because the bridge is paused
