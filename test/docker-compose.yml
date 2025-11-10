@@ -238,6 +238,7 @@ services:
       - ./entrypoint:/entrypoint
     ports:
       - "8124:8545"
+      - "8553:8552"
       - "30304:30303"
       - "30304:30303/udp"
 
@@ -275,7 +276,7 @@ services:
       - "9091:9091"  # pprof port
     command:
       - /app/op-node/bin/op-node
-      - --log.level=debug
+      - --log.level=info
       - --l2=http://op-${SEQ_TYPE}-seq:8552
       - --l2.jwt-secret=/jwt.txt
       - --sequencer.enabled

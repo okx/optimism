@@ -169,6 +169,7 @@ OP_GETH_RPC_DATADIR="$(pwd)/data/op-geth-rpc"
 echo " 🔄 Copying database from op-geth-seq to op-geth-rpc..."
 rm -rf "$OP_GETH_RPC_DATADIR"
 cp -r "$OP_GETH_DATADIR" "$OP_GETH_RPC_DATADIR"
+cp -r "$OP_GETH_DATADIR" "$OP_GETH_RPC_DATADIR"-bak
 
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
     if [ "$SEQ_TYPE" = "geth" ]; then

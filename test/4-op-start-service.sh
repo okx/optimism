@@ -91,10 +91,11 @@ else
 #    echo "✅ op-batcher configured for single sequencer mode"
 fi
 
-TARGET_SAFE_HEIGHT=8593921
+INIT_HEIGHT=8593921
 EXPECTED_WAIT_TIME=200
+TARGET_SAFE_HEIGHT=$INIT_HEIGHT
 START_TIME=$(date +%s)
-echo "⏳ Waiting for sequencer window expired and safe height to exceed $TARGET_SAFE_HEIGHT... (expected wait time: ~${EXPECTED_WAIT_TIME}s)"
+echo "⏳ Waiting for sequencer window to expire and safe height to exceed $TARGET_SAFE_HEIGHT... (expected wait time: ~${EXPECTED_WAIT_TIME}s)"
 while true; do
     CURRENT_SAFE=$(cast bn -r http://localhost:8123 safe 2>/dev/null || echo "0")
     if [ "$CURRENT_SAFE" -gt "$TARGET_SAFE_HEIGHT" ]; then
@@ -107,10 +108,35 @@ while true; do
         REMAINING_TIME=0
     fi
     echo "   Current safe height: $CURRENT_SAFE, waiting for safe height > $TARGET_SAFE_HEIGHT... (elapsed: ${ELAPSED_TIME}s, remaining: ~${REMAINING_TIME}s)"
-    sleep 5
+    sleep 10
 done
 
 docker compose up -d op-batcher
+
+CURRENT_SAFE=$(cast bn -r http://localhost:8123 safe 2>/dev/null || echo "0")
+
+CHANNEL_TIMEOUT_GRANITE=50
+MARGIN=50
+L1_BLOCKTIME=2
+EXTRA_SAFE_HEIGHT=$((CHANNEL_TIMEOUT_GRANITE * L1_BLOCKTIME + MARGIN))
+TARGET_SAFE_HEIGHT=$((CURRENT_SAFE + EXTRA_SAFE_HEIGHT))
+EXPECTED_WAIT_TIME=$EXTRA_SAFE_HEIGHT
+START_TIME=$(date +%s)
+echo "⏳ Waiting for safe height to exceed $TARGET_SAFE_HEIGHT... (expected wait time: ~${EXPECTED_WAIT_TIME}s)"
+while true; do
+    CURRENT_SAFE=$(cast bn -r http://localhost:8123 safe 2>/dev/null || echo "0")
+    if [ "$CURRENT_SAFE" -gt "$TARGET_SAFE_HEIGHT" ]; then
+        echo "✅ Safe height reached: $CURRENT_SAFE (target: $TARGET_SAFE_HEIGHT)"
+        break
+    fi
+    ELAPSED_TIME=$(($(date +%s) - START_TIME))
+    REMAINING_TIME=$((EXPECTED_WAIT_TIME - ELAPSED_TIME))
+    if [ "$REMAINING_TIME" -lt 0 ]; then
+        REMAINING_TIME=0
+    fi
+    echo "   Current safe height: $CURRENT_SAFE, waiting for safe height > $TARGET_SAFE_HEIGHT... (elapsed: ${ELAPSED_TIME}s, remaining: ~${REMAINING_TIME}s)"
+    sleep 10
+done
 
 # Wait for "decoded" keyword in op-seq logs
 echo "⏳ Waiting for 'decoded' keyword in op-seq logs..."
@@ -123,7 +149,7 @@ while true; do
     sleep 5
 done
 
-sleep 20
+#sleep 20
 
 # Wait for unsafe - safe < (seq window size * L1 blocktime)
 echo "⏳ Waiting for unsafe - safe < 200..."
@@ -134,14 +160,12 @@ while true; do
         echo "✅ Unsafe - safe < 200: unsafe=$CURRENT_UNSAFE, safe=$CURRENT_SAFE"
         break
     fi
-    $SCRIPTS_DIR/restart-op-seq.sh
-    sleep 5
+    docker compose restart op-seq
+    sleep 10
 done
 
 docker compose up -d op-rpc
 
-# Wait for op-rpc to be ready
-echo "⏳ Waiting for op-rpc to be ready..."
 while true; do
     SAFE_8124=$(cast bn -r http://localhost:8124 safe 2>/dev/null || echo "0")
     if [ "$SAFE_8124" != "0" ]; then
@@ -151,7 +175,7 @@ while true; do
             break
         fi
     fi
-    echo "   Waiting for op-rpc to be ready..."
+    echo "  ⏳  Waiting for op-rpc to fork..."
     sleep 5
 done
 
