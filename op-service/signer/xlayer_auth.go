@@ -29,7 +29,7 @@ func (c *XLayerRemoteClient) addAuth(req *http.Request) error {
 	// Generate the signature
 	signature, err := c.genAuth(req, algoSha256)
 	if err != nil {
-		return fmt.Errorf("failed to generate signature: %v", err)
+		return fmt.Errorf("failed to generate signature: %w", err)
 	}
 	req.Header[headerSignKey] = []string{signature}
 
@@ -52,7 +52,7 @@ func (c *XLayerRemoteClient) genAuth(req *http.Request, algorithm string) (strin
 	if req.Body != nil {
 		readCloser, err := req.GetBody()
 		if err != nil {
-			return "", fmt.Errorf("get body error: %v", err)
+			return "", fmt.Errorf("get body error: %w", err)
 		}
 		defer readCloser.Close()
 
@@ -60,7 +60,7 @@ func (c *XLayerRemoteClient) genAuth(req *http.Request, algorithm string) (strin
 		// Read the request body into the 'buffer' variable
 		_, err = io.Copy(&bufferWriter{&buffer}, readCloser)
 		if err != nil {
-			return "", fmt.Errorf("read body error: %v", err)
+			return "", fmt.Errorf("read body error: %w", err)
 		}
 
 		// Append the body if present
@@ -130,7 +130,7 @@ func signBySha256(content string) []byte {
 func encryptAES(src, key string) (string, error) {
 	block, err := aes.NewCipher([]byte(key))
 	if err != nil {
-		return "", fmt.Errorf("failed to create AES cipher: %v", err)
+		return "", fmt.Errorf("failed to create AES cipher: %w", err)
 	}
 	ecbEncrypt := newECBEncrypter(block)
 	content := []byte(src)
@@ -138,7 +138,7 @@ func encryptAES(src, key string) (string, error) {
 	des := make([]byte, len(content))
 	err = ecbEncrypt.(*ecbEncrypter).cryptBlocksWithError(des, content)
 	if err != nil {
-		return "", fmt.Errorf("failed to encrypt AES: %v", err)
+		return "", fmt.Errorf("failed to encrypt AES: %w", err)
 	}
 
 	return base64.StdEncoding.EncodeToString(des), nil
