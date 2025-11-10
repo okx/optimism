@@ -7,31 +7,34 @@ import { GnosisSafe as Safe } from "safe-contracts/GnosisSafe.sol";
 import { GnosisSafeProxyFactory as SafeProxyFactory } from "safe-contracts/proxies/GnosisSafeProxyFactory.sol";
 
 /// @title DeploySimpleSafe
-/// @notice Simplified Safe deployment script to replace Transactor as l1ProxyAdminOwner
+/// @notice Simplified Safe deployment script to replace Transactor as ProxyAdminOwner on both L1 and L2
 contract DeploySimpleSafe is Script {
-    /// @notice Deploy a simple Safe as l1ProxyAdminOwner
+    /// @notice Deploy a 2/3 Safe as ProxyAdminOwner on both L1 and L2
     function run() public {
         vm.startBroadcast();
-        // Get deployer address from environment variable as the sole owner
-        address deployer = vm.addr(vm.envUint("DEPLOYER_PRIVATE_KEY"));
 
         // Configure Safe parameters
-        address[] memory owners = new address[](1);
-        owners[0] = deployer;
+        address[] memory owners = new address[](3);
+        owners[0] = 0x6ee7bda7af04f61ccf93ab4b8db2289abe76c6aa;
+        owners[1] = 0xd3c6821de67a5c0345ec5a41e4c83739f7043972;
+        owners[2] = 0x11caa37c9e9da2621bb45af77cb7debee3881d2e;
 
-        uint256 threshold = 1; // Set threshold to 1 for simplified deployment
+        uint256 threshold = 2;
 
         // Deploy Safe
-        address safeAddress = deploySafe("L1ProxyAdminSafe", owners, threshold);
+        address safeAddress = deploySafe("ProxyAdminSafe", owners, threshold);
 
-        console.log("L1ProxyAdminSafe deployed at:", safeAddress);
-        console.log("   Owner:", deployer);
+        console.log("ProxyAdminSafe deployed at:", safeAddress);
+        console.log("   Owners:");
+        for (uint256 i = 0; i < owners.length; i++) {
+            console.log("      [%d] %s", i, owners[i]);
+        }
         console.log("   Threshold:", threshold);
 
         vm.stopBroadcast();
     }
 
-    /// @notice Deploy Safe contract
+    /// @notice Deploy Safe contract using CREATE2 for deterministic deployment
     /// @param _name Safe contract name
     /// @param _owners Array of owner addresses
     /// @param _threshold Signature threshold
@@ -44,8 +47,9 @@ contract DeploySimpleSafe is Script {
         // Get or deploy SafeProxyFactory and Safe Singleton
         (SafeProxyFactory safeProxyFactory, Safe safeSingleton) = _getSafeFactory();
 
-        // Generate salt (using name to ensure deterministic deployment)
-        bytes32 salt = keccak256(abi.encode(_name, "DeploySimpleSafe"));
+        // Generate salt from owners and name for deterministic deployment
+        // Note: Same owners will produce same address across deployments
+        bytes32 salt = keccak256(abi.encode(_name, _owners));
         console.log("Deploying safe: %s with salt %s", _name, vm.toString(salt));
 
         // Prepare initialization data
@@ -60,11 +64,16 @@ contract DeploySimpleSafe is Script {
         console.log("New Safe %s deployed at: %s", _name, addr_);
     }
 
-    /// @notice Get Safe factory contracts
+    /// @notice Get Safe factory contracts (v1.3.0)
+    /// @dev Uses canonical Safe v1.3.0 deployment addresses.
+    ///      These addresses are available on most EVM chains.
+    ///      If not found, new instances will be deployed.
+    ///      Ref: https://github.com/safe-global/safe-deployments
     /// @return safeProxyFactory_ SafeProxyFactory contract instance
     /// @return safeSingleton_ Safe Singleton contract instance
     function _getSafeFactory() internal returns (SafeProxyFactory safeProxyFactory_, Safe safeSingleton_) {
-        // Use standard deployment addresses
+        // Canonical Safe v1.3.0 deployment addresses
+        // These addresses are deterministic across most EVM-compatible chains
         address safeProxyFactory = 0xa6B71E26C5e0845f74c812102Ca7114b6a896AB2;
         address safeSingleton = 0xd9Db270c1B5E3Bd161E8c8503c55cEABeE709552;
 
