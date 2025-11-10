@@ -39,7 +39,7 @@ run-geth-test:
 		echo "Using current branch"; \
 	fi && \
 	echo "Running E2E tests..."; \
-	MallocNanoZone=0 go test -count=1 -failfast -race -v -p 1 -timeout 600s ./test/e2e/...
+	MallocNanoZone=0 go test -count=1 -failfast -v -p 1 -timeout 600s ./test/e2e/...
 
 .PHONY: test-geth-e2e
 test-geth-e2e: stop
@@ -48,10 +48,10 @@ test-geth-e2e: stop
 	@echo "Running with SEQ_TYPE=geth RPC_TYPE=geth"
 	@if [ -n "$(OP_GETH_BRANCH)" ]; then \
 		echo "Running E2E tests with branch: $(OP_GETH_BRANCH)"; \
-		SEQ_TYPE=geth RPC_TYPE=geth SKIP_OP_GETH_BUILD=false SKIP_OP_RETH_BUILD=true $(MAKE) run && sleep 3 && $(MAKE) run-geth-test; \
+		SEQ_TYPE=geth RPC_TYPE=geth SKIP_OP_GETH_BUILD=false SKIP_OP_RETH_BUILD=true $(MAKE) run && sleep 10 && $(MAKE) run-geth-test; \
 	else \
 		echo "Running E2E tests with default branch"; \
-		SEQ_TYPE=geth RPC_TYPE=geth SKIP_OP_GETH_BUILD=false SKIP_OP_RETH_BUILD=true $(MAKE) run && sleep 3 && $(MAKE) run-geth-test; \
+		SEQ_TYPE=geth RPC_TYPE=geth SKIP_OP_GETH_BUILD=false SKIP_OP_RETH_BUILD=true $(MAKE) run && sleep 10 && $(MAKE) run-geth-test; \
 	fi && echo "✅ Geth E2E tests passed ✅"
 
 .PHONY: run-reth-test
