@@ -50,13 +50,20 @@ func TestMintOnRevertedDeposit(t *testing.T) {
 	require.NoError(t, err)
 	cancel()
 
-	toAddr := common.Address{0xff, 0xff}
+	toAddr := common.Address{}
+
+	// Use contract creation with reverting bytecode to trigger L2 revert
+	// The mint will happen, but the contract creation will fail
 	mintAmount := big.NewInt(9_000_000)
 	opts.Value = mintAmount
+
 	helpers.SendDepositTx(t, cfg, l1Client, l2Verif, opts, func(l2Opts *helpers.DepositTxOpts) {
 		l2Opts.ToAddr = toAddr
-		// trigger a revert by transferring more than we have available
-		l2Opts.Value = new(big.Int).Mul(common.Big2, startBalance)
+		l2Opts.Value = mintAmount
+		l2Opts.IsCreation = true
+		// Use bytecode that immediately reverts (0xFD is REVERT opcode)
+		l2Opts.Data = []byte{0xFD}
+		l2Opts.GasLimit = 100_000
 		l2Opts.ExpectedStatus = types.ReceiptStatusFailed
 	})
 
@@ -66,15 +73,10 @@ func TestMintOnRevertedDeposit(t *testing.T) {
 	cancel()
 	require.NoError(t, err)
 
-	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
-	toAddrBalance, err := l2Verif.BalanceAt(ctx, toAddr, nil)
-	cancel()
-	require.NoError(t, err)
-
+	// Since contract creation failed, the sender should have received the minted ETH
 	diff := new(big.Int)
 	diff = diff.Sub(endBalance, startBalance)
-	require.Equal(t, mintAmount, diff, "Did not get expected balance change")
-	require.Equal(t, common.Big0.Int64(), toAddrBalance.Int64(), "The recipient account balance should be zero")
+	require.Equal(t, mintAmount, diff, "Did not get expected balance change - mint should persist even on failed contract creation")
 
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	endNonce, err := l2Verif.NonceAt(ctx, fromAddr, nil)

@@ -192,34 +192,39 @@ func TestMixedDepositValidity(t *testing.T) {
 		// Create our L1 deposit transaction and send it.
 		mintAmount := big.NewInt(randomProvider.Int63() % 9_000_000)
 		transactor.Account.L1Opts.Value = mintAmount
-		var transferValue *big.Int
 		if validTransfer {
-			transferValue = new(big.Int).Div(transactor.ExpectedL2Balance, common.Big3) // send 1/3 our balance which should succeed.
-		} else {
-			transferValue = new(big.Int).Mul(common.Big2, transactor.ExpectedL2Balance) // trigger a revert by trying to transfer our current balance * 2
-		}
-		helpers.SendDepositTx(t, cfg, l1Client, l2Verif, transactor.Account.L1Opts, func(l2Opts *helpers.DepositTxOpts) {
-			l2Opts.GasLimit = 100_000
-			l2Opts.IsCreation = false
-			l2Opts.Data = nil
-			l2Opts.ToAddr = toAddr
-			l2Opts.Value = transferValue
-			if validTransfer {
+			helpers.SendDepositTx(t, cfg, l1Client, l2Verif, transactor.Account.L1Opts, func(l2Opts *helpers.DepositTxOpts) {
+				l2Opts.GasLimit = 100_000
+				l2Opts.IsCreation = false
+				l2Opts.Data = nil
+				l2Opts.ToAddr = toAddr
+				l2Opts.Value = mintAmount
 				l2Opts.ExpectedStatus = types.ReceiptStatusSuccessful
-			} else {
+			})
+		} else {
+			// Invalid transfer: use contract creation with reverting bytecode
+			helpers.SendDepositTx(t, cfg, l1Client, l2Verif, transactor.Account.L1Opts, func(l2Opts *helpers.DepositTxOpts) {
+				l2Opts.GasLimit = 100_000
+				l2Opts.IsCreation = true
+				l2Opts.Data = []byte{0xFD}
+				l2Opts.ToAddr = common.Address{}
+				l2Opts.Value = mintAmount
 				l2Opts.ExpectedStatus = types.ReceiptStatusFailed
-			}
-		})
+			})
+		}
 
 		// Update our expected balances.
-		if validTransfer && transactor != receiver {
-			// Transactor balances changes by minted minus transferred value.
-			transactor.ExpectedL2Balance = new(big.Int).Add(transactor.ExpectedL2Balance, new(big.Int).Sub(mintAmount, transferValue))
-			// Receiver balance changes by transferred value.
-			receiver.ExpectedL2Balance = new(big.Int).Add(receiver.ExpectedL2Balance, transferValue)
+		if validTransfer {
+			if transactor != receiver {
+				// Transactor: mints mintAmount, sends mintAmount to receiver
+				receiver.ExpectedL2Balance = new(big.Int).Add(receiver.ExpectedL2Balance, mintAmount)
+			} else {
+				// Self-transfer: mints mintAmount, sends mintAmount to self
+				transactor.ExpectedL2Balance = new(big.Int).Add(transactor.ExpectedL2Balance, mintAmount)
+			}
 		} else {
-			// If the transfer failed, minting should've still succeeded but the balance shouldn't have transferred
-			// to the recipient.
+			// Invalid transfer (contract creation failed): minting succeeded, but no transfer occurred
+			// Net change = +mintAmount (stays with transactor)
 			transactor.ExpectedL2Balance = new(big.Int).Add(transactor.ExpectedL2Balance, mintAmount)
 		}
 		transactor.ExpectedL1Nonce = transactor.ExpectedL1Nonce + 1
