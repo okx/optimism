@@ -57,7 +57,7 @@ func RunWithdrawalsTest(t *testing.T, sys CommonSystem) {
 	opts.Value = mintAmount
 	t.Logf("WithdrawalsTest: depositing %v with L2 start balance %v...", mintAmount, startBalanceBeforeDeposit)
 	helpers.SendDepositTx(t, cfg, l1Client, l2Verif, opts, func(l2Opts *helpers.DepositTxOpts) {
-		// With msg.value == _value requirement: L2 transfer value must equal L1 deposit value
+		// For X Layer: With msg.value == _value requirement: L2 transfer value must equal L1 deposit value
 		l2Opts.Value = mintAmount
 	})
 	t.Log("WithdrawalsTest: waiting for balance change...")

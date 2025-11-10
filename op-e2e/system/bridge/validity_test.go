@@ -192,6 +192,7 @@ func TestMixedDepositValidity(t *testing.T) {
 		// Create our L1 deposit transaction and send it.
 		mintAmount := big.NewInt(randomProvider.Int63() % 9_000_000)
 		transactor.Account.L1Opts.Value = mintAmount
+		// For X Layer
 		if validTransfer {
 			helpers.SendDepositTx(t, cfg, l1Client, l2Verif, transactor.Account.L1Opts, func(l2Opts *helpers.DepositTxOpts) {
 				l2Opts.GasLimit = 100_000
@@ -202,7 +203,7 @@ func TestMixedDepositValidity(t *testing.T) {
 				l2Opts.ExpectedStatus = types.ReceiptStatusSuccessful
 			})
 		} else {
-			// Invalid transfer: use contract creation with reverting bytecode
+			// For X Layer: Invalid transfer: use contract creation with reverting bytecode
 			helpers.SendDepositTx(t, cfg, l1Client, l2Verif, transactor.Account.L1Opts, func(l2Opts *helpers.DepositTxOpts) {
 				l2Opts.GasLimit = 100_000
 				l2Opts.IsCreation = true
@@ -213,7 +214,7 @@ func TestMixedDepositValidity(t *testing.T) {
 			})
 		}
 
-		// Update our expected balances.
+		// For X Layer: Update our expected balances.
 		if validTransfer {
 			if transactor != receiver {
 				// Transactor: mints mintAmount, sends mintAmount to receiver

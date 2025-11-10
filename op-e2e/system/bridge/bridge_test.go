@@ -88,6 +88,6 @@ func TestERC20BridgeDeposits(t *testing.T) {
 	tx, err = transactions.PadGasEstimate(opts, 1.1, func(opts *bind.TransactOpts) (*types.Transaction, error) {
 		return l1StandardBridge.BridgeERC20(opts, wethAddress, event.LocalToken, big.NewInt(100), 100000, []byte{})
 	})
-	// expect error because the bridge is paused
+	// For X Layer: expect error because the bridge is paused
 	require.ErrorContains(t, err, "not allow bridge")
 }

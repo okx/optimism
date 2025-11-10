@@ -50,9 +50,10 @@ func TestMintOnRevertedDeposit(t *testing.T) {
 	require.NoError(t, err)
 	cancel()
 
+	// For X Layer
 	toAddr := common.Address{}
 
-	// Use contract creation with reverting bytecode to trigger L2 revert
+	// For X Layer: Use contract creation with reverting bytecode to trigger L2 revert
 	// The mint will happen, but the contract creation will fail
 	mintAmount := big.NewInt(9_000_000)
 	opts.Value = mintAmount
@@ -73,7 +74,7 @@ func TestMintOnRevertedDeposit(t *testing.T) {
 	cancel()
 	require.NoError(t, err)
 
-	// Since contract creation failed, the sender should have received the minted ETH
+	// For X Layer: Since contract creation failed, the sender should have received the minted ETH
 	diff := new(big.Int)
 	diff = diff.Sub(endBalance, startBalance)
 	require.Equal(t, mintAmount, diff, "Did not get expected balance change - mint should persist even on failed contract creation")
