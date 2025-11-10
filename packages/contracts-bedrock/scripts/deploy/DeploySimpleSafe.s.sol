@@ -15,9 +15,9 @@ contract DeploySimpleSafe is Script {
 
         // Configure Safe parameters
         address[] memory owners = new address[](3);
-        owners[0] = 0x6ee7bda7af04f61ccf93ab4b8db2289abe76c6aa;
-        owners[1] = 0xd3c6821de67a5c0345ec5a41e4c83739f7043972;
-        owners[2] = 0x11caa37c9e9da2621bb45af77cb7debee3881d2e;
+        owners[0] = 0x6eE7BDa7AF04F61ccf93aB4b8DB2289aBe76C6aA;
+        owners[1] = 0xD3C6821DE67A5c0345EC5A41e4C83739f7043972;
+        owners[2] = 0x11CAA37c9e9Da2621bB45Af77cB7debEE3881d2E;
 
         uint256 threshold = 2;
 
