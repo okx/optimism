@@ -541,6 +541,8 @@ func (c *XLayerRemoteClient) postSignRequestAndWaitResult(ctx context.Context, r
 }
 
 // reassembleBlobTransaction reassembles a blob transaction with signature from remote signer
+//
+//nolint:unused
 func (c *XLayerRemoteClient) reassembleBlobTransaction(originalTx *types.Transaction, signedTx *types.Transaction) (*types.Transaction, error) {
 	c.logger.Info("Reassembling blob transaction with signature from remote signer")
 

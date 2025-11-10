@@ -95,10 +95,7 @@ func RollupNodeMain(ctx *cli.Context, closeApp context.CancelCauseFunc) (cliapp.
 		// Create geth-specific config handler
 		handler := opnodeApollo.NewOpNodeConfigHandler()
 
-		// Create flags for Apollo config context (exclude Apollo connection flags)
-		flags := append(flags.Flags)
-
-		flags = apollo.SanitizeFlags(flags)
+		flags := apollo.SanitizeFlags(flags.Flags)
 
 		client, err := apollo.GetInstance(&config.AppConfig{
 			AppID:         cfg.Apollo.AppID,
