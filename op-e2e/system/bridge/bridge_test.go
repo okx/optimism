@@ -14,7 +14,6 @@ import (
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/receipts"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/transactions"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/wait"
-	"github.com/ethereum-optimism/optimism/op-node/rollup/derive"
 	"github.com/ethereum-optimism/optimism/op-service/predeploys"
 	"github.com/ethereum-optimism/optimism/op-service/testlog"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -31,7 +30,6 @@ func TestMain(m *testing.M) {
 // TestERC20BridgeDeposits tests the the L1StandardBridge bridge ERC20
 // functionality.
 func TestERC20BridgeDeposits(t *testing.T) {
-	t.Skip("skipping bridge test")
 	op_e2e.InitParallel(t)
 
 	cfg := e2esys.DefaultSystemConfig(t)
@@ -90,30 +88,6 @@ func TestERC20BridgeDeposits(t *testing.T) {
 	tx, err = transactions.PadGasEstimate(opts, 1.1, func(opts *bind.TransactOpts) (*types.Transaction, error) {
 		return l1StandardBridge.BridgeERC20(opts, wethAddress, event.LocalToken, big.NewInt(100), 100000, []byte{})
 	})
-	require.NoError(t, err)
-	depositReceipt, err := wait.ForReceiptOK(context.Background(), l1Client, tx.Hash())
-	require.NoError(t, err)
-
-	t.Log("Deposit through L1StandardBridge", "gas used", depositReceipt.GasUsed)
-
-	// compute the deposit transaction hash + poll for it
-	portal, err := bindings.NewOptimismPortal(cfg.L1Deployments.OptimismPortalProxy, l1Client)
-	require.NoError(t, err)
-
-	depositEvent, err := receipts.FindLog(depositReceipt.Logs, portal.ParseTransactionDeposited)
-	require.NoError(t, err, "Should emit deposit event")
-
-	depositTx, err := derive.UnmarshalDepositLogEvent(&depositEvent.Raw)
-	require.NoError(t, err)
-	_, err = wait.ForReceiptOK(context.Background(), l2Client, types.NewTx(depositTx).Hash())
-	require.NoError(t, err)
-
-	// Ensure that the deposit went through
-	optimismMintableToken, err := bindings.NewOptimismMintableERC20(event.LocalToken, l2Client)
-	require.NoError(t, err)
-
-	// Should have balance on L2
-	l2Balance, err := optimismMintableToken.BalanceOf(&bind.CallOpts{}, opts.From)
-	require.NoError(t, err)
-	require.Equal(t, l2Balance, big.NewInt(100))
+	// expect error because the bridge is paused
+	require.ErrorContains(t, err, "not allow bridge")
 }
