@@ -11,7 +11,6 @@ import (
 	"github.com/ethereum-optimism/optimism/op-e2e/system/helpers"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 
@@ -58,7 +57,8 @@ func RunWithdrawalsTest(t *testing.T, sys CommonSystem) {
 	opts.Value = mintAmount
 	t.Logf("WithdrawalsTest: depositing %v with L2 start balance %v...", mintAmount, startBalanceBeforeDeposit)
 	helpers.SendDepositTx(t, cfg, l1Client, l2Verif, opts, func(l2Opts *helpers.DepositTxOpts) {
-		l2Opts.Value = common.Big0
+		// For X Layer: With msg.value == _value requirement: L2 transfer value must equal L1 deposit value
+		l2Opts.Value = mintAmount
 	})
 	t.Log("WithdrawalsTest: waiting for balance change...")
 
