@@ -158,7 +158,7 @@ func newECB(b cipher.Block) *ecb {
 
 type ecbEncrypter ecb
 
-// newECBEncrypt returns a BlockMode which encrypts in electronic code book
+// newECBEncrypter returns a BlockMode which encrypts in electronic code book
 // mode, using the given Block.
 func newECBEncrypter(b cipher.Block) cipher.BlockMode {
 	return (*ecbEncrypter)(newECB(b))
