@@ -92,7 +92,7 @@ func RollupNodeMain(ctx *cli.Context, closeApp context.CancelCauseFunc) (cliapp.
 
 	if cfg.Apollo.Enable && cfg != nil {
 		opnodeApollo.SetApolloConfig(cfg)
-		// Create geth-specific config handler
+		// Create op-node-specific config handler
 		handler := opnodeApollo.NewOpNodeConfigHandler()
 
 		// Create flags for Apollo config context (exclude Apollo connection flags)
