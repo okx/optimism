@@ -40,10 +40,10 @@ func IsApolloConfigSet() bool {
 	return globalApolloConfig != nil
 }
 
-// OpNodeConfigHandler implements geth-specific configuration change logic
+// OpNodeConfigHandler implements op-node-specific configuration change logic
 type OpNodeConfigHandler struct{}
 
-// HandleConfigChange implements geth-specific configuration change logic
+// HandleConfigChange implements op-node-specific configuration change logic
 func (g *OpNodeConfigHandler) HandleConfigChange(prefix string, ctx *cli.Context, key string, value *storage.ConfigChange) {
 	component := getComponentFromNamespace(prefix)
 
@@ -95,7 +95,7 @@ func getComponentFromNamespace(namespace string) string {
 	return ""
 }
 
-// NewOpNodeConfigHandler creates a new geth-specific config handler
+// NewOpNodeConfigHandler creates a new op-node-specific config handler
 func NewOpNodeConfigHandler() *OpNodeConfigHandler {
 	return &OpNodeConfigHandler{}
 }
