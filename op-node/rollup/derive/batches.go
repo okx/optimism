@@ -220,6 +220,8 @@ func checkSpanBatchPrefix(ctx context.Context, cfg *rollup.Config, log log.Logge
 
 	nextTimestamp := l2SafeHead.Time + cfg.BlockTime
 
+	log.Info("checkSpanBatchPrefix", "nextTimestamp", nextTimestamp, "safe num", l2SafeHead.Number, "count", len(batch.Batches), "first", batch.Batches[0].Timestamp, "last", batch.Batches[len(batch.Batches)-1].Timestamp)
+
 	if batch.GetTimestamp() > nextTimestamp {
 		if cfg.IsHolocene(l1InclusionBlock.Time) {
 			log.Warn("dropping future span batch", "next_timestamp", nextTimestamp)

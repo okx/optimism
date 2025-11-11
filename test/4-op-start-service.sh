@@ -1,6 +1,5 @@
 #!/bin/bash
 set -e
-set -x
 
 # Load environment variables early
 source .env
@@ -73,7 +72,8 @@ sleep 5
 #$SCRIPTS_DIR/add-peers.sh
 
 if [ "$LAUNCH_RPC_NODE" = "true" ]; then
-    docker compose up -d op-rpc
+    echo ""
+    #docker compose up -d op-rpc
 fi
 
 # Configure op-batcher endpoints based on conductor mode
@@ -86,12 +86,102 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
 else
     echo "🔧 Configuring op-batcher for single sequencer mode..."
     # Set single sequencer mode endpoints
-    export OP_BATCHER_L2_ETH_RPC="http://op-${SEQ_TYPE}-seq:8545"
-    export OP_BATCHER_ROLLUP_RPC="http://op-seq:9545"
-    echo "✅ op-batcher configured for single sequencer mode"
+#    export OP_BATCHER_L2_ETH_RPC="http://op-${SEQ_TYPE}-seq:8545"
+#    export OP_BATCHER_ROLLUP_RPC="http://op-seq:9545"
+#    echo "✅ op-batcher configured for single sequencer mode"
 fi
 
+INIT_HEIGHT=8593921
+EXPECTED_WAIT_TIME=200
+TARGET_SAFE_HEIGHT=$INIT_HEIGHT
+START_TIME=$(date +%s)
+echo "⏳ Waiting for sequencer window to expire and safe height to exceed $TARGET_SAFE_HEIGHT... (expected wait time: ~${EXPECTED_WAIT_TIME}s)"
+while true; do
+    CURRENT_SAFE=$(cast bn -r http://localhost:8123 safe 2>/dev/null || echo "0")
+    if [ "$CURRENT_SAFE" -gt "$TARGET_SAFE_HEIGHT" ]; then
+        echo "✅ Safe height reached: $CURRENT_SAFE (target: $TARGET_SAFE_HEIGHT)"
+        break
+    fi
+    ELAPSED_TIME=$(($(date +%s) - START_TIME))
+    REMAINING_TIME=$((EXPECTED_WAIT_TIME - ELAPSED_TIME))
+    if [ "$REMAINING_TIME" -lt 0 ]; then
+        REMAINING_TIME=0
+    fi
+    echo "   Current safe height: $CURRENT_SAFE, waiting for safe height > $TARGET_SAFE_HEIGHT... (elapsed: ${ELAPSED_TIME}s, remaining: ~${REMAINING_TIME}s)"
+    sleep 10
+done
+
 docker compose up -d op-batcher
+
+CURRENT_SAFE=$(cast bn -r http://localhost:8123 safe 2>/dev/null || echo "0")
+
+CHANNEL_TIMEOUT_GRANITE=50
+MARGIN=50
+L1_BLOCKTIME=2
+EXTRA_SAFE_HEIGHT=$((CHANNEL_TIMEOUT_GRANITE * L1_BLOCKTIME + MARGIN))
+TARGET_SAFE_HEIGHT=$((CURRENT_SAFE + EXTRA_SAFE_HEIGHT))
+EXPECTED_WAIT_TIME=$EXTRA_SAFE_HEIGHT
+START_TIME=$(date +%s)
+echo "⏳ Waiting for safe height to exceed $TARGET_SAFE_HEIGHT... (expected wait time: ~${EXPECTED_WAIT_TIME}s)"
+while true; do
+    CURRENT_SAFE=$(cast bn -r http://localhost:8123 safe 2>/dev/null || echo "0")
+    if [ "$CURRENT_SAFE" -gt "$TARGET_SAFE_HEIGHT" ]; then
+        echo "✅ Safe height reached: $CURRENT_SAFE (target: $TARGET_SAFE_HEIGHT)"
+        break
+    fi
+    ELAPSED_TIME=$(($(date +%s) - START_TIME))
+    REMAINING_TIME=$((EXPECTED_WAIT_TIME - ELAPSED_TIME))
+    if [ "$REMAINING_TIME" -lt 0 ]; then
+        REMAINING_TIME=0
+    fi
+    echo "   Current safe height: $CURRENT_SAFE, waiting for safe height > $TARGET_SAFE_HEIGHT... (elapsed: ${ELAPSED_TIME}s, remaining: ~${REMAINING_TIME}s)"
+    sleep 10
+done
+
+# Wait for "decoded" keyword in op-seq logs
+echo "⏳ Waiting for 'decoded' keyword in op-seq logs..."
+while true; do
+    if docker logs op-seq 2>&1 | grep -q "decoded"; then
+        echo "✅ Found 'decoded' keyword in op-seq logs"
+        break
+    fi
+    echo "   Waiting for 'decoded' keyword in op-seq logs..."
+    sleep 5
+done
+
+#sleep 20
+
+# Wait for unsafe - safe < (seq window size * L1 blocktime)
+echo "⏳ Waiting for unsafe - safe < 200..."
+while true; do
+    CURRENT_SAFE=$(cast bn -r http://localhost:8123 safe 2>/dev/null || echo "0")
+    CURRENT_UNSAFE=$(cast bn -r http://localhost:8123 2>/dev/null || echo "0")
+    if [ "$CURRENT_SAFE" != "0" ] && [ "$CURRENT_UNSAFE" != "0" ] && [ $((CURRENT_UNSAFE - CURRENT_SAFE)) -lt 200 ]; then
+        echo "✅ Unsafe - safe < 200: unsafe=$CURRENT_UNSAFE, safe=$CURRENT_SAFE"
+        break
+    fi
+    docker compose restart op-seq
+    sleep 10
+done
+
+docker compose up -d op-rpc
+
+while true; do
+    SAFE_8124=$(cast bn -r http://localhost:8124 safe 2>/dev/null || echo "0")
+    if [ "$SAFE_8124" != "0" ]; then
+        # Check for fork at safe height
+        if ! $SCRIPTS_DIR/check-fork.sh "$SAFE_8124" 2>/dev/null; then
+            echo "❌ Fork detected at safe height $SAFE_8124, breaking loop"
+            break
+        fi
+    fi
+    echo "  ⏳  Waiting for op-rpc to fork..."
+    sleep 5
+done
+
+$SCRIPTS_DIR/find-fork.sh
+
+exit 0
 
 PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd $PWD_DIR
