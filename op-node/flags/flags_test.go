@@ -81,7 +81,7 @@ func TestHasEnvVar(t *testing.T) {
 		flagName := flag.Names()[0]
 
 		t.Run(flagName, func(t *testing.T) {
-			if flagName == PeerScoringName || flagName == PeerScoreBandsName || flagName == TopicScoringName {
+			if flagName == PeerScoringName || flagName == PeerScoreBandsName || flagName == TopicScoringName || strings.Contains(flagName, "apollo") {
 				t.Skipf("Skipping flag %v which is known to have no env vars", flagName)
 			}
 			envFlagGetter, ok := flag.(interface {
@@ -119,6 +119,11 @@ func TestEnvVarFormat(t *testing.T) {
 		"p2p.gossip.mesh.lo",
 		"p2p.gossip.mesh.floodpublish",
 		"l2.engine-sync",
+		"apollo.enabled",
+		"apollo.app-id",
+		"apollo.ip",
+		"apollo.cluster",
+		"apollo.namespace",
 	}
 
 	for _, flag := range Flags {
