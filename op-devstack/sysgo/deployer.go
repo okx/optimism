@@ -13,6 +13,7 @@ import (
 	"github.com/holiman/uint256"
 
 	"github.com/ethereum-optimism/optimism/op-chain-ops/devkeys"
+	"github.com/ethereum-optimism/optimism/op-core/forks"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/artifacts"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/inspect"
@@ -28,6 +29,7 @@ import (
 
 // funderMnemonicIndex the funding account is not one of the 30 standard account, but still derived from a user-key.
 const funderMnemonicIndex = 10_000
+const devFeatureBitmapKey = "devFeatureBitmap"
 
 type DeployerOption func(p devtest.P, keys devkeys.Keys, builder intentbuilder.Builder)
 
@@ -274,10 +276,15 @@ func WithPrefundedL2(l1ChainID, l2ChainID eth.ChainID) DeployerOption {
 	}
 }
 
-// WithDevFeatureBitmap sets the dev feature bitmap.
-func WithDevFeatureBitmap(devFlags common.Hash) DeployerOption {
+// WithDevFeatureEnabled adds a feature as enabled in the dev feature bitmap
+func WithDevFeatureEnabled(flag common.Hash) DeployerOption {
 	return func(p devtest.P, keys devkeys.Keys, builder intentbuilder.Builder) {
-		builder.WithGlobalOverride("devFeatureBitmap", devFlags)
+		currentValue := builder.GlobalOverride(devFeatureBitmapKey)
+		var bitmap common.Hash
+		if currentValue != nil {
+			bitmap = currentValue.(common.Hash)
+		}
+		builder.WithGlobalOverride(devFeatureBitmapKey, deployer.EnableDevFeature(bitmap, flag))
 	}
 }
 
@@ -285,7 +292,7 @@ func WithDevFeatureBitmap(devFlags common.Hash) DeployerOption {
 func WithInteropAtGenesis() DeployerOption {
 	return func(p devtest.P, keys devkeys.Keys, builder intentbuilder.Builder) {
 		for _, l2Cfg := range builder.L2s() {
-			l2Cfg.WithForkAtGenesis(rollup.Interop)
+			l2Cfg.WithForkAtGenesis(forks.Interop)
 		}
 	}
 }
@@ -294,13 +301,13 @@ func WithInteropAtGenesis() DeployerOption {
 // activate hardforks sequentially, starting from startFork and continuing
 // until (but not including) endFork. Each successive fork is scheduled at
 // an increasing offset.
-func WithHardforkSequentialActivation(startFork, endFork rollup.ForkName, delta *uint64) DeployerOption {
+func WithHardforkSequentialActivation(startFork, endFork forks.Name, delta *uint64) DeployerOption {
 	return func(p devtest.P, keys devkeys.Keys, builder intentbuilder.Builder) {
 		for _, l2Cfg := range builder.L2s() {
 			l2Cfg.WithForkAtGenesis(startFork)
 			activateWithOffset := false
 			deactivate := false
-			for idx, refFork := range rollup.AllForks {
+			for idx, refFork := range forks.All {
 				if deactivate || refFork == endFork {
 					l2Cfg.WithForkAtOffset(refFork, nil)
 					deactivate = true

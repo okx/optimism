@@ -4,6 +4,7 @@
 !go.*
 # internal dependencies
 !cannon/
+!op-core/
 !op-alt-da/
 !op-geth/
 !op-node/

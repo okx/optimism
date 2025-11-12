@@ -10,10 +10,10 @@ import (
 
 	"github.com/ethereum-optimism/optimism/op-acceptance-tests/tests/interop/loadtest"
 	"github.com/ethereum-optimism/optimism/op-chain-ops/devkeys"
+	"github.com/ethereum-optimism/optimism/op-core/forks"
 	"github.com/ethereum-optimism/optimism/op-devstack/devtest"
 	"github.com/ethereum-optimism/optimism/op-devstack/dsl"
 	"github.com/ethereum-optimism/optimism/op-devstack/presets"
-	"github.com/ethereum-optimism/optimism/op-node/rollup"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/derive"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/txinclude"
@@ -103,6 +103,12 @@ func (env *daFootprintEnv) setDAFootprintGasScalarViaSystemConfig(t devtest.T, s
 	return rec
 }
 
+func (env *daFootprintEnv) getDAFootprintGasScalarOfSystemConfig(t devtest.T) uint16 {
+	scalar, err := contractio.Read(env.systemConfig.DAFootprintGasScalar(), t.Ctx())
+	t.Require().NoError(err)
+	return scalar
+}
+
 // expectL1BlockDAFootprintGasScalar expects the given DA footprint gas scalar to be set in the L1Block contract.
 func (env *daFootprintEnv) expectL1BlockDAFootprintGasScalar(t devtest.T, expected uint16) {
 	current, err := contractio.Read(env.l1Block.DAFootprintGasScalar(), t.Ctx())
@@ -115,14 +121,14 @@ func TestDAFootprint(gt *testing.T) {
 	sys := presets.NewMinimal(t)
 	require := t.Require()
 
-	err := dsl.RequiresL2Fork(t.Ctx(), sys, 0, rollup.Jovian)
+	err := dsl.RequiresL2Fork(t.Ctx(), sys, 0, forks.Jovian)
 	require.NoError(err, "Jovian fork must be active for this test")
 
 	env := newDAFootprintEnv(t, sys.L2Chain, sys.L1EL, sys.L2EL)
 	env.checkCompatibility(t)
 
 	systemOwner := env.getSystemConfigOwner(t)
-	sys.FunderL1.FundAtLeast(systemOwner, eth.OneTenthEther)
+	sys.FunderL1.FundAtLeast(systemOwner, eth.HalfEther)
 	l2BlockTime := time.Duration(sys.L2Chain.Escape().RollupConfig().BlockTime) * time.Second
 	sys.L2EL.WaitForOnline()
 	ethClient := sys.L2EL.Escape().EthClient()
@@ -145,8 +151,15 @@ func TestDAFootprint(gt *testing.T) {
 			if tc.setScalar != nil {
 				rec := env.setDAFootprintGasScalarViaSystemConfig(t, *tc.setScalar)
 				// Wait for change to propagate to L2
-				env.l2EL.WaitL1OriginReached(eth.Unsafe, rec.BlockNumber.Uint64(), 20)
+				// Retrying up to 100 times is overkill, but lower values may not work on
+				// persistent networks. See the following issue for more details.
+				// https://github.com/ethereum-optimism/optimism/issues/18061
+				env.l2EL.WaitL1OriginReached(eth.Unsafe, rec.BlockNumber.Uint64(), 100)
 			} else {
+				scalar := env.getDAFootprintGasScalarOfSystemConfig(t)
+				if scalar != 0 {
+					t.Skipf("Skipping default scalar test because SystemConfig DA footprint gas scalar is set to %d != 0", scalar)
+				}
 				sys.L2EL.WaitForBlockNumber(1) // make sure we don't assert on genesis
 			}
 			env.expectL1BlockDAFootprintGasScalar(t, tc.expected)
@@ -161,7 +174,7 @@ func TestDAFootprint(gt *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				eoa := sys.FunderL2.NewFundedEOA(eth.OneEther.Mul(100))
+				eoa := sys.FunderL2.NewFundedEOA(eth.OneTenthEther)
 				includer := txinclude.NewPersistent(txinclude.NewPkSigner(eoa.Key().Priv(), eoa.ChainID().ToBig()), struct {
 					*txinclude.Resubmitter
 					*txinclude.Monitor
@@ -196,7 +209,7 @@ func TestDAFootprint(gt *testing.T) {
 
 			_, txs, err := ethClient.InfoAndTxsByHash(t.Ctx(), info.Hash())
 			require.NoError(err)
-			_, receipts, err := sys.L2EL.Escape().L2EthExtendedClient().FetchReceipts(t.Ctx(), info.Hash())
+			_, receipts, err := sys.L2EL.Escape().L2EthClient().FetchReceipts(t.Ctx(), info.Hash())
 			require.NoError(err)
 
 			var totalDAFootprint uint64
