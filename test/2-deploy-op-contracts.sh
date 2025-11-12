@@ -152,7 +152,7 @@ docker run --rm \
       --artifacts-locator file:///app/packages/contracts-bedrock/forge-artifacts \
       --l1-rpc-url $L1_RPC_URL_IN_DOCKER \
       --outfile /deployments/implementations.json \
-      --mips-version "7" \
+      --mips-version "8" \
       --private-key $DEPLOYER_PRIVATE_KEY \
       --protocol-versions-proxy $PROTOCOL_VERSIONS_PROXY \
       --superchain-config-proxy $SUPERCHAIN_CONFIG_PROXY \

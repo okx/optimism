@@ -91,10 +91,8 @@ add_game_type_via_safe() {
     DISPUTE_GAME_FACTORY=$(cast call --rpc-url $L1_RPC_URL $SYSTEM_CONFIG_PROXY_ADDRESS 'disputeGameFactory()(address)')
 
     echo "Debug Info:"
-    echo "  State JSON: $STATE_JSON_PATH"
     echo "  Dispute Game Factory: $DISPUTE_GAME_FACTORY"
     echo "  System Config: $SYSTEM_CONFIG_PROXY_ADDRESS"
-    echo "  Proxy Admin: $PROXY_ADMIN"
     echo "  OPCM: $OPCM_IMPL_ADDRESS"
     echo "  Safe: $SAFE_ADDRESS"
     echo "  RPC URL: $L1_RPC_URL"
@@ -116,6 +114,9 @@ add_game_type_via_safe() {
     MAX_GAME_DEPTH=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME 'maxGameDepth()')
     SPLIT_DEPTH=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME 'splitDepth()')
     VM=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME 'vm()(address)')
+    
+    # Get DelayedWETH address from existing game, or use 0x0 to deploy a new one
+    DELAYED_WETH=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME 'weth()(address)' 2>/dev/null || echo "0x0000000000000000000000000000000000000000")
 
     echo "Retrieved parameters:"
     echo "  Absolute Prestate: $ABSOLUTE_PRESTATE"
@@ -124,6 +125,7 @@ add_game_type_via_safe() {
     echo "  Clock Extension: $CLOCK_EXTENSION_VAL"
     echo "  Max Clock Duration: $MAX_CLOCK_DURATION_VAL"
     echo "  VM: $VM"
+    echo "  DelayedWETH: $DELAYED_WETH"
     echo ""
 
     # Set constants
@@ -132,8 +134,12 @@ add_game_type_via_safe() {
 
     echo "Creating addGameType calldata..."
 
-    # Build game type parameters array (simplified)
-    GAME_PARAMS="[(\"$SALT_MIXER\",$SYSTEM_CONFIG_PROXY_ADDRESS,$PROXY_ADMIN,0x0000000000000000000000000000000000000000,$GAME_TYPE,$ABSOLUTE_PRESTATE,$MAX_GAME_DEPTH,$SPLIT_DEPTH,$CLOCK_EXTENSION_VAL,$MAX_CLOCK_DURATION_VAL,$INITIAL_BOND,$VM,$IS_PERMISSIONED)]"
+    # Build game type parameters array for v1.16.1
+    # struct AddGameInput { string saltMixer; ISystemConfig systemConfig; IDelayedWETH delayedWETH; 
+    #   GameType disputeGameType; Claim disputeAbsolutePrestate; uint256 disputeMaxGameDepth;
+    #   uint256 disputeSplitDepth; Duration disputeClockExtension; Duration disputeMaxClockDuration;
+    #   uint256 initialBond; IBigStepper vm; bool permissioned; }
+    GAME_PARAMS="[(\"$SALT_MIXER\",$SYSTEM_CONFIG_PROXY_ADDRESS,$DELAYED_WETH,$GAME_TYPE,$ABSOLUTE_PRESTATE,$MAX_GAME_DEPTH,$SPLIT_DEPTH,$CLOCK_EXTENSION_VAL,$MAX_CLOCK_DURATION_VAL,$INITIAL_BOND,$VM,$IS_PERMISSIONED)]"
 
     echo "Parameters prepared for addGameType"
 
@@ -142,8 +148,11 @@ add_game_type_via_safe() {
     echo "Target: $SAFE_ADDRESS"
     echo "From: $(cast wallet address --private-key $DEPLOYER_PRIVATE_KEY)"
 
-    # Simplified DELEGATECALL - build calldata first, then call
-    ADDGAMETYPE_CALLDATA=$(cast calldata 'addGameType((string,address,address,address,uint32,bytes32,uint256,uint256,uint64,uint64,uint256,address,bool)[])' "$GAME_PARAMS")
+    # Build calldata for addGameType with v1.16.1 signature
+    # AddGameInput: (string saltMixer, address systemConfig, address delayedWETH, uint32 gameType, 
+    #                bytes32 prestate, uint256 maxDepth, uint256 splitDepth, uint64 clockExt, 
+    #                uint64 maxClock, uint256 bond, address vm, bool permissioned)
+    ADDGAMETYPE_CALLDATA=$(cast calldata 'addGameType((string,address,address,uint32,bytes32,uint256,uint256,uint64,uint64,uint256,address,bool)[])' "$GAME_PARAMS")
 
 
     # Execute transaction via Safe's execTransaction with proper signature
@@ -262,7 +271,6 @@ add_game_type_via_transactor() {
     echo "Debug Info:"
     echo "  Dispute Game Factory: $DISPUTE_GAME_FACTORY"
     echo "  System Config: $SYSTEM_CONFIG_PROXY_ADDRESS"
-    echo "  Proxy Admin: $PROXY_ADMIN"
     echo "  OPCM: $OPCM_IMPL_ADDRESS"
     echo "  Transactor: $TRANSACTOR"
     echo "  RPC URL: $L1_RPC_URL"
@@ -284,6 +292,9 @@ add_game_type_via_transactor() {
     MAX_GAME_DEPTH=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME 'maxGameDepth()')
     SPLIT_DEPTH=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME 'splitDepth()')
     VM=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME 'vm()(address)')
+    
+    # Get DelayedWETH address from existing game, or use 0x0 to deploy a new one
+    DELAYED_WETH=$(cast call --rpc-url $L1_RPC_URL $PERMISSIONED_GAME 'weth()(address)' 2>/dev/null || echo "0x0000000000000000000000000000000000000000")
 
     echo "Retrieved parameters:"
     echo "  Absolute Prestate: $ABSOLUTE_PRESTATE"
@@ -292,6 +303,7 @@ add_game_type_via_transactor() {
     echo "  Clock Extension: $CLOCK_EXTENSION_VAL"
     echo "  Max Clock Duration: $MAX_CLOCK_DURATION_VAL"
     echo "  VM: $VM"
+    echo "  DelayedWETH: $DELAYED_WETH"
     echo ""
 
     # Set constants
@@ -300,13 +312,20 @@ add_game_type_via_transactor() {
 
     echo "Creating addGameType calldata..."
 
-    # Build game type parameters array
-    GAME_PARAMS="[(\"$SALT_MIXER\",$SYSTEM_CONFIG_PROXY_ADDRESS,$PROXY_ADMIN,0x0000000000000000000000000000000000000000,$GAME_TYPE,$ABSOLUTE_PRESTATE,$MAX_GAME_DEPTH,$SPLIT_DEPTH,$CLOCK_EXTENSION_VAL,$MAX_CLOCK_DURATION_VAL,$INITIAL_BOND,$VM,$IS_PERMISSIONED)]"
+    # Build game type parameters array for v1.16.1
+    # struct AddGameInput { string saltMixer; ISystemConfig systemConfig; IDelayedWETH delayedWETH; 
+    #   GameType disputeGameType; Claim disputeAbsolutePrestate; uint256 disputeMaxGameDepth;
+    #   uint256 disputeSplitDepth; Duration disputeClockExtension; Duration disputeMaxClockDuration;
+    #   uint256 initialBond; IBigStepper vm; bool permissioned; }
+    GAME_PARAMS="[(\"$SALT_MIXER\",$SYSTEM_CONFIG_PROXY_ADDRESS,$DELAYED_WETH,$GAME_TYPE,$ABSOLUTE_PRESTATE,$MAX_GAME_DEPTH,$SPLIT_DEPTH,$CLOCK_EXTENSION_VAL,$MAX_CLOCK_DURATION_VAL,$INITIAL_BOND,$VM,$IS_PERMISSIONED)]"
 
     echo "Parameters prepared for addGameType"
 
-    # Build calldata for addGameType
-    ADDGAMETYPE_CALLDATA=$(cast calldata 'addGameType((string,address,address,address,uint32,bytes32,uint256,uint256,uint64,uint64,uint256,address,bool)[])' "$GAME_PARAMS")
+    # Build calldata for addGameType with v1.16.1 signature
+    # AddGameInput: (string saltMixer, address systemConfig, address delayedWETH, uint32 gameType, 
+    #                bytes32 prestate, uint256 maxDepth, uint256 splitDepth, uint64 clockExt, 
+    #                uint64 maxClock, uint256 bond, address vm, bool permissioned)
+    ADDGAMETYPE_CALLDATA=$(cast calldata 'addGameType((string,address,address,uint32,bytes32,uint256,uint256,uint64,uint64,uint256,address,bool)[])' "$GAME_PARAMS")
 
     echo "Executing DELEGATECALL via Transactor..."
     echo "TRANSACTOR address: $TRANSACTOR"
