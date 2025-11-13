@@ -27,7 +27,7 @@ type S3Store struct {
 func NewS3Store(cfg S3Config) (*S3Store, error) {
 	client, err := minio.New(cfg.Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.AccessKeyID, cfg.AccessKeySecret, ""),
-		Secure: true,
+		Secure: false, // temporary disable SSL
 	})
 	if err != nil {
 		return nil, err

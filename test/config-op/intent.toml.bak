@@ -34,3 +34,10 @@ l2ContractsLocator = "file:///app/packages/contracts-bedrock/forge-artifacts"
     name = "OKB"
     symbol = "OKB"
     InitialLiquidity = "0x0" # 0 OKB, no premint
+  [chains.dangerousAltDAConfig]
+    useAltDA = true
+    daCommitmentType = "KeccakCommitment"
+    daChallengeWindow = 16
+    daResolveWindow = 16
+    daBondSize = 1000000
+    daResolverRefundPercentage = 0

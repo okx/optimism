@@ -302,6 +302,9 @@ services:
       - --pprof.addr=0.0.0.0
       - --pprof.port=9091
       - --l2.enginekind=${SEQ_TYPE}
+      - -altda.enabled=${USE_S3_DA}
+      - -altda.da-service=${USE_S3_DA}
+      - -altda.da-server=http://da-server:3100
     depends_on:
       - op-${SEQ_TYPE}-seq
     healthcheck:
@@ -345,6 +348,9 @@ services:
       - --rollup.l1-chain-config=/l1-genesis.json
       - --safedb.path=/data/safedb
       - --l2.enginekind=${RPC_TYPE}
+      - -altda.enabled=${USE_S3_DA}
+      - -altda.da-service=${USE_S3_DA}
+      - -altda.da-server=http://da-server:3100
     depends_on:
       - op-${RPC_TYPE}-rpc
 
@@ -397,7 +403,7 @@ services:
       - --poll-interval=5s
       - --batch-type=1
       - --compression-algo=brotli-11
-      - --data-availability-type=auto
+      - --data-availability-type=${DATA_AVAILABILITY_TYPE:-auto}
       - --max-channel-duration=30
       - --target-num-frames=5
       - --sub-safety-margin=6
@@ -413,6 +419,9 @@ services:
       - --private-key=${OP_BATCHER_PRIVATE_KEY}
       - --throttle.block-size-upper-limit=1300000
       - --active-sequencer-check-duration=5s
+      - --altda.da-server=http://da-server:3100
+      - --altda.enabled=${USE_S3_DA}
+      - --altda.da-service=${USE_S3_DA}
 
   op-proposer:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -575,6 +584,9 @@ services:
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor2:8547
       - --l2.enginekind=${SEQ_TYPE}
+      - -altda.enabled=${USE_S3_DA}
+      - -altda.da-service=${USE_S3_DA}
+      - -altda.da-server=http://da-server:3100
     depends_on:
       - op-${SEQ_TYPE}-seq2
     healthcheck:
@@ -645,7 +657,7 @@ services:
       retries: 10
       start_period: 3s
 
- # Keep op-seq3 to run op-geth as default EL 
+ # Keep op-seq3 to run op-geth as default EL
   op-seq3:
     image: "${OP_STACK_IMAGE_TAG}"
     container_name: op-seq3
@@ -687,6 +699,9 @@ services:
       - --conductor.enabled=${CONDUCTOR_ENABLED:-false}
       - --conductor.rpc=http://op-conductor3:8547
       - --l2.enginekind=geth
+      - -altda.enabled=${USE_S3_DA}
+      - -altda.da-service=${USE_S3_DA}
+      - -altda.da-server=http://da-server:3100
     depends_on:
       - op-geth-seq3
     healthcheck:
@@ -737,3 +752,42 @@ services:
     command:
     - --geth-mempool-endpoint=http://op-reth-seq:8545
     - --reth-mempool-endpoint=http://op-geth-seq3:8545
+
+  da-server:
+    image: op-stack:latest
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: >
+      /app/op-alt-da/bin/da-server
+      --addr=0.0.0.0
+      --port=3100
+      --log.level=debug
+      --generic-commitment=false
+      --s3.bucket="${BUCKET_NAME}"
+      --s3.endpoint="host.docker.internal:9000"
+      --s3.access-key-id=${S3_ACCESS_KEY_ID}
+      --s3.access-key-secret=${S3_SECRET_ACCESS_KEY}
+    ports:
+      - "3100:3100"
+    volumes:
+      - "./data/da_data:/data"
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+    restart: always
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-03-12T18-04-18Z
+    container_name: minio-op-da
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - "./data/minio_data:/data"
+    command: 'server /data --console-address ":9001"'
+    environment:
+      - MINIO_ROOT_USER=root
+      - MINIO_ROOT_PASSWORD=01234567

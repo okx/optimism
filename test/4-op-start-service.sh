@@ -5,6 +5,14 @@ set -x
 # Load environment variables early
 source .env
 
+#start minio and da-server
+if [ "$USE_S3_DA" = "true" ]; then
+  echo "start minio and da-server"
+  docker compose up -d minio
+  sleep 10
+  docker run --add-host="host.docker.internal:host-gateway" -v ./.env:/.env -v ./mc.sh:/mc.sh --entrypoint /bin/bash  docker.io/minio/mc:RELEASE.2025-08-13T08-35-41Z-2-g77f82e18 /mc.sh
+  docker compose up -d da-server
+fi
 sed_inplace() {
   if [[ "$OSTYPE" == "darwin"* ]]; then
     sed -i '' "$@"
