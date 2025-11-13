@@ -24,7 +24,10 @@ exec op-reth node \
       --authrpc.port=8552 \
       --authrpc.jwtsecret=/jwt.txt \
       --trusted-peers="${TRUSTED_PEERS}" \
+      --tx-propagation-policy=all \
       --txpool.max-account-slots=100000 \
       --txpool.pending-max-count=100000 \
       --txpool.queued-max-count=100000 \
-      --txpool.basefee-max-count=100000
+      --txpool.basefee-max-count=100000 \
+      --txpool.max-pending-txns=100000 \
+      --txpool.max-new-txns=100000
