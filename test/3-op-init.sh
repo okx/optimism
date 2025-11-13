@@ -140,9 +140,14 @@ docker compose run --no-deps --rm \
 echo " 🔑 Removing nodekey to generate unique node ID for other nodes..."
 rm -f "$OP_GETH_DATADIR/geth/nodekey"
 
+# Get trusted peers enode url
+sed_inplace "s|TRUSTED_PEERS=.*|TRUSTED_PEERS=$(./scripts/trusted-peers.sh)|" .env
+
 # init reth sequencer
 echo " 🔧 Initializing reth sequencer..."
 OP_RETH_DATADIR="$(pwd)/data/op-reth-seq"
+OP_RETH_DATADIR2="$(pwd)/data/op-reth-seq2"
+
 rm -rf "$OP_RETH_DATADIR"
 mkdir -p "$OP_RETH_DATADIR"
 INIT_LOG=$(docker compose run --no-deps --rm \
@@ -172,7 +177,6 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
         rm -rf "$OP_GETH_DATADIR2"
         cp -r $OP_GETH_DATADIR $OP_GETH_DATADIR2
     elif [ "$SEQ_TYPE" = "reth" ]; then
-        OP_RETH_DATADIR2="$(pwd)/data/op-reth-seq2"
         rm -rf "$OP_RETH_DATADIR2"
         cp -r $OP_RETH_DATADIR $OP_RETH_DATADIR2
     fi
@@ -185,6 +189,10 @@ fi
 
 if [ "$SEQ_TYPE" = "reth" ]; then
   echo -n "1aba031aeb5aa8aedadaf04159d20e7d58eeefb3280176c7d59040476c2ab21b" > $OP_RETH_DATADIR/discovery-secret
+  if [ "$CONDUCTOR_ENABLED" = "true" ]; then
+    echo -n "934ee1c6d37504aa6397b13348d2b5788a0bae5d3a77c71645f8b28be54590d9" > $OP_RETH_DATADIR2/discovery-secret
+  fi
+    echo "✅ Set p2p nodekey for reth sequencer"
 fi
 
 echo "✅ Finished init op-$SEQ_TYPE-seq and op-$RPC_TYPE-rpc."
