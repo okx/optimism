@@ -27,4 +27,5 @@ exec op-reth node \
       --txpool.max-account-slots=100000 \
       --txpool.pending-max-count=100000 \
       --txpool.queued-max-count=100000 \
-      --txpool.basefee-max-count=100000
+      --txpool.basefee-max-count=100000 \
+      --txpool.max-pending-txns=100000
