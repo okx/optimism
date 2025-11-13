@@ -29,9 +29,14 @@ StaticNodes = [
 NetworkId = 901
 SyncMode = "full"
 
+[Eth.TxPool]
+GlobalSlots = 500000
+GlobalQueue = 100000
+AccountSlots = 50000
+AccountQueue = 10000
+
 [Eth.XLayer]
 EnableInnerTx = true
-
 
 [Eth.GPO]
 Blocks = 20
