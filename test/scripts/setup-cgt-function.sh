@@ -1,5 +1,7 @@
 #!/bin/bash
 
+source .env
+
 sed_inplace() {
   if [[ "$OSTYPE" == "darwin"* ]]; then
     sed -i '' "$@"
@@ -10,6 +12,10 @@ sed_inplace() {
 
 # Setup Custom Gas Token (CGT) function
 setup_cgt() {
+  local ROOT_DIR=$1
+  local CONFIG_DIR=$2
+  local L1_RPC_URL=$3
+
   echo "🔧 Setting up Custom Gas Token (CGT) configuration..."
   echo ""
 
@@ -44,10 +50,11 @@ setup_cgt() {
 
     # Temporarily disable set -e to capture forge output properly
     set +e
-    MOCK_OKB_OUTPUT=$(forge script scripts/DeployMockOKB.s.sol:DeployMockOKB \
+    MOCK_OKB_OUTPUT_FILE=$(mktemp)
+    forge script scripts/DeployMockOKB.s.sol:DeployMockOKB \
       --rpc-url "$L1_RPC_URL" \
       --private-key "$DEPLOYER_PRIVATE_KEY" \
-      --broadcast 2>&1 | tee /dev/tty)
+      --broadcast 2>&1 | tee $MOCK_OKB_OUTPUT_FILE
     MOCK_OKB_EXIT_CODE=$?
     set -e
 
@@ -61,7 +68,8 @@ setup_cgt() {
     fi
 
     # Extract MockOKB contract address from forge output
-    OKB_TOKEN_ADDRESS=$(echo "$MOCK_OKB_OUTPUT" | grep "MockOKB deployed at:" | awk '{print $NF}')
+    OKB_TOKEN_ADDRESS=$(cat $MOCK_OKB_OUTPUT_FILE | grep "MockOKB deployed at:" | awk '{print $NF}')
+    rm $MOCK_OKB_OUTPUT_FILE
 
     if [ -z "$OKB_TOKEN_ADDRESS" ]; then
       echo ""
@@ -85,7 +93,7 @@ setup_cgt() {
 
   # Get required addresses from state.json
   echo "📝 Step 2: Running Custom Gas Token setup script..."
-  STATE_JSON="$PWD_DIR/config-op/state.json"
+  STATE_JSON="$CONFIG_DIR/state.json"
   SYSTEM_CONFIG_PROXY_ADDRESS=$(jq -r '.opChainDeployments[0].SystemConfigProxy' "$STATE_JSON")
   OPTIMISM_PORTAL_PROXY_ADDRESS=$(jq -r '.opChainDeployments[0].OptimismPortalProxy' "$STATE_JSON")
 
@@ -96,10 +104,11 @@ setup_cgt() {
 
   # Temporarily disable set -e to capture forge output properly
   set +e
-  FORGE_OUTPUT=$(forge script scripts/SetupCustomGasToken.s.sol:SetupCustomGasToken \
+  FORGE_OUTPUT_FILE=$(mktemp)
+  forge script scripts/SetupCustomGasToken.s.sol:SetupCustomGasToken \
     --rpc-url "$L1_RPC_URL" \
     --private-key "$DEPLOYER_PRIVATE_KEY" \
-    --broadcast 2>&1 | tee /dev/tty)
+    --broadcast 2>&1 | tee $FORGE_OUTPUT_FILE
   FORGE_EXIT_CODE=$?
   set -e
 
@@ -113,7 +122,8 @@ setup_cgt() {
   fi
 
   # Extract adapter address from setup script output
-  ADAPTER_ADDRESS=$(echo "$FORGE_OUTPUT" | grep "DepositedOKBAdapter deployed at:" | awk '{print $NF}')
+  ADAPTER_ADDRESS=$(cat $FORGE_OUTPUT_FILE | grep "DepositedOKBAdapter deployed at:" | awk '{print $NF}')
+  rm $FORGE_OUTPUT_FILE
 
   # Use the already deployed OKB token address
   OKB_TOKEN="$OKB_TOKEN_ADDRESS"
@@ -131,3 +141,21 @@ setup_cgt() {
   echo "   Adapter:            $ADAPTER_ADDRESS"
   echo ""
 }
+
+if [ -z "$1" ]; then
+  echo "❌ ERROR: ROOT_DIR is not passed as an argument"
+  echo "Please pass the ROOT_DIR as the first argument"
+  exit 1
+fi
+if [ -z "$2" ]; then
+  echo "❌ ERROR: CONFIG_DIR is not passed as an argument"
+  echo "Please pass the CONFIG_DIR as the second argument"
+  exit 1
+fi
+if [ -z "$3" ]; then
+  echo "❌ ERROR: L1_RPC_URL is not passed as an argument"
+  echo "Please pass the L1_RPC_URL as the third argument"
+  exit 1
+fi
+
+setup_cgt $1 $2 $3
