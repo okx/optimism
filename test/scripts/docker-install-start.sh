@@ -16,6 +16,7 @@ apt-get remove -y --purge docker.io
 # curl -sSL https://get.docker.com/ | sh
 curl -fsSL https://get.docker.com -o install-docker.sh
 sh install-docker.sh --version 28.5.0
+rm -f install-docker.sh
 
 # The code below is taken from: https://github.com/moby/moby/blob/v26.0.1/hack/dind#L59
 # It is used to avoid the error: "docker: Error response from daemon: failed to create task for container:
