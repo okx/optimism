@@ -59,10 +59,8 @@ jq ".genesis.l2.hash = \"$NEW_BLOCK_HASH\"" config-op/rollup.json > config-op/ro
 mv config-op/rollup.json.tmp config-op/rollup.json
 
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
-    docker compose up -d op-conductor
-    docker compose up -d op-conductor2
-    docker compose up -d op-conductor3
-    sleep 3
+    docker compose up -d op-conductor op-conductor2 op-conductor3
+    sleep 10
     $SCRIPTS_DIR/active-sequencer.sh
 else
     docker compose up -d op-seq

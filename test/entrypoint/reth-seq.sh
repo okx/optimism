@@ -11,7 +11,7 @@ exec op-reth node \
       --http.corsdomain=* \
       --http.port=8545 \
       --http.addr=0.0.0.0 \
-      --http.api=web3,debug,eth,txpool,net,miner \
+      --http.api=web3,debug,eth,txpool,net,miner,admin \
       --ws \
       --ws.addr=0.0.0.0 \
       --ws.port=7546 \
