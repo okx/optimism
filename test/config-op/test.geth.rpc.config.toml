@@ -24,7 +24,6 @@ StaticNodes = [
 ]
 
 [Eth]
-NetworkId = 901
 SyncMode = "full"
 
 [Eth.TxPool]
