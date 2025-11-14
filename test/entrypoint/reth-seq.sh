@@ -23,5 +23,11 @@ exec op-reth node \
       --authrpc.addr=0.0.0.0 \
       --authrpc.port=8552 \
       --authrpc.jwtsecret=/jwt.txt \
-      --rollup.disable-tx-pool-gossip \
-      --trusted-peers=enode://ef8135659def07b48b54fe2de7d0368e3eaa0a080ef13dde560169357900954be1a1e890b5973a821f9158e512a2da3ff600368f44e18e725a86931eaae5ef64@op-${SEQ_TYPE}-seq:30303
+      --trusted-peers="${TRUSTED_PEERS}" \
+      --tx-propagation-policy=all \
+      --txpool.max-account-slots=100000 \
+      --txpool.pending-max-count=100000 \
+      --txpool.queued-max-count=100000 \
+      --txpool.basefee-max-count=100000 \
+      --txpool.max-pending-txns=100000 \
+      --txpool.max-new-txns=100000

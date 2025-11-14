@@ -504,6 +504,7 @@ services:
       - --config=/config.toml
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
+      - --nodekeyhex=934ee1c6d37504aa6397b13348d2b5788a0bae5d3a77c71645f8b28be54590d9
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
       interval: 3s
@@ -638,6 +639,7 @@ services:
       - --config=/config.toml
       - --gcmode=archive
       - --rollup.disabletxpoolgossip=false
+      - --nodekeyhex=e95afe4502d7b84b03856047e8190a5ba4db55dd16e40945163e5cd9ed620227
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8545"]
       interval: 3s
@@ -735,5 +737,5 @@ services:
     image: xlayerdev/mempool-rebroadcaster
     container_name: mempool-rebroadcaster
     command:
-    - --geth-mempool-endpoint=http://op-reth-seq:8545
-    - --reth-mempool-endpoint=http://op-geth-seq3:8545
+      - --geth-mempool-endpoint=http://op-geth-seq3:8545
+      - --reth-mempool-endpoint=http://op-reth-seq:8545
