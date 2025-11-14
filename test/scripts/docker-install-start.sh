@@ -11,7 +11,11 @@ fi
 apt-get update
 apt-get remove -y --purge docker.io
 
-curl -sSL https://get.docker.com/ | sh
+# NOTE: Docker 29.0.0 has an issue with the Docker in Docker (due to overlay filesystem), so we are using 28.5.0.
+# TODO: Remove this once we have a stable version of Docker in Docker
+# curl -sSL https://get.docker.com/ | sh
+curl -fsSL https://get.docker.com -o install-docker.sh
+sh install-docker.sh --version 28.5.0
 
 # The code below is taken from: https://github.com/moby/moby/blob/v26.0.1/hack/dind#L59
 # It is used to avoid the error: "docker: Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: unable to apply cgroup configuration: cannot enter cgroupv2 "/sys/fs/cgroup/docker" with domain controllers -- it is in threaded mode: unknown."
