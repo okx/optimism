@@ -2297,6 +2297,8 @@ workflows:
       - contracts-bedrock-build:
           context:
             - circleci-repo-readonly-authenticated-github-token
+          requires:
+            - initialize
           filters:
             tags:
               only: /^(da-server|cannon|ufm-[a-z0-9\-]*|op-[a-z0-9\-]*)\/v.*/
@@ -2335,6 +2337,7 @@ workflows:
           context:
             - oplabs-gcr-release
           requires:
+            - initialize
             - contracts-bedrock-build
       # Checks for cross-platform images go here
       - check-cross-platform:
@@ -2383,6 +2386,8 @@ workflows:
               ignore: /.*/
           context:
             - circleci-repo-readonly-authenticated-github-token
+          requires:
+            - initialize
       - publish-cannon-prestates:
           context:
             - circleci-repo-readonly-authenticated-github-token
