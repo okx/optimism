@@ -653,7 +653,6 @@ services:
     command:
       - --networkid=${CHAIN_ID}
       - --verbosity=3
-      - --networkid=196
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
       - --config=/config.toml
