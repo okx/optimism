@@ -186,6 +186,7 @@ services:
       - "30303:30303/udp"
       - "9090:9090"  # pprof port
     command:
+      - --networkid=${CHAIN_ID}
       - --verbosity=3
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
@@ -199,6 +200,10 @@ services:
       timeout: 3s
       retries: 10
       start_period: 3s
+    networks:
+      default:
+        aliases:
+          - op-seq-el
 
   op-reth-seq:
     image: "${OP_RETH_IMAGE_TAG}"
@@ -224,6 +229,10 @@ services:
       timeout: 3s
       retries: 10
       start_period: 3s
+    networks:
+      default:
+        aliases:
+          - op-seq-el
 
   op-geth-rpc:
     image: "${OP_GETH_IMAGE_TAG}"
@@ -498,6 +507,7 @@ services:
       - "30305:30303"
       - "30305:30303/udp"
     command:
+      - --networkid=${CHAIN_ID}
       - --verbosity=3
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
@@ -511,6 +521,10 @@ services:
       timeout: 3s
       retries: 10
       start_period: 3s
+    networks:
+      default:
+        aliases:
+          - op-seq-el2
 
   op-reth-seq2:
     image: "${OP_RETH_IMAGE_TAG}"
@@ -534,6 +548,10 @@ services:
       timeout: 3s
       retries: 10
       start_period: 3s
+    networks:
+      default:
+        aliases:
+          - op-seq-el2
 
   op-seq2:
     image: "${OP_STACK_IMAGE_TAG}"
@@ -633,6 +651,7 @@ services:
       - "30306:30303"
       - "30306:30303/udp"
     command:
+      - --networkid=${CHAIN_ID}
       - --verbosity=3
       - --datadir=/datadir
       - --db.engine=${DB_ENGINE}
@@ -646,8 +665,12 @@ services:
       timeout: 3s
       retries: 10
       start_period: 3s
+    networks:
+      default:
+        aliases:
+          - op-seq-el3
 
- # Keep op-seq3 to run op-geth as default EL 
+ # Keep op-seq3 to run op-geth as default EL
   op-seq3:
     image: "${OP_STACK_IMAGE_TAG}"
     container_name: op-seq3
