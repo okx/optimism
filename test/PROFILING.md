@@ -29,6 +29,17 @@ Edit your `.env` file:
 # Be sure to enable reth
 SEQ_TYPE=reth
 
+# Profiling configuration for op-reth
+RETH_PROFILING_ENABLED=true
+RETH_CPU_PROFILING=true
+
+# To build reth (init.sh)
+SKIP_OP_RETH_BUILD=false
+
+# Depending on which service you want to capture perf.
+SEQ_TYPE=reth
+RPC_TYPE=reth
+
 # Set your reth source directory (if building from source)
 OP_RETH_LOCAL_DIRECTORY=/path/to/your/reth
 ```
