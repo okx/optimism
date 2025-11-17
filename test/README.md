@@ -1,5 +1,22 @@
 # Optimism Test Environment Setup Guide
 
+## Environment Configuration
+
+Configure `example.env` (do not modify `.env` directly) and run `./clean.sh` to sync changes.
+
+| Case | .env Configuration |
+|------|---------------------|
+| **Geth as Sequencer** | `SEQ_TYPE=geth`<br>`SKIP_OP_RETH_BUILD=true`<br>`DB_ENGINE=pebble` |
+| **Reth as Sequencer** | `SEQ_TYPE=reth`<br>`SKIP_OP_RETH_BUILD=false`<br>`OP_RETH_LOCAL_DIRECTORY=/absolute/path/to/reth/repository`<br>`OP_RETH_BRANCH=dev` |
+| **Geth as RPC** | `RPC_TYPE=geth`<br>`LAUNCH_RPC_NODE=true`<br>`SKIP_OP_RETH_BUILD=true`<br>`DB_ENGINE=pebble` |
+| **Reth as RPC** | `RPC_TYPE=reth`<br>`LAUNCH_RPC_NODE=true`<br>`SKIP_OP_RETH_BUILD=false`<br>`OP_RETH_LOCAL_DIRECTORY=/absolute/path/to/reth/repository`<br>`OP_RETH_BRANCH=dev` |
+
+**Notes:**
+- Always modify `example.env`, then run `./clean.sh` to sync to `.env`
+- For Reth configurations, `OP_RETH_LOCAL_DIRECTORY` must be an absolute path
+- Run `./init.sh` to build Docker images after configuration changes
+- `DB_ENGINE` can be `pebble` or `leveldb` (only required for Geth)
+
 ## Prerequisites
 
 ### System Requirements
@@ -19,6 +36,24 @@
    - Prepare base environment
 
 > Important: `init.sh` should only be run once during initial setup. Re-run only if you need to rebuild Docker images after code changes.
+
+> Important: by default, `op-reth` image is not built. `op-geth` is used as RPC by default. If you want to run a Reth RPC node, please set the following variables in `example.env`:
+```bash
+OP_RETH_LOCAL_DIRECTORY=<absolute path to your reth repository>
+OP_RETH_BRANCH=<reth repository branch (if not set, default branch is used)>
+SKIP_OP_RETH_BUILD=false
+# only support `geth` or `reth`
+SEQ_TYPE=reth
+RPC_TYPE=reth
+```
+
+For testing, we recommend using Reth v1.8.2, as follows:
+```bash
+git clone -b dev-1.8.2 https://github.com/okx/reth.git
+cd reth
+docker build -t op-reth:1.8.2 -f DockerfileOp .
+docker tag op-reth:1.8.2 op-reth:latest
+```
 
 ### Code Updates and Image Rebuilding (Optional)
 If you've updated the Optimism codebase and need to rebuild Docker images:
@@ -62,6 +97,7 @@ test/
 │   ├── deposit-from-l1.sh      # L1 to L2 deposit script
 │   ├── deposit-from-banker.sh  # transfer ETH from banker script
 │   └── show-dev-accounts.sh   # Display dev accounts info
+|   └── mempool-rebroadcaster-secheduler.sh # Compares and rebroadcasts missing txs between reth and geth
 ├── config-op/          # Configuration directory
 ├── data/              # Data storage directory
 ├── contracts/         # Smart contracts
@@ -80,14 +116,12 @@ Run `./0-all.sh` to automatically:
 ⚠️ **Important Notes**:
 
 1. Configuration Management:
-   - Always make configuration changes in `example.env`
-   - Never modify `.env` directly as it will be reset by `clean.sh`
-   - Run `clean.sh` to apply changes from `example.env`
+   - if `.env` file does NOT exist, it will be created from `example.env`, when call `./init.sh`
+   - if `.env` file exists, it will NOT be overwritten
 
 2. Environment Reset:
    - `clean.sh` will stop all containers
    - Clean all data directories
-   - Reset `.env` to values from `example.env`
 
 > Note: For first-time setup, we recommend following the step-by-step deployment process to better understand each component and troubleshoot any potential issues.
 
@@ -217,63 +251,6 @@ The `scripts/gray-upgrade-simulation.sh` script simulates a rolling upgrade proc
 
 ## Utility Scripts
 
-### L1 to L2 Deposit Script
-
-The `scripts/deposit-from-l1.sh` script facilitates testing L1 to L2 cross-chain deposits:
-
-#### Features
-- **Automatic Deposit**: Deposits 3000 ETH from L1 to L2
-- **Balance Monitoring**: Monitors L2 balance changes in real-time
-- **Wait Time Tracking**: Measures total deposit confirmation time
-- **Status Updates**: Provides clear progress feedback
-
-#### Usage
-```bash
-# Run the deposit script
-./scripts/deposit-from-l1.sh
-```
-
-#### What it does
-1. **Funds Test Account**: Sends ETH to the test account on L1
-2. **Creates Deposit Transaction**: Calls OptimismPortal.depositTransaction()
-3. **Monitors L2 Balance**: Continuously checks L2 balance until change detected
-4. **Reports Results**: Shows deposit confirmation time and balance changes
-
-#### Configuration
-The script uses these default parameters:
-- **Deposit Amount**: 3000 ETH
-- **Gas Limit**: 100,000
-- **Target Address**: Same as sender (self-deposit)
-- **L2 RPC**: http://127.0.0.1:8123
-
-This script is useful for:
-- Testing cross-chain deposit functionality
-- Measuring deposit confirmation times
-- Verifying L1/L2 synchronization
-- Validating OptimismPortal contract integration
-
-### Banker Account Deposit Script
-
-The `scripts/deposit-from-banker.sh` script enables large-scale testing using a banker account with massive balance:
-
-#### Features
-- **Large Amount Transfers**: Transfers 1,000,000 ETH (1 million ETH)
-- **Banker Account**: Uses a pre-funded account with astronomical balance
-- **Simple Transfer**: Direct ETH transfer without cross-chain complexity
-- **Legacy Transaction**: Uses legacy transaction format for compatibility
-
-#### Usage
-```bash
-# Run the banker deposit script
-./scripts/deposit-from-banker.sh
-```
-
-#### What it does
-1. **Uses Banker Account**: Leverages account `0x70997970C51812dc3A010C7d01b50e0d17dc79C8`
-2. **Large Transfer**: Sends 1,000,000 ETH to target address
-3. **Direct Transfer**: Simple ETH transfer on L2 network
-4. **Legacy Format**: Uses legacy transaction format
-
 ### Development Accounts Display Script
 
 The `scripts/show-dev-accounts.sh` script displays all development accounts with their private keys:
@@ -298,6 +275,25 @@ The `scripts/show-dev-accounts.sh` script displays all development accounts with
 
 #### Important Notes
 - **Balance Status**: Most dev accounts are pre-funded with 10,000 ETH, but some accounts may have zero initial balance
+
+### Mempool rebroadcaster scheduler
+
+The `scripts/mempool-rebroadcaster-scheduler.sh` script facilitates running the mempool rebroadcaster tool periodically in a default 1 minute interval.
+
+### Usage
+
+- The mempool rebroadcaster tool is crucial to ensure reth and geth transaction pool consistency.
+- In production, the mempool-rebroadcaster should be running inside a scheduler or cron job.
+- For our local devnet, we can deploy the tool inside the scheduler by running the script.
+
+### Reth vs geth txpool
+
+- There are slight differences in the txpool behaviour between opgeth and reth which thus the need for the tool.
+
+||Geth|Reth|
+|---------|------|------|
+|Pending| Next nonce transactions with no nonce gap | Next nonce transactions with a fee higher than the base fee|
+|Queued| Transactions with a nonce gap | Transactions below the base fee, even if they are next nonce, and transactions with a nonce gap|
 
 ## Troubleshooting
 

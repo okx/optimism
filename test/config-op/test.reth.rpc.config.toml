@@ -68,6 +68,7 @@ incoming_ip_throttle_duration = "30s"
 max_outbound = 100
 max_inbound = 30
 max_concurrent_outbound_dials = 15
+trusted_nodes_only = true
 
 [peers.reputation_weights]
 bad_message = -16384

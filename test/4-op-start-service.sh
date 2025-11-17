@@ -1,24 +1,73 @@
 #!/bin/bash
 set -e
+set -x
 
 # Load environment variables early
 source .env
 
+sed_inplace() {
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    sed -i '' "$@"
+  else
+    sed -i "$@"
+  fi
+}
+
 PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "$PWD_DIR")"
-SCRIPTS_DIR=$ROOT_DIR/test/scripts
+SCRIPTS_DIR=$PWD_DIR/scripts
+
+if [ "$SEQ_TYPE" = "geth" ]; then
+    # Start op-geth-seq to get the block hash at FORK_BLOCK+1
+    echo "🚀 Starting op-geth-seq to get block hash at FORK_BLOCK+1..."
+    docker compose up -d op-geth-seq
+    sleep 5
+
+    # Get the block hash at FORK_BLOCK+1
+    TARGET_BLOCK=$((FORK_BLOCK + 1))
+    echo "⏳ Waiting for block height to reach $TARGET_BLOCK..."
+    while true; do
+        CURRENT_BLOCK=$(cast bn -r http://localhost:8123 2>/dev/null || echo "0")
+        if [ "$CURRENT_BLOCK" -ge "$TARGET_BLOCK" ]; then
+            echo "ok"
+            break
+        fi
+        echo "   Current block height: $CURRENT_BLOCK, waiting for block $TARGET_BLOCK..."
+        sleep 1
+    done
+
+    NEW_BLOCK_HASH=$(cast block $TARGET_BLOCK -r http://localhost:8123 --json | jq -r .hash)
+    echo "New block hash: $NEW_BLOCK_HASH"
+    if [ -z "$NEW_BLOCK_HASH" ] || [ "$NEW_BLOCK_HASH" = "null" ] || [ "$NEW_BLOCK_HASH" = "undefined" ]; then
+        echo " ❌ Failed to get block hash at block $TARGET_BLOCK"
+        exit 1
+    fi
+
+    echo " ✅ Got block hash at block $TARGET_BLOCK: $NEW_BLOCK_HASH"
+    sed_inplace "s/NEW_BLOCK_HASH=.*/NEW_BLOCK_HASH=$NEW_BLOCK_HASH/" .env
+else
+    echo "✅ Using existing NEW_BLOCK_HASH from .env for reth mode"
+    if [ -z "$NEW_BLOCK_HASH" ]; then
+        echo "❌ NEW_BLOCK_HASH is not set in .env for reth mode"
+        exit 1
+    fi
+    echo "New block hash: $NEW_BLOCK_HASH"
+fi
+
+# update genesis block hash in rollup.json
+jq ".genesis.l2.hash = \"$NEW_BLOCK_HASH\"" config-op/rollup.json > config-op/rollup.json.tmp
+mv config-op/rollup.json.tmp config-op/rollup.json
 
 if [ "$CONDUCTOR_ENABLED" = "true" ]; then
-    docker compose up -d op-conductor
-    docker compose up -d op-conductor2
-    docker compose up -d op-conductor3
-    sleep 3
+    docker compose up -d op-conductor op-conductor2 op-conductor3
+    sleep 10
     $SCRIPTS_DIR/active-sequencer.sh
 else
     docker compose up -d op-seq
 fi
 
-$SCRIPTS_DIR/add-peers.sh
+sleep 5
+
+#$SCRIPTS_DIR/add-peers.sh
 
 if [ "$LAUNCH_RPC_NODE" = "true" ]; then
     docker compose up -d op-rpc
@@ -34,7 +83,7 @@ if [ "$CONDUCTOR_ENABLED" = "true" ]; then
 else
     echo "🔧 Configuring op-batcher for single sequencer mode..."
     # Set single sequencer mode endpoints
-    export OP_BATCHER_L2_ETH_RPC="http://op-geth-seq:8545"
+    export OP_BATCHER_L2_ETH_RPC="http://op-${SEQ_TYPE}-seq:8545"
     export OP_BATCHER_ROLLUP_RPC="http://op-seq:9545"
     echo "✅ op-batcher configured for single sequencer mode"
 fi
