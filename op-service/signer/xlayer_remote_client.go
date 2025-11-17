@@ -373,6 +373,8 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 			"v_nil", v == nil,
 			"r_nil", r == nil,
 			"s_nil", s == nil)
+		return nil, fmt.Errorf("signed transaction has invalid signature components: v_nil=%v, r_nil=%v, s_nil=%v",
+			v == nil, r == nil, s == nil)
 	}
 
 	// 5. Verify signed transaction consistency
@@ -423,14 +425,7 @@ func (c *XLayerRemoteClient) detectComponentType(tx *types.Transaction) string {
 	if componentType := c.detectChallengerMethod(methodSig); componentType != "" {
 		return componentType
 	}
-
-	if dataSize > 1000 {
-		return "batcher"
-	} else if dataSize < 200 {
-		return "proposer"
-	} else {
-		return "challenger"
-	}
+	return "unknown"
 }
 
 func (c *XLayerRemoteClient) detectProposerMethod(methodSig []byte) string {
@@ -510,6 +505,8 @@ func (c *XLayerRemoteClient) postSignRequestAndWaitResult(ctx context.Context, r
 			"gas", signedTx.Gas(),
 			"to", signedTx.To(),
 			"value", signedTx.Value())
+		return nil, fmt.Errorf("signed transaction is uninitialized or invalid: type=%d, nonce=%d, gas=%d",
+			signedTx.Type(), signedTx.Nonce(), signedTx.Gas())
 	}
 
 	c.logger.Info("Successfully parsed signed transaction from remote signer",
