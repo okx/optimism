@@ -4,6 +4,25 @@ set -e
 
 source /.env
 
+# Setup profiling if enabled
+if [ "${RETH_PROFILING_ENABLED:-false}" = "true" ]; then
+    echo "=== Reth Profiling Enabled ==="
+
+    # Set Rust environment for better profiling
+    export RUST_BACKTRACE=1
+    export RUSTFLAGS="-C force-frame-pointers=yes"
+
+    # Install perf tools for CPU profiling (if not already installed)
+    if [ "${RETH_CPU_PROFILING:-false}" = "true" ]; then
+        echo "CPU profiling mode enabled"
+        # Perf will be run externally via docker exec
+        # This ensures the process runs with proper permissions
+    fi
+
+    echo "Profiling data will be saved to /profiling/"
+    echo "=============================="
+fi
+
 exec op-reth node \
       --datadir=/datadir \
       --chain=/genesis.json \

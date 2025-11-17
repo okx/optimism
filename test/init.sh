@@ -78,7 +78,17 @@ else
         else
             echo "Using op-reth branch: $(git branch --show-current)"
         fi
-        docker build -t $OP_RETH_IMAGE_TAG -f ./DockerfileOp .
+
+        # Check if profiling is enabled and build accordingly
+        if [ "$RETH_PROFILING_ENABLED" = "true" ]; then
+            echo "Building with profiling support (includes samply)..."
+            cd $PWD_DIR
+            ./scripts/build-reth-with-profiling.sh
+        else
+            echo "Building standard op-reth image..."
+            docker build -t $OP_RETH_IMAGE_TAG -f ./DockerfileOp .
+        fi
+
         cd $OPTIMISM_DIR
     fi
 fi
