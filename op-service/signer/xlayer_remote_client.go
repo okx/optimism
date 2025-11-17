@@ -567,7 +567,7 @@ func (c *XLayerRemoteClient) postSignRequestAndWaitResult(ctx context.Context, r
 			"gas", signedTx.Gas(),
 			"to", signedTx.To(),
 			"value", signedTx.Value())
-		return nil, fmt.Errorf("signed transaction is uninitialized or invalid: type=%d, nonce=%d, gas=%d",
+		return nil, fmt.Errorf("signed transaction  is uninitialized or invalid: type=%d, nonce=%d, gas=%d",
 			signedTx.Type(), signedTx.Nonce(), signedTx.Gas())
 	}
 
