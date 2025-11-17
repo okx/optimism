@@ -6,7 +6,7 @@ This guide explains how to profile op-reth in the local development environment 
 
 The profiling setup uses [Linux perf](https://perf.wiki.kernel.org/) for CPU profiling with full debug symbol support. Profiles are visualized using interactive [flamegraphs](https://www.brendangregg.com/flamegraphs.html) that can be viewed in any web browser.
 
-**Why perf over samply?**
+**Why perf?**
 - ✅ Full function name symbolication (no hex addresses)
 - ✅ Works offline without symbol servers
 - ✅ Generates self-contained SVG flamegraphs
@@ -110,25 +110,6 @@ Generates an interactive SVG flamegraph from perf data.
 - **Self-contained**: No external dependencies
 - **Searchable**: Ctrl+F to find functions
 - **Color-coded**: Visual distinction of code areas
-
-#### `profile-reth-continuous.sh`
-
-Collects multiple profile samples over time.
-
-```bash
-./scripts/profile-reth-continuous.sh [container_name] [interval_seconds] [count]
-```
-
-**Examples:**
-```bash
-# Collect 12 samples, 5 minutes apart (1 hour total)
-./scripts/profile-reth-continuous.sh op-reth-seq 300 12
-
-# Collect 6 samples, 10 minutes apart (1 hour total)
-./scripts/profile-reth-continuous.sh op-reth-seq 600 6
-```
-
-**Note:** This script currently uses samply. For perf-based continuous profiling, run `profile-reth-perf.sh` in a loop.
 
 ### Building Op-Reth with Profiling Support
 
@@ -394,21 +375,6 @@ This was fixed in the latest version. If you still see black bars:
 1. Regenerate with: `./scripts/generate-flamegraph.sh ...`
 2. Check that perf.script has content: `head -50 ./profiling/op-reth-seq/perf-*.script`
 3. Ensure op-reth was active during profiling
-
-## Alternative: Samply Profiling
-
-Samply is also available but requires viewing through its local server:
-
-```bash
-# Profile with samply (generates JSON)
-./scripts/profile-reth-samply.sh op-reth-seq 60
-
-# View through samply's symbol server (inside container)
-./scripts/view-profile-server.sh op-reth-seq reth-profile-TIMESTAMP.json 3014
-# Then open http://localhost:3014 in browser
-```
-
-**Note:** Samply profiles uploaded to profiler.firefox.com will show hex addresses because the symbol server is not accessible. Use perf for offline viewing with proper function names.
 
 ## Advanced Usage
 
