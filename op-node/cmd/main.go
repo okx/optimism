@@ -90,7 +90,7 @@ func RollupNodeMain(ctx *cli.Context, closeApp context.CancelCauseFunc) (cliapp.
 	}
 	cfg.Cancel = closeApp
 
-	if cfg.Apollo.Enable && cfg != nil {
+	if cfg != nil && cfg.Apollo.Enable {
 		opnodeApollo.SetApolloConfig(cfg)
 		// Create op-node-specific config handler
 		handler := opnodeApollo.NewOpNodeConfigHandler()
@@ -104,16 +104,14 @@ func RollupNodeMain(ctx *cli.Context, closeApp context.CancelCauseFunc) (cliapp.
 			NamespaceName: cfg.Apollo.Namespace,
 		}, flags)
 
-		log.Info("Apollo client initialized, apollo config: %+v", cfg.Apollo)
-
-		client.AddHandler(handler)
-
 		if err != nil {
-			log.Error("Failed to initialize Apollo configuration: %v", err)
+			log.Error("Failed to add handler: %v", err)
+			return nil, fmt.Errorf("failed to add handler: %w", err)
 		} else {
-			log.Info("Apollo client initialized")
+			log.Info("Apollo client initialized, apollo config: %+v", cfg.Apollo)
+			client.AddHandler(handler)
+			client.LoadConfig()
 		}
-		client.LoadConfig()
 	}
 
 	// Only pretty-print the banner if it is a terminal log. Otherwise log it as key-value pairs.
