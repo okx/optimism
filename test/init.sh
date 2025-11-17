@@ -81,7 +81,7 @@ else
 
         # Check if profiling is enabled and build accordingly
         if [ "$RETH_PROFILING_ENABLED" = "true" ]; then
-            echo "Building with profiling support (includes samply)..."
+            echo "Building with profiling support..."
             cd $PWD_DIR
             ./scripts/build-reth-with-profiling.sh
         else
