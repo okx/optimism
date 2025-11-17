@@ -14,8 +14,7 @@ sed_inplace() {
 }
 
 PWD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "$PWD_DIR")"
-SCRIPTS_DIR=$ROOT_DIR/test/scripts
+SCRIPTS_DIR=$PWD_DIR/scripts
 
 if [ "$SEQ_TYPE" = "geth" ]; then
     # Start op-geth-seq to get the block hash at FORK_BLOCK+1
