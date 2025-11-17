@@ -233,7 +233,7 @@ services:
       - "30303:30303"
       - "30303:30303/udp"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8545"]
+      test: ["CMD", "curl", "-f", "-X", "POST", "-H", "Content-Type: application/json", "-d", "{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}", "http://localhost:8545"]
       interval: 3s
       timeout: 3s
       retries: 10
