@@ -37,10 +37,74 @@ const (
 	MethodSigClaimCredit = "0x60e27464"
 )
 
+// OperateType represents the operation type for XLayer remote signer
+type OperateType int
+
+const (
+	// OperateTypeLegacy represents legacy transaction operation type
+	OperateTypeLegacy OperateType = 0
+
+	// OperateTypeDynamicFee represents EIP-1559 dynamic fee transaction operation type
+	OperateTypeDynamicFee OperateType = 1
+
+	// OperateTypeBatcherLegacy represents batcher legacy/EIP-1559 transaction operation type
+	OperateTypeBatcherLegacy OperateType = 3
+
+	// OperateTypeBatcherBlob represents batcher EIP-4844 blob transaction operation type
+	OperateTypeBatcherBlob OperateType = 19
+
+	// OperateTypeProposer represents proposer transaction operation type
+	OperateTypeProposer OperateType = 20
+
+	// OperateTypeChallengerResolveClaim represents challenger resolveClaim operation type
+	OperateTypeChallengerResolveClaim OperateType = 21
+
+	// OperateTypeChallengerResolve represents challenger resolve operation type
+	OperateTypeChallengerResolve OperateType = 22
+
+	// OperateTypeChallengerClaimCredit represents challenger claimCredit operation type
+	OperateTypeChallengerClaimCredit OperateType = 23
+)
+
+// ComponentRole represents the role/type of blockchain component
+type ComponentRole string
+
+const (
+	// ComponentRoleBatcher represents the batcher component
+	ComponentRoleBatcher ComponentRole = "batcher"
+
+	// ComponentRoleProposer represents the proposer component
+	ComponentRoleProposer ComponentRole = "proposer"
+
+	// ComponentRoleChallenger represents the challenger component
+	ComponentRoleChallenger ComponentRole = "challenger"
+
+	// ComponentRoleUnknown represents an unknown component
+	ComponentRoleUnknown ComponentRole = "unknown"
+)
+
+// Retry configuration constants
+const (
+	// MaxSigningRetries is the maximum number of retry attempts for signing requests
+	MaxSigningRetries = 3
+
+	// RetryDelay is the delay duration between retry attempts
+	RetryDelay = 5 * time.Second
+
+	// SignResultPollInterval is the polling interval for querying signing results
+	SignResultPollInterval = 1 * time.Second
+)
+
+// Response status codes
+const (
+	// HTTPStatusSuccess represents successful HTTP response status
+	HTTPStatusSuccess = 200
+)
+
 // XLayerSignRequest represents the signing request structure for XLayer remote signer API
 type XLayerSignRequest struct {
 	UserID          int            `json:"userId"`
-	OperateType     int            `json:"operateType"` // EIP4844 = 19
+	OperateType     OperateType    `json:"operateType"` // Use OperateType enum for type safety
 	OperateAddress  common.Address `json:"operateAddress"`
 	Symbol          int            `json:"symbol"`
 	ProjectSymbol   int            `json:"projectSymbol"`
@@ -146,25 +210,25 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 
 	// 2. Determine component type by sender address and build OtherInfo
 	var otherInfo string
-	var operateType int
+	var operateType OperateType
 	var err error
 	componentType := c.detectComponentType(tx)
 	switch componentType {
-	case "batcher":
+	case ComponentRoleBatcher:
 		otherInfo, err = c.buildBatcherOtherInfo(tx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build batcher other info: %w", err)
 		}
 		operateType = c.getBatcherOperateType(tx)
 
-	case "proposer":
+	case ComponentRoleProposer:
 		otherInfo, err = c.buildProposerOtherInfo(tx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build proposer other info: %w", err)
 		}
-		operateType = 20
+		operateType = OperateTypeProposer
 
-	case "challenger":
+	case ComponentRoleChallenger:
 		otherInfo, err = c.buildChallengerOtherInfo(tx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build challenger other info: %w", err)
@@ -231,22 +295,20 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 	// 4. Send signing request and wait for result with intelligent retry logic
 	// Retry only for "pending transaction" errors from remote signer
 	var signedTx *types.Transaction
-	maxRetries := 3
-	retryDelay := 5 * time.Second
 
-	for attempt := 0; attempt <= maxRetries; attempt++ {
+	for attempt := 0; attempt <= MaxSigningRetries; attempt++ {
 		if attempt > 0 {
 			c.logger.Warn("Retrying remote signing after pending transaction error",
 				"attempt", attempt,
-				"max_retries", maxRetries,
-				"delay", retryDelay,
+				"max_retries", MaxSigningRetries,
+				"delay", RetryDelay,
 				"nonce", tx.Nonce())
 
 			// Wait before retry, respecting context cancellation
 			select {
 			case <-ctx.Done():
 				return nil, fmt.Errorf("context cancelled during retry: %w", ctx.Err())
-			case <-time.After(retryDelay):
+			case <-time.After(RetryDelay):
 				// Continue to retry
 			}
 		}
@@ -278,21 +340,21 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 			return nil, fmt.Errorf("remote signing failed: %w", err)
 		}
 
-		if attempt == maxRetries {
+		if attempt == MaxSigningRetries {
 			// Max retries reached for pending tx error
 			c.logger.Error("Remote signing failed after max retries",
-				"max_retries", maxRetries,
+				"max_retries", MaxSigningRetries,
 				"error", err,
 				"nonce", tx.Nonce())
-			return nil, fmt.Errorf("remote signing failed after %d retries (pending transaction): %w", maxRetries, err)
+			return nil, fmt.Errorf("remote signing failed after %d retries (pending transaction): %w", MaxSigningRetries, err)
 		}
 
 		// Will retry - log the pending transaction error
 		c.logger.Info("Remote signer reported pending transaction, will retry",
 			"nonce", tx.Nonce(),
 			"attempt", attempt+1,
-			"max_retries", maxRetries,
-			"next_retry_in", retryDelay)
+			"max_retries", MaxSigningRetries,
+			"next_retry_in", RetryDelay)
 	}
 
 	// Sanity check: ensure signedTx is not nil or invalid
@@ -373,6 +435,8 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 			"v_nil", v == nil,
 			"r_nil", r == nil,
 			"s_nil", s == nil)
+		return nil, fmt.Errorf("signed transaction has invalid signature components: v_nil=%v, r_nil=%v, s_nil=%v",
+			v == nil, r == nil, s == nil)
 	}
 
 	// 5. Verify signed transaction consistency
@@ -398,56 +462,49 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 	return signedTx, nil
 }
 
-func (c *XLayerRemoteClient) detectComponentType(tx *types.Transaction) string {
+func (c *XLayerRemoteClient) detectComponentType(tx *types.Transaction) ComponentRole {
 	data := tx.Data()
 	dataSize := len(data)
 
 	if tx.To() == nil {
-		return "unknown"
+		return ComponentRoleUnknown
 	}
 
 	if len(tx.BlobHashes()) > 0 {
-		return "batcher"
+		return ComponentRoleBatcher
 	}
 
 	if dataSize < 4 {
-		return "unknown"
+		return ComponentRoleUnknown
 	}
 
 	methodSig := data[:4]
 
-	if componentType := c.detectProposerMethod(methodSig); componentType != "" {
+	if componentType := c.detectProposerMethod(methodSig); componentType != ComponentRoleUnknown {
 		return componentType
 	}
 
-	if componentType := c.detectChallengerMethod(methodSig); componentType != "" {
+	if componentType := c.detectChallengerMethod(methodSig); componentType != ComponentRoleUnknown {
 		return componentType
 	}
-
-	if dataSize > 1000 {
-		return "batcher"
-	} else if dataSize < 200 {
-		return "proposer"
-	} else {
-		return "challenger"
-	}
+	return ComponentRoleUnknown
 }
 
-func (c *XLayerRemoteClient) detectProposerMethod(methodSig []byte) string {
+func (c *XLayerRemoteClient) detectProposerMethod(methodSig []byte) ComponentRole {
 	methodSigHex := hexutil.Encode(methodSig)
 	if methodSigHex == MethodSigDGFCreate {
-		return "proposer"
+		return ComponentRoleProposer
 	}
-	return ""
+	return ComponentRoleUnknown
 }
 
-func (c *XLayerRemoteClient) detectChallengerMethod(methodSig []byte) string {
+func (c *XLayerRemoteClient) detectChallengerMethod(methodSig []byte) ComponentRole {
 	methodSigHex := hexutil.Encode(methodSig)
 	switch methodSigHex {
 	case MethodSigResolveClaim, MethodSigResolve, MethodSigClaimCredit:
-		return "challenger"
+		return ComponentRoleChallenger
 	}
-	return ""
+	return ComponentRoleUnknown
 }
 
 // postSignRequestAndWaitResult sends signing request and waits for the result
@@ -510,6 +567,8 @@ func (c *XLayerRemoteClient) postSignRequestAndWaitResult(ctx context.Context, r
 			"gas", signedTx.Gas(),
 			"to", signedTx.To(),
 			"value", signedTx.Value())
+		return nil, fmt.Errorf("signed transaction  is uninitialized or invalid: type=%d, nonce=%d, gas=%d",
+			signedTx.Type(), signedTx.Nonce(), signedTx.Gas())
 	}
 
 	c.logger.Info("Successfully parsed signed transaction from remote signer",
@@ -541,8 +600,6 @@ func (c *XLayerRemoteClient) postSignRequestAndWaitResult(ctx context.Context, r
 }
 
 // reassembleBlobTransaction reassembles a blob transaction with signature from remote signer
-//
-//nolint:unused
 func (c *XLayerRemoteClient) reassembleBlobTransaction(originalTx *types.Transaction, signedTx *types.Transaction) (*types.Transaction, error) {
 	c.logger.Info("Reassembling blob transaction with signature from remote signer")
 
@@ -635,20 +692,28 @@ func (c *XLayerRemoteClient) postSignRequest(ctx context.Context, req *XLayerSig
 		return fmt.Errorf("failed to add auth: %w", err)
 	}
 
-	// Log complete request details after auth
-	c.logger.Info("HTTP Request Details After Auth",
+	// Log request details (Debug level only, with sensitive data filtered)
+	c.logger.Debug("HTTP Request Details",
 		"method", httpReq.Method,
 		"url", httpReq.URL.String(),
 		"headers", func() map[string]string {
 			headers := make(map[string]string)
+			// Filter sensitive headers
+			sensitiveHeaders := map[string]bool{
+				"accesskey":     true,
+				"sign":          true,
+				"authorization": true,
+			}
 			for k, v := range httpReq.Header {
-				if len(v) > 0 {
+				keyLower := strings.ToLower(k)
+				if sensitiveHeaders[keyLower] {
+					headers[k] = "***REDACTED***"
+				} else if len(v) > 0 {
 					headers[k] = v[0]
 				}
 			}
 			return headers
 		}(),
-		"body", string(payload),
 		"body_length", len(payload))
 
 	// 5. Send request
@@ -694,7 +759,7 @@ func (c *XLayerRemoteClient) postSignRequest(ctx context.Context, req *XLayerSig
 		return fmt.Errorf("failed to unmarshal response (body: %s): %w", string(body), err)
 	}
 
-	if signResp.Status != 200 || !signResp.Success {
+	if signResp.Status != HTTPStatusSuccess || !signResp.Success {
 		c.logger.Error("Sign request failed",
 			"response_status", signResp.Status,
 			"response_msg", signResp.Msg,
@@ -719,7 +784,7 @@ func (c *XLayerRemoteClient) waitSignResult(ctx context.Context, orderID string)
 		ProjectSymbol: c.config.ProjectSymbol,
 	}
 
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(SignResultPollInterval)
 	defer ticker.Stop()
 
 	for {
@@ -758,14 +823,23 @@ func (c *XLayerRemoteClient) querySignResult(ctx context.Context, req *XLayerQue
 		return nil, fmt.Errorf("failed to add auth: %w", err)
 	}
 
-	// Log complete request details after auth
-	c.logger.Info("HTTP Query Request Details After Auth",
+	// Log request details (Debug level only, with sensitive data filtered)
+	c.logger.Debug("HTTP Query Request Details",
 		"method", httpReq.Method,
 		"url", httpReq.URL.String(),
 		"headers", func() map[string]string {
 			headers := make(map[string]string)
+			// Filter sensitive headers
+			sensitiveHeaders := map[string]bool{
+				"accesskey":     true,
+				"sign":          true,
+				"authorization": true,
+			}
 			for k, v := range httpReq.Header {
-				if len(v) > 0 {
+				keyLower := strings.ToLower(k)
+				if sensitiveHeaders[keyLower] {
+					headers[k] = "***REDACTED***"
+				} else if len(v) > 0 {
 					headers[k] = v[0]
 				}
 			}
@@ -1130,40 +1204,40 @@ func (c *XLayerRemoteClient) marshalOtherInfo(info interface{}) (string, error) 
 }
 
 // getBatcherOperateType returns the operate type for Batcher transactions
-func (c *XLayerRemoteClient) getBatcherOperateType(tx *types.Transaction) int {
+func (c *XLayerRemoteClient) getBatcherOperateType(tx *types.Transaction) OperateType {
 	switch tx.Type() {
 	case types.BlobTxType:
-		return 19 // Batcher EIP-4844
+		return OperateTypeBatcherBlob
 	default:
-		return 3 // Batcher EIP-1559/Legacy
+		return OperateTypeBatcherLegacy
 	}
 }
 
 // getChallengerOperateType returns the operate type for Challenger transactions based on method signature
-func (c *XLayerRemoteClient) getChallengerOperateType(tx *types.Transaction) int {
+func (c *XLayerRemoteClient) getChallengerOperateType(tx *types.Transaction) OperateType {
 	methodSigHex := hexutil.Encode(tx.Data()[:4])
 	switch methodSigHex {
-	case MethodSigResolveClaim: // resolveClaim(uint256 _claimIndex, uint256 _numToResolve)
-		return 21
-	case MethodSigResolve: // resolve()
-		return 22
-	case MethodSigClaimCredit: // claimCredit(address _recipient)
-		return 23
+	case MethodSigResolveClaim:
+		return OperateTypeChallengerResolveClaim
+	case MethodSigResolve:
+		return OperateTypeChallengerResolve
+	case MethodSigClaimCredit:
+		return OperateTypeChallengerClaimCredit
 	default:
 		c.logger.Warn("Unknown challenger method, using default operateType", "signature", methodSigHex)
-		return 21 // Default to resolveClaim operateType
+		return OperateTypeChallengerResolveClaim
 	}
 }
 
 // getDefaultOperateType returns the default operate type based on transaction type
-func (c *XLayerRemoteClient) getDefaultOperateType(tx *types.Transaction) int {
+func (c *XLayerRemoteClient) getDefaultOperateType(tx *types.Transaction) OperateType {
 	switch tx.Type() {
 	case types.BlobTxType:
-		return 19
+		return OperateTypeBatcherBlob
 	case types.DynamicFeeTxType:
-		return 1
+		return OperateTypeDynamicFee
 	default:
-		return 0
+		return OperateTypeLegacy
 	}
 }
 
