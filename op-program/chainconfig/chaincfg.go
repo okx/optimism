@@ -94,6 +94,12 @@ func L2ChainConfigByChainID(chainID eth.ChainID) (*params.ChainConfig, error) {
 	return l2ChainConfigByChainID(chainID, customChainConfigFS)
 }
 
+// For X Layer
+func isGzipFile(data []byte) bool {
+	return len(data) >= 2 && data[0] == 0x1f && data[1] == 0x8b
+}
+
+// For X Layer
 func decompressGzip(data []byte) ([]byte, error) {
 	reader, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
@@ -116,12 +122,16 @@ func l2ChainConfigByChainID(chainID eth.ChainID, customChainFS embed.FS) (*param
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to get chain config for chain ID %v: %w", chainID, err)
 	}
-	data, err = decompressGzip(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decompress for chain ID %v: %w", chainID, err)
+	// For X Layer
+	// Only decompress if data is gzip-compressed
+	if isGzipFile(data) {
+		data, err = decompressGzip(data)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decompress for chain ID %v: %w", chainID, err)
+		}
+		md5CheckSum := md5.Sum(data)
+		log.Info("decompress genesis", "chain id", chainID, "md5 hash", hex.EncodeToString(md5CheckSum[:]))
 	}
-	md5CheckSum := md5.Sum(data)
-	log.Info("decompress genesis", "chain id", chainID, "md5 hash", hex.EncodeToString(md5CheckSum[:]))
 	var genesis core.Genesis
 	err = json.Unmarshal(data, &genesis)
 	if err != nil {
