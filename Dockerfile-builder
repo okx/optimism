@@ -21,6 +21,3 @@ RUN curl -L https://foundry.paradigm.xyz | bash && \
     /root/.foundry/bin/foundryup && \
     mv /root/.foundry/bin/* /usr/local/bin/ && \
     rm -rf /root/.foundry
-  25 changes: 2 additions & 23 deletions25  
-Dockerfile-contracts
-
