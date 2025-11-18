@@ -102,7 +102,7 @@ func TestChallenger_ResolveClaim_Sepolia_FullFlow(t *testing.T) {
 		QuerySignURI:    "/priapi/v1/assetonchain/ecology/querySignDataByOrderNo",
 		DepositeAddress: "",
 		AccessKey:       "test-access-key",
-		SecretKey:       "test-secret-key!",
+		SecretKey:       "test-secret-key",
 	}
 
 	xlayerClient := NewXLayerRemoteClient(logger, xlayerConfig)
@@ -347,7 +347,7 @@ func TestChallenger_ClaimCredit_Sepolia_FullFlow(t *testing.T) {
 		QuerySignURI:    "/priapi/v1/assetonchain/ecology/querySignDataByOrderNo",
 		DepositeAddress: "",
 		AccessKey:       "test-access-key",
-		SecretKey:       "test-secret-key!",
+		SecretKey:       "test-secret-key",
 	}
 
 	xlayerClient := NewXLayerRemoteClient(logger, xlayerConfig)
