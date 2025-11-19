@@ -6,7 +6,6 @@ import { Script } from "forge-std/Script.sol";
 import { DevFeatures } from "src/libraries/DevFeatures.sol";
 import { DeployUtils } from "scripts/libraries/DeployUtils.sol";
 import { Solarray } from "scripts/libraries/Solarray.sol";
-
 import { ChainAssertions } from "scripts/deploy/ChainAssertions.sol";
 import { Constants as ScriptConstants } from "scripts/libraries/Constants.sol";
 import { Types } from "scripts/libraries/Types.sol";
@@ -19,7 +18,6 @@ import { IDisputeGameFactory } from "interfaces/dispute/IDisputeGameFactory.sol"
 import { IAnchorStateRegistry } from "interfaces/dispute/IAnchorStateRegistry.sol";
 import { IFaultDisputeGame } from "interfaces/dispute/IFaultDisputeGame.sol";
 import { IPermissionedDisputeGame } from "interfaces/dispute/IPermissionedDisputeGame.sol";
-
 import { IOptimismPortal2 as IOptimismPortal } from "interfaces/L1/IOptimismPortal2.sol";
 import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
 import { IL1CrossDomainMessenger } from "interfaces/L1/IL1CrossDomainMessenger.sol";

@@ -236,7 +236,7 @@ contract PreimageOracle is ISemver {
             // this will be zero-padded at the end, since memory at end is clean.
             part := mload(add(sub(ptr, 0x08), _partOffset))
             let h := keccak256(ptr, size) // compute preimage keccak256 hash
-                // mask out prefix byte, replace with type 2 byte
+            // mask out prefix byte, replace with type 2 byte
             key := or(and(h, not(shl(248, 0xFF))), shl(248, 0x02))
         }
         preimagePartOk[key][_partOffset] = true;
@@ -288,7 +288,7 @@ contract PreimageOracle is ISemver {
             // Check if the staticcall succeeded
             if iszero(success) { revert(0, 0) }
             let h := mload(0) // get return data
-                // mask out prefix byte, replace with type 4 byte
+            // mask out prefix byte, replace with type 4 byte
             key := or(and(h, not(shl(248, 0xFF))), shl(248, 4))
         }
         preimagePartOk[key][_partOffset] = true;

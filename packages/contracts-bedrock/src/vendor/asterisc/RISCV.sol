@@ -641,7 +641,7 @@ contract RISCV is IBigStepper {
             // load unaligned, optionally signed, little-endian, integer of 1 ... 8 bytes from memory
             function loadMem(addr, size, signed, proofIndexL, proofIndexR) -> out {
                 if gt(size, 8) { revertWithCode(0xbad512e0) } // cannot load more than 8 bytes
-                    // load/verify left part
+                // load/verify left part
                 let leftAddr := and64(addr, not64(toU64(31)))
                 let left := b32asBEWord(getMemoryB32(leftAddr, proofIndexL))
                 let alignment := sub64(addr, leftAddr)
@@ -654,7 +654,7 @@ contract RISCV is IBigStepper {
                     // if unaligned, use second proof for the right part
                     if eq(proofIndexR, 0xff) { revertWithCode(0xbad22220) } // unexpected need for right-side proof in
                         // loadMem
-                        // load/verify right part
+                    // load/verify right part
                     right := b32asBEWord(getMemoryB32(rightAddr, proofIndexR))
                     // left content is aligned to right of 32 bytes
                     leftShamt := toU64(0)
@@ -746,7 +746,7 @@ contract RISCV is IBigStepper {
                 if eq64(leftAddr, rightAddr) { leave }
                 if eq(proofIndexR, 0xff) { revertWithCode(0xbad22221) } // unexpected need for right-side proof in
                     // storeMem
-                    // load the right base (with updated mem root)
+                // load the right base (with updated mem root)
                 let right := b32asBEWord(getMemoryB32(rightAddr, proofIndexR))
                 // apply the right patch
                 right := or(and(right, not(rightMask)), rightPatch)
@@ -1093,7 +1093,7 @@ contract RISCV is IBigStepper {
                 case 113 {
                     // clock_gettime
                     let addr := getRegister(toU64(11)) // addr of timespec struct
-                        // write 1337s + 42ns as time
+                    // write 1337s + 42ns as time
                     let value := or(shortToU256(1337), shl(shortToU256(64), toU256(42)))
                     storeMemUnaligned(addr, toU64(16), value, 1, 2)
                     setRegister(toU64(10), toU64(0))

@@ -437,7 +437,7 @@ contract MIPS64 is ISemver {
                     newThread.registers[i] = thread.registers[i];
                 }
                 newThread.registers[29] = a1; // set stack pointer
-                    // the child will perceive a 0 value as returned value instead, and no error
+                // the child will perceive a 0 value as returned value instead, and no error
                 newThread.registers[2] = 0;
                 newThread.registers[7] = 0;
                 state.nextThreadID++;
@@ -898,7 +898,7 @@ contract MIPS64 is ISemver {
             from, to := copyMem(from, to, 8) // lo
             from, to := copyMem(from, to, 8) // hi
             from := mload(from) // offset to registers
-                // Copy registers
+            // Copy registers
             for { let i := 0 } lt(i, 32) { i := add(i, 1) } { from, to := copyMem(from, to, 8) }
 
             // Clean up end of memory
@@ -958,7 +958,7 @@ contract MIPS64 is ISemver {
                 c, m := putField(c, m, 8) // lo
                 c, m := putField(c, m, 8) // hi
                 m := mload(m) // offset to registers
-                    // Unpack register calldata into memory
+                // Unpack register calldata into memory
                 for { let i := 0 } lt(i, 32) { i := add(i, 1) } { c, m := putField(c, m, 8) }
             }
         }
