@@ -97,7 +97,12 @@ contract MockOptimismPortal2 is IOptimismPortal2 {
 
         depositCalls.push(
             DepositCall({
-                to: _to, mint: _mint, value: _value, gasLimit: _gasLimit, isCreation: _isCreation, data: _data
+                to: _to,
+                mint: _mint,
+                value: _value,
+                gasLimit: _gasLimit,
+                isCreation: _isCreation,
+                data: _data
             })
         );
     }

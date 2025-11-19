@@ -133,12 +133,7 @@ contract Deploy is Deployer {
     /// @notice Deploy a new OP Chain using an existing SuperchainConfig and ProtocolVersions
     /// @param _superchainConfigProxy Address of the existing SuperchainConfig proxy
     /// @param _protocolVersionsProxy Address of the existing ProtocolVersions proxy
-    function runWithSuperchain(
-        address payable _superchainConfigProxy,
-        address payable _protocolVersionsProxy
-    )
-        public
-    {
+    function runWithSuperchain(address payable _superchainConfigProxy, address payable _protocolVersionsProxy) public {
         require(_superchainConfigProxy != address(0), "Deploy: must specify address for superchain config proxy");
         require(_protocolVersionsProxy != address(0), "Deploy: must specify address for protocol versions proxy");
 
@@ -179,8 +174,9 @@ contract Deploy is Deployer {
 
         // Set the respected game type according to the deploy config
         vm.startPrank(ISuperchainConfig(artifacts.mustGetAddress("SuperchainConfigProxy")).guardian());
-        IAnchorStateRegistry(artifacts.mustGetAddress("AnchorStateRegistryProxy"))
-            .setRespectedGameType(GameType.wrap(uint32(cfg.respectedGameType())));
+        IAnchorStateRegistry(artifacts.mustGetAddress("AnchorStateRegistryProxy")).setRespectedGameType(
+            GameType.wrap(uint32(cfg.respectedGameType()))
+        );
         vm.stopPrank();
 
         if (cfg.useAltDA()) {
@@ -324,7 +320,8 @@ contract Deploy is Deployer {
         );
         ChainAssertions.checkDelayedWETHImpl(IDelayedWETH(payable(impls.DelayedWETH)), cfg.faultGameWithdrawalDelay());
         ChainAssertions.checkMIPS({
-            _mips: IMIPS64(address(dio.mipsSingleton)), _oracle: IPreimageOracle(address(dio.preimageOracleSingleton))
+            _mips: IMIPS64(address(dio.mipsSingleton)),
+            _oracle: IPreimageOracle(address(dio.preimageOracleSingleton))
         });
         ChainAssertions.checkOPContractsManager({
             _impls: impls,
@@ -384,11 +381,10 @@ contract Deploy is Deployer {
         address delayedWETHPermissionlessGameProxy =
             deployERC1967ProxyWithOwner("DelayedWETHProxy", address(deployOutput.opChainProxyAdmin));
         vm.broadcast(address(deployOutput.opChainProxyAdmin));
-        IProxy(payable(delayedWETHPermissionlessGameProxy))
-            .upgradeToAndCall({
-                _implementation: delayedWETHImpl,
-                _data: abi.encodeCall(IDelayedWETH.initialize, (deployOutput.systemConfigProxy))
-            });
+        IProxy(payable(delayedWETHPermissionlessGameProxy)).upgradeToAndCall({
+            _implementation: delayedWETHImpl,
+            _data: abi.encodeCall(IDelayedWETH.initialize, (deployOutput.systemConfigProxy))
+        });
     }
 
     ////////////////////////////////////////////////////////////////
@@ -436,9 +432,7 @@ contract Deploy is Deployer {
             blobBasefeeScalar: cfg.blobbasefeeScalar(),
             l2ChainId: cfg.l2ChainID(),
             startingAnchorRoot: abi.encode(
-                Proposal({
-                    root: Hash.wrap(cfg.faultGameGenesisOutputRoot()), l2SequenceNumber: cfg.faultGameGenesisBlock()
-                })
+                Proposal({ root: Hash.wrap(cfg.faultGameGenesisOutputRoot()), l2SequenceNumber: cfg.faultGameGenesisBlock() })
             ),
             saltMixer: saltMixer,
             gasLimit: uint64(cfg.l2GenesisBlockGasLimit()),

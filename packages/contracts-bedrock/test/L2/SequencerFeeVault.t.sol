@@ -80,8 +80,7 @@ contract SequencerFeeVault_Withdraw_Test is SequencerFeeVault_TestInit {
                         )
                     )
                 })
-            )
-            .code
+            ).code
         );
 
         recipient = deploy.cfg().sequencerFeeVaultRecipient();

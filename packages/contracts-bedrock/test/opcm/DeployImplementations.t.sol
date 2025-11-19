@@ -272,9 +272,9 @@ contract DeployImplementations_Test is Test, FeatureFlags {
         _faultGameV2ClockExtension = bound(_faultGameV2ClockExtension, 1, 7 days);
         _faultGameV2MaxClockDuration = bound(_faultGameV2MaxClockDuration, _faultGameV2ClockExtension * 2, 30 days);
 
-        bool usesV2GameParameters =
-            DevFeatures.isDevFeatureEnabled(_devFeatureBitmap, DevFeatures.DEPLOY_V2_DISPUTE_GAMES)
-                || DevFeatures.isDevFeatureEnabled(_devFeatureBitmap, DevFeatures.OPTIMISM_PORTAL_INTEROP);
+        bool usesV2GameParameters = DevFeatures.isDevFeatureEnabled(
+            _devFeatureBitmap, DevFeatures.DEPLOY_V2_DISPUTE_GAMES
+        ) || DevFeatures.isDevFeatureEnabled(_devFeatureBitmap, DevFeatures.OPTIMISM_PORTAL_INTEROP);
         // When V2 is not enabled, set V2 params to 0 to match script expectations
         // Otherwise ensure they remain within bounds already set
         if (!usesV2GameParameters) {

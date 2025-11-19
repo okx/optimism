@@ -138,14 +138,7 @@ abstract contract DisputeGameFactory_TestInit is CommonTest {
         _setGame(_gameImpl, _gameType, true, _implArgs);
     }
 
-    function _setGame(
-        address _gameImpl,
-        GameType _gameType,
-        bool _hasImplArgs,
-        bytes memory _implArgs
-    )
-        internal
-    {
+    function _setGame(address _gameImpl, GameType _gameType, bool _hasImplArgs, bytes memory _implArgs) internal {
         vm.startPrank(disputeGameFactory.owner());
         if (_hasImplArgs) {
             disputeGameFactory.setImplementation(_gameType, IDisputeGame(_gameImpl), _implArgs);
@@ -539,13 +532,7 @@ contract DisputeGameFactory_Create_Test is DisputeGameFactory_TestInit {
 
     /// @notice Tests that the `create` function reverts when there exists a dispute game with the
     ///         same UUID.
-    function testFuzz_create_sameUUID_reverts(
-        uint32 gameType,
-        Claim rootClaim,
-        bytes calldata extraData
-    )
-        public
-    {
+    function testFuzz_create_sameUUID_reverts(uint32 gameType, Claim rootClaim, bytes calldata extraData) public {
         // Ensure that the `gameType` is within the bounds of the `GameType` enum's possible
         // values.
         GameType gt = GameType.wrap(uint8(bound(gameType, 0, 2)));
@@ -724,14 +711,7 @@ contract DisputeGameFactory_SetInitBond_Test is DisputeGameFactory_TestInit {
 contract DisputeGameFactory_GetGameUUID_Test is DisputeGameFactory_TestInit {
     /// @notice Tests that the `getGameUUID` function returns the correct hash when comparing
     ///         against the keccak256 hash of the abi-encoded parameters.
-    function testDiff_getGameUUID_succeeds(
-        uint32 gameType,
-        Claim rootClaim,
-        bytes calldata extraData
-    )
-        public
-        view
-    {
+    function testDiff_getGameUUID_succeeds(uint32 gameType, Claim rootClaim, bytes calldata extraData) public view {
         // Ensure that the `gameType` is within the bounds of the `GameType` enum's possible
         // values.
         GameType gt = GameType.wrap(uint8(bound(gameType, 0, 2)));

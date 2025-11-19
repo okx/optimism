@@ -530,9 +530,11 @@ contract MIPS64 is ISemver {
                     }
                     uint64 effAddr = a1 & arch.ADDRESS_MASK;
                     // First verify the effAddr path
-                    if (!MIPS64Memory.isValidProof(
+                    if (
+                        !MIPS64Memory.isValidProof(
                             state.memRoot, effAddr, MIPS64Memory.memoryProofOffset(MEM_PROOF_OFFSET, 1)
-                        )) {
+                        )
+                    ) {
                         revert InvalidMemoryProof();
                     }
                     // Recompute the new root after updating effAddr
@@ -540,9 +542,11 @@ contract MIPS64 is ISemver {
                         MIPS64Memory.writeMem(effAddr, MIPS64Memory.memoryProofOffset(MEM_PROOF_OFFSET, 1), secs);
                     handleMemoryUpdate(state, effAddr);
                     // Verify the second memory proof against the newly computed root
-                    if (!MIPS64Memory.isValidProof(
+                    if (
+                        !MIPS64Memory.isValidProof(
                             state.memRoot, effAddr + 8, MIPS64Memory.memoryProofOffset(MEM_PROOF_OFFSET, 2)
-                        )) {
+                        )
+                    ) {
                         revert InvalidSecondMemoryProof();
                     }
                     state.memRoot =
@@ -863,14 +867,7 @@ contract MIPS64 is ISemver {
         return inactiveStack == EMPTY_THREAD_ROOT && currentStackIsAlmostEmpty;
     }
 
-    function computeThreadRoot(
-        bytes32 _currentRoot,
-        ThreadState memory _thread
-    )
-        internal
-        pure
-        returns (bytes32 out_)
-    {
+    function computeThreadRoot(bytes32 _currentRoot, ThreadState memory _thread) internal pure returns (bytes32 out_) {
         // w_i = hash(w_0 ++ hash(thread))
         bytes32 threadRoot = outputThreadState(_thread);
         out_ = keccak256(abi.encodePacked(_currentRoot, threadRoot));

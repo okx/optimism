@@ -282,8 +282,9 @@ contract L2Genesis is Script {
 
         IL2CrossDomainMessenger(impl).initialize({ _l1CrossDomainMessenger: ICrossDomainMessenger(address(0)) });
 
-        IL2CrossDomainMessenger(Predeploys.L2_CROSS_DOMAIN_MESSENGER)
-            .initialize({ _l1CrossDomainMessenger: ICrossDomainMessenger(_l1CrossDomainMessengerProxy) });
+        IL2CrossDomainMessenger(Predeploys.L2_CROSS_DOMAIN_MESSENGER).initialize({
+            _l1CrossDomainMessenger: ICrossDomainMessenger(_l1CrossDomainMessengerProxy)
+        });
     }
 
     /// @notice This predeploy is following the safety invariant #1.
@@ -292,8 +293,9 @@ contract L2Genesis is Script {
 
         IL2StandardBridge(payable(impl)).initialize({ _otherBridge: IStandardBridge(payable(address(0))) });
 
-        IL2StandardBridge(payable(Predeploys.L2_STANDARD_BRIDGE))
-            .initialize({ _otherBridge: IStandardBridge(_l1StandardBridgeProxy) });
+        IL2StandardBridge(payable(Predeploys.L2_STANDARD_BRIDGE)).initialize({
+            _otherBridge: IStandardBridge(_l1StandardBridgeProxy)
+        });
     }
 
     /// @notice This predeploy is following the safety invariant #1.
@@ -343,8 +345,9 @@ contract L2Genesis is Script {
 
         IOptimismMintableERC20Factory(impl).initialize({ _bridge: address(0) });
 
-        IOptimismMintableERC20Factory(Predeploys.OPTIMISM_MINTABLE_ERC20_FACTORY)
-            .initialize({ _bridge: Predeploys.L2_STANDARD_BRIDGE });
+        IOptimismMintableERC20Factory(Predeploys.OPTIMISM_MINTABLE_ERC20_FACTORY).initialize({
+            _bridge: Predeploys.L2_STANDARD_BRIDGE
+        });
     }
 
     /// @notice This predeploy is following the safety invariant #2,
@@ -589,10 +592,10 @@ contract L2Genesis is Script {
 
         ILiquidityController(impl).initialize({ _gasPayingTokenName: "", _gasPayingTokenSymbol: "" });
 
-        ILiquidityController(Predeploys.LIQUIDITY_CONTROLLER)
-            .initialize({
-                _gasPayingTokenName: _input.gasPayingTokenName, _gasPayingTokenSymbol: _input.gasPayingTokenSymbol
-            });
+        ILiquidityController(Predeploys.LIQUIDITY_CONTROLLER).initialize({
+            _gasPayingTokenName: _input.gasPayingTokenName,
+            _gasPayingTokenSymbol: _input.gasPayingTokenSymbol
+        });
     }
 
     /// @notice This predeploy is following the safety invariant #1.
