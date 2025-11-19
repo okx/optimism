@@ -161,11 +161,13 @@ contract L2Genesis is Script {
             return;
         }
 
-        if (forkEquals(_fork, Fork.INTEROP)) {
+        activateJovian();
+
+        if (forkEquals(_fork, Fork.JOVIAN)) {
             return;
         }
 
-        if (forkEquals(_fork, Fork.JOVIAN)) {
+        if (forkEquals(_fork, Fork.INTEROP)) {
             return;
         }
     }
@@ -215,12 +217,12 @@ contract L2Genesis is Script {
     ///      LEGACY_ERC20_ETH and L1_MESSAGE_SENDER are deprecated and are not set.
     function setPredeployImplementations(Input memory _input) internal {
         setLegacyMessagePasser(); // 0
-        // 01: legacy, not used in OP-Stack
+            // 01: legacy, not used in OP-Stack
         setDeployerWhitelist(); // 2
-        // 3,4,5: legacy, not used in OP-Stack.
+            // 3,4,5: legacy, not used in OP-Stack.
         setWETH(); // 6: WETH (not behind a proxy)
         setL2CrossDomainMessenger(_input.l1CrossDomainMessengerProxy); // 7
-        // 8,9,A,B,C,D,E: legacy, not used in OP-Stack.
+            // 8,9,A,B,C,D,E: legacy, not used in OP-Stack.
         setGasPriceOracle(); // f
         setL2StandardBridge(_input.l1StandardBridgeProxy); // 10
         setSequencerFeeVault(_input); // 11
@@ -234,7 +236,7 @@ contract L2Genesis is Script {
         setBaseFeeVault(_input); // 19
         setL1FeeVault(_input); // 1A
         setOperatorFeeVault(); // 1B
-        // 1C,1D,1E,1F: not used.
+            // 1C,1D,1E,1F: not used.
         setSchemaRegistry(); // 20
         setEAS(); // 21
         setGovernanceToken(_input); // 42: OP (not behind a proxy)
@@ -633,6 +635,11 @@ contract L2Genesis is Script {
     function activateIsthmus() internal {
         vm.prank(IL1Block(Predeploys.L1_BLOCK_ATTRIBUTES).DEPOSITOR_ACCOUNT());
         IGasPriceOracle(Predeploys.GAS_PRICE_ORACLE).setIsthmus();
+    }
+
+    function activateJovian() internal {
+        vm.prank(IL1Block(Predeploys.L1_BLOCK_ATTRIBUTES).DEPOSITOR_ACCOUNT());
+        IGasPriceOracle(Predeploys.GAS_PRICE_ORACLE).setJovian();
     }
 
     /// @notice Sets the bytecode in state

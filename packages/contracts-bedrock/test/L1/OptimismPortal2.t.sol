@@ -36,7 +36,7 @@ import { IProxyAdminOwnedBase } from "interfaces/L1/IProxyAdminOwnedBase.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-contract OptimismPortal2_TestInit is DisputeGameFactory_TestInit {
+abstract contract OptimismPortal2_TestInit is DisputeGameFactory_TestInit {
     address depositor;
 
     Types.WithdrawalTransaction _defaultTx;

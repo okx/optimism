@@ -3,8 +3,8 @@ pragma solidity ^0.8.0;
 
 import { console2 as console } from "forge-std/console2.sol";
 import { Script } from "forge-std/Script.sol";
-import { GnosisSafe as Safe } from "safe-contracts/GnosisSafe.sol";
-import { GnosisSafeProxyFactory as SafeProxyFactory } from "safe-contracts/proxies/GnosisSafeProxyFactory.sol";
+import { Safe } from "safe-contracts/Safe.sol";
+import { SafeProxyFactory } from "safe-contracts/proxies/SafeProxyFactory.sol";
 
 /// @title DeploySimpleSafe
 /// @notice Simplified Safe deployment script to replace Transactor as l1ProxyAdminOwner
@@ -40,7 +40,10 @@ contract DeploySimpleSafe is Script {
         string memory _name,
         address[] memory _owners,
         uint256 _threshold
-    ) internal returns (address addr_) {
+    )
+        internal
+        returns (address addr_)
+    {
         // Get or deploy SafeProxyFactory and Safe Singleton
         (SafeProxyFactory safeProxyFactory, Safe safeSingleton) = _getSafeFactory();
 
@@ -50,8 +53,7 @@ contract DeploySimpleSafe is Script {
 
         // Prepare initialization data
         bytes memory initData = abi.encodeCall(
-            Safe.setup,
-            (_owners, _threshold, address(0), hex"", address(0), address(0), 0, payable(address(0)))
+            Safe.setup, (_owners, _threshold, address(0), hex"", address(0), address(0), 0, payable(address(0)))
         );
 
         // Create Safe proxy (using createProxyWithNonce to support salt)

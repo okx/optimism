@@ -299,10 +299,10 @@ github.com/envoyproxy/go-control-plane v0.9.9-0.20210217033140-668b12f5399d/go.m
 github.com/envoyproxy/protoc-gen-validate v0.1.0/go.mod h1:iSmxcyjqTsJpI2R4NaDN7+kN2VEUnK/pcBlmesArF7c=
 github.com/ethereum-optimism/go-ethereum-hdwallet v0.1.4-0.20251001155152-4eb15ccedf7e h1:iy1vBIzACYUyOVyoADUwvAiq2eOPC0yVsDUdolPwQjk=
 github.com/ethereum-optimism/go-ethereum-hdwallet v0.1.4-0.20251001155152-4eb15ccedf7e/go.mod h1:DYj7+vYJ4cIB7zera9mv4LcAynCL5u4YVfoeUu6Wa+w=
-github.com/ethereum-optimism/superchain-registry/validation v0.0.0-20250603144016-9c45ca7d4508 h1:A/3QVFt+Aa9ozpPVXxUTLui8honBjSusAaiCVRbafgs=
-github.com/ethereum-optimism/superchain-registry/validation v0.0.0-20250603144016-9c45ca7d4508/go.mod h1:NZ816PzLU1TLv1RdAvYAb6KWOj4Zm5aInT0YpDVml2Y=
-github.com/ethereum/c-kzg-4844/v2 v2.1.0 h1:gQropX9YFBhl3g4HYhwE70zq3IHFRgbbNPw0Shwzf5w=
-github.com/ethereum/c-kzg-4844/v2 v2.1.0/go.mod h1:TC48kOKjJKPbN7C++qIgt0TJzZ70QznYR7Ob+WXl57E=
+github.com/ethereum-optimism/superchain-registry/validation v0.0.0-20251009180028-9b4658b9b7af h1:WWz0gJM/boaUImtJnROecPirAerKCLpAU4m6Tx0ArOg=
+github.com/ethereum-optimism/superchain-registry/validation v0.0.0-20251009180028-9b4658b9b7af/go.mod h1:NZ816PzLU1TLv1RdAvYAb6KWOj4Zm5aInT0YpDVml2Y=
+github.com/ethereum/c-kzg-4844/v2 v2.1.5 h1:aVtoLK5xwJ6c5RiqO8g8ptJ5KU+2Hdquf6G3aXiHh5s=
+github.com/ethereum/c-kzg-4844/v2 v2.1.5/go.mod h1:u59hRTTah4Co6i9fDWtiCjTrblJv0UwsqZKCc0GfgUs=
 github.com/ethereum/go-verkle v0.2.2 h1:I2W0WjnrFUIzzVPwm8ykY+7pL2d4VhlsePn4j7cnFk8=
 github.com/ethereum/go-verkle v0.2.2/go.mod h1:M3b90YRnzqKyyzBEWJGqj8Qff4IDeXnzFw0P9bFw3uk=
 github.com/fatih/color v1.7.0/go.mod h1:Zm6kSWBoL9eyXnKyktHP6abPY2pDugNf5KwzbycvMj4=
@@ -547,8 +547,8 @@ github.com/hashicorp/raft-boltdb v0.0.0-20231211162105-6c830fa4535e/go.mod h1:EM
 github.com/hashicorp/raft-boltdb/v2 v2.3.1 h1:ackhdCNPKblmOhjEU9+4lHSJYFkJd6Jqyvj6eW9pwkc=
 github.com/hashicorp/raft-boltdb/v2 v2.3.1/go.mod h1:n4S+g43dXF1tqDT+yzcXHhXM6y7MrlUd3TTwGRcUvQE=
 github.com/hashicorp/serf v0.8.2/go.mod h1:6hOLApaqBFA1NXqRQAsxw9QxuDEvNxSQRwA/JwenrHc=
-github.com/holiman/billy v0.0.0-20240216141850-2abb0c79d3c4 h1:X4egAf/gcS1zATw6wn4Ej8vjuVGxeHdan+bRb2ebyv4=
-github.com/holiman/billy v0.0.0-20240216141850-2abb0c79d3c4/go.mod h1:5GuXa7vkL8u9FkFuWdVvfR5ix8hRB7DbOAaYULamFpc=
+github.com/holiman/billy v0.0.0-20250707135307-f2f9b9aae7db h1:IZUYC/xb3giYwBLMnr8d0TGTzPKFGNTCGgGLoyeX330=
+github.com/holiman/billy v0.0.0-20250707135307-f2f9b9aae7db/go.mod h1:xTEYN9KCHxuYHs+NmrmzFcnvHMzLLNiGFafCb1n3Mfg=
 github.com/holiman/bloomfilter/v2 v2.0.3 h1:73e0e/V0tCydx14a0SCYS/EWCxgwLZ18CZcZKVu0fao=
 github.com/holiman/bloomfilter/v2 v2.0.3/go.mod h1:zpoh+gs7qcpqrHr3dB55AMiJwo0iURXE7ZOP9L9hSkA=
 github.com/holiman/uint256 v1.3.2 h1:a9EgMPSC1AAaj1SZL5zIQD3WbwTuHrMGOerLjGmM/TA=
@@ -802,8 +802,8 @@ github.com/nxadm/tail v1.4.4/go.mod h1:kenIhsEOeOJmVchQTgglprH7qJGnHDVpk1VPCcaMI
 github.com/nxadm/tail v1.4.8/go.mod h1:+ncqLTQzXmGhMZNUePPaPqPvBxHAIsmXswZKocGu+AU=
 github.com/nxadm/tail v1.4.11 h1:8feyoE3OzPrcshW5/MJ4sGESc5cqmGkGCWlco4l0bqY=
 github.com/nxadm/tail v1.4.11/go.mod h1:OTaG3NK980DZzxbRq6lEuzgU+mug70nY11sMd4JXXHc=
-github.com/okx/op-geth v0.0.8 h1:6LQ5D/NyzrPU7xieQTazn/hkycTdQS4UZcjf+US2dOA=
-github.com/okx/op-geth v0.0.8/go.mod h1:MD4m7TCs3bDlgtuio/99+iVscH4eEpkhvJuOojm7D/o=
+github.com/okx/op-geth v1.101408.1-0.20251119032909-f3fffc0fe280 h1:D/9OpN6IiIaVnfhZkETgHBH8vFlY2nHe59Uofk1mMmI=
+github.com/okx/op-geth v1.101408.1-0.20251119032909-f3fffc0fe280/go.mod h1:wbOONFIarNosj3FNhtct7r1Za0Oe8Ts9pjJJvdA5ifQ=
 github.com/olekukonko/tablewriter v0.0.5 h1:P2Ga83D34wi1o9J6Wh1mRuqd4mF/x/lgBS7N7AbDhec=
 github.com/olekukonko/tablewriter v0.0.5/go.mod h1:hPp6KlRPjbx+hW8ykQs1w3UBbZlj6HuIJcUGPhkA7kY=
 github.com/onsi/ginkgo v1.6.0/go.mod h1:lLunBs/Ym6LB5Z9jYTR76FiuTmxDTDusOGeTQH+WWjE=
@@ -1057,8 +1057,8 @@ github.com/stretchr/testify v1.10.0 h1:Xv5erBjTwe/5IxqUQTdXv5kgmIvbHo3QQyRwhJsOf
 github.com/stretchr/testify v1.10.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
 github.com/subosito/gotenv v1.2.0 h1:Slr1R9HxAlEKefgq5jn9U+DnETlIUa6HfgEzj0g5d7s=
 github.com/subosito/gotenv v1.2.0/go.mod h1:N0PQaV/YGNqwC0u51sEeR/aUtSLEXKX9iv69rRypqCw=
-github.com/supranational/blst v0.3.14 h1:xNMoHRJOTwMn63ip6qoWJ2Ymgvj7E2b9jY2FAwY+qRo=
-github.com/supranational/blst v0.3.14/go.mod h1:jZJtfjgudtNl4en1tzwPIV3KjUnQUvG3/j+w+fVonLw=
+github.com/supranational/blst v0.3.15 h1:rd9viN6tfARE5wv3KZJ9H8e1cg0jXW8syFCcsbHa76o=
+github.com/supranational/blst v0.3.15/go.mod h1:jZJtfjgudtNl4en1tzwPIV3KjUnQUvG3/j+w+fVonLw=
 github.com/syndtr/goleveldb v1.0.0/go.mod h1:ZVVdQEZoIme9iO1Ch2Jdy24qqXrMMOU6lpPAyBWyWuQ=
 github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7/go.mod h1:q4W45IWZaF22tdD+VEXcAWRA037jwmWEB5VWYORlTpc=
 github.com/syndtr/goleveldb v1.0.1-0.20220614013038-64ee5596c38a h1:1ur3QoCqvE5fl+nylMaIr9PVV1w343YRDtsy+Rwu7XI=

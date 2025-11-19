@@ -3,9 +3,9 @@ pragma solidity 0.8.15;
 
 import { Script } from "forge-std/Script.sol";
 
+import { DevFeatures } from "src/libraries/DevFeatures.sol";
 import { DeployUtils } from "scripts/libraries/DeployUtils.sol";
 import { Solarray } from "scripts/libraries/Solarray.sol";
-
 import { ChainAssertions } from "scripts/deploy/ChainAssertions.sol";
 import { Constants as ScriptConstants } from "scripts/libraries/Constants.sol";
 import { Types } from "scripts/libraries/Types.sol";
@@ -18,7 +18,6 @@ import { IDisputeGameFactory } from "interfaces/dispute/IDisputeGameFactory.sol"
 import { IAnchorStateRegistry } from "interfaces/dispute/IAnchorStateRegistry.sol";
 import { IFaultDisputeGame } from "interfaces/dispute/IFaultDisputeGame.sol";
 import { IPermissionedDisputeGame } from "interfaces/dispute/IPermissionedDisputeGame.sol";
-
 import { IOptimismPortal2 as IOptimismPortal } from "interfaces/L1/IOptimismPortal2.sol";
 import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
 import { IL1CrossDomainMessenger } from "interfaces/L1/IL1CrossDomainMessenger.sol";
@@ -26,6 +25,7 @@ import { IL1ERC721Bridge } from "interfaces/L1/IL1ERC721Bridge.sol";
 import { IL1StandardBridge } from "interfaces/L1/IL1StandardBridge.sol";
 import { IOptimismMintableERC20Factory } from "interfaces/universal/IOptimismMintableERC20Factory.sol";
 import { IETHLockbox } from "interfaces/L1/IETHLockbox.sol";
+import { IOPContractsManager } from "../../interfaces/L1/IOPContractsManager.sol";
 
 contract DeployOPChain is Script {
     struct Output {
@@ -122,6 +122,13 @@ contract DeployOPChain is Script {
         checkOutput(_input, output_);
     }
 
+    // -------- Features --------
+
+    function isDevFeatureV2DisputeGamesEnabled(address _opcmAddr) internal view returns (bool) {
+        IOPContractsManager opcm = IOPContractsManager(_opcmAddr);
+        return DevFeatures.isDevFeatureEnabled(opcm.devFeatureBitmap(), DevFeatures.DEPLOY_V2_DISPUTE_GAMES);
+    }
+
     // -------- Validations --------
 
     function checkInput(Types.DeployOPChainInput memory _i) public view {
@@ -164,13 +171,19 @@ contract DeployOPChain is Script {
             address(_o.optimismPortalProxy),
             address(_o.disputeGameFactoryProxy),
             address(_o.anchorStateRegistryProxy),
-            address(_o.permissionedDisputeGame),
             address(_o.delayedWETHPermissionedGameProxy),
             address(_o.ethLockboxProxy)
         );
-        // TODO: Eventually switch from Permissioned to Permissionless. Add this address back in.
-        // address(_o.delayedWETHPermissionlessGameProxy)
-        // address(_o.faultDisputeGame()),
+
+        if (!isDevFeatureV2DisputeGamesEnabled(_i.opcm)) {
+            // Only check dispute game contracts if v2 dispute games are not enabled.
+            // When v2 contracts are enabled, we no longer deploy dispute games per chain
+            addrs2 = Solarray.extend(addrs2, Solarray.addresses(address(_o.permissionedDisputeGame)));
+
+            // TODO: Eventually switch from Permissioned to Permissionless. Add these addresses back in.
+            // address(_o.delayedWETHPermissionlessGameProxy)
+            // address(_o.faultDisputeGame()),
+        }
 
         DeployUtils.assertValidContractAddresses(Solarray.extend(addrs1, addrs2));
         _assertValidDeploy(_i, _o);
@@ -194,10 +207,17 @@ contract DeployOPChain is Script {
             SuperchainConfig: address(0)
         });
 
-        ChainAssertions.checkAnchorStateRegistryProxy(_o.anchorStateRegistryProxy, true);
+        // Check dispute games
+        address expectedPDGImpl = address(_o.permissionedDisputeGame);
+        if (isDevFeatureV2DisputeGamesEnabled(_i.opcm)) {
+            // With v2 game contracts enabled, we use the predeployed pdg implementation
+            expectedPDGImpl = IOPContractsManager(_i.opcm).implementations().permissionedDisputeGameV2Impl;
+        }
         ChainAssertions.checkDisputeGameFactory(
-            _o.disputeGameFactoryProxy, _i.opChainProxyAdminOwner, address(_o.permissionedDisputeGame), true
+            _o.disputeGameFactoryProxy, _i.opChainProxyAdminOwner, expectedPDGImpl, true
         );
+
+        ChainAssertions.checkAnchorStateRegistryProxy(_o.anchorStateRegistryProxy, true);
         ChainAssertions.checkL1CrossDomainMessenger(_o.l1CrossDomainMessengerProxy, vm, true);
         ChainAssertions.checkOptimismPortal2({
             _contracts: proxies,

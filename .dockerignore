@@ -30,6 +30,7 @@
 !/op-alt-da
 !/op-faucet
 !/op-interop-mon
+!/op-core
 !/go.mod
 !/go.sum
 !/justfiles

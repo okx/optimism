@@ -36,4 +36,4 @@ fuzz:
         "FuzzEncodeDecodeLegacyWithdrawal" \
         "FuzzAliasing" \
         "FuzzVersionedNonce" \
-    | parallel -j {{PARALLEL_JOBS}} {{just_executable()}} fuzz_task {}
+    | parallel --tag -j {{PARALLEL_JOBS}} {{just_executable()}} fuzz_task {}

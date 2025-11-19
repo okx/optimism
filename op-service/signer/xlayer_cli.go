@@ -2,6 +2,7 @@ package signer
 
 import (
 	opservice "github.com/ethereum-optimism/optimism/op-service"
+	"github.com/ethereum-optimism/optimism/op-service/cliiface"
 	"github.com/urfave/cli/v2"
 )
 
@@ -108,7 +109,7 @@ func XLayerCLIFlags(envPrefix string, category string) []cli.Flag {
 }
 
 // ReadXLayerCLIConfig reads XLayer configuration from CLI context
-func ReadXLayerCLIConfig(ctx *cli.Context) XLayerCLIConfig {
+func ReadXLayerCLIConfig(ctx cliiface.Context) XLayerCLIConfig {
 	return XLayerCLIConfig{
 		Enabled:       ctx.Bool(XLayerEnabledFlagName),
 		Endpoint:      ctx.String(XLayerEndpointFlagName),
