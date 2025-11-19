@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ethereum-optimism/optimism/op-core/predeploys"
 	"github.com/ethereum-optimism/optimism/op-devstack/devtest"
 	"github.com/ethereum-optimism/optimism/op-devstack/stack"
 	"github.com/ethereum-optimism/optimism/op-devstack/sysgo"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
-	"github.com/ethereum-optimism/optimism/op-service/predeploys"
 	"github.com/ethereum-optimism/optimism/op-service/retry"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -113,7 +113,7 @@ func (el *L2ELNode) ReachedFn(label eth.BlockLabel, target uint64, attempts int)
 					return nil
 				}
 				logger.Info("L2EL sync status", "current", head.Number)
-				return fmt.Errorf("expected head to advance: %s", label)
+				return fmt.Errorf("expected head for label=%s to advance to target=%d, but got current=%d", label, target, head.Number)
 			})
 	}
 }
