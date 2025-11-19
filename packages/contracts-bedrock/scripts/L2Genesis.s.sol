@@ -251,8 +251,6 @@ contract L2Genesis is Script {
         setProxyAdmin(_input); // 18
         setBaseFeeVault(_input); // 19
         setL1FeeVault(_input); // 1A
-        setOperatorFeeVault(); // 1B
-            // 1C,1D,1E,1F: not used.
         setOperatorFeeVault(_input); // 1B
         // 1C,1D,1E,1F: not used.
         setSchemaRegistry(); // 20
