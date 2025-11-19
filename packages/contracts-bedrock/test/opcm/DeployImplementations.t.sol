@@ -566,14 +566,14 @@ contract DeployImplementations_Test is Test, FeatureFlags {
         input = defaultInput();
         input.faultGameV2MaxGameDepth = 50;
         input.faultGameV2SplitDepth = 50; // splitDepth + 1 must be < maxGameDepth
-            // Should not revert
+        // Should not revert
         deployImplementations.run(input);
 
         // Reset and test maxClockDuration < clockExtension
         input = defaultInput();
         input.faultGameV2ClockExtension = 1000;
         input.faultGameV2MaxClockDuration = 500; // < clockExtension
-            // Should not revert
+        // Should not revert
         deployImplementations.run(input);
     }
 

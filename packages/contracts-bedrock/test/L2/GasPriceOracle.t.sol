@@ -227,7 +227,7 @@ contract GasPriceOracleEcotone_Test is GasPriceOracle_Test {
     /// @dev Tests that `getL1GasUsed` and `getL1Fee` return expected values
     function test_getL1Fee_succeeds() external view {
         bytes memory data = hex"0000010203"; // 2 zero bytes, 3 non-zero bytes
-            // (2*4) + (3*16) + (68*16) == 1144
+        // (2*4) + (3*16) + (68*16) == 1144
         uint256 gas = gasPriceOracle.getL1GasUsed(data);
         assertEq(gas, 1144);
         uint256 price = gasPriceOracle.getL1Fee(data);
