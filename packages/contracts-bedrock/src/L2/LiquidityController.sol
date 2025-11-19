@@ -61,13 +61,7 @@ contract LiquidityController is ISemver, Initializable {
     /// @notice Initializer.
     /// @param _gasPayingTokenName The name of the native asset
     /// @param _gasPayingTokenSymbol The symbol of the native asset
-    function initialize(
-        string memory _gasPayingTokenName,
-        string memory _gasPayingTokenSymbol
-    )
-        external
-        initializer
-    {
+    function initialize(string memory _gasPayingTokenName, string memory _gasPayingTokenSymbol) external initializer {
         gasPayingTokenName = _gasPayingTokenName;
         gasPayingTokenSymbol = _gasPayingTokenSymbol;
     }

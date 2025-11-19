@@ -621,15 +621,7 @@ contract SystemConfig is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitializabl
     /// @param _decimals The decimals of the gas paying token.
     /// @param _name The name of the gas paying token as a bytes32.
     /// @param _symbol The symbol of the gas paying token as a bytes32.
-    function setGasPayingToken(
-        address _token,
-        uint8 _decimals,
-        bytes32 _name,
-        bytes32 _symbol
-    )
-        external
-        onlyOwner
-    {
+    function setGasPayingToken(address _token, uint8 _decimals, bytes32 _name, bytes32 _symbol) external onlyOwner {
         (address gasToken,) = gasPayingToken();
         if (gasToken != Constants.ETHER) {
             revert SystemConfig_ValueAlreadySet();

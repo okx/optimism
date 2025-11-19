@@ -331,7 +331,12 @@ contract L2StandardBridge_Withdraw_Test is L2StandardBridge_TestInit {
 
         vm.expectEmit(address(l2StandardBridge));
         emit WithdrawalInitiated({
-            l1Token: address(0), l2Token: Predeploys.LEGACY_ERC20_ETH, from: alice, to: alice, amount: 100, data: hex""
+            l1Token: address(0),
+            l2Token: Predeploys.LEGACY_ERC20_ETH,
+            from: alice,
+            to: alice,
+            amount: 100,
+            data: hex""
         });
 
         vm.expectEmit(address(l2StandardBridge));
@@ -339,7 +344,10 @@ contract L2StandardBridge_Withdraw_Test is L2StandardBridge_TestInit {
 
         vm.prank(alice, alice);
         l2StandardBridge.withdraw{ value: 100 }({
-            _l2Token: Predeploys.LEGACY_ERC20_ETH, _amount: 100, _minGasLimit: 1000, _extraData: hex""
+            _l2Token: Predeploys.LEGACY_ERC20_ETH,
+            _amount: 100,
+            _minGasLimit: 1000,
+            _extraData: hex""
         });
 
         assertEq(Predeploys.L2_TO_L1_MESSAGE_PASSER.balance, 100);
@@ -459,13 +467,7 @@ contract L2StandardBridge_Uncategorized_Test is L2StandardBridge_TestInit {
     }
 
     /// @notice Tests that bridging ETH succeeds.
-    function testFuzz_bridgeETH_succeeds(
-        uint256 _value,
-        uint32 _minGasLimit,
-        bytes calldata _extraData
-    )
-        external
-    {
+    function testFuzz_bridgeETH_succeeds(uint256 _value, uint32 _minGasLimit, bytes calldata _extraData) external {
         skipIfDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN);
         uint256 nonce = l2CrossDomainMessenger.messageNonce();
 
@@ -499,13 +501,7 @@ contract L2StandardBridge_Uncategorized_Test is L2StandardBridge_TestInit {
     }
 
     /// @notice Tests that bridging ETH to a different address succeeds.
-    function testFuzz_bridgeETHTo_succeeds(
-        uint256 _value,
-        uint32 _minGasLimit,
-        bytes calldata _extraData
-    )
-        external
-    {
+    function testFuzz_bridgeETHTo_succeeds(uint256 _value, uint32 _minGasLimit, bytes calldata _extraData) external {
         skipIfDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN);
         uint256 nonce = l2CrossDomainMessenger.messageNonce();
 

@@ -88,7 +88,8 @@ contract AnchorStateRegistry_Initialize_Test is AnchorStateRegistry_TestInit {
             systemConfig,
             disputeGameFactory,
             Proposal({
-                root: Hash.wrap(0xDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF), l2SequenceNumber: 0
+                root: Hash.wrap(0xDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF),
+                l2SequenceNumber: 0
             }),
             GameType.wrap(0)
         );
@@ -117,7 +118,8 @@ contract AnchorStateRegistry_Initialize_Test is AnchorStateRegistry_TestInit {
             systemConfig,
             disputeGameFactory,
             Proposal({
-                root: Hash.wrap(0xDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF), l2SequenceNumber: 0
+                root: Hash.wrap(0xDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF),
+                l2SequenceNumber: 0
             }),
             GameType.wrap(0)
         );
