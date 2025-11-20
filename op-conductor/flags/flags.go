@@ -190,11 +190,13 @@ var (
 		Usage:   "The time frame within which rollup-boost partial healthiness tolerance is evaluated",
 		EnvVars: opservice.PrefixEnvVar(EnvVarPrefix, "HEALTHCHECK_ROLLUP_BOOST_PARTIAL_HEALTHINESS_TOLERANCE_INTERVAL_SECONDS"),
 	}
+
+	// X Layer: HTTPBodyLimitMB is the HTTP request body size limit in MB for RPC server.
 	HTTPBodyLimitMB = &cli.IntFlag{
 		Name:    "rpc.http-body-limit-mb",
-		Usage:   "HTTP request body size limit in MB for RPC server (0 = use default 5MB, min: 5MB, recommended: 64MB)",
+		Usage:   "HTTP request body size limit in MB for RPC server (default: 5MB, min: 5MB, recommended: 64MB for high throughput)",
 		EnvVars: opservice.PrefixEnvVar(EnvVarPrefix, "RPC_HTTP_BODY_LIMIT_MB"),
-		Value:   0,
+		Value:   5,
 	}
 )
 
@@ -231,7 +233,7 @@ var optionalFlags = []cli.Flag{
 	HealthcheckExecutionP2pCheckApi,
 	HealthCheckRollupBoostPartialHealthinessToleranceLimit,
 	HealthCheckRollupBoostPartialHealthinessToleranceIntervalSeconds,
-	HTTPBodyLimitMB,
+	HTTPBodyLimitMB, // X Layer: HTTPBodyLimitMB is the HTTP request body size limit in MB for RPC server.
 }
 
 func init() {

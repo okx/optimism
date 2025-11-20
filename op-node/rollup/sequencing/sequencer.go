@@ -279,16 +279,6 @@ func (d *Sequencer) onBuildSealed(x engine.BuildSealedEvent) {
 	ctx, cancel := context.WithTimeout(d.ctx, time.Second*30)
 	defer cancel()
 	if err := d.conductor.CommitUnsafePayload(ctx, x.Envelope); err != nil {
-		// Calculate payload size for error logging
-		var payloadSizeBytes int
-		for _, tx := range x.Envelope.ExecutionPayload.Transactions {
-			payloadSizeBytes += len(tx)
-		}
-		d.log.Error("X Layer: Failed to commit unsafe payload to conductor",
-			"block", x.Envelope.ExecutionPayload.ID(),
-			"txs", len(x.Envelope.ExecutionPayload.Transactions),
-			"payload_size_mb", payloadSizeBytes/(1024*1024),
-			"err", err)
 		d.emitter.Emit(d.ctx, rollup.EngineTemporaryErrorEvent{
 			Err: fmt.Errorf("failed to commit unsafe payload to conductor: %w", err),
 		})
