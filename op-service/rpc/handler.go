@@ -150,7 +150,7 @@ func (b *Handler) AddRPCWithAuthentication(route string, isAuthenticated *bool) 
 	srv := rpc.NewServer()
 	srv.SetRecorder(b.recorder)
 
-	// Set HTTP body limit if configured
+	// X Layer: Set HTTP body limit if configured
 	if b.httpBodyLimit > 0 {
 		srv.SetHTTPBodyLimit(b.httpBodyLimit)
 		b.log.Info("X Layer: RPC server HTTP body limit configured",

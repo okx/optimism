@@ -75,8 +75,7 @@ func WithRPCRecorder(recorder gethrpc.Recorder) Option {
 	}
 }
 
-// WithHTTPBodyLimit sets the maximum size of HTTP request bodies.
-// This is useful for RPC methods that accept large payloads.
+// X Layer: WithHTTPBodyLimit sets the maximum size of HTTP request bodies.
 func WithHTTPBodyLimit(limit int) Option {
 	return func(b *Handler) {
 		b.httpBodyLimit = limit
