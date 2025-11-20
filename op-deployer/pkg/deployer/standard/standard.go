@@ -44,7 +44,7 @@ const (
 	ContractsV400Tag        = "op-contracts/v4.0.0-rc.7"
 	ContractsV410Tag        = "op-contracts/v4.1.0"
 	ContractsV500Tag        = "op-contracts/v5.0.0-rc.2"
-	CurrentTag              = ContractsV500Tag
+	CurrentTag              = ContractsV410Tag
 )
 
 // TODO(#17505): This address should be updated to the actual address once deployed
