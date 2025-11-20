@@ -238,6 +238,8 @@ type simChainContext struct {
 	cfg  *params.ChainConfig
 }
 
+var _ core.ChainContext = (*simChainContext)(nil)
+
 func (d *simChainContext) Engine() consensus.Engine {
 	return d.eng
 }
@@ -247,6 +249,18 @@ func (d *simChainContext) GetHeader(h common.Hash, n uint64) *types.Header {
 		return d.head
 	}
 	panic(fmt.Errorf("header retrieval not supported, cannot fetch %s %d", h, n))
+}
+
+func (d *simChainContext) CurrentHeader() *types.Header {
+	panic("unimplemented")
+}
+
+func (d *simChainContext) GetHeaderByHash(hash common.Hash) *types.Header {
+	panic("unimplemented")
+}
+
+func (d *simChainContext) GetHeaderByNumber(number uint64) *types.Header {
+	panic("unimplemented")
 }
 
 func (d *simChainContext) Config() *params.ChainConfig {
