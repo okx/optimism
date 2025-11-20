@@ -91,6 +91,10 @@ type Config struct {
 	// WebsocketServerPort is the port at which op-conductor exposes its websocket server from which clients can read streams sourced from rollupBoostWsUrl.
 	WebsocketServerPort int
 
+	// HTTPBodyLimitMB is the HTTP request body size limit in MB for RPC server.
+	// 0 means use default (5MB), must be >= 5 if set.
+	HTTPBodyLimitMB int
+
 	LogConfig     oplog.CLIConfig
 	MetricsConfig opmetrics.CLIConfig
 	PprofConfig   oppprof.CLIConfig
@@ -116,6 +120,10 @@ func (c *Config) Check() error {
 	}
 	if c.ExecutionRPC == "" {
 		return fmt.Errorf("missing geth RPC")
+	}
+	// Validate HTTP body limit: if set, must be >= 5MB
+	if c.HTTPBodyLimitMB > 0 && c.HTTPBodyLimitMB < 5 {
+		return fmt.Errorf("HTTP body limit must be at least 5MB, got %dMB", c.HTTPBodyLimitMB)
 	}
 	if err := c.HealthCheck.Check(); err != nil {
 		return errors.Wrap(err, "invalid health check config")
@@ -192,6 +200,7 @@ func NewConfig(ctx *cli.Context, log log.Logger) (*Config, error) {
 		RPCEnableProxy:      ctx.Bool(flags.RPCEnableProxy.Name),
 		RollupBoostWsURL:    ctx.String(flags.RollupBoostWsURL.Name),
 		WebsocketServerPort: ctx.Int(flags.WebsocketServerPort.Name),
+		HTTPBodyLimitMB:     ctx.Int(flags.HTTPBodyLimitMB.Name),
 		LogConfig:           oplog.ReadCLIConfig(ctx),
 		MetricsConfig:       opmetrics.ReadCLIConfig(ctx),
 		PprofConfig:         oppprof.ReadCLIConfig(ctx),

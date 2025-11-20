@@ -272,23 +272,33 @@ func (c *OpConductor) initHealthMonitor(ctx context.Context) error {
 }
 
 func (oc *OpConductor) initRPCServer(ctx context.Context) error {
-	// Set HTTP body limit to 64MB to accommodate large execution payloads
-	// Default is 5MB which is too small for blocks with many transactions
-	const httpBodyLimit = 64 * 1024 * 1024 // 64MB
+	// Build RPC server options
+	opts := []oprpc.Option{
+		oprpc.WithLogger(oc.log),
+		oprpc.WithRPCRecorder(oc.metrics.NewRecorder("main")),
+	}
 
-	oc.log.Info("X Layer: Initializing Conductor RPC server",
-		"listen_addr", oc.cfg.RPC.ListenAddr,
-		"listen_port", oc.cfg.RPC.ListenPort,
-		"http_body_limit_bytes", httpBodyLimit,
-		"http_body_limit_mb", httpBodyLimit/(1024*1024))
+	// Configure HTTP body limit if specified
+	// 0 = use default (5MB), > 0 = custom limit (must be >= 5MB, validated in config.Check())
+	if oc.cfg.HTTPBodyLimitMB > 0 {
+		httpBodyLimit := oc.cfg.HTTPBodyLimitMB * 1024 * 1024
+		opts = append(opts, oprpc.WithHTTPBodyLimit(httpBodyLimit))
+		oc.log.Info("X Layer: Initializing Conductor RPC server with custom HTTP body limit",
+			"listen_addr", oc.cfg.RPC.ListenAddr,
+			"listen_port", oc.cfg.RPC.ListenPort,
+			"http_body_limit_mb", oc.cfg.HTTPBodyLimitMB)
+	} else {
+		oc.log.Info("X Layer: Initializing Conductor RPC server with default HTTP body limit",
+			"listen_addr", oc.cfg.RPC.ListenAddr,
+			"listen_port", oc.cfg.RPC.ListenPort,
+			"http_body_limit_mb", 5)
+	}
 
 	server := oprpc.NewServer(
 		oc.cfg.RPC.ListenAddr,
 		oc.cfg.RPC.ListenPort,
 		oc.version,
-		oprpc.WithLogger(oc.log),
-		oprpc.WithRPCRecorder(oc.metrics.NewRecorder("main")),
-		oprpc.WithHTTPBodyLimit(httpBodyLimit),
+		opts...,
 	)
 	api := conductorrpc.NewAPIBackend(oc.log, oc)
 	server.AddAPI(rpc.API{
