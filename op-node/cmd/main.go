@@ -12,7 +12,6 @@ import (
 
 	opnode "github.com/ethereum-optimism/optimism/op-node"
 	"github.com/ethereum-optimism/optimism/op-node/chaincfg"
-	opnodeApollo "github.com/ethereum-optimism/optimism/op-node/cmd/apollo"
 	"github.com/ethereum-optimism/optimism/op-node/cmd/genesis"
 	"github.com/ethereum-optimism/optimism/op-node/cmd/interop"
 	"github.com/ethereum-optimism/optimism/op-node/cmd/networks"
@@ -91,27 +90,18 @@ func RollupNodeMain(ctx *cli.Context, closeApp context.CancelCauseFunc) (cliapp.
 	cfg.Cancel = closeApp
 
 	if cfg != nil && cfg.Apollo.Enable {
-		opnodeApollo.SetApolloConfig(cfg)
-		// Create op-node-specific config handler
-		handler := opnodeApollo.NewOpNodeConfigHandler()
-
-		flags := apollo.SanitizeFlags(flags.Flags)
-
-		client, err := apollo.GetInstance(&config.AppConfig{
+		_, err := apollo.TryInitialize(&config.AppConfig{
 			AppID:         cfg.Apollo.AppID,
 			IP:            cfg.Apollo.IP,
 			Cluster:       cfg.Apollo.Cluster,
 			NamespaceName: cfg.Apollo.Namespace,
-		}, flags)
+		})
 
 		if err != nil {
-			log.Error("Failed to add handler: %v", err)
-			return nil, fmt.Errorf("failed to add handler: %w", err)
-		} else {
-			log.Info("Apollo client initialized, apollo config: %+v", cfg.Apollo)
-			client.AddHandler(handler)
-			client.LoadConfig()
+			log.Error("Failed to initialize apollo: %v", err)
+			return nil, fmt.Errorf("failed to initialize apollo: %w", err)
 		}
+		log.Info("Apollo client initialized, apollo config: %+v", cfg.Apollo)
 	}
 
 	// Only pretty-print the banner if it is a terminal log. Otherwise log it as key-value pairs.
