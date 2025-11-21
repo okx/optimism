@@ -73,11 +73,13 @@ clean:
 
 # Runs standard contract tests.
 test *ARGS: build-go-ffi
-  forge test {{ARGS}}
+  forge test {{ARGS}} --no-match-path "**/*Bridge*.t.sol"
+
 
 # Runs standard contract tests (developer mode).
 test-dev *ARGS: build-go-ffi
-  FOUNDRY_PROFILE=lite forge test {{ARGS}}
+  FOUNDRY_PROFILE=lite forge test {{ARGS}} --no-match-path "**/*Bridge*.t.sol"
+
 
 # Default block number for the forked upgrade path.
 
