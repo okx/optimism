@@ -21,6 +21,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-node/rollup"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/driver"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/engine"
+	"github.com/ethereum-optimism/optimism/op-node/rollup/finality"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/interop"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/sync"
 	"github.com/ethereum-optimism/optimism/op-service/cliiface"
@@ -211,7 +212,7 @@ func NewConfigPersistence(ctx cliiface.Context) config.ConfigPersistence {
 }
 
 func NewDriverConfig(ctx cliiface.Context) *driver.Config {
-	return &driver.Config{
+	cfg := &driver.Config{
 		VerifierConfDepth:   ctx.Uint64(flags.VerifierL1Confs.Name),
 		SequencerConfDepth:  ctx.Uint64(flags.SequencerL1Confs.Name),
 		SequencerEnabled:    ctx.Bool(flags.SequencerEnabledFlag.Name),
@@ -219,6 +220,20 @@ func NewDriverConfig(ctx cliiface.Context) *driver.Config {
 		SequencerMaxSafeLag: ctx.Uint64(flags.SequencerMaxSafeLagFlag.Name),
 		RecoverMode:         ctx.Bool(flags.SequencerRecoverMode.Name),
 	}
+
+	// Populate finality config from flags. A finality config with null fields
+	// is handled the same way as a null finality config.
+	cfg.Finalizer = &finality.Config{}
+	if ctx.IsSet(flags.FinalityLookbackFlag.Name) {
+		lookback := ctx.Uint64(flags.FinalityLookbackFlag.Name)
+		cfg.Finalizer.FinalityLookback = &lookback
+	}
+	if ctx.IsSet(flags.FinalityDelayFlag.Name) {
+		delay := ctx.Uint64(flags.FinalityDelayFlag.Name)
+		cfg.Finalizer.FinalityDelay = &delay
+	}
+
+	return cfg
 }
 
 func NewRollupConfigFromCLI(log log.Logger, ctx cliiface.Context) (*rollup.Config, error) {
@@ -266,45 +281,12 @@ Conflicting configuration is deprecated, and will stop the op-node from starting
 }
 
 func applyOverrides(ctx cliiface.Context, rollupConfig *rollup.Config) {
-	if ctx.IsSet(opflags.CanyonOverrideFlagName) {
-		canyon := ctx.Uint64(opflags.CanyonOverrideFlagName)
-		rollupConfig.CanyonTime = &canyon
-	}
-	if ctx.IsSet(opflags.DeltaOverrideFlagName) {
-		delta := ctx.Uint64(opflags.DeltaOverrideFlagName)
-		rollupConfig.DeltaTime = &delta
-	}
-	if ctx.IsSet(opflags.EcotoneOverrideFlagName) {
-		ecotone := ctx.Uint64(opflags.EcotoneOverrideFlagName)
-		rollupConfig.EcotoneTime = &ecotone
-	}
-	if ctx.IsSet(opflags.FjordOverrideFlagName) {
-		fjord := ctx.Uint64(opflags.FjordOverrideFlagName)
-		rollupConfig.FjordTime = &fjord
-	}
-	if ctx.IsSet(opflags.GraniteOverrideFlagName) {
-		granite := ctx.Uint64(opflags.GraniteOverrideFlagName)
-		rollupConfig.GraniteTime = &granite
-	}
-	if ctx.IsSet(opflags.HoloceneOverrideFlagName) {
-		holocene := ctx.Uint64(opflags.HoloceneOverrideFlagName)
-		rollupConfig.HoloceneTime = &holocene
-	}
-	if ctx.IsSet(opflags.PectraBlobScheduleOverrideFlagName) {
-		pectrablobschedule := ctx.Uint64(opflags.PectraBlobScheduleOverrideFlagName)
-		rollupConfig.PectraBlobScheduleTime = &pectrablobschedule
-	}
-	if ctx.IsSet(opflags.IsthmusOverrideFlagName) {
-		isthmus := ctx.Uint64(opflags.IsthmusOverrideFlagName)
-		rollupConfig.IsthmusTime = &isthmus
-	}
-	if ctx.IsSet(opflags.JovianOverrideFlagName) {
-		jovian := ctx.Uint64(opflags.JovianOverrideFlagName)
-		rollupConfig.JovianTime = &jovian
-	}
-	if ctx.IsSet(opflags.InteropOverrideFlagName) {
-		interop := ctx.Uint64(opflags.InteropOverrideFlagName)
-		rollupConfig.InteropTime = &interop
+	for _, fork := range opflags.OverridableForks {
+		flagName := opflags.OverrideName(fork)
+		if ctx.IsSet(flagName) {
+			timestamp := ctx.Uint64(flagName)
+			rollupConfig.SetActivationTime(fork, &timestamp)
+		}
 	}
 }
 
@@ -367,6 +349,10 @@ func NewSyncConfig(ctx cliiface.Context, log log.Logger) (*sync.Config, error) {
 	} else if ctx.IsSet(flags.L2EngineSyncEnabled.Name) {
 		log.Error("l2.engine-sync is deprecated and will be removed in a future release. Use --syncmode=execution-layer instead.")
 	}
+	// p2p.sync.req-resp=false && syncmode.req-resp=true is not allowed
+	if !ctx.Bool(flags.SyncReqRespName) && ctx.Bool(flags.SyncModeReqRespFlag.Name) {
+		return nil, errors.New("cannot set --p2p.sync.req-resp=false and --syncmode.req-resp=true at the same time")
+	}
 	mode, err := sync.StringToMode(ctx.String(flags.SyncModeFlag.Name))
 	if err != nil {
 		return nil, err
@@ -375,6 +361,7 @@ func NewSyncConfig(ctx cliiface.Context, log log.Logger) (*sync.Config, error) {
 	engineKind := engine.Kind(ctx.String(flags.L2EngineKind.Name))
 	cfg := &sync.Config{
 		SyncMode:                       mode,
+		SyncModeReqResp:                ctx.Bool(flags.SyncModeReqRespFlag.Name),
 		SkipSyncStartCheck:             ctx.Bool(flags.SkipSyncStartCheck.Name),
 		SupportsPostFinalizationELSync: engineKind.SupportsPostFinalizationELSync(),
 	}
