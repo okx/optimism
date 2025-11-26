@@ -85,3 +85,5 @@ test-apollo/data
 test-pp-op/testnet.env
 test-pp-op/mainnet.env
 test-pp-op/fakemainnet.env
+
+.tool-versions
