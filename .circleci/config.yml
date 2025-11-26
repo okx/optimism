@@ -204,6 +204,13 @@ commands:
           branch_pattern: develop
           mentions: "<< parameters.mentions >>"
 
+  install-zstd:
+    description: "Install zstd compression utility"
+    steps:
+      - run:
+          name: Install zstd
+          command: sudo apt-get update && sudo apt-get install -y zstd=1.4.8*
+
   get-target-branch:
     description: "Determine the PR target branch and export TARGET_BRANCH for subsequent steps"
     steps:
@@ -527,6 +534,7 @@ jobs:
         default: ci
     steps:
       - checkout-from-workspace
+      - install-zstd
       - run:
           name: Print forge version
           command: forge --version
@@ -536,7 +544,7 @@ jobs:
           working_directory: packages/contracts-bedrock
       - run:
           name: Build contracts
-          command: forge build <<parameters.build_args>>
+          command: just forge-build <<parameters.build_args>>
           environment:
             FOUNDRY_PROFILE: <<parameters.profile>>
           working_directory: packages/contracts-bedrock
@@ -572,7 +580,7 @@ jobs:
           working_directory: packages/contracts-bedrock
       - run:
           name: Build Kontrol summary files
-          command: forge build ./test/kontrol/proofs
+          command: just forge-build ./test/kontrol/proofs
           working_directory: packages/contracts-bedrock
       - notify-failures-on-develop
 
@@ -842,6 +850,7 @@ jobs:
         default: contracts-bedrock
     steps:
       - checkout-from-workspace
+      - install-zstd
       - run:
           name: Check if test list is empty
           command: |
@@ -906,6 +915,7 @@ jobs:
     resource_class: xlarge
     steps:
       - checkout-from-workspace
+      - install-zstd
       - run:
           name: Print dependencies
           command: just dep-status
@@ -1011,6 +1021,7 @@ jobs:
         default: ""
     steps:
       - checkout-from-workspace
+      - install-zstd
       - check-changed:
           patterns: contracts-bedrock
       - run:
@@ -1085,6 +1096,7 @@ jobs:
     resource_class: xlarge
     steps:
       - checkout-from-workspace
+      - install-zstd
       - check-changed:
           patterns: contracts-bedrock
       - run:
@@ -2078,6 +2090,7 @@ jobs:
           service_account_email: GCP_CONTRACTS_PUBLISHER_SERVICE_ACCOUNT_EMAIL
       - utils/checkout-with-mise
       - install-contracts-dependencies
+      - install-zstd
       - run:
           name: Pull artifacts
           command: bash scripts/ops/pull-artifacts.sh
@@ -2344,7 +2357,7 @@ workflows:
             - initialize
       - contracts-bedrock-tests:
           # Heavily fuzz any fuzz tests within added or modified test files.
-          name: contracts-bedrock-tests-heavy-fuzz-modified
+          name: contracts-bedrock-tests-heavy-fuzz-modified main
           test_list: git diff origin/develop...HEAD --name-only --diff-filter=AM -- './test/**/*.t.sol' | sed 's|packages/contracts-bedrock/||'
           test_timeout: 1h
           test_profile: ciheavy
@@ -2367,7 +2380,7 @@ workflows:
           context:
             - circleci-repo-readonly-authenticated-github-token
       - contracts-bedrock-tests-upgrade:
-          name: contracts-bedrock-tests-upgrade <<matrix.fork_op_chain>>-mainnet
+          name: contracts-bedrock-tests-upgrade <<matrix.fork_op_chain>>-mainnet main
           fork_op_chain: <<matrix.fork_op_chain>>
           fork_base_chain: mainnet
           fork_base_rpc: https://ci-mainnet-l1-archive.optimism.io
