@@ -67,7 +67,12 @@ func loadRollupConfig(ctx *cli.Context, rollupConfigFlag string) (*rollup.Config
 	}
 	defer file.Close()
 	var rollupConfig rollup.Config
-	return &rollupConfig, rollupConfig.ParseRollupConfig(file)
+	if err := rollupConfig.ParseRollupConfig(file); err != nil {
+		return nil, err
+	}
+	// Apply X Layer hardcoded fork configurations
+	rollup.ApplyXLayerHardcodedForks(&rollupConfig)
+	return &rollupConfig, nil
 }
 
 func loadDepsetConfig(ctx *cli.Context, depSetFlag string) (depset.DependencySet, error) {

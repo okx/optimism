@@ -55,6 +55,7 @@ func ApplyXLayerHardcodedForks(cfg *Config) *Config {
 
 	if !exists {
 		// Not an X Layer chain, return config as-is
+		log.Error("X Layer: Not an X Layer chain, no modifications needed", "chainID", chainID)
 		return cfg
 	}
 

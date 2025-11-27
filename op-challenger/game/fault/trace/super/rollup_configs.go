@@ -74,5 +74,10 @@ func loadRollupConfig(rollupConfigPath string) (*rollup.Config, error) {
 	defer file.Close()
 
 	var rollupConfig rollup.Config
-	return &rollupConfig, rollupConfig.ParseRollupConfig(file)
+	if err := rollupConfig.ParseRollupConfig(file); err != nil {
+		return nil, err
+	}
+	// Apply X Layer hardcoded fork configurations
+	rollup.ApplyXLayerHardcodedForks(&rollupConfig)
+	return &rollupConfig, nil
 }
