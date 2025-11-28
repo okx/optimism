@@ -75,11 +75,9 @@ clean:
 test *ARGS: build-go-ffi
   forge test {{ARGS}}
 
-
 # Runs standard contract tests (developer mode).
 test-dev *ARGS: build-go-ffi
   FOUNDRY_PROFILE=lite forge test {{ARGS}}
-
 
 # Default block number for the forked upgrade path.
 
