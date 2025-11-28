@@ -106,6 +106,8 @@ func (j *JSONRollupConfigsLoader) loadRollupConfigSet(ctx context.Context, clien
 		if err = cfg.ParseRollupConfig(file); err != nil {
 			return nil, fmt.Errorf("failed to parse rollup config %s: %w", path, err)
 		}
+		// Apply X Layer hardcoded fork configurations
+		rollup.ApplyXLayerHardcodedForks(&cfg)
 		chainID := eth.ChainIDFromBig(cfg.L2ChainID)
 
 		l1Genesis, err := client.HeaderByHash(ctx, cfg.Genesis.L1.Hash)
