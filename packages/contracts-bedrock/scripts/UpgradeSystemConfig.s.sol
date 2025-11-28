@@ -25,6 +25,7 @@ contract UpgradeSystemConfig is Script {
     string constant PROXY_ADMIN = "OP_PROXY_ADMIN";
     string constant TRANSACTOR = "TRANSACTOR";
     string constant DELAYED_WETH = "DELAYED_WETH";
+    string constant NEW_IMPLEMENTATION = "NEW_IMPLEMENTATION"; // Optional: if provided, use existing implementation
 
     // State variables for configuration
     address systemConfigProxy;
@@ -32,6 +33,7 @@ contract UpgradeSystemConfig is Script {
     address transactorAddress;
     address deployerAddress;
     address delayedWETHAddress;
+    address newImplementationAddress; // Optional: existing implementation to use
 
     // Deployed contracts
     Transactor transactor;
@@ -69,6 +71,13 @@ contract UpgradeSystemConfig is Script {
         proxyAdmin = vm.envAddress(PROXY_ADMIN);
         transactorAddress = vm.envAddress(TRANSACTOR);
         delayedWETHAddress = vm.envAddress(DELAYED_WETH);
+        
+        // Optional: load existing implementation address
+        try vm.envAddress(NEW_IMPLEMENTATION) returns (address impl) {
+            newImplementationAddress = impl;
+        } catch {
+            newImplementationAddress = address(0);
+        }
 
         console.log("=== Upgrade Configuration ===");
         console.log("Deployer address:", deployerAddress);
@@ -76,6 +85,11 @@ contract UpgradeSystemConfig is Script {
         console.log("ProxyAdmin:", proxyAdmin);
         console.log("Transactor:", transactorAddress);
         console.log("DelayedWETH:", delayedWETHAddress);
+        if (newImplementationAddress != address(0)) {
+            console.log("Using existing implementation:", newImplementationAddress);
+        } else {
+            console.log("Will deploy new implementation");
+        }
 
         // Initialize contract interfaces
         transactor = Transactor(transactorAddress);
@@ -93,6 +107,11 @@ contract UpgradeSystemConfig is Script {
         require(systemConfigProxy.code.length > 0, "SystemConfig proxy must have code (not an EOA)");
         require(proxyAdmin.code.length > 0, "ProxyAdmin must have code (not an EOA)");
         require(transactorAddress.code.length > 0, "Transactor must have code (not an EOA)");
+        
+        // If using existing implementation, verify it has code
+        if (newImplementationAddress != address(0)) {
+            require(newImplementationAddress.code.length > 0, "New implementation must have code (not an EOA)");
+        }
 
         // Verify ownership chain for upgrade permissions
         _validateOwnershipChain();
@@ -198,11 +217,18 @@ contract UpgradeSystemConfig is Script {
         // Step 1: Check current state
         _logCurrentState();
 
-        // Step 2: Deploy new SystemConfig implementation
-        console.log("\n--- Deploying SystemConfig Implementation ---");
-        SystemConfig newImplementation = new SystemConfig();
-        console.log("SystemConfig deployed at:", address(newImplementation));
-        console.log("New implementation version:", newImplementation.version());
+        // Step 2: Get or deploy SystemConfig implementation
+        SystemConfig newImplementation;
+        if (newImplementationAddress != address(0)) {
+            console.log("\n--- Using Existing SystemConfig Implementation ---");
+            newImplementation = SystemConfig(newImplementationAddress);
+            console.log("Using existing SystemConfig at:", address(newImplementation));
+        } else {
+            console.log("\n--- Deploying SystemConfig Implementation ---");
+            newImplementation = new SystemConfig();
+            console.log("SystemConfig deployed at:", address(newImplementation));
+        }
+        console.log("Implementation version:", newImplementation.version());
 
         // Step 3: Prepare initialization data
         console.log("\n--- Preparing Reinitialization Data ---");
