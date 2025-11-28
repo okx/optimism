@@ -71,7 +71,7 @@ contract UpgradeSystemConfig is Script {
         proxyAdmin = vm.envAddress(PROXY_ADMIN);
         transactorAddress = vm.envAddress(TRANSACTOR);
         delayedWETHAddress = vm.envAddress(DELAYED_WETH);
-        
+
         // Optional: load existing implementation address
         try vm.envAddress(NEW_IMPLEMENTATION) returns (address impl) {
             newImplementationAddress = impl;
@@ -107,7 +107,7 @@ contract UpgradeSystemConfig is Script {
         require(systemConfigProxy.code.length > 0, "SystemConfig proxy must have code (not an EOA)");
         require(proxyAdmin.code.length > 0, "ProxyAdmin must have code (not an EOA)");
         require(transactorAddress.code.length > 0, "Transactor must have code (not an EOA)");
-        
+
         // If using existing implementation, verify it has code
         if (newImplementationAddress != address(0)) {
             require(newImplementationAddress.code.length > 0, "New implementation must have code (not an EOA)");
@@ -269,6 +269,9 @@ contract UpgradeSystemConfig is Script {
             upgradeAndCallData,
             0 // no ETH value
         );
+        console.log("proxyAdmin: ", proxyAdmin);
+        console.log("upgradeAndCallData length:", upgradeAndCallData.length);
+        console.logBytes(upgradeAndCallData);
         require(success, "Transactor CALL to ProxyAdmin.upgradeAndCall failed");
         console.log("Upgrade and reinitialization simulation completed successfully");
         console.log("transactor.Call() params:");
