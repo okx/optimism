@@ -27,7 +27,7 @@ func TestXLayerHardcodedForks(t *testing.T) {
 		assert.Equal(t, uint64(XLayerTestnetChainID), cfg.ChainID)
 		assert.Equal(t, "xlayer-testnet", cfg.NetworkName)
 		assert.NotNil(t, cfg.JovianTime)
-		assert.Equal(t, uint64(1764241200), *cfg.JovianTime)
+		assert.Equal(t, uint64(1764320400), *cfg.JovianTime)
 	})
 }
 
@@ -99,7 +99,7 @@ func TestApplyXLayerHardcodedForks(t *testing.T) {
 		result := ApplyXLayerHardcodedForks(cfg)
 		require.NotNil(t, result)
 		require.NotNil(t, result.JovianTime)
-		assert.Equal(t, uint64(1764241200), *result.JovianTime)
+		assert.Equal(t, uint64(1764320400), *result.JovianTime)
 	})
 
 	t.Run("XLayer testnet - override existing JovianTime", func(t *testing.T) {
@@ -111,11 +111,11 @@ func TestApplyXLayerHardcodedForks(t *testing.T) {
 		result := ApplyXLayerHardcodedForks(cfg)
 		require.NotNil(t, result)
 		require.NotNil(t, result.JovianTime)
-		assert.Equal(t, uint64(1764241200), *result.JovianTime)
+		assert.Equal(t, uint64(1764320400), *result.JovianTime)
 	})
 
 	t.Run("XLayer testnet - same JovianTime", func(t *testing.T) {
-		jovianTime := uint64(1764241200) // Same value
+		jovianTime := uint64(1764320400) // Same value
 		cfg := &Config{
 			L2ChainID:  big.NewInt(XLayerTestnetChainID),
 			JovianTime: &jovianTime,
@@ -123,7 +123,7 @@ func TestApplyXLayerHardcodedForks(t *testing.T) {
 		result := ApplyXLayerHardcodedForks(cfg)
 		require.NotNil(t, result)
 		require.NotNil(t, result.JovianTime)
-		assert.Equal(t, uint64(1764241200), *result.JovianTime)
+		assert.Equal(t, uint64(1764320400), *result.JovianTime)
 	})
 }
 
@@ -189,7 +189,7 @@ func TestApplyXLayerHardcodedForksIntegration(t *testing.T) {
 		require.NotNil(t, result)
 		assert.Equal(t, cfg.Genesis, result.Genesis)
 		assert.Equal(t, cfg.BlockTime, result.BlockTime)
-		assert.Equal(t, uint64(1764241200), *result.JovianTime)
+		assert.Equal(t, uint64(1764320400), *result.JovianTime)
 	})
 }
 
