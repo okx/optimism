@@ -44,11 +44,11 @@ op-program-client-riscv:
 	env GO111MODULE=on GOOS=linux GOARCH=riscv64 go build -v -gcflags="all=-d=softfloat" -ldflags "$(PC_LDFLAGSSTRING)" -o ./bin/op-program-client-riscv.elf ./client/cmd/main.go
 
 check-custom-chains: op-program-host
-	./bin/op-program configs check-custom-chains
+	@docker run --rm --platform $(TARGETOS)/$(TARGETARCH) -v $(PWD)/op-program/bin:/app/bin -v $(PWD)/op-program/configs:/app/configs -w /app ubuntu:20.04 /app/bin/op-program configs check-custom-chains
 
 reproducible-prestate: check-custom-chains
-	@docker build --build-arg GO_VERSION=1.24.2-alpine3.21 --build-arg EXPORT_TARGET=next  --output ./bin/ --progress plain -f Dockerfile.repro ../
-	@docker build --build-arg GO_VERSION=1.24.2-alpine3.21 --build-arg EXPORT_TARGET=current --output ./bin/ --progress plain -f Dockerfile.repro ../
+	@docker build --platform=$(TARGETOS)/$(TARGETARCH) --build-arg GO_VERSION=1.24.2-alpine3.21 --build-arg EXPORT_TARGET=next  --output ./bin/ --progress plain -f Dockerfile.repro ../
+	@docker build --platform=$(TARGETOS)/$(TARGETARCH) --build-arg GO_VERSION=1.23.8-alpine3.21 --build-arg EXPORT_TARGET=current --output ./bin/ --progress plain -f Dockerfile.repro ../
 	@echo "-------------------- Production Prestates --------------------"
 	@echo "\nCannon64 Absolute prestate hash: "
 	@cat ./bin/prestate-proof-mt64.json | jq -r .pre
