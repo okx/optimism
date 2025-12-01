@@ -1,10 +1,6 @@
 #!/bin/bash
 set -e
 
-# ============================================================
-# Network Configurations (集中配置，方便维护)
-# ============================================================
-
 # Testnet Configuration
 TESTNET_CHAIN_ID=1952
 TESTNET_JOVIAN_TIME=1764327600
@@ -18,10 +14,6 @@ MAINNET_JOVIAN_TIME=1764691201
 MAINNET_GENESIS_FILE="mainnet.json.tar.gz"
 MAINNET_GENESIS_URL="https://okg-pub-hk.oss-cn-hongkong.aliyuncs.com/cdn/chain/xlayer/snapshot/merged.genesis.json.mainnet.tar.gz"
 MAINNET_ROLLUP_URL="https://raw.githubusercontent.com/okx/xlayer-toolkit/main/rpc-setup/presets/rollup-mainnet.json"
-
-# ============================================================
-# Parameter Validation (必须显式指定网络)
-# ============================================================
 
 if [ $# -eq 0 ]; then
     echo "❌ Error: Network parameter is required"
@@ -45,10 +37,6 @@ if [[ "$NETWORK" != "mainnet" && "$NETWORK" != "testnet" ]]; then
     echo "   Valid options: mainnet, testnet"
     exit 1
 fi
-
-# ============================================================
-# Set Active Configuration (根据参数选择配置)
-# ============================================================
 
 if [ "$NETWORK" == "mainnet" ]; then
     CHAIN_ID=$MAINNET_CHAIN_ID
