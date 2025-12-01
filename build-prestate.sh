@@ -1,14 +1,83 @@
 #!/bin/bash
 set -e
 
+# ============================================================
+# Network Configurations (集中配置，方便维护)
+# ============================================================
+
+# Testnet Configuration
+TESTNET_CHAIN_ID=1952
+TESTNET_JOVIAN_TIME=1764327600
+TESTNET_GENESIS_FILE="testnet.json.tar.gz"
+TESTNET_GENESIS_URL="https://okg-pub-hk.oss-cn-hongkong.aliyuncs.com/cdn/chain/xlayer/snapshot/merged.genesis.json.tar.gz"
+TESTNET_ROLLUP_URL="https://raw.githubusercontent.com/okx/xlayer-toolkit/main/rpc-setup/presets/rollup-testnet.json"
+
+# Mainnet Configuration
+MAINNET_CHAIN_ID=196
+MAINNET_JOVIAN_TIME=1764691201
+MAINNET_GENESIS_FILE="mainnet.json.tar.gz"
+MAINNET_GENESIS_URL="https://okg-pub-hk.oss-cn-hongkong.aliyuncs.com/cdn/chain/xlayer/snapshot/merged.genesis.json.mainnet.tar.gz"
+MAINNET_ROLLUP_URL="https://raw.githubusercontent.com/okx/xlayer-toolkit/main/rpc-setup/presets/rollup-mainnet.json"
+
+# ============================================================
+# Parameter Validation (必须显式指定网络)
+# ============================================================
+
+if [ $# -eq 0 ]; then
+    echo "❌ Error: Network parameter is required"
+    echo ""
+    echo "Usage: $0 [mainnet|testnet]"
+    echo ""
+    echo "Available networks:"
+    echo "  mainnet - X Layer Mainnet (Chain ID: $MAINNET_CHAIN_ID)"
+    echo "  testnet - X Layer Testnet (Chain ID: $TESTNET_CHAIN_ID)"
+    echo ""
+    echo "Examples:"
+    echo "  $0 testnet    # Build for testnet"
+    echo "  $0 mainnet    # Build for mainnet"
+    exit 1
+fi
+
+NETWORK=$1
+
+if [[ "$NETWORK" != "mainnet" && "$NETWORK" != "testnet" ]]; then
+    echo "❌ Error: Invalid network '$NETWORK'"
+    echo "   Valid options: mainnet, testnet"
+    exit 1
+fi
+
+# ============================================================
+# Set Active Configuration (根据参数选择配置)
+# ============================================================
+
+if [ "$NETWORK" == "mainnet" ]; then
+    CHAIN_ID=$MAINNET_CHAIN_ID
+    JOVIAN_TIME=$MAINNET_JOVIAN_TIME
+    GENESIS_FILE=$MAINNET_GENESIS_FILE
+    GENESIS_URL=$MAINNET_GENESIS_URL
+    ROLLUP_URL=$MAINNET_ROLLUP_URL
+    NETWORK_DISPLAY="Mainnet"
+else  # testnet
+    CHAIN_ID=$TESTNET_CHAIN_ID
+    JOVIAN_TIME=$TESTNET_JOVIAN_TIME
+    GENESIS_FILE=$TESTNET_GENESIS_FILE
+    GENESIS_URL=$TESTNET_GENESIS_URL
+    ROLLUP_URL=$TESTNET_ROLLUP_URL
+    NETWORK_DISPLAY="Testnet"
+fi
+
+echo "=== X Layer ${NETWORK_DISPLAY} Prestate Build ==="
+echo "Network: $NETWORK"
+echo "Chain ID: $CHAIN_ID"
+echo "Jovian Time: $JOVIAN_TIME"
+echo ""
+
 git submodule update --init --recursive
 
-# ========== Configuration ==========
-JOVIAN_TIME=1764327600
-CHAIN_ID=1952
-# ===================================
+# ============================================================
+# Cleanup Function
+# ============================================================
 
-# Cleanup function
 cleanup() {
     rm -f *-old-clean.json *-new-clean.json *.bak
     rm -f merged.genesis.json merged.genesis.json.bak
@@ -16,9 +85,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "=== X Layer Testnet Prestate Build (Chain: $CHAIN_ID, Jovian: $JOVIAN_TIME) ==="
+# ============================================================
+# Startup Cleanup
+# ============================================================
 
-# ========== Startup Cleanup ==========
 echo "Cleaning up previous run artifacts..."
 
 # Remove modified genesis (will be re-extracted and re-modified)
@@ -30,15 +100,18 @@ find op-program/chainconfig/configs -type f ! -name 'placeholder.json' ! -name '
 # Clean bin directory (will be rebuilt)
 rm -rf op-program/bin/* 2>/dev/null || true
 
+# Clean build info (will be regenerated)
+rm -f op-program/BUILD_INFO.txt
+
 echo "✓ Cleanup complete"
 echo ""
 
-# ========== Download & Extract Genesis ==========
-GENESIS_FILE="testnet.json.tar.gz"
-GENESIS_URL="https://okg-pub-hk.oss-cn-hongkong.aliyuncs.com/cdn/chain/xlayer/snapshot/merged.genesis.json.tar.gz"
+# ============================================================
+# Download & Extract Genesis
+# ============================================================
 
 [ -f "$GENESIS_FILE" ] && echo "✓ Genesis archive exists" || {
-    echo "Downloading genesis..."
+    echo "Downloading ${NETWORK} genesis..."
     wget -q -O "$GENESIS_FILE" "$GENESIS_URL"
     echo "✓ Downloaded"
 }
@@ -61,7 +134,10 @@ GENESIS_CHAIN_ID=$(jq -r '.config.chainId' merged.genesis.json)
 }
 echo "✓ Genesis Chain ID verified: $CHAIN_ID"
 
-# ========== Function: Add JSON field with validation ==========
+# ============================================================
+# Function: Add JSON field with validation
+# ============================================================
+
 add_json_field() {
     local file=$1
     local field_path=$2
@@ -117,7 +193,10 @@ add_json_field() {
     echo "✓ Validated: only $field_name added"
 }
 
-# ========== Modify Genesis ==========
+# ============================================================
+# Modify Genesis
+# ============================================================
+
 add_json_field \
     "merged.genesis.json" \
     ".config.jovianTime" \
@@ -127,19 +206,25 @@ add_json_field \
     ".config.isthmusTime" \
     "jq --argjson jt $JOVIAN_TIME '.config |= (to_entries | map(if .key == \"isthmusTime\" then [., {key: \"jovianTime\", value: \$jt}] else [.] end) | flatten | from_entries)' merged.genesis.json"
 
-# ========== Compress Genesis ==========
-mkdir -p op-program/chainconfig/configs
-gzip -c merged.genesis.json > op-program/chainconfig/configs/${CHAIN_ID}-genesis-l2.json
-echo "✓ Genesis compressed to chainconfig/configs"
+# ============================================================
+# Compress Genesis
+# ============================================================
 
-# ========== Download Rollup Config ==========
+mkdir -p op-program/chainconfig/configs
+# Use -n flag for reproducible builds (no timestamp, no filename in gzip header)
+gzip -n -c merged.genesis.json > op-program/chainconfig/configs/${CHAIN_ID}-genesis-l2.json
+echo "✓ Genesis compressed to chainconfig/configs (reproducible)"
+
+# ============================================================
+# Download Rollup Config
+# ============================================================
+
 echo ""
 echo "=== Rollup Config ==="
 ROLLUP_FILE="op-program/chainconfig/configs/${CHAIN_ID}-rollup.json"
-ROLLUP_URL="https://raw.githubusercontent.com/okx/xlayer-toolkit/main/rpc-setup/presets/rollup-testnet.json"
 
 [ -f "$ROLLUP_FILE" ] && echo "✓ Rollup config exists" || {
-    echo "Downloading rollup config..."
+    echo "Downloading ${NETWORK} rollup config..."
     curl -sS -o "$ROLLUP_FILE" "$ROLLUP_URL"
     echo "✓ Downloaded"
 }
@@ -152,7 +237,10 @@ DOWNLOADED_CHAIN_ID=$(jq -r .l2_chain_id "$ROLLUP_FILE")
 }
 echo "✓ Chain ID verified: $CHAIN_ID"
 
-# ========== Modify Rollup Config ==========
+# ============================================================
+# Modify Rollup Config
+# ============================================================
+
 add_json_field \
     "$ROLLUP_FILE" \
     ".jovian_time" \
@@ -162,13 +250,19 @@ add_json_field \
     ".isthmus_time" \
     "jq --argjson jt $JOVIAN_TIME 'to_entries | map(if .key == \"isthmus_time\" then [., {key: \"jovian_time\", value: \$jt}] else [.] end) | flatten | from_entries' \"$ROLLUP_FILE\""
 
-# ========== Final Verification ==========
+# ============================================================
+# Final Verification
+# ============================================================
+
 echo ""
 echo "=== Final Verification ==="
 echo "Genesis jovianTime: $(gunzip -c op-program/chainconfig/configs/${CHAIN_ID}-genesis-l2.json | jq -r '.config.jovianTime')"
 echo "Rollup jovian_time: $(jq -r '.jovian_time' "$ROLLUP_FILE")"
 
-# ========== Build ==========
+# ============================================================
+# Build Reproducible Prestate
+# ============================================================
+
 echo ""
 echo "=== Building Reproducible Prestate ==="
 
@@ -181,7 +275,10 @@ echo "✓ Configs directory cleaned"
 
 make reproducible-prestate -e TARGETOS=linux -e TARGETARCH=amd64
 
-# ========== Result ==========
+# ============================================================
+# Display Result
+# ============================================================
+
 echo ""
 echo "=== Prestate Hash ==="
 PRESTATE_HASH=$(cat op-program/bin/prestate-proof-mt64.json | jq -r .pre)
@@ -189,7 +286,10 @@ echo "$PRESTATE_HASH"
 echo ""
 echo "✓ Build completed successfully!"
 
-# ========== Package Results ==========
+# ============================================================
+# Package Results
+# ============================================================
+
 echo ""
 echo "=== Packaging Results ==="
 
@@ -198,8 +298,9 @@ BUILD_TIME=$(date '+%Y-%m-%d %H:%M:%S')
 BUILD_INFO="op-program/BUILD_INFO.txt"
 
 cat > "$BUILD_INFO" << EOF
-X Layer Testnet Prestate Build
+X Layer ${NETWORK_DISPLAY} Prestate Build
 ================================
+Network: $NETWORK
 Chain ID: $CHAIN_ID
 Jovian Time: $JOVIAN_TIME
 Build Time: $BUILD_TIME
@@ -211,7 +312,7 @@ echo "✓ Build info created"
 
 # Package bin and configs
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-PACKAGE_NAME="xlayer-testnet-prestate-${CHAIN_ID}-${TIMESTAMP}.tar.gz"
+PACKAGE_NAME="xlayer-${NETWORK}-prestate-${CHAIN_ID}-${TIMESTAMP}.tar.gz"
 
 tar -czf "$PACKAGE_NAME" \
     -C op-program bin configs BUILD_INFO.txt
@@ -221,3 +322,4 @@ echo "  Size: $(du -h "$PACKAGE_NAME" | cut -f1)"
 echo "  SHA256: $(shasum -a 256 "$PACKAGE_NAME" | cut -d' ' -f1)"
 echo ""
 echo "✓ All done!"
+
