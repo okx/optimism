@@ -51,6 +51,8 @@ contract UpgradeSystemConfig is Script {
         SystemConfig.Addresses addresses;
         uint256 l2ChainId;
         ISuperchainConfig superchainConfig;
+        address gasPayingToken;
+        uint8 gasPayingTokenDecimals;
     }
 
     /// @notice Main upgrade function
@@ -174,6 +176,9 @@ contract UpgradeSystemConfig is Script {
         // Read superchain config
         params.superchainConfig = currentSystemConfig.superchainConfig();
 
+        // Read gas paying token
+        (params.gasPayingToken, params.gasPayingTokenDecimals) = currentSystemConfig.gasPayingToken();
+
         // Log the parameters
         _logCurrentParameters(params);
 
@@ -192,6 +197,8 @@ contract UpgradeSystemConfig is Script {
         console.log("Current batch inbox:", params.batchInbox);
         console.log("Current L2 chain ID:", params.l2ChainId);
         console.log("Current superchain config:", address(params.superchainConfig));
+        console.log("Current gas paying token:", params.gasPayingToken);
+        console.log("Current gas paying token decimals:", params.gasPayingTokenDecimals);
 
         console.log("\n--- Current System Contract Addresses ---");
         console.log("L1CrossDomainMessenger:", params.addresses.l1CrossDomainMessenger);
@@ -222,13 +229,15 @@ contract UpgradeSystemConfig is Script {
         if (newImplementationAddress != address(0)) {
             console.log("\n--- Using Existing SystemConfig Implementation ---");
             newImplementation = SystemConfig(newImplementationAddress);
-            console.log("Using existing SystemConfig at:", address(newImplementation));
+
+            // Validate bytecode matches local SystemConfig
+            _validateImplementationBytecode(newImplementationAddress);
         } else {
             console.log("\n--- Deploying SystemConfig Implementation ---");
             newImplementation = new SystemConfig();
             console.log("SystemConfig deployed at:", address(newImplementation));
         }
-        console.log("Implementation version:", newImplementation.version());
+        console.log("New implementation version:", newImplementation.version());
 
         // Step 3: Prepare initialization data
         console.log("\n--- Preparing Reinitialization Data ---");
@@ -300,6 +309,44 @@ contract UpgradeSystemConfig is Script {
         console.log("Current gas token decimals:", currentDecimals);
     }
 
+    /// @notice Validate that the provided implementation bytecode matches the local SystemConfig
+    /// @param implementationToValidate The implementation address to validate
+    function _validateImplementationBytecode(address implementationToValidate) internal {
+        console.log("\n--- Validating Implementation Bytecode ---");
+
+        // Deploy a reference SystemConfig to compare against
+        SystemConfig referenceImplementation = new SystemConfig();
+
+        // Get bytecode from both implementations
+        bytes memory providedBytecode = implementationToValidate.code;
+        bytes memory referenceBytecode = address(referenceImplementation).code;
+
+        console.log("Provided implementation bytecode size:", providedBytecode.length);
+        console.log("Reference implementation bytecode size:", referenceBytecode.length);
+
+        // Compare bytecode lengths first (quick check)
+        require(
+            providedBytecode.length == referenceBytecode.length,
+            "Bytecode length mismatch: provided implementation does not match local SystemConfig"
+        );
+
+        // Compare bytecode hashes (efficient full comparison)
+        bytes32 providedCodeHash = keccak256(providedBytecode);
+        bytes32 referenceCodeHash = keccak256(referenceBytecode);
+
+        console.log("Provided implementation codehash:");
+        console.logBytes32(providedCodeHash);
+        console.log("Reference implementation codehash:");
+        console.logBytes32(referenceCodeHash);
+
+        require(
+            providedCodeHash == referenceCodeHash,
+            "Bytecode mismatch: provided implementation does not match local SystemConfig"
+        );
+
+        console.log("[PASS] Bytecode validation passed: provided implementation matches local SystemConfig");
+    }
+
     /// @notice Verify the upgrade and reinitialization was successful
     function _verifyUpgradeAndReinit(SystemConfig upgradedSystemConfig, SystemConfigParams memory expectedParams) internal view {
         console.log("\n--- Verifying Upgrade and Reinitialization Results ---");
@@ -308,7 +355,7 @@ contract UpgradeSystemConfig is Script {
         string memory newVersion = upgradedSystemConfig.version();
         console.log("New version:", newVersion);
         require(keccak256(bytes(newVersion)) == keccak256(bytes("3.12.0")), "Version not updated correctly");
-        require(upgradedSystemConfig.initVersion() == 4, "initVersion not currect");
+        require(upgradedSystemConfig.initVersion() == 4, "initVersion not correct");
         // Verify all parameters were preserved during reinitialization
         console.log("\n--- Verifying Parameter Preservation ---");
 
@@ -341,6 +388,13 @@ contract UpgradeSystemConfig is Script {
         require(newResourceConfig.minimumBaseFee == expectedParams.resourceConfig.minimumBaseFee, "Minimum base fee not preserved");
         require(newResourceConfig.systemTxMaxGas == expectedParams.resourceConfig.systemTxMaxGas, "System tx max gas not preserved");
         require(newResourceConfig.maximumBaseFee == expectedParams.resourceConfig.maximumBaseFee, "Maximum base fee not preserved");
+
+        // Verify gas paying token configuration
+        (address newGasToken, uint8 newDecimals) = upgradedSystemConfig.gasPayingToken();
+        require(newGasToken == expectedParams.gasPayingToken, "Gas paying token not preserved");
+        require(newDecimals == expectedParams.gasPayingTokenDecimals, "Gas paying token decimals not preserved");
+        console.log("Gas paying token preserved:", newGasToken);
+        console.log("Gas paying token decimals preserved:", newDecimals);
 
         console.log("All upgrade and reinitialization verifications passed!");
         console.log("SystemConfig successfully simulated upgrade to version:", newVersion);
