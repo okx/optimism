@@ -29,7 +29,7 @@ contract DeploySystemConfigImpl is Script {
         console.log("\n=== Deployment Results ===");
         console.log("SystemConfig Implementation deployed at:", address(systemConfigImpl));
         console.log("SystemConfig version:", systemConfigImpl.version());
-        
+
         // Verify the deployment
         _verifyDeployment();
 
@@ -39,15 +39,14 @@ contract DeploySystemConfigImpl is Script {
     /// @notice Verify the implementation deployment
     function _verifyDeployment() internal view {
         console.log("\n--- Verifying Implementation ---");
-        
+
         // Check that the contract was deployed
         require(address(systemConfigImpl).code.length > 0, "SystemConfig implementation not deployed");
-        
+
         // Check that we can call version (basic functionality test)
         string memory version = systemConfigImpl.version();
         require(bytes(version).length > 0, "SystemConfig version not accessible");
-        require(keccak256(bytes(version)) == keccak256(bytes("3.12.2")), "SystemConfig version not updated correctly");
-        
+        require(keccak256(bytes(version)) == keccak256(bytes("3.12.0")), "SystemConfig version not updated correctly");
         console.log("SystemConfig version:", version);
         console.log("Implementation verification passed!");
         console.log("Contract size:", address(systemConfigImpl).code.length, "bytes");
