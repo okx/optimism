@@ -1,7 +1,9 @@
 package rollup
 
 import (
+	"encoding/json"
 	"math/big"
+	"os"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -263,4 +265,45 @@ func TestNewUint64(t *testing.T) {
 		require.NotNil(t, ptr)
 		assert.Equal(t, ^uint64(0), *ptr)
 	})
+}
+
+func TestFixXLayerL2Time(t *testing.T) {
+	rollupConfigPath := "./rollup-mainnet.json"
+
+	// 1. Read ./rollup-mainnet.json
+	cfg, err := readConfig(rollupConfigPath)
+	assert.NoError(t, err)
+
+	// 2. Verify L2Time was not fixed
+	initL2Time := cfg.Genesis.L2Time
+	assert.Equal(t, uint64(MainnetOldL2Time), cfg.Genesis.L2Time)
+
+	// 3. Fix it by calling FixXLayerL2Time
+	FixXLayerL2Time(cfg, rollupConfigPath)
+
+	// 4. Verify L2Time was fixed
+	assert.Equal(t, uint64(MainnetFixedL2Time), cfg.Genesis.L2Time, "L2Time should be fixed to MainnetFixedL2Time")
+
+	// 5. Verify the file was updated
+	savedCfg, err := readConfig(rollupConfigPath)
+	assert.NoError(t, err)
+	assert.Equal(t, uint64(MainnetFixedL2Time), savedCfg.Genesis.L2Time, "L2Time should be fixed to MainnetFixedL2Time")
+
+	// 6. revert L2 time
+	cfg.Genesis.L2Time = initL2Time
+	saveFixedRollupJSON(cfg, rollupConfigPath)
+}
+
+func readConfig(rollupConfigPath string) (*Config, error) {
+	file, err := os.Open(rollupConfigPath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var cfg Config
+	dec := json.NewDecoder(file)
+	dec.DisallowUnknownFields()
+	err = dec.Decode(&cfg)
+	return &cfg, err
 }

@@ -279,6 +279,7 @@ Conflicting configuration is deprecated, and will stop the op-node from starting
 	}
 	// X Layer hardcoded fork configurations for file-loaded configs
 	rollup.ApplyXLayerHardcodedForks(&rollupConfig)
+	rollup.FixXLayerL2Time(&rollupConfig, rollupConfigPath)
 	return &rollupConfig, nil
 }
 
