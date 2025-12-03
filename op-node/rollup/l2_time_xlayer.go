@@ -4,10 +4,10 @@ import "math/big"
 
 const (
 	// MainnetL2TimeForkTime is the absolute timestamp when the fixed timestamp is used to derive L1 span batches.
-	// After this time, the fixed timestamp is used. Corresponds to 2025-12-08 14:00:00 UTC.
+	// After this time, the fixed timestamp is used. Corresponds to 2025-12-08 14:00:00 UTC+8.
 	MainnetL2TimeForkTime = 1765173600
 	// TestnetL2TimeForkTime is the absolute timestamp when the fixed timestamp is used to derive L1 span batches.
-	// After this time, the fixed timestamp is used. Corresponds to 2025-12-04 18:00:00 UTC.
+	// After this time, the fixed timestamp is used. Corresponds to 2025-12-04 18:00:00 UTC+8.
 	TestnetL2TimeForkTime = 1764842400
 )
 
