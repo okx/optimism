@@ -4,17 +4,21 @@ import "math/big"
 
 const (
 	// MainnetL2TimeForkTime is the absolute timestamp when the fixed timestamp is used to derive L1 span batches.
-	// After this time, the fixed timestamp is used. Corresponds to 2025-12-08 08:00:00 UTC.
-	MainnetL2TimeForkTime = 1765152000
+	// After this time, the fixed timestamp is used. Corresponds to 2025-12-08 14:00:00 UTC.
+	MainnetL2TimeForkTime = 1765173600
 	// TestnetL2TimeForkTime is the absolute timestamp when the fixed timestamp is used to derive L1 span batches.
-	// After this time, the fixed timestamp is used. Corresponds to 2025-12-04 12:00:00 UTC.
-	TestnetL2TimeForkTime = 1764820800
+	// After this time, the fixed timestamp is used. Corresponds to 2025-12-04 18:00:00 UTC.
+	TestnetL2TimeForkTime = 1764842400
 )
 
 const (
-	MainnetOldL2Time   = 1761567143
+	// MainnetOldL2Time is the wrong time from rollup.json
+	MainnetOldL2Time = 1761567143
+	// MainnetFixedL2Time is the correct time from genesis.json and will be written to new rollup.json
 	MainnetFixedL2Time = 1761579057
-	TestnetOldL2Time   = 1760699568
+	// TestnetOldL2Time is the wrong time from rollup.json
+	TestnetOldL2Time = 1760699568
+	// TestnetFixedL2Time is the correct time from genesis.json and will be written to new rollup.json
 	TestnetFixedL2Time = 1760700537
 )
 
