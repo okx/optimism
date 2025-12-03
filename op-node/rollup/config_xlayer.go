@@ -3,6 +3,9 @@
 package rollup
 
 import (
+	"encoding/json"
+	"os"
+
 	"github.com/ethereum/go-ethereum/log"
 )
 
@@ -85,4 +88,37 @@ func ApplyXLayerHardcodedForks(cfg *Config) *Config {
 	}
 
 	return cfg
+}
+
+func FixXLayerL2Time(cfg *Config, rollupConfigPath string) {
+	if cfg == nil || cfg.L2ChainID == nil {
+		log.Error("X Layer: No rollup config provided, no modifications needed")
+		return
+	}
+
+	chainID := cfg.L2ChainID.Uint64()
+	if chainID == XLayerMainnetChainID && cfg.Genesis.L2Time != MainnetFixedL2Time {
+		log.Warn("X Layer: auto fixed mainnet l2 time")
+		cfg.Genesis.L2Time = MainnetFixedL2Time
+		saveFixedRollupJSON(cfg, rollupConfigPath)
+	} else if chainID == XLayerTestnetChainID && cfg.Genesis.L2Time != TestnetFixedL2Time {
+		log.Warn("X Layer: auto fixed mainnet l2 time")
+		cfg.Genesis.L2Time = TestnetFixedL2Time
+		saveFixedRollupJSON(cfg, rollupConfigPath)
+	}
+}
+
+func saveFixedRollupJSON(cfg *Config, rollupConfigPath string) {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		log.Error("X Layer: Failed to marshal JSON", "err", err)
+		return
+	}
+
+	err = os.WriteFile(rollupConfigPath, data, 0644)
+	if err != nil {
+		log.Error("X Layer: Failed to save rollup config", "path", rollupConfigPath, "err", err)
+		return
+	}
+	log.Info("X Layer: Successfully saved fixed rollup config", "path", rollupConfigPath)
 }
