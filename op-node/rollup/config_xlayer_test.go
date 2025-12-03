@@ -268,7 +268,7 @@ func TestNewUint64(t *testing.T) {
 }
 
 func TestFixXLayerL2Time(t *testing.T) {
-	rollupConfigPath := "./rollup-mainnet.json"
+	rollupConfigPath := "./rollup-unit-test.json"
 
 	// 1. Read ./rollup-mainnet.json
 	cfg, err := readConfig(rollupConfigPath)
