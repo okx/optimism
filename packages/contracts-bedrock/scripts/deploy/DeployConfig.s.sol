@@ -84,6 +84,7 @@ contract DeployConfig is Script {
     string public gasPayingTokenName;
     string public gasPayingTokenSymbol;
     uint256 public nativeAssetLiquidityAmount;
+    address public liquidityControllerOwner;
 
     // V2 Dispute Game Configuration
     uint256 public faultGameV2MaxGameDepth;
@@ -150,6 +151,7 @@ contract DeployConfig is Script {
         gasPayingTokenName = _readOr(_json, "$.gasPayingTokenName", "");
         gasPayingTokenSymbol = _readOr(_json, "$.gasPayingTokenSymbol", "");
         nativeAssetLiquidityAmount = _readOr(_json, "$.nativeAssetLiquidityAmount", 0);
+        liquidityControllerOwner = _readOr(_json, "$.liquidityControllerOwner", finalSystemOwner);
 
         enableGovernance = _readOr(_json, "$.enableGovernance", false);
         systemConfigStartBlock = stdJson.readUint(_json, "$.systemConfigStartBlock");
@@ -308,6 +310,11 @@ contract DeployConfig is Script {
     /// @notice Allow the `sequencerFeeVaultWithdrawalNetwork` config to be overridden in testing environments
     function setSequencerFeeVaultWithdrawalNetwork(uint256 _sequencerFeeVaultWithdrawalNetwork) public {
         sequencerFeeVaultWithdrawalNetwork = _sequencerFeeVaultWithdrawalNetwork;
+    }
+
+    /// @notice Allow the `operatorFeeVaultWithdrawalNetwork` config to be overridden in testing environments
+    function setOperatorFeeVaultWithdrawalNetwork(uint256 _operatorFeeVaultWithdrawalNetwork) public {
+        operatorFeeVaultWithdrawalNetwork = _operatorFeeVaultWithdrawalNetwork;
     }
 
     function latestGenesisFork() internal view returns (Fork) {

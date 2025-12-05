@@ -1464,7 +1464,7 @@ contract OPContractsManagerDeployer is OPContractsManagerBase {
 
         // If the custom gas token feature was requested, enable the custom gas token feature in the SystemConfig
         // contract.
-        if (isDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN)) {
+        if (_input.useCustomGasToken) {
             output.systemConfigProxy.setFeature(Features.CUSTOM_GAS_TOKEN, true);
         }
 
@@ -2138,6 +2138,8 @@ contract OPContractsManager is ISemver {
         uint256 disputeSplitDepth;
         Duration disputeClockExtension;
         Duration disputeMaxClockDuration;
+        // Whether to use the custom gas token.
+        bool useCustomGasToken;
     }
 
     /// @notice The full set of outputs from deploying a new OP Stack chain.
@@ -2235,9 +2237,9 @@ contract OPContractsManager is ISemver {
 
     // -------- Constants and Variables --------
 
-    /// @custom:semver 5.7.0
+    /// @custom:semver 5.7.1
     function version() public pure virtual returns (string memory) {
-        return "5.7.0";
+        return "5.7.1";
     }
 
     OPContractsManagerGameTypeAdder public immutable opcmGameTypeAdder;
