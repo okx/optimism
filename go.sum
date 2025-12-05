@@ -804,8 +804,8 @@ github.com/nxadm/tail v1.4.4/go.mod h1:kenIhsEOeOJmVchQTgglprH7qJGnHDVpk1VPCcaMI
 github.com/nxadm/tail v1.4.8/go.mod h1:+ncqLTQzXmGhMZNUePPaPqPvBxHAIsmXswZKocGu+AU=
 github.com/nxadm/tail v1.4.11 h1:8feyoE3OzPrcshW5/MJ4sGESc5cqmGkGCWlco4l0bqY=
 github.com/nxadm/tail v1.4.11/go.mod h1:OTaG3NK980DZzxbRq6lEuzgU+mug70nY11sMd4JXXHc=
-github.com/okx/op-geth v1.101408.1-0.20251205013657-8ba166a02262 h1:JlfguJPxdkEdaZ4RJ7UV+shRJDNHJADTjT8d2cB0Zjs=
-github.com/okx/op-geth v1.101408.1-0.20251205013657-8ba166a02262/go.mod h1:Qtp2CxjdW02xvbrkdxP805lEPvFs7/DSpRakf4qlUrY=
+github.com/okx/op-geth v1.101408.1-0.20251205084103-12a2b44c9427 h1:yeGB7wJTvAxm31IcEKUVXrvY3NcCbUaXHS55XqPTC04=
+github.com/okx/op-geth v1.101408.1-0.20251205084103-12a2b44c9427/go.mod h1:Qtp2CxjdW02xvbrkdxP805lEPvFs7/DSpRakf4qlUrY=
 github.com/olekukonko/tablewriter v0.0.5 h1:P2Ga83D34wi1o9J6Wh1mRuqd4mF/x/lgBS7N7AbDhec=
 github.com/olekukonko/tablewriter v0.0.5/go.mod h1:hPp6KlRPjbx+hW8ykQs1w3UBbZlj6HuIJcUGPhkA7kY=
 github.com/onsi/ginkgo v1.6.0/go.mod h1:lLunBs/Ym6LB5Z9jYTR76FiuTmxDTDusOGeTQH+WWjE=
