@@ -80,6 +80,11 @@ contract L2Genesis is Script {
         bool useRevenueShare;
         address chainFeesRecipient;
         address l1FeesDepositor;
+        bool useCustomGasToken;
+        string gasPayingTokenName;
+        string gasPayingTokenSymbol;
+        uint256 nativeAssetLiquidityAmount;
+        address liquidityControllerOwner;
     }
 
     using ForkUtils for Fork;
@@ -335,6 +340,7 @@ contract L2Genesis is Script {
         _setFeeVault({
             _vaultAddr: Predeploys.SEQUENCER_FEE_WALLET,
             _useRevenueShare: _input.useRevenueShare,
+            _useCustomGasToken: _input.useCustomGasToken,
             _recipient: _input.sequencerFeeVaultRecipient,
             _minWithdrawalAmount: _input.sequencerFeeVaultMinimumWithdrawalAmount,
             _withdrawalNetwork: Types.WithdrawalNetwork(_input.sequencerFeeVaultWithdrawalNetwork)
@@ -428,6 +434,7 @@ contract L2Genesis is Script {
         _setFeeVault({
             _vaultAddr: Predeploys.BASE_FEE_VAULT,
             _useRevenueShare: _input.useRevenueShare,
+            _useCustomGasToken: _input.useCustomGasToken,
             _recipient: _input.baseFeeVaultRecipient,
             _minWithdrawalAmount: _input.baseFeeVaultMinimumWithdrawalAmount,
             _withdrawalNetwork: Types.WithdrawalNetwork(_input.baseFeeVaultWithdrawalNetwork)
@@ -445,6 +452,7 @@ contract L2Genesis is Script {
         _setFeeVault({
             _vaultAddr: Predeploys.L1_FEE_VAULT,
             _useRevenueShare: _input.useRevenueShare,
+            _useCustomGasToken: _input.useCustomGasToken,
             _recipient: _input.l1FeeVaultRecipient,
             _minWithdrawalAmount: _input.l1FeeVaultMinimumWithdrawalAmount,
             _withdrawalNetwork: Types.WithdrawalNetwork(_input.l1FeeVaultWithdrawalNetwork)
@@ -462,6 +470,7 @@ contract L2Genesis is Script {
         _setFeeVault({
             _vaultAddr: Predeploys.OPERATOR_FEE_VAULT,
             _useRevenueShare: _input.useRevenueShare,
+            _useCustomGasToken: _input.useCustomGasToken,
             _recipient: _input.operatorFeeVaultRecipient,
             _minWithdrawalAmount: _input.operatorFeeVaultMinimumWithdrawalAmount,
             _withdrawalNetwork: Types.WithdrawalNetwork(_input.operatorFeeVaultWithdrawalNetwork)
@@ -570,9 +579,14 @@ contract L2Genesis is Script {
     function setLiquidityController(Input memory _input) internal {
         address impl = _setImplementationCode(Predeploys.LIQUIDITY_CONTROLLER);
 
-        ILiquidityController(impl).initialize({ _gasPayingTokenName: "", _gasPayingTokenSymbol: "" });
+        ILiquidityController(impl).initialize({
+            _owner: _input.liquidityControllerOwner,
+            _gasPayingTokenName: "",
+            _gasPayingTokenSymbol: ""
+        });
 
         ILiquidityController(Predeploys.LIQUIDITY_CONTROLLER).initialize({
+            _owner: _input.liquidityControllerOwner,
             _gasPayingTokenName: _input.gasPayingTokenName,
             _gasPayingTokenSymbol: _input.gasPayingTokenSymbol
         });
@@ -713,6 +727,7 @@ contract L2Genesis is Script {
     function _setFeeVault(
         address _vaultAddr,
         bool _useRevenueShare,
+        bool _useCustomGasToken,
         address _recipient,
         uint256 _minWithdrawalAmount,
         Types.WithdrawalNetwork _withdrawalNetwork
@@ -722,6 +737,14 @@ contract L2Genesis is Script {
         address recipient;
         Types.WithdrawalNetwork network;
         uint256 minWithdrawalAmount;
+
+        if (_useCustomGasToken && _withdrawalNetwork == Types.WithdrawalNetwork.L1) {
+            revert("FeeVault: withdrawalNetwork type cannot be L1 when custom gas token is enabled");
+        }
+
+        if (_useCustomGasToken && _useRevenueShare) {
+            revert("FeeVault: custom gas token and revenue share cannot be enabled together");
+        }
 
         if (_useRevenueShare) {
             recipient = Predeploys.FEE_SPLITTER;

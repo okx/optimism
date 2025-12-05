@@ -69,7 +69,6 @@ func TestValidateStandardValues(t *testing.T) {
 			"CustomGasToken",
 			func(intent *Intent) {
 				intent.Chains[0].CustomGasToken = CustomGasToken{
-					Enabled:          true,
 					Name:             "Custom Gas Token",
 					Symbol:           "CGT",
 					InitialLiquidity: (*hexutil.Big)(big.NewInt(1000)),
@@ -155,8 +154,11 @@ func TestValidateCustomValues(t *testing.T) {
 	err = intent.Check()
 	require.NoError(t, err)
 
-	setCustomGasToken(&intent)
 	setRevenueShare(&intent)
+	err = intent.Check()
+	require.NoError(t, err)
+
+	setCustomGasToken(&intent)
 	err = intent.Check()
 	require.NoError(t, err)
 
@@ -185,12 +187,19 @@ func TestValidateCustomValues(t *testing.T) {
 			ErrIncompatibleValue,
 		},
 		{
+			"zero address for revenue share chain fees recipient when enabled",
+			func(intent *Intent) {
+				intent.Chains[0].UseRevenueShare = true
+				intent.Chains[0].ChainFeesRecipient = common.Address{}
+			},
+			ErrRevenueShareZeroAddress,
+		},
+		{
 			"empty custom gas token name when enabled",
 			func(intent *Intent) {
 				intent.Chains[0].CustomGasToken = CustomGasToken{
-					Enabled: true,
-					Name:    "",
-					Symbol:  "CGT",
+					Name:   "",
+					Symbol: "CGT",
 				}
 			},
 			ErrIncompatibleValue,
@@ -199,20 +208,11 @@ func TestValidateCustomValues(t *testing.T) {
 			"empty custom gas token symbol when enabled",
 			func(intent *Intent) {
 				intent.Chains[0].CustomGasToken = CustomGasToken{
-					Enabled: true,
-					Name:    "Custom Gas Token",
-					Symbol:  "",
+					Name:   "Custom Gas Token",
+					Symbol: "",
 				}
 			},
 			ErrIncompatibleValue,
-		},
-		{
-			"zero address for revenue share chain fees recipient when enabled",
-			func(intent *Intent) {
-				intent.Chains[0].UseRevenueShare = true
-				intent.Chains[0].ChainFeesRecipient = common.Address{}
-			},
-			ErrRevenueShareZeroAddress,
 		},
 	}
 	for _, tt := range tests {
@@ -283,7 +283,6 @@ func setCustomGasToken(intent *Intent) {
 	amount.SetString("1000000000000000000000", 10)
 
 	intent.Chains[0].CustomGasToken = CustomGasToken{
-		Enabled:          true,
 		Name:             "Custom Gas Token",
 		Symbol:           "CGT",
 		InitialLiquidity: (*hexutil.Big)(amount),

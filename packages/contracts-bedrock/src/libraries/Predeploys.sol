@@ -118,7 +118,7 @@ library Predeploys {
 
     /// @notice Address of the LiquidityController predeploy.
     address internal constant LIQUIDITY_CONTROLLER = 0x420000000000000000000000000000000000002a;
-    
+
     /// @notice Address of the FeeSplitter predeploy.
     address internal constant FEE_SPLITTER = 0x420000000000000000000000000000000000002B;
 
