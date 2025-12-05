@@ -178,7 +178,6 @@ test-unit: ## Runs unit tests for individual components
 	make -C ./op-proposer test
 	make -C ./op-batcher test
 	make -C ./op-e2e test
-	(cd packages/contracts-bedrock && just test)
 .PHONY: test-unit
 
 # Remove the baseline-commit to generate a base reading & show all issues

@@ -19,7 +19,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/google/uuid"
-	"github.com/holiman/uint256"
 )
 
 // Contract method signatures (4-byte selectors)
@@ -597,66 +596,6 @@ func (c *XLayerRemoteClient) postSignRequestAndWaitResult(ctx context.Context, r
 	}
 
 	return &signedTx, nil
-}
-
-// reassembleBlobTransaction reassembles a blob transaction with signature from remote signer
-func (c *XLayerRemoteClient) reassembleBlobTransaction(originalTx *types.Transaction, signedTx *types.Transaction) (*types.Transaction, error) {
-	c.logger.Info("Reassembling blob transaction with signature from remote signer")
-
-	// Extract signature values from remote signed transaction
-	v, r, s := signedTx.RawSignatureValues()
-
-	// Get original blob transaction internal data
-	var originalBlobTx *types.BlobTx
-	switch inner := originalTx.Type(); inner {
-	case types.BlobTxType:
-		// Extract all parameters from original transaction
-		originalBlobTx = &types.BlobTx{
-			ChainID:    uint256.MustFromBig(originalTx.ChainId()),
-			Nonce:      originalTx.Nonce(),
-			GasTipCap:  uint256.MustFromBig(originalTx.GasTipCap()),
-			GasFeeCap:  uint256.MustFromBig(originalTx.GasFeeCap()),
-			Gas:        originalTx.Gas(),
-			To:         *originalTx.To(),
-			Value:      uint256.MustFromBig(originalTx.Value()),
-			Data:       originalTx.Data(),
-			BlobFeeCap: uint256.MustFromBig(originalTx.BlobGasFeeCap()),
-			BlobHashes: originalTx.BlobHashes(),
-			Sidecar:    originalTx.BlobTxSidecar(),
-		}
-	default:
-		return nil, fmt.Errorf("original transaction is not a BlobTx, type: %d", inner)
-	}
-
-	// Create new blob transaction using original parameters + remote signature
-	reassembledBlobTx := &types.BlobTx{
-		ChainID:    originalBlobTx.ChainID,
-		Nonce:      originalBlobTx.Nonce,
-		GasTipCap:  originalBlobTx.GasTipCap,
-		GasFeeCap:  originalBlobTx.GasFeeCap,
-		Gas:        originalBlobTx.Gas,
-		To:         originalBlobTx.To,
-		Value:      originalBlobTx.Value,
-		Data:       originalBlobTx.Data,
-		AccessList: originalBlobTx.AccessList,
-		BlobFeeCap: originalBlobTx.BlobFeeCap,
-		BlobHashes: originalBlobTx.BlobHashes,
-		Sidecar:    originalBlobTx.Sidecar,
-		// Use signature values from remote signer
-		V: uint256.MustFromBig(v),
-		R: uint256.MustFromBig(r),
-		S: uint256.MustFromBig(s),
-	}
-
-	reassembledTx := types.NewTx(reassembledBlobTx)
-
-	c.logger.Info("Blob transaction reassembled successfully",
-		"type", reassembledTx.Type(),
-		"nonce", reassembledTx.Nonce(),
-		"to", reassembledTx.To(),
-		"hasSidecar", reassembledTx.BlobTxSidecar() != nil)
-
-	return reassembledTx, nil
 }
 
 // postSignRequest sends a signing request to XLayer remote signer

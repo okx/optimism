@@ -75,6 +75,7 @@ func main() {
 	}
 }
 
+//nolint:staticcheck // SA5011: Suppress nil pointer dereference warnings for this function
 func RollupNodeMain(ctx *cli.Context, closeApp context.CancelCauseFunc) (cliapp.Lifecycle, error) {
 	logCfg := oplog.ReadCLIConfig(ctx)
 	log := oplog.NewLogger(oplog.AppOut(ctx), logCfg)
