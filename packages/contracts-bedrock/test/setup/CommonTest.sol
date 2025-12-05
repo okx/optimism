@@ -36,7 +36,6 @@ abstract contract CommonTest is Test, Setup, Events {
 
     bool useAltDAOverride;
     bool useInteropOverride;
-    bool useCustomGasToken;
     bool useRevenueShareOverride;
     bool useCustomGasToken;
 

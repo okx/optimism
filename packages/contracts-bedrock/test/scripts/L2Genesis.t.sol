@@ -181,21 +181,6 @@ abstract contract L2Genesis_TestInit is Test {
         assertEq(gasPriceOracle.isIsthmus(), true);
     }
 
-    function testCGT() internal view {
-        // Test LiquidityController deployment
-        ILiquidityController controller = ILiquidityController(Predeploys.LIQUIDITY_CONTROLLER);
-        assertEq(controller.gasPayingTokenName(), input.gasPayingTokenName);
-        assertEq(controller.gasPayingTokenSymbol(), input.gasPayingTokenSymbol);
-
-        // Test NativeAssetLiquidity deployment and funding
-        INativeAssetLiquidity liquidity = INativeAssetLiquidity(Predeploys.NATIVE_ASSET_LIQUIDITY);
-        assertEq(address(liquidity).balance, type(uint248).max);
-
-        // Verify predeploys have code
-        assertGt(Predeploys.LIQUIDITY_CONTROLLER.code.length, 0);
-        assertGt(Predeploys.NATIVE_ASSET_LIQUIDITY.code.length, 0);
-    }
-
     function testFeeSplitter() internal view {
         // Only test if revenue share is enabled
         if (!input.useRevenueShare) return;
@@ -263,10 +248,6 @@ contract L2Genesis_Run_Test is L2Genesis_TestInit {
             deployCrossL2Inbox: true,
             enableGovernance: true,
             fundDevAccounts: true,
-            useCustomGasToken: false,
-            gasPayingTokenName: "",
-            gasPayingTokenSymbol: "",
-            nativeAssetLiquidityAmount: type(uint248).max,
             useRevenueShare: true,
             chainFeesRecipient: address(0x000000000000000000000000000000000000000b),
             l1FeesDepositor: address(0x000000000000000000000000000000000000000C),

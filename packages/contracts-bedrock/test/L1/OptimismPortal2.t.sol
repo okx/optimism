@@ -2767,7 +2767,7 @@ contract OptimismPortal2_DepositERC20Transaction_Test is CommonTest {
         depositor = makeAddr("depositor");
 
         // Set up custom gas token if the feature is enabled
-        if (isDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN)) {
+        if (isDevFeatureEnabled(Features.CUSTOM_GAS_TOKEN)) {
             // Deploy a mock ERC20 token to use as custom gas token
             customGasToken = new ERC20("Custom Gas Token", "CGT");
 
@@ -2783,7 +2783,7 @@ contract OptimismPortal2_DepositERC20Transaction_Test is CommonTest {
     /// @notice Tests that `depositERC20Transaction` reverts when custom gas token is not enabled.
 
     function test_depositERC20Transaction_notCustomGasToken_reverts() external {
-        skipIfDevFeatureEnabled(DevFeatures.CUSTOM_GAS_TOKEN);
+        skipIfDevFeatureEnabled(Features.CUSTOM_GAS_TOKEN);
 
         vm.expectRevert(IOptimismPortal.OptimismPortal_OnlyCustomGasToken.selector);
         optimismPortal2.depositERC20Transaction({
@@ -2798,7 +2798,7 @@ contract OptimismPortal2_DepositERC20Transaction_Test is CommonTest {
 
     /// @notice Tests that `depositERC20Transaction` reverts when gas token is invalid (ETH).
     function test_depositERC20Transaction_invalidGasToken_reverts() external {
-        skipIfDevFeatureDisabled(DevFeatures.CUSTOM_GAS_TOKEN);
+        skipIfDevFeatureDisabled(Features.CUSTOM_GAS_TOKEN);
         skipIfForkTest(
             "OptimismPortal2_DepositERC20Transaction_Test: custom gas token not available on forked networks"
         );
@@ -2828,7 +2828,7 @@ contract OptimismPortal2_DepositERC20Transaction_Test is CommonTest {
     /// @notice Tests that `depositERC20Transaction` reverts when destination address is non-zero
     ///         for a contract creation deposit.
     function test_depositERC20Transaction_contractCreation_reverts() external {
-        skipIfDevFeatureDisabled(DevFeatures.CUSTOM_GAS_TOKEN);
+        skipIfDevFeatureDisabled(Features.CUSTOM_GAS_TOKEN);
         skipIfForkTest(
             "OptimismPortal2_DepositERC20Transaction_Test: custom gas token not available on forked networks"
         );
@@ -2851,7 +2851,7 @@ contract OptimismPortal2_DepositERC20Transaction_Test is CommonTest {
 
     /// @notice Tests that `depositERC20Transaction` reverts when the gas limit is too small.
     function test_depositERC20Transaction_smallGasLimit_reverts() external {
-        skipIfDevFeatureDisabled(DevFeatures.CUSTOM_GAS_TOKEN);
+        skipIfDevFeatureDisabled(Features.CUSTOM_GAS_TOKEN);
         skipIfForkTest(
             "OptimismPortal2_DepositERC20Transaction_Test: custom gas token not available on forked networks"
         );
@@ -2874,7 +2874,7 @@ contract OptimismPortal2_DepositERC20Transaction_Test is CommonTest {
 
     /// @notice Tests that `depositERC20Transaction` reverts when the data is too large.
     function test_depositERC20Transaction_largeData_reverts() external {
-        skipIfDevFeatureDisabled(DevFeatures.CUSTOM_GAS_TOKEN);
+        skipIfDevFeatureDisabled(Features.CUSTOM_GAS_TOKEN);
         skipIfForkTest(
             "OptimismPortal2_DepositERC20Transaction_Test: custom gas token not available on forked networks"
         );
@@ -2900,7 +2900,7 @@ contract OptimismPortal2_DepositERC20Transaction_Test is CommonTest {
 
     /// @notice Tests that `depositERC20Transaction` succeeds for small, but sufficient, gas limits.
     function testFuzz_depositERC20Transaction_smallGasLimit_succeeds(bytes memory _data, bool _shouldFail) external {
-        skipIfDevFeatureDisabled(DevFeatures.CUSTOM_GAS_TOKEN);
+        skipIfDevFeatureDisabled(Features.CUSTOM_GAS_TOKEN);
         skipIfForkTest(
             "OptimismPortal2_DepositERC20Transaction_Test: custom gas token not available on forked networks"
         );
@@ -2934,7 +2934,7 @@ contract OptimismPortal2_DepositERC20Transaction_Test is CommonTest {
     )
         external
     {
-        skipIfDevFeatureDisabled(DevFeatures.CUSTOM_GAS_TOKEN);
+        skipIfDevFeatureDisabled(Features.CUSTOM_GAS_TOKEN);
         skipIfForkTest(
             "OptimismPortal2_DepositERC20Transaction_Test: custom gas token not available on forked networks"
         );
@@ -2990,7 +2990,7 @@ contract OptimismPortal2_DepositERC20Transaction_Test is CommonTest {
     )
         external
     {
-        skipIfDevFeatureDisabled(DevFeatures.CUSTOM_GAS_TOKEN);
+        skipIfDevFeatureDisabled(Features.CUSTOM_GAS_TOKEN);
         skipIfForkTest(
             "OptimismPortal2_DepositERC20Transaction_Test: custom gas token not available on forked networks"
         );
@@ -3035,7 +3035,7 @@ contract OptimismPortal2_DepositERC20Transaction_Test is CommonTest {
 
     /// @notice Tests that `depositERC20Transaction` correctly transfers tokens when mint is non-zero.
     function test_depositERC20Transaction_transfersTokens_succeeds() external {
-        skipIfDevFeatureDisabled(DevFeatures.CUSTOM_GAS_TOKEN);
+        skipIfDevFeatureDisabled(Features.CUSTOM_GAS_TOKEN);
         skipIfForkTest(
             "OptimismPortal2_DepositERC20Transaction_Test: custom gas token not available on forked networks"
         );
@@ -3068,7 +3068,7 @@ contract OptimismPortal2_DepositERC20Transaction_Test is CommonTest {
 
     /// @notice Tests that `depositERC20Transaction` does not transfer tokens when mint is zero.
     function test_depositERC20Transaction_zeroMint_succeeds() external {
-        skipIfDevFeatureDisabled(DevFeatures.CUSTOM_GAS_TOKEN);
+        skipIfDevFeatureDisabled(Features.CUSTOM_GAS_TOKEN);
         skipIfForkTest(
             "OptimismPortal2_DepositERC20Transaction_Test: custom gas token not available on forked networks"
         );

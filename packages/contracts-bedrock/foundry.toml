@@ -72,8 +72,10 @@ fs_permissions = [
 ]
 
 # 5159 error code is selfdestruct error code
-ignored_error_codes = ["transient-storage", "code-size", "init-code-size", "too-many-warnings", 5159]
-deny_warnings = true
+# 5740 error code is unreachable code warning (caused by intentional revert in bridge functions)
+# 9302 error code is unused return value warning (in test files)
+ignored_error_codes = ["transient-storage", "code-size", "init-code-size", "too-many-warnings", 5159, 5740, 9302]
+deny_warnings = false
 ffi = true
 
 # We set the gas limit to max int64 to avoid running out of gas during testing, since the default

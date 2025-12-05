@@ -73,10 +73,6 @@ contract L2Genesis is Script {
         bool deployCrossL2Inbox;
         bool enableGovernance;
         bool fundDevAccounts;
-        bool useCustomGasToken;
-        string gasPayingTokenName;
-        string gasPayingTokenSymbol;
-        uint256 nativeAssetLiquidityAmount;
         bool useRevenueShare;
         address chainFeesRecipient;
         address l1FeesDepositor;
