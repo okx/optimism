@@ -2486,6 +2486,9 @@ workflows:
           matrix:
             parameters:
               features: *features_matrix
+          # need this requires to ensure that all FFI JSONs exist
+          requires:
+            - contracts-bedrock-build
           context:
             - circleci-repo-readonly-authenticated-github-token
       - contracts-bedrock-tests-upgrade:
