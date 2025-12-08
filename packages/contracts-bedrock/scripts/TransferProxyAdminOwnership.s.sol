@@ -63,7 +63,7 @@ contract TransferProxyAdminOwnership is Script {
             "ProxyAdmin is not owned by Transactor"
         );
 
-        console.log("✓ Pre-conditions verified");
+        console.log("Pre-conditions verified");
         console.log("");
 
         // Prepare the call data: ProxyAdmin.transferOwnership(newOwner)
@@ -95,7 +95,7 @@ contract TransferProxyAdminOwnership is Script {
         vm.stopPrank();
 
         require(success, "Transactor.CALL failed");
-        console.log("  ✓ Transaction executed successfully");
+        console.log("Transaction executed successfully");
         console.log("");
 
         // Verify the ownership transfer
@@ -110,7 +110,7 @@ contract TransferProxyAdminOwnership is Script {
         );
 
         console.log("");
-        console.log("✓ ProxyAdmin ownership successfully transferred!");
+        console.log("ProxyAdmin ownership successfully transferred!");
         console.log("");
         console.log("Summary:");
         console.log("  ProxyAdmin:", proxyAdmin);
