@@ -616,7 +616,6 @@ jobs:
       - utils/checkout-with-mise:
           checkout-method: blobless
       - install-contracts-dependencies
-      - install-zstd
       - run:
           name: Print forge version
           command: forge --version
@@ -941,7 +940,6 @@ jobs:
     steps:
       - utils/checkout-with-mise:
           checkout-method: blobless
-      - install-zstd
       - run:
           name: Check if test list is empty
           command: |
@@ -1029,7 +1027,6 @@ jobs:
       - utils/checkout-with-mise:
           checkout-method: blobless
       - install-contracts-dependencies
-      - install-zstd
       - attach_workspace:
           at: .
       - check-changed:
@@ -1112,7 +1109,6 @@ jobs:
     steps:
       - utils/checkout-with-mise
       - install-contracts-dependencies
-      - install-zstd
       - attach_workspace:
           at: .
       - check-changed:
