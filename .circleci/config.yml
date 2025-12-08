@@ -366,17 +366,6 @@ commands:
 
 
 jobs:
-  initialize:
-    docker:
-      - image: <<pipeline.parameters.default_docker_image>>
-    resource_class: large
-    steps:
-      - utils/checkout-with-mise
-      - install-contracts-dependencies
-      - persist_to_workspace:
-          root: "."
-          paths:
-            - "."
   # Kurtosis-based acceptance tests
   op-acceptance-tests-kurtosis:
     parameters:
