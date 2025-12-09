@@ -41,6 +41,7 @@ contract UpgradeL1BlockCGT_Direct is Script {
         uint256 blobBaseFee;
         uint64 operatorFeeConstant;
         uint32 operatorFeeScalar;
+        uint16 daFootprintGasScalar;
         string version;
     }
 
@@ -134,6 +135,7 @@ contract UpgradeL1BlockCGT_Direct is Script {
         params.blobBaseFee = currentL1Block.blobBaseFee();
         params.operatorFeeConstant = currentL1Block.operatorFeeConstant();
         params.operatorFeeScalar = currentL1Block.operatorFeeScalar();
+        params.daFootprintGasScalar = currentL1Block.daFootprintGasScalar();
         params.version = currentL1Block.version();
 
         // Log the parameters
@@ -159,6 +161,7 @@ contract UpgradeL1BlockCGT_Direct is Script {
         console.log("Current blob base fee:", params.blobBaseFee);
         console.log("Current operator fee constant:", params.operatorFeeConstant);
         console.log("Current operator fee scalar:", params.operatorFeeScalar);
+        console.log("Current DA footprint gas scalar:", params.daFootprintGasScalar);
         console.log("Current version:", params.version);
     }
 
@@ -312,6 +315,7 @@ contract UpgradeL1BlockCGT_Direct is Script {
         require(upgradedL1Block.blobBaseFee() == expectedParams.blobBaseFee, "Blob base fee not preserved");
         require(upgradedL1Block.operatorFeeConstant() == expectedParams.operatorFeeConstant, "Operator fee constant not preserved");
         require(upgradedL1Block.operatorFeeScalar() == expectedParams.operatorFeeScalar, "Operator fee scalar not preserved");
+        require(upgradedL1Block.daFootprintGasScalar() == expectedParams.daFootprintGasScalar, "DA footprint gas scalar not preserved");
 
         // Verify new L1BlockCGT functionality is available
         console.log("\n--- Verifying New L1BlockCGT Functionality ---");
