@@ -12,16 +12,17 @@ import {StdUtils} from "../lib/forge-std/src/StdUtils.sol";
 import {console} from "../lib/forge-std/src/console.sol";
 
 /// @title UpgradeL1BlockCGT_Direct
-/// @notice Direct upgrade script for L1Block to L1BlockCGT using specific addresses
-/// @dev This script uses hardcoded addresses:
+/// @notice Direct upgrade script for L1Block to L1BlockCGT using predeploy addresses
+/// @dev This script uses predeploy addresses:
 ///      - L1Block Proxy: 0x4200000000000000000000000000000000000015
 ///      - ProxyAdmin: 0x4200000000000000000000000000000000000018
-///      - ProxyAdmin Owner: 0x6eE7BDa7AF04F61ccf93aB4b8DB2289aBe76C6aA
 contract UpgradeL1BlockCGT_Direct is Script {
-    // Hardcoded addresses
+    // Predeploy addresses
     address constant L1_BLOCK_PROXY = 0x4200000000000000000000000000000000000015;
     address constant PROXY_ADMIN = 0x4200000000000000000000000000000000000018;
-    address constant PROXY_ADMIN_OWNER = 0x6eE7BDa7AF04F61ccf93aB4b8DB2289aBe76C6aA;
+
+    // ProxyAdmin owner - read dynamically from contract
+    address proxyAdminOwner;
 
     // Optional: use existing implementation or deploy new one
     address newImplementationAddress;
@@ -53,12 +54,16 @@ contract UpgradeL1BlockCGT_Direct is Script {
         _performUpgrade(currentParams);
     }
 
-    /// @notice Load configuration from environment variables (optional implementation address)
+    /// @notice Load configuration from environment variables and on-chain state
     function _loadConfiguration() internal {
         console.log("=== Direct Upgrade Configuration ===");
         console.log("L1Block Proxy:", L1_BLOCK_PROXY);
         console.log("ProxyAdmin:", PROXY_ADMIN);
-        console.log("ProxyAdmin Owner:", PROXY_ADMIN_OWNER);
+
+        // Read ProxyAdmin owner from contract
+        IProxyAdmin admin = IProxyAdmin(PROXY_ADMIN);
+        proxyAdminOwner = admin.owner();
+        console.log("ProxyAdmin Owner (from contract):", proxyAdminOwner);
 
         // Optional: load existing implementation address
         try vm.envAddress("NEW_IMPLEMENTATION") returns (address impl) {
@@ -91,16 +96,12 @@ contract UpgradeL1BlockCGT_Direct is Script {
     function _validateOwnershipChain() internal view {
         console.log("\n--- Validating Ownership Chain ---");
 
-        // Check ProxyAdmin owner
-        IProxyAdmin admin = IProxyAdmin(PROXY_ADMIN);
-        address actualOwner = admin.owner();
-        console.log("ProxyAdmin actual owner:", actualOwner);
-        console.log("Expected owner:", PROXY_ADMIN_OWNER);
-
-        // Verify ownership
-        require(actualOwner == PROXY_ADMIN_OWNER, "ProxyAdmin owner mismatch");
+        // Verify ProxyAdmin owner is set (non-zero)
+        console.log("ProxyAdmin owner:", proxyAdminOwner);
+        require(proxyAdminOwner != address(0), "ProxyAdmin owner must not be zero address");
 
         // Check L1Block proxy admin
+        IProxyAdmin admin = IProxyAdmin(PROXY_ADMIN);
         try admin.getProxyAdmin(payable(L1_BLOCK_PROXY)) returns (address l1BlockAdmin) {
             console.log("L1Block proxy admin:", l1BlockAdmin);
             console.log("Expected ProxyAdmin:", PROXY_ADMIN);
@@ -184,6 +185,7 @@ contract UpgradeL1BlockCGT_Direct is Script {
             console.log("\n--- Deploying L1BlockCGT Implementation ---");
             newImplementation = new L1BlockCGT();
             console.log("L1BlockCGT deployed at:", address(newImplementation));
+            newImplementationAddress = address(newImplementation);
         }
         console.log("New implementation version:", newImplementation.version());
 
@@ -193,8 +195,9 @@ contract UpgradeL1BlockCGT_Direct is Script {
 
         // Step 4: Execute upgrade via ProxyAdmin owner
         console.log("\n--- Executing Upgrade via ProxyAdmin Owner ---");
+        console.log("Using ProxyAdmin owner:", proxyAdminOwner);
 
-        vm.prank(PROXY_ADMIN_OWNER);
+        vm.prank(proxyAdminOwner);
 
         // Call ProxyAdmin.upgrade() directly
         IProxyAdmin admin = IProxyAdmin(PROXY_ADMIN);
@@ -346,9 +349,9 @@ contract UpgradeL1BlockCGT_Direct is Script {
         console.log("All existing L1Block parameters preserved");
         console.log("New L1BlockCGT functionality verified and working");
         console.log("\nUpgrade completed using:");
-        console.log("- ProxyAdmin Owner:", PROXY_ADMIN_OWNER);
+        console.log("- ProxyAdmin Owner:", proxyAdminOwner);
         console.log("- ProxyAdmin:", PROXY_ADMIN);
         console.log("- L1Block Proxy:", L1_BLOCK_PROXY);
-        console.log("- New Implementation:", address(upgradedL1Block));
+        console.log("- New Implementation:", newImplementationAddress);
     }
 }
