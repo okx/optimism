@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import { Script } from "forge-std/Script.sol";
-import { console } from "forge-std/console.sol";
-import { L1BlockCGT } from "src/L2/L1BlockCGT.sol";
-import { IProxyAdmin } from "interfaces/universal/IProxyAdmin.sol";
-import { IL1BlockCGT } from "interfaces/L2/IL1BlockCGT.sol";
+import "../interfaces/L2/IL1BlockCGT.sol";
+import {CommonBase} from "../lib/forge-std/src/Base.sol";
+import {IProxyAdmin} from "../interfaces/universal/IProxyAdmin.sol";
+import {L1BlockCGT} from "../src/L2/L1BlockCGT.sol";
+import {Script} from "../lib/forge-std/src/Script.sol";
+import {StdChains} from "../lib/forge-std/src/StdChains.sol";
+import {StdCheatsSafe} from "../lib/forge-std/src/StdCheats.sol";
+import {StdUtils} from "../lib/forge-std/src/StdUtils.sol";
+import {console} from "../lib/forge-std/src/console.sol";
+
 /// @title UpgradeL1BlockCGT_Direct
 /// @notice Direct upgrade script for L1Block to L1BlockCGT using specific addresses
 /// @dev This script uses hardcoded addresses:
@@ -191,7 +196,13 @@ contract UpgradeL1BlockCGT_Direct is Script {
         // Call ProxyAdmin.upgrade() directly
         IProxyAdmin admin = IProxyAdmin(PROXY_ADMIN);
         admin.upgrade(payable(L1_BLOCK_PROXY), address(newImplementation));
-
+        bytes memory upgradeData = abi.encodeWithSelector(
+            IProxyAdmin.upgrade.selector,
+            payable(L1_BLOCK_PROXY),
+            address(newImplementation)
+        );
+        console.log("upgradeData length:", upgradeData.length);
+        console.logBytes(upgradeData);
 
         console.log("Upgrade executed successfully");
 
