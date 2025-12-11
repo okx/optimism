@@ -705,6 +705,8 @@ jobs:
     steps:
       - utils/checkout-with-mise:
           checkout-method: blobless
+      - attach_workspace:
+          at: .
       - run:
           command: mkdir -p /tmp/docker_images
       - when:
@@ -931,7 +933,7 @@ jobs:
         default: ""
     steps:
       - utils/checkout-with-mise:
-          checkout-method: blobless
+          checkout-method: full
       - install-zstd
       - run:
           name: Check if test list is empty
@@ -995,7 +997,7 @@ jobs:
     resource_class: 2xlarge
     steps:
       - utils/checkout-with-mise:
-          checkout-method: blobless
+          checkout-method: full
       - install-contracts-dependencies
       - install-zstd
       - run:
@@ -1104,7 +1106,7 @@ jobs:
         default: ""
     steps:
       - utils/checkout-with-mise:
-          checkout-method: blobless
+          checkout-method: full
       - install-contracts-dependencies
       - install-zstd
       - attach_workspace:
