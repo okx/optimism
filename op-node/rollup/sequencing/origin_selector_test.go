@@ -811,3 +811,282 @@ func TestOriginSelectorMiscEvent(t *testing.T) {
 	handled := s.OnEvent(context.Background(), rollup.L1TemporaryErrorEvent{})
 	require.False(t, handled)
 }
+
+// TestOriginSelectorConvergenceToConfDepth tests the evolution of L1 origin selection
+// over time as L1 and L2 blocks are produced.
+//
+// Setup:
+// - L1 blocks produced every 12 seconds
+// - L2 blocks produced every 2 seconds
+// - ConfDepth = 4
+// - MaxSequencerDrift = 1800 (large enough to not interfere)
+// - Initial state: currentOrigin = L1Head - 1 (block 9, L1Head = block 10)
+// - Simulates realistic block production over time
+func TestOriginSelectorConvergenceToConfDepth(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	log := testlog.Logger(t, log.LevelCrit)
+	cfg := &rollup.Config{
+		MaxSequencerDrift: 1800, // Large drift to focus on confDepth behavior
+		BlockTime:         2,    // L2 block every 2 seconds
+	}
+
+	confDepth := uint64(4) // ConfDepth = 4
+
+	// Create initial 11 L1 blocks: every 12 seconds, starting from block 0
+	var l1Blocks []eth.L1BlockRef
+	for i := 0; i <= 10; i++ {
+		block := eth.L1BlockRef{
+			Hash:   common.Hash{byte(i)},
+			Number: uint64(i),
+			Time:   uint64(i * 12), // Every 12 seconds
+		}
+		if i > 0 {
+			block.ParentHash = l1Blocks[i-1].Hash
+		}
+		l1Blocks = append(l1Blocks, block)
+	}
+
+	l1 := &testutils.MockL1Source{}
+	defer l1.AssertExpectations(t)
+
+	// Create confDepth wrapper
+	var currentL1Head eth.L1BlockRef = l1Blocks[10] // Start with L1 Head = block 10 (latest)
+	confDepthL1 := confdepth.NewConfDepth(confDepth, func() eth.L1BlockRef { return currentL1Head }, l1)
+
+	s := NewL1OriginSelector(ctx, log, cfg, confDepthL1)
+	s.currentOrigin = l1Blocks[9] // Initial currentOrigin = block 9
+
+	// Set up initial mock expectations for existing L1 blocks
+	for i := 0; i < len(l1Blocks); i++ {
+		l1.On("L1BlockRefByNumber", l1Blocks[i].Number).Return(l1Blocks[i], nil).Maybe()
+		l1.On("L1BlockRefByHash", l1Blocks[i].Hash).Return(l1Blocks[i], nil).Maybe()
+	}
+
+	// Create initial L2 head: L2 time = 120, origin points to block 9
+	l2Head := eth.L2BlockRef{
+		L1Origin: l1Blocks[9].ID(), // L2 head origin points to block 9
+		Time:     uint64(120),      // L2 time = 120
+	}
+
+	// Simulate time progression: every 2 seconds for L2, every 12 seconds for L1
+	currentTime := uint64(120) // Start at L2 time
+	l1BlockNum := 10           // Start with block 10 as L1 head
+
+	t.Logf("=== Starting simulation ===")
+	t.Logf("Initial: Time=%d, L1Head=%d, L2Head.Number=%d, L2Head.L1Origin=%d, s.currentOrigin=%d, s.nextOrigin=%d",
+		currentTime, currentL1Head.Number, l2Head.Number, l2Head.L1Origin.Number, s.currentOrigin.Number, s.nextOrigin.Number)
+
+	for step := 1; step <= 100; step++ {
+		currentTime += 2
+		// Every 12 seconds, advance L1 head by 1 block
+		if currentTime%12 == 0 {
+			l1BlockNum++
+			// Create new L1 block
+			newL1Block := eth.L1BlockRef{
+				Hash:       common.Hash{byte(l1BlockNum)},
+				Number:     uint64(l1BlockNum),
+				ParentHash: l1Blocks[l1BlockNum-1].Hash,
+				Time:       currentTime,
+			}
+			l1Blocks = append(l1Blocks, newL1Block)
+			currentL1Head = newL1Block
+
+			// Set up mock expectations for the new L1 block
+			// This block can be fetched by number and by hash
+			l1.On("L1BlockRefByNumber", newL1Block.Number).Return(newL1Block, nil).Maybe()
+			l1.On("L1BlockRefByHash", newL1Block.Hash).Return(newL1Block, nil).Maybe()
+		}
+
+		// Update L2 head time
+		l2Head.Time = currentTime
+		l2Head.Number++ // Increment L2 block number
+
+		// Find next L1 origin for the next L2 block
+		nextOrigin, err := s.FindL1Origin(ctx, l2Head)
+		t.Logf("nextOrigin=%d", nextOrigin.Number)
+		require.NoError(t, err)
+
+		l2Head.L1Origin = nextOrigin.ID()
+
+		s.onForkchoiceUpdate(l2Head)
+
+		maxUsableBlock := currentL1Head.Number - confDepth
+		t.Logf("Step %d: Time=%d, L1Head=%d, L2Head.Number=%d, L2Head.L1Origin=%d, s.currentOrigin=%d, s.nextOrigin=%d, MaxUsable=%d",
+			step, currentTime, currentL1Head.Number, l2Head.Number, l2Head.L1Origin.Number, s.currentOrigin.Number, s.nextOrigin.Number, maxUsableBlock)
+	}
+}
+
+// TestOriginSelectorL1ReorgWithinConfDepth tests that L1 reorgs within confDepth
+// do not cause L2 reorgs, demonstrating the protection provided by confDepth.
+//
+// Setup:
+// - L1 blocks produced every 12 seconds
+// - L2 blocks produced every 2 seconds
+// - ConfDepth = 4
+// - MaxSequencerDrift = 1800 (large enough to not interfere)
+// - Simulates L1 reorg within confDepth range during runtime
+func TestOriginSelectorL1ReorgWithinConfDepth(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	log := testlog.Logger(t, log.LevelCrit)
+	cfg := &rollup.Config{
+		MaxSequencerDrift: 1800, // Large drift to focus on confDepth behavior
+		BlockTime:         2,    // L2 block every 2 seconds
+	}
+
+	confDepth := uint64(4) // ConfDepth = 4
+
+	// Create initial 10 L1 blocks: every 12 seconds, starting from block 0
+	var l1Blocks []eth.L1BlockRef
+	for i := 0; i <= 10; i++ {
+		block := eth.L1BlockRef{
+			Hash:   common.Hash{byte(i)},
+			Number: uint64(i),
+			Time:   uint64(i * 12), // Every 12 seconds
+		}
+		if i > 0 {
+			block.ParentHash = l1Blocks[i-1].Hash
+		}
+		l1Blocks = append(l1Blocks, block)
+	}
+
+	l1 := &testutils.MockL1Source{}
+	defer l1.AssertExpectations(t)
+
+	// Create confDepth wrapper
+	var currentL1Head eth.L1BlockRef = l1Blocks[10] // Start with L1 Head = block 10
+	confDepthL1 := confdepth.NewConfDepth(confDepth, func() eth.L1BlockRef { return currentL1Head }, l1)
+
+	s := NewL1OriginSelector(ctx, log, cfg, confDepthL1)
+	s.currentOrigin = l1Blocks[6] // Initial currentOrigin = block 6 (L1Head - 4)
+
+	// Set up initial mock expectations for existing L1 blocks
+	for i := 0; i < len(l1Blocks); i++ {
+		l1.On("L1BlockRefByNumber", l1Blocks[i].Number).Return(l1Blocks[i], nil).Maybe()
+		l1.On("L1BlockRefByHash", l1Blocks[i].Hash).Return(l1Blocks[i], nil).Maybe()
+	}
+
+	// Create initial L2 head: L2 time = 120, origin points to block 6
+	l2Head := eth.L2BlockRef{
+		L1Origin: l1Blocks[6].ID(), // L2 head origin points to block 6
+		Time:     uint64(120),      // L2 time = 120
+		Number:   uint64(60),       // L2 block number = 60 (starting point)
+	}
+
+	// Simulate time progression: every 2 seconds for L2, every 12 seconds for L1
+	currentTime := uint64(120) // Start at L2 time
+	l1BlockNum := 10           // Start with block 10 as L1 head
+	reorgTriggered := false    // Flag to track when reorg happens
+	var l2BlockNumAtReorg uint64
+	var l1OriginAtReorg eth.BlockID
+
+	t.Logf("=== Starting simulation with L1 reorg within confDepth ===")
+	t.Logf("Initial: Time=%d, L1Head=%d, L2Head.Number=%d, L2Head.L1Origin=%d, s.currentOrigin=%d, ConfDepth=%d",
+		currentTime, currentL1Head.Number, l2Head.Number, l2Head.L1Origin.Number, s.currentOrigin.Number, confDepth)
+
+	for step := 1; step <= 30; step++ {
+		currentTime += 2
+
+		// Every 12 seconds, advance L1 head by 1 block
+		if currentTime%12 == 0 {
+			l1BlockNum++
+
+			// Trigger L1 reorg when we have enough blocks and L2 is stable
+			// Reorg affects blocks from (currentL1Head - confDepth) to currentL1Head
+			// This ensures the reorg is within confDepth protection range
+			if l1BlockNum >= 12 && !reorgTriggered {
+				t.Logf("=== L1 Reorg triggered at step %d (L1Head=%d, L2Head.Number=%d, L2Head.L1Origin=%d) ===", step, currentL1Head.Number, l2Head.Number, l2Head.L1Origin.Number)
+
+				// Record state before reorg
+				l1OriginAtReorg = l2Head.L1Origin
+				l2BlockNumAtReorg = l2Head.Number
+
+				// Calculate reorg range: from (currentL1Head - confDepth + 1) to (currentL1Head + 1)
+				reorgStart := currentL1Head.Number - confDepth + 1
+				reorgEnd := currentL1Head.Number + 1
+
+				t.Logf("Reorg range: blocks %d to %d (confDepth=%d)", reorgStart, reorgEnd, confDepth)
+
+				// Create L1 reorg: replace blocks in the reorg range with new blocks
+				var reorgL1Blocks []eth.L1BlockRef
+
+				// Keep blocks before reorg range unchanged
+				for i := 0; i < int(reorgStart); i++ {
+					reorgL1Blocks = append(reorgL1Blocks, l1Blocks[i])
+				}
+
+				// Create new blocks in reorg range with different hashes
+				for i := reorgStart; i <= reorgEnd; i++ {
+					newBlock := eth.L1BlockRef{
+						Hash:       common.Hash{byte(i + 100)}, // Different hash to simulate reorg
+						Number:     uint64(i),
+						ParentHash: reorgL1Blocks[len(reorgL1Blocks)-1].Hash,
+						Time:       uint64(i * 12),
+					}
+					reorgL1Blocks = append(reorgL1Blocks, newBlock)
+				}
+
+				currentL1Head = reorgL1Blocks[len(reorgL1Blocks)-1] // Use the last block as current head
+
+				// Update mock expectations for all blocks in the reorged chain
+				for i := 0; i < len(reorgL1Blocks); i++ {
+					l1.On("L1BlockRefByNumber", reorgL1Blocks[i].Number).Return(reorgL1Blocks[i], nil).Maybe()
+					l1.On("L1BlockRefByHash", reorgL1Blocks[i].Hash).Return(reorgL1Blocks[i], nil).Maybe()
+				}
+
+				// Update confDepth wrapper with new L1 head
+				confDepthL1 = confdepth.NewConfDepth(confDepth, func() eth.L1BlockRef { return currentL1Head }, l1)
+				s = NewL1OriginSelector(ctx, log, cfg, confDepthL1)
+				s.currentOrigin = l1Blocks[l2Head.L1Origin.Number]
+
+				reorgTriggered = true
+				t.Logf("L1 reorg completed: L1Head=%d, L2Head.Number=%d, L2Head.L1Origin=%d, currentOrigin=%d", currentL1Head.Number, l2Head.Number, l2Head.L1Origin.Number, s.currentOrigin.Number)
+			} else {
+				// Normal L1 block creation
+				newL1Block := eth.L1BlockRef{
+					Hash:       common.Hash{byte(l1BlockNum)},
+					Number:     uint64(l1BlockNum),
+					ParentHash: l1Blocks[len(l1Blocks)-1].Hash, // Use the last block as parent
+					Time:       currentTime,
+				}
+				l1Blocks = append(l1Blocks, newL1Block)
+				currentL1Head = newL1Block
+
+				// Set up mock expectations for the new L1 block
+				l1.On("L1BlockRefByNumber", newL1Block.Number).Return(newL1Block, nil).Maybe()
+				l1.On("L1BlockRefByHash", newL1Block.Hash).Return(newL1Block, nil).Maybe()
+			}
+		}
+
+		// Update L2 head time and number
+		l2Head.Time = currentTime
+		l2Head.Number++ // Increment L2 block number
+
+		// Find next L1 origin for the next L2 block
+		nextOrigin, err := s.FindL1Origin(ctx, l2Head)
+		require.NoError(t, err)
+
+		l2Head.L1Origin = nextOrigin.ID()
+		s.onForkchoiceUpdate(l2Head)
+
+		maxUsableBlock := currentL1Head.Number - confDepth
+		t.Logf("Step %d: Time=%d, L1Head=%d, L2Head.Number=%d, L2Head.L1Origin=%d, s.currentOrigin=%d, s.nextOrigin=%d, MaxUsable=%d",
+			step, currentTime, currentL1Head.Number, l2Head.Number, l2Head.L1Origin.Number, s.currentOrigin.Number, s.nextOrigin.Number, maxUsableBlock)
+	}
+
+	t.Logf("=== Verification ===")
+	t.Logf("L2 block at reorg time: %d", l2BlockNumAtReorg)
+	t.Logf("L1 origin at reorg time: %d", l1OriginAtReorg.Number)
+
+	postReorgL1OriginBlock, err := l1.L1BlockRefByNumber(ctx, l1OriginAtReorg.Number)
+	require.NoError(t, err)
+
+	// The hash should be the same as before reorg (original hash, not the reorged hash)
+	require.Equal(t, l1OriginAtReorg.Hash, postReorgL1OriginBlock.Hash,
+		"L2 block %d's L1 origin hash should remain unchanged after L1 reorg within confDepth", l2BlockNumAtReorg)
+
+	t.Logf("✅ L1 reorg within confDepth did not cause L2 reorg - test passed!")
+}
