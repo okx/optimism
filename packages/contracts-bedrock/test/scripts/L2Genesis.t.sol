@@ -16,8 +16,6 @@ import { IOptimismMintableERC721Factory } from "interfaces/L2/IOptimismMintableE
 import { IProxyAdmin } from "interfaces/universal/IProxyAdmin.sol";
 import { IGovernanceToken } from "interfaces/governance/IGovernanceToken.sol";
 import { IGasPriceOracle } from "interfaces/L2/IGasPriceOracle.sol";
-import { ILiquidityController } from "interfaces/L2/ILiquidityController.sol";
-import { INativeAssetLiquidity } from "interfaces/L2/INativeAssetLiquidity.sol";
 import { IFeeSplitter } from "interfaces/L2/IFeeSplitter.sol";
 import { IL1Withdrawer } from "interfaces/L2/IL1Withdrawer.sol";
 import { IFeeVault } from "interfaces/L2/IFeeVault.sol";

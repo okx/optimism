@@ -234,12 +234,12 @@ contract L2Genesis is Script {
     ///      LEGACY_ERC20_ETH and L1_MESSAGE_SENDER are deprecated and are not set.
     function setPredeployImplementations(Input memory _input) internal {
         setLegacyMessagePasser(); // 0
-            // 01: legacy, not used in OP-Stack
+        // 01: legacy, not used in OP-Stack
         setDeployerWhitelist(); // 2
-            // 3,4,5: legacy, not used in OP-Stack.
+        // 3,4,5: legacy, not used in OP-Stack.
         setWETH(); // 6: WETH (not behind a proxy)
         setL2CrossDomainMessenger(_input.l1CrossDomainMessengerProxy); // 7
-            // 8,9,A,B,C,D,E: legacy, not used in OP-Stack.
+        // 8,9,A,B,C,D,E: legacy, not used in OP-Stack.
         setGasPriceOracle(); // f
         setL2StandardBridge(_input.l1StandardBridgeProxy); // 10
         setSequencerFeeVault(_input); // 11
@@ -327,12 +327,6 @@ contract L2Genesis is Script {
 
     /// @notice This predeploy is following the safety invariant #2,
     function setSequencerFeeVault(Input memory _input) internal {
-        Types.WithdrawalNetwork withdrawalNetwork = Types.WithdrawalNetwork(_input.sequencerFeeVaultWithdrawalNetwork);
-
-        if (_input.useCustomGasToken && withdrawalNetwork == Types.WithdrawalNetwork.L1) {
-            revert("SequencerFeeVault: withdrawalNetwork type cannot be L1 when custom gas token is enabled");
-        }
-
         _setFeeVault({
             _vaultAddr: Predeploys.SEQUENCER_FEE_WALLET,
             _useRevenueShare: _input.useRevenueShare,
@@ -421,12 +415,6 @@ contract L2Genesis is Script {
 
     /// @notice This predeploy is following the safety invariant #2.
     function setBaseFeeVault(Input memory _input) internal {
-        Types.WithdrawalNetwork withdrawalNetwork = Types.WithdrawalNetwork(_input.sequencerFeeVaultWithdrawalNetwork);
-
-        if (_input.useCustomGasToken && withdrawalNetwork == Types.WithdrawalNetwork.L1) {
-            revert("BaseFeeVault: withdrawalNetwork type cannot be L1 when custom gas token is enabled");
-        }
-
         _setFeeVault({
             _vaultAddr: Predeploys.BASE_FEE_VAULT,
             _useRevenueShare: _input.useRevenueShare,
@@ -439,12 +427,6 @@ contract L2Genesis is Script {
 
     /// @notice This predeploy is following the safety invariant #2.
     function setL1FeeVault(Input memory _input) internal {
-        Types.WithdrawalNetwork withdrawalNetwork = Types.WithdrawalNetwork(_input.sequencerFeeVaultWithdrawalNetwork);
-
-        if (_input.useCustomGasToken && withdrawalNetwork == Types.WithdrawalNetwork.L1) {
-            revert("L1FeeVault: withdrawalNetwork type cannot be L1 when custom gas token is enabled");
-        }
-
         _setFeeVault({
             _vaultAddr: Predeploys.L1_FEE_VAULT,
             _useRevenueShare: _input.useRevenueShare,
@@ -457,12 +439,6 @@ contract L2Genesis is Script {
 
     /// @notice This predeploy is following the safety invariant #2.
     function setOperatorFeeVault(Input memory _input) internal {
-        Types.WithdrawalNetwork withdrawalNetwork = Types.WithdrawalNetwork(_input.sequencerFeeVaultWithdrawalNetwork);
-
-        if (_input.useCustomGasToken && withdrawalNetwork == Types.WithdrawalNetwork.L1) {
-            revert("OperatorFeeVault: withdrawalNetwork type cannot be L1 when custom gas token is enabled");
-        }
-
         _setFeeVault({
             _vaultAddr: Predeploys.OPERATOR_FEE_VAULT,
             _useRevenueShare: _input.useRevenueShare,

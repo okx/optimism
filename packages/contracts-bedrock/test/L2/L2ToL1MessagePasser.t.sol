@@ -7,9 +7,6 @@ import { CommonTest } from "test/setup/CommonTest.sol";
 // Libraries
 import { Types } from "src/libraries/Types.sol";
 import { Hashing } from "src/libraries/Hashing.sol";
-
-// Interfaces
-import { IL2ToL1MessagePasserCGT } from "interfaces/L2/IL2ToL1MessagePasserCGT.sol";
 import { Features } from "src/libraries/Features.sol";
 import { SemverComp } from "src/libraries/SemverComp.sol";
 
