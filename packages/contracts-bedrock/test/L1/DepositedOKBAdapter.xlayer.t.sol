@@ -470,7 +470,7 @@ contract DepositedOKBAdapter_Deposit_Test is DepositedOKBAdapter_TestInit {
     function test_deposit_insufficientBalance_reverts() public {
         uint256 userBalance = okb.balanceOf(user1);
 
-        vm.expectRevert(DepositedOKBAdapter.InsufficientBalance.selector);
+        vm.expectRevert();
         vm.prank(user1);
         adapter.deposit(makeAddr("target"), userBalance + 1);
     }

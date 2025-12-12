@@ -22,13 +22,6 @@ import (
 )
 
 type l2GenesisOverrides struct {
-	// ===== CUSTOM GAS TOKEN (CGT) CONFIGURATION =====
-	UseCustomGasToken          bool         `json:"useCustomGasToken"`          // CGT: Enable custom gas token mode
-	GasPayingTokenName         string       `json:"gasPayingTokenName"`         // CGT: Name of the custom gas token
-	GasPayingTokenSymbol       string       `json:"gasPayingTokenSymbol"`       // CGT: Symbol of the custom gas token
-	NativeAssetLiquidityAmount *hexutil.Big `json:"nativeAssetLiquidityAmount"` // CGT: Liquidity amount for NativeAssetLiquidity contract
-
-	// ===== GENERAL L2 CONFIGURATION (NON-CGT) =====
 	FundDevAccounts                          bool                      `json:"fundDevAccounts"`
 	BaseFeeVaultMinimumWithdrawalAmount      *hexutil.Big              `json:"baseFeeVaultMinimumWithdrawalAmount"`
 	L1FeeVaultMinimumWithdrawalAmount        *hexutil.Big              `json:"l1FeeVaultMinimumWithdrawalAmount"`
@@ -207,7 +200,6 @@ func wdNetworkToBig(wd genesis.WithdrawalNetwork) *big.Int {
 
 func defaultOverrides() l2GenesisOverrides {
 	return l2GenesisOverrides{
-		// ===== GENERAL L2 DEFAULTS =====
 		FundDevAccounts:                          false,
 		BaseFeeVaultMinimumWithdrawalAmount:      standard.VaultMinWithdrawalAmount,
 		L1FeeVaultMinimumWithdrawalAmount:        standard.VaultMinWithdrawalAmount,
@@ -219,10 +211,5 @@ func defaultOverrides() l2GenesisOverrides {
 		OperatorFeeVaultWithdrawalNetwork:        "local",
 		EnableGovernance:                         false,
 		GovernanceTokenOwner:                     standard.GovernanceTokenOwner,
-		// ===== CGT DEFAULTS =====
-		UseCustomGasToken:          false,                         // CGT disabled by default
-		GasPayingTokenName:         "",                            // Empty when CGT disabled
-		GasPayingTokenSymbol:       "",                            // Empty when CGT disabled
-		NativeAssetLiquidityAmount: (*hexutil.Big)(big.NewInt(0)), // Default to 0 when CGT disabled (consistent with "" and false)
 	}
 }

@@ -69,10 +69,6 @@ func TestCalculateL2GenesisOverrides(t *testing.T) {
 					"enableGovernance":                         true,
 					"governanceTokenOwner":                     "0x1111111111111111111111111111111111111111",
 					"l2GenesisInteropTimeOffset":               "0x1234",
-					"useCustomGasToken":                        false,
-					"gasPayingTokenName":                       "",
-					"gasPayingTokenSymbol":                     "",
-					"nativeAssetLiquidityAmount":               "0x0",
 					"chainFeesRecipient":                       "0x0000000000000000000000000000000000005678",
 				},
 			},
@@ -118,10 +114,6 @@ func TestCalculateL2GenesisOverrides(t *testing.T) {
 					"enableGovernance":                         true,
 					"governanceTokenOwner":                     "0x1111111111111111111111111111111111111111",
 					"l2GenesisInteropTimeOffset":               "0x1234",
-					"useCustomGasToken":                        false,
-					"gasPayingTokenName":                       "",
-					"gasPayingTokenSymbol":                     "",
-					"nativeAssetLiquidityAmount":               "0x0",
 				},
 			},
 			expectError: false,
@@ -150,17 +142,11 @@ func TestCalculateL2GenesisOverrides(t *testing.T) {
 				L1ContractsLocator: &artifacts.Locator{},
 				GlobalDeployOverrides: map[string]any{
 					"l2GenesisInteropTimeOffset": "0x0",
-					"nativeAssetLiquidityAmount": "0x0",
 				},
 			},
-			chainIntent: &state.ChainIntent{},
-			expectError: false,
-			expectedOverrides: func() l2GenesisOverrides {
-				defaults := defaultOverrides()
-				// Override with the same value that comes from JSON merge to match internal representation
-				defaults.NativeAssetLiquidityAmount = (*hexutil.Big)(hexutil.MustDecodeBig("0x0"))
-				return defaults
-			}(),
+			chainIntent:       &state.ChainIntent{},
+			expectError:       false,
+			expectedOverrides: defaultOverrides(),
 			expectedSchedule: func() *genesis.UpgradeScheduleDeployConfig {
 				schedule := standard.DefaultHardforkSchedule()
 				schedule.L2GenesisInteropTimeOffset = op_service.U64UtilPtr(0)

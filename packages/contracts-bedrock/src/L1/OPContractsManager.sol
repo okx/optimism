@@ -69,11 +69,10 @@ contract OPContractsManagerContractsContainer {
         implementation = _implementations;
         devFeatureBitmap = _devFeatureBitmap;
 
-        // Allow CGT feature to be enabled on Mainnet.
         // Development features MUST NOT be enabled on Mainnet.
-        // if (block.chainid == 1 && !_isTestingEnvironment() && uint256(_devFeatureBitmap) != 0) {
-        // revert OPContractsManagerContractsContainer_DevFeatureInProd();
-        // }
+        if (block.chainid == 1 && !_isTestingEnvironment() && uint256(_devFeatureBitmap) != 0) {
+            revert OPContractsManagerContractsContainer_DevFeatureInProd();
+        }
     }
 
     function blueprints() public view returns (OPContractsManager.Blueprints memory) {
