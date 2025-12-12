@@ -43,11 +43,6 @@ func NewChainIntent(t *testing.T, dk *devkeys.MnemonicDevKeys, l1ChainID *big.In
 			Proposer:          AddrFor(t, dk, devkeys.ProposerRole.Key(l1ChainID)),
 			Challenger:        AddrFor(t, dk, devkeys.ChallengerRole.Key(l1ChainID)),
 		},
-		CustomGasToken: state.CustomGasToken{
-			Enabled: false,
-			Name:    "",
-			Symbol:  "",
-		},
 		UseRevenueShare:    false,
 		ChainFeesRecipient: common.Address{},
 		// CustomGasToken defaults to disabled (all fields nil/empty)

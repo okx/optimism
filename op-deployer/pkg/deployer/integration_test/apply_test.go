@@ -18,6 +18,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/inspect"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/integration_test/shared"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/env"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/params"
 
