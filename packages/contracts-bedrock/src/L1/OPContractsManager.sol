@@ -70,9 +70,9 @@ contract OPContractsManagerContractsContainer {
         devFeatureBitmap = _devFeatureBitmap;
 
         // Development features MUST NOT be enabled on Mainnet.
-         if (block.chainid == 1 && !_isTestingEnvironment() && uint256(_devFeatureBitmap) != 0) {
+        if (block.chainid == 1 && !_isTestingEnvironment() && uint256(_devFeatureBitmap) != 0) {
             revert OPContractsManagerContractsContainer_DevFeatureInProd();
-         }
+        }
     }
 
     function blueprints() public view returns (OPContractsManager.Blueprints memory) {
