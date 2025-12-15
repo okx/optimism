@@ -530,6 +530,8 @@ func (l *BatchSubmitter) blockLoadingLoop(ctx context.Context, wg *sync.WaitGrou
 	defer close(unsafeBytesUpdated)
 	defer close(publishSignal)
 	defer wg.Done()
+	var preL2unsafeBlock eth.L2BlockRef
+	var preL2SafeBlock eth.L2BlockRef
 	for {
 		select {
 		case <-ticker.C:
@@ -538,7 +540,15 @@ func (l *BatchSubmitter) blockLoadingLoop(ctx context.Context, wg *sync.WaitGrou
 				l.Log.Warn("could not get sync status, retrying on next tick", "err", err)
 				continue
 			}
-
+			curL2unsafeBlock, curL2SafeBlock := syncStatus.UnsafeL2, syncStatus.SafeL2
+			if curL2unsafeBlock != preL2unsafeBlock || curL2SafeBlock != preL2SafeBlock {
+				l.Log.Debug("L2 sync status updated",
+					"unsafe_l2", curL2unsafeBlock,
+					"safe_l2", curL2SafeBlock, "gap", curL2unsafeBlock.Number-curL2SafeBlock.Number,
+				)
+				preL2unsafeBlock = curL2unsafeBlock
+				preL2SafeBlock = curL2SafeBlock
+			}
 			blocksToLoad := l.syncAndPrune(syncStatus)
 
 			if blocksToLoad != nil {
