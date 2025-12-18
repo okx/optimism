@@ -195,6 +195,11 @@ func NewXLayerRemoteClient(logger log.Logger, config XLayerConfig) *XLayerRemote
 // This method is safe for concurrent use - requests are serialized internally to prevent
 // concurrent calls to the remote signing service, which may not support parallel requests.
 func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.Int, from common.Address, tx *types.Transaction) (*types.Transaction, error) {
+	// Validate input parameters
+	if tx == nil {
+		return nil, fmt.Errorf("transaction is nil")
+	}
+
 	// Serialize all signing requests to prevent concurrent calls to remote signer
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -288,8 +293,12 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 				}
 				return "<nil>"
 			}())
+		toAddr := "<nil>"
+		if tx.To() != nil {
+			toAddr = tx.To().Hex()
+		}
 		return nil, fmt.Errorf("unknown component type %q: refusing to sign transaction (txType=%d, to=%s, nonce=%d, methodSig=%s, dataLen=%d) to prevent address blocking",
-			componentType, tx.Type(), tx.To(), tx.Nonce(), methodSig, len(tx.Data()))
+			componentType, tx.Type(), toAddr, tx.Nonce(), methodSig, len(tx.Data()))
 	}
 
 	toAddress := ""
