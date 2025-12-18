@@ -195,6 +195,11 @@ func NewXLayerRemoteClient(logger log.Logger, config XLayerConfig) *XLayerRemote
 // This method is safe for concurrent use - requests are serialized internally to prevent
 // concurrent calls to the remote signing service, which may not support parallel requests.
 func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.Int, from common.Address, tx *types.Transaction) (*types.Transaction, error) {
+	// Validate input parameters
+	if tx == nil {
+		return nil, fmt.Errorf("transaction is nil")
+	}
+
 	// Serialize all signing requests to prevent concurrent calls to remote signer
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -235,11 +240,65 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 		operateType = c.getChallengerOperateType(tx)
 
 	default:
-		otherInfo, err = c.buildDefaultOtherInfo(tx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to build default other info: %w", err)
+		// Unknown component type, reject to avoid sending incorrect operateType
+		// which could cause the remote signer to process incorrectly or block the address
+		var methodSig string
+		if len(tx.Data()) >= 4 {
+			methodSig = hexutil.Encode(tx.Data()[:4])
 		}
-		operateType = c.getDefaultOperateType(tx)
+		c.logger.Error("Unknown component type detected, refusing to sign transaction",
+			"componentType", componentType,
+			"txType", tx.Type(),
+			"txHash", tx.Hash().Hex(),
+			"from", from.Hex(),
+			"to", func() string {
+				if tx.To() == nil {
+					return "<nil>"
+				}
+				return tx.To().Hex()
+			}(),
+			"nonce", tx.Nonce(),
+			"value", func() string {
+				if tx.Value() != nil {
+					return tx.Value().String()
+				}
+				return "<nil>"
+			}(),
+			"gas", tx.Gas(),
+			"gasPrice", func() string {
+				if tx.GasPrice() != nil {
+					return tx.GasPrice().String()
+				}
+				return "<nil>"
+			}(),
+			"gasTipCap", func() string {
+				if tx.GasTipCap() != nil {
+					return tx.GasTipCap().String()
+				}
+				return "<nil>"
+			}(),
+			"gasFeeCap", func() string {
+				if tx.GasFeeCap() != nil {
+					return tx.GasFeeCap().String()
+				}
+				return "<nil>"
+			}(),
+			"dataLen", len(tx.Data()),
+			"methodSig", methodSig,
+			"data", hexutil.Encode(tx.Data()),
+			"blobHashes", len(tx.BlobHashes()),
+			"chainId", func() string {
+				if chainId != nil {
+					return chainId.String()
+				}
+				return "<nil>"
+			}())
+		toAddr := "<nil>"
+		if tx.To() != nil {
+			toAddr = tx.To().Hex()
+		}
+		return nil, fmt.Errorf("unknown component type %q: refusing to sign transaction (txType=%d, to=%s, nonce=%d, methodSig=%s, dataLen=%d) to prevent address blocking",
+			componentType, tx.Type(), toAddr, tx.Nonce(), methodSig, len(tx.Data()))
 	}
 
 	toAddress := ""
@@ -1100,12 +1159,6 @@ func (c *XLayerRemoteClient) buildChallengerClaimCreditOtherInfo(tx *types.Trans
 	return c.marshalOtherInfo(enhancedInfo)
 }
 
-// buildDefaultOtherInfo builds default OtherInfo
-func (c *XLayerRemoteClient) buildDefaultOtherInfo(tx *types.Transaction) (string, error) {
-	baseInfo := c.buildBaseOtherInfo(tx)
-	return c.marshalOtherInfo(baseInfo)
-}
-
 // buildBaseOtherInfo builds base OtherInfo parameters
 func (c *XLayerRemoteClient) buildBaseOtherInfo(tx *types.Transaction) XLayerOtherInfo {
 	otherInfo := XLayerOtherInfo{
@@ -1165,18 +1218,6 @@ func (c *XLayerRemoteClient) getChallengerOperateType(tx *types.Transaction) Ope
 	default:
 		c.logger.Warn("Unknown challenger method, using default operateType", "signature", methodSigHex)
 		return OperateTypeChallengerResolveClaim
-	}
-}
-
-// getDefaultOperateType returns the default operate type based on transaction type
-func (c *XLayerRemoteClient) getDefaultOperateType(tx *types.Transaction) OperateType {
-	switch tx.Type() {
-	case types.BlobTxType:
-		return OperateTypeBatcherBlob
-	case types.DynamicFeeTxType:
-		return OperateTypeDynamicFee
-	default:
-		return OperateTypeLegacy
 	}
 }
 
