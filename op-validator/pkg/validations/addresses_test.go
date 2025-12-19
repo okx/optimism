@@ -113,6 +113,8 @@ func testStandardVersionNetwork(t *testing.T, network string) {
 		standard.ContractsV400Tag,
 		standard.ContractsV410Tag,
 		standard.ContractsV500Tag,
+		// Uncomment this when the v6.0.0 contracts are deployed.
+		// standard.ContractsV600Tag,
 	}
 
 	for _, semver := range contractVersions {

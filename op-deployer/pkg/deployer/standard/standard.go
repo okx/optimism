@@ -43,7 +43,9 @@ const (
 	ContractsV400Tag        = "op-contracts/v4.0.0-rc.7"
 	ContractsV410Tag        = "op-contracts/v4.1.0"
 	ContractsV500Tag        = "op-contracts/v5.0.0"
-	CurrentTag              = ContractsV500Tag
+	// Still not deployed
+	ContractsV600Tag = "op-contracts/v6.0.0"
+	CurrentTag       = ContractsV500Tag
 )
 
 // TODO(#17505): This address should be updated to the actual address once deployed
@@ -186,10 +188,10 @@ func DefaultHardforkScheduleForTag(tag string) *genesis.UpgradeScheduleDeployCon
 	case ContractsV180Tag, ContractsV200Tag, ContractsV300Tag:
 		sched.ActivateForkAtGenesis(forks.Holocene)
 	case ContractsV400Tag, ContractsV410Tag, ContractsV500Tag:
-		sched.ActivateForkAtGenesis(forks.Holocene)
 		sched.ActivateForkAtGenesis(forks.Isthmus)
+	case ContractsV600Tag:
+		sched.ActivateForkAtGenesis(forks.Jovian)
 	default:
-		sched.ActivateForkAtGenesis(forks.Holocene)
 		sched.ActivateForkAtGenesis(forks.Isthmus)
 	}
 

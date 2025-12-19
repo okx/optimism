@@ -30,9 +30,30 @@ func TestDefaultHardforkScheduleForTag(t *testing.T) {
 	require.NotNil(t, sched.HoloceneTime(0))
 	require.Nil(t, sched.IsthmusTime(0))
 
+	sched = DefaultHardforkScheduleForTag(ContractsV400Tag)
+	require.NotNil(t, sched.HoloceneTime(0))
+	require.NotNil(t, sched.IsthmusTime(0))
+	require.Nil(t, sched.JovianTime(0))
+
+	sched = DefaultHardforkScheduleForTag(ContractsV410Tag)
+	require.NotNil(t, sched.HoloceneTime(0))
+	require.NotNil(t, sched.IsthmusTime(0))
+	require.Nil(t, sched.JovianTime(0))
+
+	sched = DefaultHardforkScheduleForTag(ContractsV500Tag)
+	require.NotNil(t, sched.HoloceneTime(0))
+	require.NotNil(t, sched.IsthmusTime(0))
+	require.Nil(t, sched.JovianTime(0))
+
+	sched = DefaultHardforkScheduleForTag(ContractsV600Tag)
+	require.NotNil(t, sched.HoloceneTime(0))
+	require.NotNil(t, sched.IsthmusTime(0))
+	require.NotNil(t, sched.JovianTime(0))
+
 	sched = DefaultHardforkScheduleForTag("")
 	require.NotNil(t, sched.HoloceneTime(0))
 	require.NotNil(t, sched.IsthmusTime(0))
+	require.NotNil(t, sched.JovianTime(0))
 }
 
 func TestStandardAddresses(t *testing.T) {
