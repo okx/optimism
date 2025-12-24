@@ -74,3 +74,10 @@ func WithRPCRecorder(recorder gethrpc.Recorder) Option {
 		b.recorder = recorder
 	}
 }
+
+// WithHTTPBodyLimit sets the maximum size of HTTP request bodies.
+func WithHTTPBodyLimit(limit int) Option {
+	return func(b *Handler) {
+		b.httpBodyLimit = limit
+	}
+}
