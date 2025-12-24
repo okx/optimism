@@ -77,7 +77,8 @@ func mockConfig(t *testing.T) Config {
 			DepositContractAddress: [20]byte{2, 3},
 			L1SystemConfigAddress:  [20]byte{3, 4},
 		},
-		RPCEnableProxy: false,
+		RPCEnableProxy:  false,
+		HTTPBodyLimitMB: 5,
 	}
 }
 
