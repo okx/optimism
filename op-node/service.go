@@ -141,6 +141,10 @@ func NewConfig(ctx cliiface.Context, log log.Logger) (*config.Config, error) {
 			Cluster:   ctx.String(flags.ApolloClusterFlag.Name),
 			Namespace: ctx.String(flags.ApolloNamespaceFlag.Name),
 		},
+		TestStall: config.StallConfig{
+			Height:   ctx.Uint64(flags.TestStallHeightFlag.Name),
+			Duration: ctx.Duration(flags.TestStallDurationFlag.Name),
+		},
 	}
 
 	if err := cfg.LoadPersisted(log); err != nil {

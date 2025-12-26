@@ -96,6 +96,8 @@ type Config struct {
 
 	// For X Layer
 	Apollo ApolloConfig
+	// TestStall is the configuration for the test stall feature (X Layer).
+	TestStall StallConfig
 }
 
 type ApolloConfig struct {
@@ -104,6 +106,20 @@ type ApolloConfig struct {
 	IP        string
 	Cluster   string
 	Namespace string
+}
+
+// StallConfig is the configuration for the test stall feature.
+// This is used for testing purposes only to simulate a node stalling at a specific block height.
+type StallConfig struct {
+	// Height is the block height at which the node will stall. Set to 0 to disable.
+	Height uint64
+	// Duration is the duration to stall when reaching the specified block height.
+	Duration time.Duration
+}
+
+// Enabled returns true if the stall feature is enabled (height > 0 and duration > 0).
+func (c *StallConfig) Enabled() bool {
+	return c.Height > 0 && c.Duration > 0
 }
 
 // ConductorRPCFunc retrieves the endpoint. The RPC may not immediately be available.

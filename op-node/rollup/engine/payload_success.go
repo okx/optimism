@@ -56,6 +56,9 @@ func (e *EngineController) onPayloadSuccess(ctx context.Context, ev PayloadSucce
 		updateEngineFinish := time.Now()
 		e.logBlockProcessingMetrics(updateEngineFinish, ev)
 	}
+
+	// X Layer: Check if we should stall at this block height (for testing)
+	checkAndStall(e.log, ev.Ref.Number)
 }
 
 func (e *EngineController) logBlockProcessingMetrics(updateEngineFinish time.Time, ev PayloadSuccessEvent) {

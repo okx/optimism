@@ -29,6 +29,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-node/rollup"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/conductor"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/driver"
+	"github.com/ethereum-optimism/optimism/op-node/rollup/engine"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/interop"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/interop/indexing"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/sequencing"
@@ -219,6 +220,15 @@ func (n *OpNode) init(ctx context.Context, cfg *config.Config, overrides Initial
 		}
 	}
 	n.log.Info("Safety levels", "unsafe", "enabled", "safe", safe)
+
+	// X Layer: Initialize test stall configuration if enabled
+	if cfg.TestStall.Enabled() {
+		n.log.Warn("[TEST] Test stall feature enabled",
+			"height", cfg.TestStall.Height,
+			"duration", cfg.TestStall.Duration,
+		)
+		engine.SetStallConfig(cfg.TestStall.Height, cfg.TestStall.Duration)
+	}
 
 	n.eventSys, n.eventDrain, err = initEventSystem(n)
 	if err != nil {

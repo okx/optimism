@@ -1,6 +1,8 @@
 package flags
 
 import (
+	"time"
+
 	"github.com/urfave/cli/v2"
 )
 
@@ -31,11 +33,25 @@ var (
 		Value: "application",
 	}
 
+	// Test stall flags - used for testing node stalling behavior
+	TestStallHeightFlag = &cli.Uint64Flag{
+		Name:  "test.stall.height",
+		Usage: "[TEST ONLY] Block height at which the node will stall (sleep). Set to 0 to disable.",
+		Value: 0,
+	}
+	TestStallDurationFlag = &cli.DurationFlag{
+		Name:  "test.stall.duration",
+		Usage: "[TEST ONLY] Duration to stall (sleep) when reaching the specified block height.",
+		Value: 0 * time.Second,
+	}
+
 	XLayerFlags = []cli.Flag{
 		ApolloEnabledFlag,
 		ApolloAppIDFlag,
 		ApolloIPFlag,
 		ApolloClusterFlag,
 		ApolloNamespaceFlag,
+		TestStallHeightFlag,
+		TestStallDurationFlag,
 	}
 )
