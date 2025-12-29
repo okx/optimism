@@ -209,6 +209,17 @@ var (
 		EnvVars: opservice.PrefixEnvVar(EnvVarPrefix, "RPC_HTTP_BODY_LIMIT_MB"),
 		Value:   5,
 	}
+
+	// X Layer: RoundRobinLeaderTransfer enables deterministic round-robin leader transfer.
+	// When enabled, leader transfer will cycle through all voters in sorted order (by ServerID),
+	// ensuring that even if only one node in the cluster is healthy, it will eventually become leader.
+	// This is useful when Raft's default log-based leader selection keeps choosing unhealthy nodes.
+	RoundRobinLeaderTransfer = &cli.BoolFlag{
+		Name:    "raft.round-robin-leader-transfer",
+		Usage:   "Enable deterministic round-robin leader transfer instead of Raft's default log-based selection",
+		EnvVars: opservice.PrefixEnvVar(EnvVarPrefix, "RAFT_ROUND_ROBIN_LEADER_TRANSFER"),
+		Value:   false,
+	}
 )
 
 var requiredFlags = []cli.Flag{
@@ -246,7 +257,8 @@ var optionalFlags = []cli.Flag{
 	HealthcheckExecutionP2pCheckApi,
 	HealthCheckRollupBoostPartialHealthinessToleranceLimit,
 	HealthCheckRollupBoostPartialHealthinessToleranceIntervalSeconds,
-	HTTPBodyLimitMB, // X Layer: HTTPBodyLimitMB is the HTTP request body size limit in MB for RPC server.
+	HTTPBodyLimitMB,          // X Layer: HTTPBodyLimitMB is the HTTP request body size limit in MB for RPC server.
+	RoundRobinLeaderTransfer, // X Layer: Enable round-robin leader transfer
 }
 
 func init() {

@@ -109,6 +109,9 @@ type Config struct {
 
 	// X Layer: HTTPBodyLimitMB is the HTTP request body size limit in MB for RPC server.
 	HTTPBodyLimitMB int
+
+	// X Layer: RoundRobinLeaderTransfer enables deterministic round-robin leader transfer.
+	RoundRobinLeaderTransfer bool
 }
 
 // Check validates the CLIConfig.
@@ -225,6 +228,8 @@ func NewConfig(ctx *cli.Context, log log.Logger) (*Config, error) {
 
 		// X Layer: HTTPBodyLimitMB is the HTTP request body size limit in MB for RPC server.
 		HTTPBodyLimitMB: ctx.Int(flags.HTTPBodyLimitMB.Name),
+		// X Layer: RoundRobinLeaderTransfer enables deterministic round-robin leader transfer.
+		RoundRobinLeaderTransfer: ctx.Bool(flags.RoundRobinLeaderTransfer.Name),
 	}, nil
 }
 

@@ -825,21 +825,18 @@ func (oc *OpConductor) action() {
 }
 
 // transferLeader tries to transfer leadership to another server.
-// X Layer: Implements true round-robin to ensure all members get a chance to become leader.
 func (oc *OpConductor) transferLeader() error {
+	// TransferLeader here will do round robin to try to transfer leadership to the next healthy node.
 	oc.log.Info("transferring leadership", "server", oc.cons.ServerID())
 
-	// X Layer: Try round-robin transfer to ensure all members get a chance
-	if err := oc.transferLeaderRoundRobin(); err == nil {
-		oc.leader.Store(false)
-		oc.metrics.RecordLeaderTransfer(true)
-		return nil
+	// X Layer: Use round-robin if enabled, otherwise use default Raft leader transfer
+	var err error
+	if oc.cfg.RoundRobinLeaderTransfer {
+		err = oc.transferLeaderRoundRobin()
 	} else {
-		oc.log.Warn("round-robin transfer failed, falling back to default", "err", err)
+		err = oc.cons.TransferLeader()
 	}
 
-	// Fallback to default Raft leader transfer
-	err := oc.cons.TransferLeader()
 	oc.metrics.RecordLeaderTransfer(err == nil)
 	if err == nil {
 		oc.leader.Store(false)
