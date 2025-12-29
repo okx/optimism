@@ -61,6 +61,9 @@ type RaftConsensusConfig struct {
 	TrailingLogs       uint64
 	HeartbeatTimeout   time.Duration
 	LeaderLeaseTimeout time.Duration
+
+	// X Layer: NoShutdownOnRemove prevents Raft from shutting down when removed from cluster.
+	NoShutdownOnRemove bool
 }
 
 // checkTCPPortOpen attempts to connect to the specified address and returns an error if the connection fails.
@@ -82,6 +85,11 @@ func NewRaftConsensus(log log.Logger, cfg *RaftConsensusConfig) (*RaftConsensus,
 	rc.HeartbeatTimeout = cfg.HeartbeatTimeout
 	rc.LeaderLeaseTimeout = cfg.LeaderLeaseTimeout
 	rc.LocalID = raft.ServerID(cfg.ServerID)
+	// X Layer: Optionally don't shutdown when removed from cluster, just become a follower.
+	// This allows the node to be re-added to the cluster without restarting the process.
+	if cfg.NoShutdownOnRemove {
+		rc.ShutdownOnRemove = false
+	}
 
 	baseDir := filepath.Join(cfg.StorageDir, cfg.ServerID)
 	if _, err := os.Stat(baseDir); os.IsNotExist(err) {

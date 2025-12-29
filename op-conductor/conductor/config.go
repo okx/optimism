@@ -112,6 +112,9 @@ type Config struct {
 
 	// X Layer: RoundRobinLeaderTransfer enables deterministic round-robin leader transfer.
 	RoundRobinLeaderTransfer bool
+
+	// X Layer: RaftNoShutdownOnRemove prevents Raft from shutting down when removed from cluster.
+	RaftNoShutdownOnRemove bool
 }
 
 // Check validates the CLIConfig.
@@ -230,6 +233,8 @@ func NewConfig(ctx *cli.Context, log log.Logger) (*Config, error) {
 		HTTPBodyLimitMB: ctx.Int(flags.HTTPBodyLimitMB.Name),
 		// X Layer: RoundRobinLeaderTransfer enables deterministic round-robin leader transfer.
 		RoundRobinLeaderTransfer: ctx.Bool(flags.RoundRobinLeaderTransfer.Name),
+		// X Layer: RaftNoShutdownOnRemove prevents Raft from shutting down when removed.
+		RaftNoShutdownOnRemove: ctx.Bool(flags.RaftNoShutdownOnRemove.Name),
 	}, nil
 }
 

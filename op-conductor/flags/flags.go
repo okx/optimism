@@ -220,6 +220,16 @@ var (
 		EnvVars: opservice.PrefixEnvVar(EnvVarPrefix, "RAFT_ROUND_ROBIN_LEADER_TRANSFER"),
 		Value:   false,
 	}
+
+	// X Layer: RaftNoShutdownOnRemove prevents Raft from shutting down when removed from cluster.
+	// When enabled, the node will transition to follower state instead of shutting down,
+	// allowing it to be re-added to the cluster without restarting the process.
+	RaftNoShutdownOnRemove = &cli.BoolFlag{
+		Name:    "raft.no-shutdown-on-remove",
+		Usage:   "Don't shutdown Raft when removed from cluster, just become a follower (allows re-adding without restart)",
+		EnvVars: opservice.PrefixEnvVar(EnvVarPrefix, "RAFT_NO_SHUTDOWN_ON_REMOVE"),
+		Value:   false,
+	}
 )
 
 var requiredFlags = []cli.Flag{
@@ -259,6 +269,7 @@ var optionalFlags = []cli.Flag{
 	HealthCheckRollupBoostPartialHealthinessToleranceIntervalSeconds,
 	HTTPBodyLimitMB,          // X Layer: HTTPBodyLimitMB is the HTTP request body size limit in MB for RPC server.
 	RoundRobinLeaderTransfer, // X Layer: Enable round-robin leader transfer
+	RaftNoShutdownOnRemove,   // X Layer: Don't shutdown on remove
 }
 
 func init() {

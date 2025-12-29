@@ -188,6 +188,8 @@ func (c *OpConductor) initConsensus(ctx context.Context) error {
 		TrailingLogs:       c.cfg.RaftTrailingLogs,
 		HeartbeatTimeout:   c.cfg.RaftHeartbeatTimeout,
 		LeaderLeaseTimeout: c.cfg.RaftLeaderLeaseTimeout,
+		// X Layer: Optionally don't shutdown when removed from cluster.
+		NoShutdownOnRemove: c.cfg.RaftNoShutdownOnRemove,
 	}
 	cons, err := consensus.NewRaftConsensus(c.log, raftConsensusConfig)
 	if err != nil {
