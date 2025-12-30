@@ -928,8 +928,8 @@ func (oc *OpConductor) transferLeaderRoundRobin() error {
 			return nil // Success
 		}
 
-		// "leadership transfer in progress" means a previous transfer is ongoing, just wait
-		if strings.Contains(err.Error(), "leadership transfer in progress") {
+		// ErrLeadershipTransferInProgress means a previous transfer is ongoing, just wait
+		if errors.Is(err, raft.ErrLeadershipTransferInProgress) {
 			oc.log.Debug("leadership transfer already in progress, waiting for completion")
 			return nil
 		}
