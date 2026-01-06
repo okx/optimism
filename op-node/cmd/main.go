@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/apolloconfig/agollo/v4/env/config"
 	"github.com/urfave/cli/v2"
 
 	"github.com/ethereum/go-ethereum/log"
@@ -25,7 +24,6 @@ import (
 	"github.com/ethereum-optimism/optimism/op-service/ctxinterrupt"
 	oplog "github.com/ethereum-optimism/optimism/op-service/log"
 	"github.com/ethereum-optimism/optimism/op-service/metrics/doc"
-	"github.com/ethereum/go-ethereum/xlayer/apollo"
 )
 
 var (
@@ -89,21 +87,6 @@ func RollupNodeMain(ctx *cli.Context, closeApp context.CancelCauseFunc) (cliapp.
 		return nil, fmt.Errorf("unable to create the rollup node config: %w", err)
 	}
 	cfg.Cancel = closeApp
-
-	if cfg != nil && cfg.Apollo.Enable {
-		_, err := apollo.TryInitialize(&config.AppConfig{
-			AppID:         cfg.Apollo.AppID,
-			IP:            cfg.Apollo.IP,
-			Cluster:       cfg.Apollo.Cluster,
-			NamespaceName: cfg.Apollo.Namespace,
-		})
-
-		if err != nil {
-			log.Error("Failed to initialize apollo: %v", err)
-			return nil, fmt.Errorf("failed to initialize apollo: %w", err)
-		}
-		log.Info("Apollo client initialized, apollo config: %+v", cfg.Apollo)
-	}
 
 	// Only pretty-print the banner if it is a terminal log. Otherwise log it as key-value pairs.
 	if logCfg.Format == "terminal" {
