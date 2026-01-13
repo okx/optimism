@@ -383,12 +383,10 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 			break
 		}
 
-		// Check if error is "pending transaction" related
+		// Check if error is "pending transaction" related (remote signer returns Chinese error messages)
 		errStr := err.Error()
 		isPendingTxError := strings.Contains(errStr, "未完成交易") ||
-			strings.Contains(errStr, "pending transaction") ||
-			strings.Contains(errStr, "相同地址有未完成交易") ||
-			strings.Contains(errStr, "has pending transactions")
+			strings.Contains(errStr, "相同地址有未完成交易")
 
 		if !isPendingTxError {
 			// Not a pending tx error - fail immediately without retry
@@ -643,8 +641,12 @@ func (c *XLayerRemoteClient) postSignRequestAndWaitResult(ctx context.Context, r
 		"gas", signedTx.Gas(),
 		"data_len", len(signedTx.Data()))
 
-	// 4. For blob transactions, attach sidecar
-	// Do not reassemble! Use the transaction returned by remote signer directly
+	// 4.  For blob transactions, attach the original sidecar if not present in signed tx.
+	// NOTE: Remote signer only signs the transaction core fields without blob data (Sidecar).
+	// We must attach the original Sidecar back to the signed
+	// transaction, as it's required for broadcasting EIP-4844 blob transactions.
+	// This is NOT reassembling transaction fields - we only restore the blob data that was
+	// intentionally excluded from the signing request due to its large size (~128KB per blob).
 	if originalTx.Type() == types.BlobTxType && signedTx.BlobTxSidecar() == nil {
 		c.logger.Info("Attaching sidecar to signed blob transaction")
 		if originalTx.BlobTxSidecar() != nil {
@@ -1530,5 +1532,7 @@ func convertValueToOperateAmount(valueWei *big.Int) string {
 }
 
 func (c *XLayerRemoteClient) Close() {
-	// Cleanup resources
+	if c.client != nil {
+		c.client.CloseIdleConnections()
+	}
 }
