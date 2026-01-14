@@ -28,7 +28,7 @@ require (
 	github.com/fatih/color v1.18.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-task/slim-sprig/v3 v3.0.0
-	github.com/golang/snappy v0.0.5-0.20220116011046-fa5810519dcb
+	github.com/golang/snappy v1.0.0
 	github.com/google/go-cmp v0.7.0
 	github.com/google/go-github/v55 v55.0.0
 	github.com/google/gofuzz v1.2.1-0.20220503160820-4a35382e8fc8
@@ -87,7 +87,7 @@ require (
 	github.com/DataDog/zstd v1.5.6-0.20230824185856-869dae002e5e // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v0.0.0-20230217124315-7d5c6f04bbb8 // indirect
-	github.com/VictoriaMetrics/fastcache v1.12.2 // indirect
+	github.com/VictoriaMetrics/fastcache v1.13.0 // indirect
 	github.com/adrg/xdg v0.4.0 // indirect
 	github.com/ajstarks/svgo v0.0.0-20211024235047-1546f124cd8b // indirect
 	github.com/allegro/bigcache v1.2.1 // indirect
@@ -323,7 +323,7 @@ require (
 	lukechampine.com/blake3 v1.3.0 // indirect
 )
 
-replace github.com/ethereum/go-ethereum => github.com/okx/op-geth v1.101408.1-0.20251224021339-340217527706
+replace github.com/ethereum/go-ethereum => github.com/okx/op-geth v1.101408.1-0.20260114085046-bc81dc1f70de
 
 //replace github.com/ethereum/go-ethereum => ./op-geth
 
