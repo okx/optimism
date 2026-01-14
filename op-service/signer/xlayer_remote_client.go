@@ -82,14 +82,8 @@ const (
 	ComponentRoleUnknown ComponentRole = "unknown"
 )
 
-// Retry configuration constants
+// Polling configuration constants
 const (
-	// MaxSigningRetries is the maximum number of retry attempts for signing requests
-	MaxSigningRetries = 3
-
-	// RetryDelay is the delay duration between retry attempts
-	RetryDelay = 5 * time.Second
-
 	// SignResultPollInterval is the polling interval for querying signing results
 	SignResultPollInterval = 1 * time.Second
 )
@@ -350,75 +344,14 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 		"toAddress_in_struct", signReq.ToAddress,
 		"tx_to_is_nil", tx.To() == nil)
 
-	// 4. Send signing request and wait for result with intelligent retry logic
-	// Retry only for "pending transaction" errors from remote signer
-	var signedTx *types.Transaction
-
-	for attempt := 0; attempt <= MaxSigningRetries; attempt++ {
-		if attempt > 0 {
-			c.logger.Warn("Retrying remote signing after pending transaction error",
-				"attempt", attempt,
-				"max_retries", MaxSigningRetries,
-				"delay", RetryDelay,
-				"nonce", tx.Nonce())
-
-			// Wait before retry, respecting context cancellation
-			select {
-			case <-ctx.Done():
-				return nil, fmt.Errorf("context cancelled during retry: %w", ctx.Err())
-			case <-time.After(RetryDelay):
-				// Continue to retry
-			}
-		}
-
-		var err error
-		signedTx, err = c.postSignRequestAndWaitResult(ctx, signReq, tx)
-		if err == nil {
-			// Success - transaction signed
-			if attempt > 0 {
-				c.logger.Info("Remote signing succeeded after retry",
-					"attempt", attempt,
-					"nonce", tx.Nonce())
-			}
-			break
-		}
-
-		// Check if error is "pending transaction" related
-		errStr := err.Error()
-		isPendingTxError := strings.Contains(errStr, "未完成交易") ||
-			strings.Contains(errStr, "pending transaction") ||
-			strings.Contains(errStr, "相同地址有未完成交易") ||
-			strings.Contains(errStr, "has pending transactions")
-
-		if !isPendingTxError {
-			// Not a pending tx error - fail immediately without retry
-			c.logger.Error("Remote signing failed with non-retryable error",
-				"error", err,
-				"nonce", tx.Nonce())
-			return nil, fmt.Errorf("remote signing failed: %w", err)
-		}
-
-		if attempt == MaxSigningRetries {
-			// Max retries reached for pending tx error
-			c.logger.Error("Remote signing failed after max retries",
-				"max_retries", MaxSigningRetries,
-				"error", err,
-				"nonce", tx.Nonce())
-			return nil, fmt.Errorf("remote signing failed after %d retries (pending transaction): %w", MaxSigningRetries, err)
-		}
-
-		// Will retry - log the pending transaction error
-		c.logger.Info("Remote signer reported pending transaction, will retry",
-			"nonce", tx.Nonce(),
-			"attempt", attempt+1,
-			"max_retries", MaxSigningRetries,
-			"next_retry_in", RetryDelay)
-	}
-
-	// Sanity check: ensure signedTx is not nil or invalid
-	if signedTx == nil {
-		c.logger.Error("signedTx is nil after all retries")
-		return nil, fmt.Errorf("signedTx is nil")
+	// 4. Send signing request and wait for result
+	// Note: Retry logic is handled by upstream txmgr, no internal retry needed here
+	signedTx, err := c.postSignRequestAndWaitResult(ctx, signReq, tx)
+	if err != nil {
+		c.logger.Error("Remote signing failed",
+			"error", err,
+			"nonce", tx.Nonce())
+		return nil, fmt.Errorf("remote signing failed: %w", err)
 	}
 
 	// Log signed transaction details with safe nil handling
@@ -643,8 +576,12 @@ func (c *XLayerRemoteClient) postSignRequestAndWaitResult(ctx context.Context, r
 		"gas", signedTx.Gas(),
 		"data_len", len(signedTx.Data()))
 
-	// 4. For blob transactions, attach sidecar
-	// Do not reassemble! Use the transaction returned by remote signer directly
+	// 4. For blob transactions, attach the original sidecar if not present in signed tx.
+	// NOTE: Remote signer only signs the transaction core fields without blob data (Sidecar).
+	// We must attach the original Sidecar back to the signed transaction, as it's required
+	// for broadcasting EIP-4844 blob transactions.
+	// This is NOT reassembling transaction fields - we only restore the blob data that was
+	// intentionally excluded from the signing request due to its large size (~128KB per blob).
 	if originalTx.Type() == types.BlobTxType && signedTx.BlobTxSidecar() == nil {
 		c.logger.Info("Attaching sidecar to signed blob transaction")
 		if originalTx.BlobTxSidecar() != nil {
@@ -1530,5 +1467,7 @@ func convertValueToOperateAmount(valueWei *big.Int) string {
 }
 
 func (c *XLayerRemoteClient) Close() {
-	// Cleanup resources
+	if c.client != nil {
+		c.client.CloseIdleConnections()
+	}
 }
