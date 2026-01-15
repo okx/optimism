@@ -35,7 +35,7 @@
 [submodule "op-geth"]
 	path = op-geth
 	url = https://github.com/okx/op-geth
-	branch = sync-50
+	branch = dev
 [submodule "op-rbuilder"]
 	path = op-rbuilder
 	url = https://github.com/flashbots/op-rbuilder
