@@ -231,18 +231,12 @@ commands:
       - run:
           name: Determine target branch for this pipeline
           command: |
-            TARGET_BRANCH=""
-            if [ -n "${CIRCLE_PULL_REQUEST:-}" ]; then
-              TARGET_BRANCH=$(curl -s "https://api.github.com/repos/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}/pulls/${CIRCLE_PULL_REQUEST##*/}" | jq -r .base.ref)
-            fi
+            # Use the get-target-branch.sh script
+            source scripts/ops/get-target-branch.sh
 
-            # Fallbacks when not a PR or API did not return a branch
-            if [ -z "$TARGET_BRANCH" ] || [ "$TARGET_BRANCH" = "null" ]; then
-              TARGET_BRANCH="<< pipeline.git.branch >>"
-            fi
-
-            echo "Resolved TARGET_BRANCH=$TARGET_BRANCH"
+            # Make TARGET_BRANCH available to subsequent steps
             echo "export TARGET_BRANCH=$TARGET_BRANCH" >> "$BASH_ENV"
+          working_directory: packages/contracts-bedrock
 
   setup-features:
     description: "Set up dev and system feature environment variables. Features are auto-classified based on system_features registry."
@@ -954,7 +948,6 @@ jobs:
           name: Print forge version
           command: forge --version
           working_directory: packages/contracts-bedrock
-      - get-target-branch
       - pull-artifacts-conditional
       - go-restore-cache:
           namespace: packages/contracts-bedrock/scripts/go-ffi
@@ -1123,7 +1116,6 @@ jobs:
           name: Print forge version
           command: forge --version
           working_directory: packages/contracts-bedrock
-      - get-target-branch
       - pull-artifacts-conditional
       - run:
           name: Install lcov
@@ -1218,7 +1210,6 @@ jobs:
           name: Print forge version
           command: forge --version
           working_directory: packages/contracts-bedrock
-      - get-target-branch
       - pull-artifacts-conditional
       - run:
           name: Write pinned block number for cache key
