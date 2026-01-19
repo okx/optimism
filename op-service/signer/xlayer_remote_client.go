@@ -86,6 +86,10 @@ const (
 const (
 	// SignResultPollInterval is the polling interval for querying signing results
 	SignResultPollInterval = 1 * time.Second
+
+	// MaxPollAttempts is the maximum number of polling attempts before giving up
+	// With 1 second interval, 120 attempts = 2 minutes max wait time
+	MaxPollAttempts = 120
 )
 
 // Response status codes
@@ -306,13 +310,19 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 
 	fromLower := common.HexToAddress(strings.ToLower(from.Hex()))
 
+	// Generate UUID for order tracking (using NewRandom to avoid potential panic)
+	refOrderID, err := uuid.NewRandom()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate order ID: %w", err)
+	}
+
 	signReq := &XLayerSignRequest{
 		UserID:          c.config.UserID,
 		OperateType:     operateType,
 		OperateAddress:  fromLower,
 		Symbol:          c.config.Symbol,
 		ProjectSymbol:   c.config.ProjectSymbol,
-		RefOrderID:      uuid.New().String(),
+		RefOrderID:      refOrderID.String(),
 		OperateSymbol:   c.config.OperateSymbol,
 		OperateAmount:   operateAmount,
 		SysFrom:         c.config.SysFrom,
@@ -722,16 +732,31 @@ func (c *XLayerRemoteClient) waitSignResult(ctx context.Context, orderID string)
 	ticker := time.NewTicker(SignResultPollInterval)
 	defer ticker.Stop()
 
+	attempts := 0
 	for {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-ticker.C:
+			attempts++
+			if attempts > MaxPollAttempts {
+				return nil, fmt.Errorf("exceeded maximum poll attempts (%d) waiting for sign result, orderID: %s", MaxPollAttempts, orderID)
+			}
+
 			result, err := c.querySignResult(ctx, queryReq)
-			if err == nil && result.Success && len(result.Data) > 0 {
+			if err != nil {
+				c.logger.Debug("Query sign result failed, retrying",
+					"attempt", attempts,
+					"maxAttempts", MaxPollAttempts,
+					"orderID", orderID,
+					"error", err)
+				continue
+			}
+
+			if result.Success && len(result.Data) > 0 {
 				return result, nil
 			}
-			// Continue waiting
+			// Continue waiting for result
 		}
 	}
 }
