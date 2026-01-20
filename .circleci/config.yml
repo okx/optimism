@@ -135,10 +135,9 @@ workflows:
             kona/.* go-cache-version << pipeline.parameters.go-cache-version >> .circleci/continue/kona.yml
 
   setup-tag:
-    setup:
-      filters:
-        tags:
-          only: /^(testing-ci|da-server|cannon|ufm-[a-z0-9\-]*|op-[a-z0-9\-]*)\/v.*/
     jobs:
       - path-filtering/filter:
           <<: *path_filter
+          filters:
+            tags:
+              only: /^(testing-ci|da-server|cannon|ufm-[a-z0-9\-]*|op-[a-z0-9\-]*)\/v.*/
