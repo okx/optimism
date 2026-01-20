@@ -84,6 +84,9 @@ parameters:
   go-cache-version:
     type: string
     default: "v0.0"
+  git_tag:
+    type: string
+    default: ""
 
 orbs:
   go: circleci/go@1.8.0
@@ -3333,15 +3336,17 @@ workflows:
 
   release:
     when:
-      not:
-        equal: [scheduled_pipeline, << pipeline.trigger_source >>]
+      and:
+        - not:
+            equal: [scheduled_pipeline, << pipeline.trigger_source >>]
+        - not:
+            equal: ["", << pipeline.parameters.git_tag >>]
     jobs:
       - initialize:
           context:
             - circleci-repo-readonly-authenticated-github-token
           filters:
-            tags:
-              only: /^(da-server|cannon|ufm-[a-z0-9\-]*|op-[a-z0-9\-]*)\/v.*/
+            # note that this is filtered by main.yml on specific tags
             branches:
               ignore: /.*/
       - contracts-bedrock-build:
