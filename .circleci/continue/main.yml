@@ -3347,8 +3347,8 @@ workflows:
             - circleci-repo-readonly-authenticated-github-token
           filters:
             # note that this is filtered by main.yml on specific tags
-            branches:
-              ignore: /.*/
+            #branches:
+              #ignore: /.*/
       - contracts-bedrock-build:
           context:
             - circleci-repo-readonly-authenticated-github-token
