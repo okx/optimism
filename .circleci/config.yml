@@ -105,6 +105,8 @@ workflows:
           filters:
             tags:
               only: /.*/ # Allow tags to trigger setup
+            branches:
+              only: /.*/
           mapping: |
             .* default_docker_image << pipeline.parameters.default_docker_image >> .circleci/continue/main.yml
             .* base_image << pipeline.parameters.base_image >> .circleci/continue/main.yml
