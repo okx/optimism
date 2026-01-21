@@ -84,9 +84,6 @@ parameters:
   go-cache-version:
     type: string
     default: "v0.0"
-  git_tag:
-    type: string
-    default: ""
 
 orbs:
   go: circleci/go@1.8.0
@@ -3340,7 +3337,7 @@ workflows:
         - not:
             equal: [scheduled_pipeline, << pipeline.trigger_source >>]
         - not:
-            equal: ["", << pipeline.parameters.git_tag >>]
+            equal: ["", << pipeline.git.tag >>]
     jobs:
       - initialize:
           context:
