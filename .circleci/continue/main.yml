@@ -3342,7 +3342,7 @@ workflows:
       - initialize:
           context:
             - circleci-repo-readonly-authenticated-github-token
-          filters:
+          #filters:
             # note that this is filtered by main.yml on specific tags
             #branches:
               #ignore: /.*/
