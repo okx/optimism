@@ -172,4 +172,4 @@ workflows:
             tags:
               only: /^(testing-ci|da-server|cannon|ufm-[a-z0-9\-]*|op-[a-z0-9\-]*)\/v.*/
             branches:
-              only: inphi/fix-ci-testing
+              only: inphi/fix-ci-again-testing
