@@ -96,10 +96,15 @@ orbs:
 
 workflows:
   setup:
+    when:
+      equal: ["", << pipeline.git.tag >>]
     jobs:
-      - path-filtering/filter:
+      - path-filtering/filter: &path_filter
           base-revision: develop
           config-path: .circleci/continue/main.yml
+          filters:
+            tags:
+              only: /.*/ # Allow tags to trigger setup
           mapping: |
             .* default_docker_image << pipeline.parameters.default_docker_image >> .circleci/continue/main.yml
             .* base_image << pipeline.parameters.base_image >> .circleci/continue/main.yml
