@@ -128,7 +128,6 @@ workflows:
             .* flake-shake-iterations << pipeline.parameters.flake-shake-iterations >> .circleci/continue/main.yml
             .* flake-shake-workers << pipeline.parameters.flake-shake-workers >> .circleci/continue/main.yml
             .* go-cache-version << pipeline.parameters.go-cache-version >> .circleci/continue/main.yml
-            .* git_tag << pipeline.git.tag >> .circleci/continue/main.yml
             kona/.* kona_dispatch true .circleci/continue/kona.yml
             kona/.* default_docker_image << pipeline.parameters.default_docker_image >> .circleci/continue/kona.yml
             kona/.* base_image << pipeline.parameters.base_image >> .circleci/continue/kona.yml
@@ -138,6 +137,37 @@ workflows:
     jobs:
       - path-filtering/filter:
           <<: *path_filter
+          mapping: |
+            .* default_docker_image << pipeline.parameters.default_docker_image >> .circleci/continue/main.yml
+            .* base_image << pipeline.parameters.base_image >> .circleci/continue/main.yml
+            .* main_dispatch << pipeline.parameters.main_dispatch >> .circleci/continue/main.yml
+            .* fault_proofs_dispatch << pipeline.parameters.fault_proofs_dispatch >> .circleci/continue/main.yml
+            .* reproducibility_dispatch << pipeline.parameters.reproducibility_dispatch >> .circleci/continue/main.yml
+            .* kontrol_dispatch << pipeline.parameters.kontrol_dispatch >> .circleci/continue/main.yml
+            .* cannon_full_test_dispatch << pipeline.parameters.cannon_full_test_dispatch >> .circleci/continue/main.yml
+            .* sdk_dispatch << pipeline.parameters.sdk_dispatch >> .circleci/continue/main.yml
+            .* docker_publish_dispatch << pipeline.parameters.docker_publish_dispatch >> .circleci/continue/main.yml
+            .* publish_contract_artifacts_dispatch << pipeline.parameters.publish_contract_artifacts_dispatch >> .circleci/continue/main.yml
+            .* stale_check_dispatch << pipeline.parameters.stale_check_dispatch >> .circleci/continue/main.yml
+            .* contracts_coverage_dispatch << pipeline.parameters.contracts_coverage_dispatch >> .circleci/continue/main.yml
+            .* heavy_fuzz_dispatch << pipeline.parameters.heavy_fuzz_dispatch >> .circleci/continue/main.yml
+            .* acceptance_tests_dispatch << pipeline.parameters.acceptance_tests_dispatch >> .circleci/continue/main.yml
+            .* kurtosis_acceptance_tests_dispatch << pipeline.parameters.kurtosis_acceptance_tests_dispatch >> .circleci/continue/main.yml
+            .* sync_test_op_node_dispatch << pipeline.parameters.sync_test_op_node_dispatch >> .circleci/continue/main.yml
+            .* ai_contracts_test_dispatch << pipeline.parameters.ai_contracts_test_dispatch >> .circleci/continue/main.yml
+            .* github-event-type << pipeline.parameters.github-event-type >> .circleci/continue/main.yml
+            .* github-event-action << pipeline.parameters.github-event-action >> .circleci/continue/main.yml
+            .* github-event-base64 << pipeline.parameters.github-event-base64 >> .circleci/continue/main.yml
+            .* devnet-metrics-collect << pipeline.parameters.devnet-metrics-collect >> .circleci/continue/main.yml
+            .* flake-shake-dispatch << pipeline.parameters.flake-shake-dispatch >> .circleci/continue/main.yml
+            .* flake-shake-iterations << pipeline.parameters.flake-shake-iterations >> .circleci/continue/main.yml
+            .* flake-shake-workers << pipeline.parameters.flake-shake-workers >> .circleci/continue/main.yml
+            .* go-cache-version << pipeline.parameters.go-cache-version >> .circleci/continue/main.yml
+            .* git_tag << pipeline.git.tag >> .circleci/continue/main.yml
+            kona/.* kona_dispatch true .circleci/continue/kona.yml
+            kona/.* default_docker_image << pipeline.parameters.default_docker_image >> .circleci/continue/kona.yml
+            kona/.* base_image << pipeline.parameters.base_image >> .circleci/continue/kona.yml
+            kona/.* go-cache-version << pipeline.parameters.go-cache-version >> .circleci/continue/kona.yml
           filters:
             tags:
               only: /^(testing-ci|da-server|cannon|ufm-[a-z0-9\-]*|op-[a-z0-9\-]*)\/v.*/
