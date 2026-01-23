@@ -612,7 +612,6 @@ func (c *XLayerRemoteClient) postSignRequest(ctx context.Context, req *XLayerSig
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Debug: 打印实际发送的JSON
 	c.logger.Debug("Serialized sign request JSON",
 		"payload", string(payload),
 		"depositAddress_field", req.DepositeAddress,
@@ -1357,13 +1356,12 @@ func (c *XLayerRemoteClient) verifyBlobTxFields(originalTx *types.Transaction, s
 
 // verifyDynamicFeeTxFields verify EIP-1559
 func (c *XLayerRemoteClient) verifyDynamicFeeTxFields(originalTx *types.Transaction, signedTx *types.Transaction) error {
-	// 验证gas fee cap
+
 	if originalTx.GasFeeCap().Cmp(signedTx.GasFeeCap()) != 0 {
 		return fmt.Errorf("gas fee cap mismatch: original=%s, signed=%s",
 			originalTx.GasFeeCap().String(), signedTx.GasFeeCap().String())
 	}
 
-	// 验证gas tip cap
 	if originalTx.GasTipCap().Cmp(signedTx.GasTipCap()) != 0 {
 		return fmt.Errorf("gas tip cap mismatch: original=%s, signed=%s",
 			originalTx.GasTipCap().String(), signedTx.GasTipCap().String())
