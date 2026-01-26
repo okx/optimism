@@ -49,7 +49,7 @@ func newUint64(v uint64) *uint64 {
 // This function only overrides specific fork times, keeping other configuration from the source.
 func ApplyXLayerHardcodedForks(cfg *Config) *Config {
 	if cfg == nil || cfg.L2ChainID == nil {
-		log.Error("X Layer: No rollup config provided, no modifications needed")
+		log.Info("X Layer: No rollup config provided, no modifications needed")
 		return cfg
 	}
 
@@ -58,7 +58,7 @@ func ApplyXLayerHardcodedForks(cfg *Config) *Config {
 
 	if !exists {
 		// Not an X Layer chain, return config as-is
-		log.Error("X Layer: Not an X Layer chain, no modifications needed", "chainID", chainID)
+		log.Info("X Layer: Not an X Layer chain, no modifications needed", "chainID", chainID)
 		return cfg
 	}
 
