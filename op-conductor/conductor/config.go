@@ -153,9 +153,9 @@ func (c *Config) Check() error {
 		return errors.Wrap(err, "invalid rpc config")
 	}
 
-	// X Layer: Validate HTTP body limit: must be >= 5MB
-	if c.HTTPBodyLimitMB < 5 {
-		return fmt.Errorf("HTTP body limit must be at least 5MB, got %dMB", c.HTTPBodyLimitMB)
+	// X Layer: Validate HTTP body limit: must be >= 5MB and <= 256MB
+	if c.HTTPBodyLimitMB < 5 || c.HTTPBodyLimitMB > 256 {
+		return fmt.Errorf("HTTP body limit must be between 5MB and 256MB, got %dMB", c.HTTPBodyLimitMB)
 	}
 	return nil
 }

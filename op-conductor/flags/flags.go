@@ -205,7 +205,7 @@ var (
 	// X Layer: HTTPBodyLimitMB is the HTTP request body size limit in MB for RPC server.
 	HTTPBodyLimitMB = &cli.IntFlag{
 		Name:    "rpc.http-body-limit-mb",
-		Usage:   "HTTP request body size limit in MB for RPC server (default: 5MB, min: 5MB, recommended: 64MB for high throughput)",
+		Usage:   "HTTP request body size limit in MB for RPC server (default: 5MB, min: 5MB, max: 256MB, recommended: 64MB for high throughput)",
 		EnvVars: opservice.PrefixEnvVar(EnvVarPrefix, "RPC_HTTP_BODY_LIMIT_MB"),
 		Value:   5,
 	}
