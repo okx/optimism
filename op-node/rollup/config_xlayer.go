@@ -115,7 +115,16 @@ func saveFixedRollupJSON(cfg *Config, rollupConfigPath string) {
 		return
 	}
 
-	err = os.WriteFile(rollupConfigPath, data, 0644)
+	// Preserve existing file permissions (file is guaranteed to exist at this point
+	// as it was opened earlier in NewRollupConfig)
+	fileInfo, err := os.Stat(rollupConfigPath)
+	if err != nil {
+		log.Error("X Layer: Failed to stat rollup config file", "path", rollupConfigPath, "err", err)
+		return
+	}
+	fileMode := fileInfo.Mode().Perm()
+
+	err = os.WriteFile(rollupConfigPath, data, fileMode)
 	if err != nil {
 		log.Error("X Layer: Failed to save rollup config", "path", rollupConfigPath, "err", err)
 		return
