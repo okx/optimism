@@ -1,11 +1,20 @@
 # Contracts build stage
 FROM okexchain/go-builder:v1 AS contracts-builder
 
+RUN apt install -y jq
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/alloy-rs/svm-rs/releases/download/v0.5.22/svm-rs-installer.sh | sh
+ENV PATH=/root/.local/bin:$PATH
+
+RUN svm install 0.8.30
+RUN svm install 0.8.25
+RUN svm install 0.8.19
+RUN svm install 0.8.15
 
 WORKDIR /app
 
 # Copy the entire project (needed for git submodules)
 COPY . .
+
 
 # Initialize submodules and build contracts
 WORKDIR /app/packages/contracts-bedrock
@@ -37,6 +46,9 @@ ENV SSL_CERT_DIR=/etc/ssl/certs
 
 # Copy foundry tools for runtime use
 COPY --from=contracts-builder /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil /usr/local/bin/
+COPY --from=contracts-builder /root/.local/bin/svm /usr/local/bin
+COPY --from=contracts-builder /root/.svm  /root/.svm
+RUN apt install -y jq
 # Copy op-deployer binary
 COPY --from=contracts-builder /app/op-deployer/bin/ ./op-deployer/bin/
 
