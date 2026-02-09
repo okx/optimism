@@ -35,7 +35,7 @@
 [submodule "op-geth"]
 	path = op-geth
 	url = https://github.com/okx/op-geth
-	branch = sync-80
+	branch = dev
 [submodule "kona"]
 	path = kona
 	url = https://github.com/op-rs/kona
