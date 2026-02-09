@@ -85,6 +85,7 @@ require (
 	git.sr.ht/~sbinet/gg v0.6.0 // indirect
 	github.com/DataDog/zstd v1.5.6-0.20230824185856-869dae002e5e // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
+	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251001021608-1fe7b43fc4d6 // indirect
 	github.com/ProtonMail/go-crypto v0.0.0-20230217124315-7d5c6f04bbb8 // indirect
 	github.com/VictoriaMetrics/fastcache v1.13.0 // indirect
 	github.com/adrg/xdg v0.4.0 // indirect
@@ -230,7 +231,6 @@ require (
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
 	github.com/peterh/liner v1.1.1-0.20190123174540-a2c9a5303de7 // indirect
 	github.com/pierrec/lz4 v2.6.1+incompatible // indirect
-	github.com/pierrec/lz4/v4 v4.1.15 // indirect
 	github.com/pion/datachannel v1.5.8 // indirect
 	github.com/pion/dtls/v2 v2.2.12 // indirect
 	github.com/pion/ice/v2 v2.3.34 // indirect
@@ -262,7 +262,6 @@ require (
 	github.com/rs/cors v1.11.0 // indirect
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
-	github.com/segmentio/kafka-go v0.4.47 // indirect
 	github.com/sethvargo/go-envconfig v1.1.0 // indirect
 	github.com/shirou/gopsutil v3.21.11+incompatible // indirect
 	github.com/shirou/gopsutil/v4 v4.24.6 // indirect
@@ -314,7 +313,7 @@ require (
 	lukechampine.com/blake3 v1.3.0 // indirect
 )
 
-replace github.com/ethereum/go-ethereum => github.com/okx/op-geth v1.101408.1-0.20260115072314-cbe8100db96e
+replace github.com/ethereum/go-ethereum => github.com/okx/op-geth v1.101604.1-0.20260209024020-1b854bbd9a7c
 
 //replace github.com/ethereum/go-ethereum => ./op-geth
 
