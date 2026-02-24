@@ -31,6 +31,7 @@
 !/op-faucet
 !/op-interop-mon
 !/op-core
+!/op-validator
 !/go.mod
 !/go.sum
 !/justfiles
