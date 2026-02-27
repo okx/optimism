@@ -50,7 +50,7 @@ pub use tx_cache::TransactionCache;
 mod test_utils;
 
 mod ws;
-pub use ws::{FlashBlockDecoder, WsConnect, WsFlashBlockStream};
+pub use ws::{FlashBlockDecoder, MultiSourceFlashBlockStream, WsConnect, WsFlashBlockStream};
 
 /// Receiver of the most recent [`PendingFlashBlock`] built out of [`FlashBlock`]s.
 ///
