@@ -70,19 +70,22 @@ pub struct RollupArgs {
     #[arg(long, default_value_t = 1_000_000)]
     pub min_suggested_priority_fee: u64,
 
-    /// A URL pointing to a secure websocket subscription that streams out flashblocks.
+    /// URL(s) pointing to secure websocket subscriptions that stream out flashblocks.
     ///
     /// If given, the flashblocks are received to build pending block. All request with "pending"
     /// block tag will use the pending state based on flashblocks.
-    #[arg(long, alias = "websocket-url")]
-    pub flashblocks_url: Option<Url>,
+    ///
+    /// Multiple URLs can be specified for redundancy.
+    /// Pass multiple comma-separated values for multiple flashblock websocket sources.
+    #[arg(long = "flashblocks-url", alias = "websocket-url", value_delimiter = ',')]
+    pub flashblocks_urls: Vec<Url>,
 
     /// Enable flashblock consensus client to drive the chain forward
     ///
     /// When enabled, the flashblock consensus client will process flashblock sequences and submit
     /// them to the engine API to advance the chain.
-    /// Requires `flashblocks_url` to be set.
-    #[arg(long, default_value_t = false, requires = "flashblocks_url")]
+    /// Requires at least one `flashblocks-url` to be set.
+    #[arg(long, default_value_t = false, requires = "flashblocks_urls")]
     pub flashblock_consensus: bool,
 
     /// If true, initialize external-proofs exex to save and serve trie nodes to provide proofs
@@ -159,7 +162,7 @@ impl Default for RollupArgs {
             sequencer_headers: Vec::new(),
             historical_rpc: None,
             min_suggested_priority_fee: 1_000_000,
-            flashblocks_url: None,
+            flashblocks_urls: Vec::new(),
             flashblock_consensus: false,
             proofs_history: false,
             proofs_history_storage_path: None,
