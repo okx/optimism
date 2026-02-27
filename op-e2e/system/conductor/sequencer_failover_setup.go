@@ -242,6 +242,8 @@ func setupConductor(
 			ListenAddr: localhost,
 			ListenPort: 0, // let the system select a port
 		},
+		// For X Layer: minimum required HTTP body limit
+		HTTPBodyLimitMB: 5,
 	}
 
 	logger := testlog.Logger(t, log.LevelDebug)

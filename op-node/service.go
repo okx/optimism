@@ -279,6 +279,9 @@ Conflicting configuration is deprecated, and will stop the op-node from starting
 	if err := dec.Decode(&rollupConfig); err != nil {
 		return nil, fmt.Errorf("failed to decode rollup config: %w", err)
 	}
+	// X Layer hardcoded fork configurations for file-loaded configs
+	rollup.ApplyXLayerHardcodedForks(&rollupConfig)
+	rollup.FixXLayerL2Time(&rollupConfig, rollupConfigPath)
 	return &rollupConfig, nil
 }
 

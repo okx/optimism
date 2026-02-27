@@ -368,7 +368,7 @@ func (b *RawSpanBatch) derive(blockTime, genesisTimestamp uint64, chainID *big.I
 	txIdx := 0
 	for i := 0; i < int(b.blockCount); i++ {
 		batch := SpanBatchElement{}
-		batch.Timestamp = genesisTimestamp + b.relTimestamp + blockTime*uint64(i)
+		batch.Timestamp = rollup.GetBatchStartTime(genesisTimestamp, b.relTimestamp, chainID) + blockTime*uint64(i)
 		batch.EpochNum = rollup.Epoch(blockOriginNums[i])
 		for j := 0; j < int(b.blockTxCounts[i]); j++ {
 			batch.Transactions = append(batch.Transactions, fullTxs[txIdx])

@@ -6,6 +6,7 @@
 !cannon/
 !op-core/
 !op-alt-da/
+!op-geth/
 !op-node/
 !op-preimage/
 !op-program/

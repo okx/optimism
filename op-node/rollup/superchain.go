@@ -87,6 +87,9 @@ func LoadOPStackRollupConfig(chainID uint64) (*Config, error) {
 	}
 	applyHardforks(cfg, chConfig.Hardforks)
 
+	// X Layer hardcoded fork configurations after applying superchain-registry configs
+	cfg = ApplyXLayerHardcodedForks(cfg)
+
 	cfg.ProtocolVersionsAddress = superConfig.ProtocolVersionsAddr
 	return cfg, nil
 }

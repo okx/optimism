@@ -1,10 +1,15 @@
 package chainconfig
 
 import (
+	"bytes"
+	"compress/gzip"
+	"crypto/md5"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -15,6 +20,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-service/superutil"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/depset"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -88,6 +94,26 @@ func L2ChainConfigByChainID(chainID eth.ChainID) (*params.ChainConfig, error) {
 	return l2ChainConfigByChainID(chainID, customChainConfigFS)
 }
 
+// For X Layer
+func isGzipFile(data []byte) bool {
+	return len(data) >= 2 && data[0] == 0x1f && data[1] == 0x8b
+}
+
+// For X Layer
+func decompressGzip(data []byte) ([]byte, error) {
+	reader, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	var uncompressedData bytes.Buffer
+	if _, err := io.Copy(&uncompressedData, reader); err != nil {
+		return nil, err
+	}
+	return uncompressedData.Bytes(), nil
+}
+
 func l2ChainConfigByChainID(chainID eth.ChainID, customChainFS embed.FS) (*params.ChainConfig, error) {
 	// Load from custom chain configs from embed FS
 	data, err := customChainFS.ReadFile(fmt.Sprintf("configs/%v-genesis-l2.json", chainID))
@@ -95,6 +121,16 @@ func l2ChainConfigByChainID(chainID eth.ChainID, customChainFS embed.FS) (*param
 		return nil, fmt.Errorf("%w: no chain config available for chain ID: %v", ErrMissingChainConfig, chainID)
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to get chain config for chain ID %v: %w", chainID, err)
+	}
+	// For X Layer
+	// Only decompress if data is gzip-compressed
+	if isGzipFile(data) {
+		data, err = decompressGzip(data)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decompress for chain ID %v: %w", chainID, err)
+		}
+		md5CheckSum := md5.Sum(data)
+		log.Info("decompress genesis", "chain id", chainID, "md5 hash", hex.EncodeToString(md5CheckSum[:]))
 	}
 	var genesis core.Genesis
 	err = json.Unmarshal(data, &genesis)

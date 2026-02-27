@@ -32,6 +32,10 @@
 [submodule "packages/contracts-bedrock/lib/superchain-registry"]
 	path = packages/contracts-bedrock/lib/superchain-registry
 	url = https://github.com/ethereum-optimism/superchain-registry
+[submodule "op-geth"]
+	path = op-geth
+	url = https://github.com/okx/op-geth
+	branch = dev
 [submodule "rust/kona/crates/protocol/registry/superchain-registry"]
 	path = rust/kona/crates/protocol/registry/superchain-registry
 	url = https://github.com/ethereum-optimism/superchain-registry

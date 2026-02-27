@@ -28,7 +28,7 @@ func Main(version string) cliapp.LifecycleAction {
 		oplog.SetGlobalLogHandler(l.Handler())
 		opservice.ValidateEnvVars(flags.EnvVarPrefix, flags.Flags, l)
 
-		l.Info("Initializing L2Output Submitter")
+		l.Info("Initializing L2Output Submitter", "cfg", cfg)
 		return ProposerServiceFromCLIConfig(cliCtx.Context, version, cfg, l)
 	}
 }

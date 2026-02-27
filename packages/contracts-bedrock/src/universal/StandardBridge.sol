@@ -164,6 +164,7 @@ abstract contract StandardBridge is Initializable {
     ///                     not be triggered with this data, but it will be emitted and can be used
     ///                     to identify the transaction.
     function bridgeETH(uint32 _minGasLimit, bytes calldata _extraData) public payable onlyEOA {
+        revert("not allow bridge");
         _initiateBridgeETH(msg.sender, msg.sender, msg.value, _minGasLimit, _extraData);
     }
 
@@ -180,6 +181,7 @@ abstract contract StandardBridge is Initializable {
     ///                     not be triggered with this data, but it will be emitted and can be used
     ///                     to identify the transaction.
     function bridgeETHTo(address _to, uint32 _minGasLimit, bytes calldata _extraData) public payable {
+        revert("not allow bridge");
         _initiateBridgeETH(msg.sender, _to, msg.value, _minGasLimit, _extraData);
     }
 
@@ -202,6 +204,7 @@ abstract contract StandardBridge is Initializable {
         virtual
         onlyEOA
     {
+        revert("not allow bridge");
         _initiateBridgeERC20(_localToken, _remoteToken, msg.sender, msg.sender, _amount, _minGasLimit, _extraData);
     }
 
@@ -225,6 +228,7 @@ abstract contract StandardBridge is Initializable {
         public
         virtual
     {
+        revert("not allow bridge");
         _initiateBridgeERC20(_localToken, _remoteToken, msg.sender, _to, _amount, _minGasLimit, _extraData);
     }
 
@@ -246,6 +250,7 @@ abstract contract StandardBridge is Initializable {
         payable
         onlyOtherBridge
     {
+        revert("not allow bridge");
         require(paused() == false, "StandardBridge: paused");
         require(msg.value == _amount, "StandardBridge: amount sent does not match amount required");
         require(_to != address(this), "StandardBridge: cannot send to self");
@@ -280,6 +285,7 @@ abstract contract StandardBridge is Initializable {
         public
         onlyOtherBridge
     {
+        revert("not allow bridge");
         require(paused() == false, "StandardBridge: paused");
         if (_isOptimismMintableERC20(_localToken)) {
             require(
@@ -315,6 +321,7 @@ abstract contract StandardBridge is Initializable {
     )
         internal
     {
+        revert("not allow bridge");
         require(msg.value == _amount, "StandardBridge: bridging ETH must include sufficient ETH value");
 
         // Emit the correct events. By default this will be _amount, but child
@@ -348,6 +355,7 @@ abstract contract StandardBridge is Initializable {
     )
         internal
     {
+        revert("not allow bridge");
         require(msg.value == 0, "StandardBridge: cannot send value");
 
         if (_isOptimismMintableERC20(_localToken)) {
