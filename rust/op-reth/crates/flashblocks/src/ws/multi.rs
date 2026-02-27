@@ -30,7 +30,8 @@ struct SourceState {
 /// A multi-source flashblock stream that wraps multiple inner streams.
 ///
 /// Deduplicates flashblocks by `(payload_id, index)`. The first-arriving
-/// flashblock for each key wins. Subsequent duplicates are cross-validated:
+/// flashblock for each key wins. Subsequent duplicates are cross-validated
+/// by comparing block hashes, with mismatches logged as warnings.
 ///
 /// Each source has independent error backoff. When a source errors, it backs
 /// off for [`PER_SOURCE_BACKOFF`] before being polled again. Other sources
@@ -103,7 +104,7 @@ where
                 Poll::Ready(Some(Ok(flashblock))) => {
                     // Detect new block: index 0 with a new payload_id resets dedup state
                     if flashblock.index == 0 &&
-                        this.current_payload_id.as_ref() != Some(&flashblock.payload_id)
+                        this.current_payload_id != Some(flashblock.payload_id)
                     {
                         this.seen.clear();
                         this.current_payload_id = Some(flashblock.payload_id);
