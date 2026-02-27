@@ -143,11 +143,10 @@ where
                         %err,
                         "Source error, backing off"
                     );
-                    state.backoff = Some(Box::pin(tokio::time::sleep(PER_SOURCE_BACKOFF)));
-                    // Register waker on the new backoff timer
-                    if let Some(backoff) = &mut state.backoff {
-                        let _ = backoff.as_mut().poll(cx);
-                    }
+                    let mut backoff = Box::pin(tokio::time::sleep(PER_SOURCE_BACKOFF));
+                    // Register waker so we're notified when the backoff expires
+                    let _ = backoff.as_mut().poll(cx);
+                    state.backoff = Some(backoff);
                 }
                 Poll::Ready(None) => {
                     state.terminated = true;
