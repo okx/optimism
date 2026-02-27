@@ -93,14 +93,10 @@ where
             }
 
             if let Some(backoff) = &mut state.backoff {
-                match backoff.as_mut().poll(cx) {
-                    Poll::Ready(()) => {
-                        state.backoff = None;
-                    }
-                    Poll::Pending => {
-                        continue;
-                    }
+                if backoff.as_mut().poll(cx).is_pending() {
+                    continue;
                 }
+                state.backoff = None;
             }
 
             match Pin::new(stream).poll_next(cx) {
