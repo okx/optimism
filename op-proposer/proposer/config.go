@@ -83,7 +83,7 @@ type CLIConfig struct {
 	// Whether to wait for the sequencer to sync to a recent block at startup.
 	WaitNodeSync bool
 
-	// genesis height may not be zero
+	// X Layer: Genesis height may not be zero
 	GenesisHeight uint64
 }
 
@@ -158,6 +158,6 @@ func NewConfig(ctx *cli.Context) *CLIConfig {
 		DisputeGameType:              uint32(ctx.Uint(flags.DisputeGameTypeFlag.Name)),
 		ActiveSequencerCheckDuration: ctx.Duration(flags.ActiveSequencerCheckDurationFlag.Name),
 		WaitNodeSync:                 ctx.Bool(flags.WaitNodeSyncFlag.Name),
-		GenesisHeight:                ctx.Uint64(flags.GenesisHeight.Name),
+		GenesisHeight:                ctx.Uint64(flags.GenesisHeight.Name), // X Layer: Genesis height may not be zero
 	}
 }

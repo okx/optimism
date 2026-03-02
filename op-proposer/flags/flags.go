@@ -79,6 +79,7 @@ var (
 		Value:   false,
 		EnvVars: prefixEnvVars("WAIT_NODE_SYNC"),
 	}
+	// X Layer: Genesis height may not be zero
 	GenesisHeight = &cli.Uint64Flag{
 		Name:    "genesis-height",
 		Usage:   "The genesis block height to use",
@@ -104,7 +105,7 @@ var optionalFlags = []cli.Flag{
 	DisputeGameTypeFlag,
 	ActiveSequencerCheckDurationFlag,
 	WaitNodeSyncFlag,
-	GenesisHeight,
+	GenesisHeight, // X Layer: Genesis height may not be zero
 }
 
 func init() {

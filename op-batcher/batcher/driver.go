@@ -529,6 +529,7 @@ func (l *BatchSubmitter) blockLoadingLoop(ctx context.Context, wg *sync.WaitGrou
 	defer close(unsafeBytesUpdated)
 	defer close(publishSignal)
 	defer wg.Done()
+	// X Layer: debug log about unsafe/safe block on op-batcher
 	var preL2unsafeBlock eth.L2BlockRef
 	var preL2SafeBlock eth.L2BlockRef
 	for {

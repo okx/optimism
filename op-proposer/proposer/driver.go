@@ -180,6 +180,7 @@ func (l *L2OutputSubmitter) FetchDGFOutput(ctx context.Context) (source.Proposal
 	}
 
 	l.Log.Info("check height", "height", currentBlockNumber, "genesis height", l.Cfg.GenesisHeight)
+	// X Layer: Genesis height may not be zero
 	if currentBlockNumber == l.Cfg.GenesisHeight {
 		l.Log.Info("Skipping proposal for genesis block")
 		return source.Proposal{}, false, nil

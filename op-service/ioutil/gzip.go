@@ -21,14 +21,16 @@ var (
 	ErrDecompressedSizeExceeded = errors.New("decompressed data size exceeds maximum allowed size")
 )
 
-// limitedReadCloser wraps an io.ReadCloser and enforces a maximum read limit.
+// limitedReadCloser wraps an io.ReadCloser and enforces a maximum read limit
 // It returns ErrDecompressedSizeExceeded when the limit is exceeded.
+// For X Layer: Read implements the io.Reader interface.
 type limitedReadCloser struct {
 	limitReader *io.LimitedReader
 	readCloser  io.ReadCloser
 	closer      io.Closer
 }
 
+// X Layer: Read implements the io.Reader interface.
 func (l *limitedReadCloser) Read(p []byte) (n int, err error) {
 	n, err = l.limitReader.Read(p)
 
@@ -41,6 +43,7 @@ func (l *limitedReadCloser) Read(p []byte) (n int, err error) {
 	return n, err
 }
 
+// X Layer: Close implements the io.Closer interface.
 func (l *limitedReadCloser) Close() error {
 	return errors.Join(l.readCloser.Close(), l.closer.Close())
 }
@@ -48,6 +51,7 @@ func (l *limitedReadCloser) Close() error {
 // OpenDecompressed opens a reader for the specified file and automatically decompresses gzip content
 // if the filename ends with .gz. For gzip files, the decompressed output is limited to MaxDecompressedSize.
 // Returns ErrDecompressedSizeExceeded if the decompressed size reaches or exceeds the limit.
+// For X Layer: OpenDecompressed opens a reader for the specified file and automatically decompresses gzip content
 func OpenDecompressed(path string) (io.ReadCloser, error) {
 	r, err := os.Open(path)
 	if err != nil {
