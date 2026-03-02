@@ -34,9 +34,23 @@ func DeployOPChain(env *Env, intent *state.Intent, st *state.State, chainID comm
 		return fmt.Errorf("error making deploy OP chain input: %w", err)
 	}
 
-	dco, err = env.Scripts.DeployOPChain.Run(dci)
-	if err != nil {
-		return fmt.Errorf("error deploying OP chain: %w", err)
+	if env.UseForge {
+		lgr.Info("using Forge for DeployOPChain")
+		forgeEnv := &opcm.ForgeEnv{
+			Client:     env.ForgeClient,
+			Context:    env.Context,
+			L1RPCUrl:   env.L1RPCUrl,
+			PrivateKey: env.PrivateKey,
+		}
+		dco, err = opcm.DeployOPChainViaForge(forgeEnv, dci)
+		if err != nil {
+			return err
+		}
+	} else {
+		dco, err = env.Scripts.DeployOPChain.Run(dci)
+		if err != nil {
+			return fmt.Errorf("error deploying OP chain: %w", err)
+		}
 	}
 
 	readInput := opcm.ReadImplementationAddressesInput{
@@ -47,18 +61,31 @@ func DeployOPChain(env *Env, intent *state.Intent, st *state.State, chainID comm
 		L1StandardBridgeProxy:             dco.L1StandardBridgeProxy,
 		OptimismPortalProxy:               dco.OptimismPortalProxy,
 		DisputeGameFactoryProxy:           dco.DisputeGameFactoryProxy,
-		DelayedWETHPermissionedGameProxy:  dco.DelayedWETHPermissionedGameProxy,
 		Opcm:                              dci.Opcm,
 	}
 
-	readImplementations, err := opcm.NewReadImplementationAddressesScript(env.L1ScriptHost)
-	if err != nil {
-		return fmt.Errorf("failed to load ReadImplementationAddresses script: %w", err)
-	}
+	var impls opcm.ReadImplementationAddressesOutput
+	if env.UseForge {
+		lgr.Info("using Forge for ReadImplementationAddresses")
+		forgeEnv := &opcm.ForgeEnv{
+			Client:   env.ForgeClient,
+			Context:  env.Context,
+			L1RPCUrl: env.L1RPCUrl,
+		}
+		impls, err = opcm.ReadImplementationAddressesViaForge(forgeEnv, readInput)
+		if err != nil {
+			return err
+		}
+	} else {
+		readImplementations, err := opcm.NewReadImplementationAddressesScript(env.L1ScriptHost)
+		if err != nil {
+			return fmt.Errorf("failed to load ReadImplementationAddresses script: %w", err)
+		}
 
-	impls, err := readImplementations.Run(readInput)
-	if err != nil {
-		return fmt.Errorf("failed to run ReadImplementationAddresses script: %w", err)
+		impls, err = readImplementations.Run(readInput)
+		if err != nil {
+			return fmt.Errorf("failed to run ReadImplementationAddresses script: %w", err)
+		}
 	}
 
 	st.Chains = append(st.Chains, makeChainState(chainID, impls, dco))
@@ -107,6 +134,7 @@ func makeDCI(intent *state.Intent, thisIntent *state.ChainIntent, chainID common
 	// Select which OPCM to use based on dev feature flag
 	opcmAddr := st.ImplementationsDeployment.OpcmImpl
 	if devFeatureBitmap, ok := intent.GlobalDeployOverrides["devFeatureBitmap"].(common.Hash); ok {
+		// TODO(#19151): Replace this with the OPCMV2DevFlag constant when we fix import cycles.
 		opcmV2Flag := common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000010000")
 		if isDevFeatureEnabled(devFeatureBitmap, opcmV2Flag) {
 			opcmAddr = st.ImplementationsDeployment.OpcmV2Impl
@@ -184,6 +212,7 @@ func shouldDeployOPChain(st *state.State, chainID common.Hash) bool {
 	return true
 }
 
+// TODO(#19151): Remove this function when we fix import cycles.
 // isDevFeatureEnabled checks if a specific development feature is enabled in a feature bitmap.
 // This mirrors the function in devfeatures.go to avoid import cycles.
 func isDevFeatureEnabled(bitmap, flag common.Hash) bool {

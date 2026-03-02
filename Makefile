@@ -23,13 +23,17 @@ build-contracts:
 	(cd packages/contracts-bedrock && just build)
 .PHONY: build-contracts
 
-lint-go: ## Lints Go code with specific linters
-	golangci-lint run ./...
+build-customlint:
+	make -C linter build
+.PHONY: build-customlint
+
+lint-go: build-customlint ## Lints Go code with specific linters
+	./linter/bin/op-golangci-lint run ./...
 	go mod tidy -diff
 .PHONY: lint-go
 
-lint-go-fix: ## Lints Go code with specific linters and fixes reported issues
-	golangci-lint run ./... --fix
+lint-go-fix: build-customlint ## Lints Go code with specific linters and fixes reported issues
+	./linter/bin/op-golangci-lint run ./... --fix
 .PHONY: lint-go-fix
 
 check-op-geth-version: ## Checks that op-geth version in go.mod is valid
@@ -41,7 +45,6 @@ golang-docker: ## Builds Docker images for Go components using buildx
 	GIT_COMMIT=$$(git rev-parse HEAD) \
 	GIT_DATE=$$(git show -s --format='%ct') \
 	IMAGE_TAGS=$$(git rev-parse HEAD),latest \
-	KONA_VERSION=$$(jq -r .version kona/version.json) \
 	docker buildx bake \
 			--progress plain \
 			--load \
@@ -155,8 +158,18 @@ op-conductor: ## Builds op-conductor binary
 	just $(JUSTFLAGS) ./op-conductor/op-conductor
 .PHONY: op-conductor
 
-reproducible-prestate:   ## Builds reproducible-prestate binary
-	make -C ./op-program reproducible-prestate
+reproducible-prestate-op-program:
+	make -C ./op-program build-reproducible-prestate
+.PHONY: reproducible-prestate-op-program
+
+reproducible-prestate-kona:
+	cd rust && just build-kona-reproducible-prestate
+.PHONY: reproducible-prestate-kona
+
+reproducible-prestate:  reproducible-prestate-op-program reproducible-prestate-kona ## Builds reproducible prestates for op-program and kona
+	# Output the prestate hashes after all the builds complete so they are easy to find at the end of the build logs.
+	make -C ./op-program output-prestate-hash
+	cd rust && just output-kona-prestate-hash
 .PHONY: reproducible-prestate
 
 cannon-prestates: cannon op-program
@@ -306,6 +319,7 @@ go-tests-short: $(TEST_DEPS) ## Runs comprehensive Go tests with -short flag
 # Internal target for running Go tests with gotestsum for CI
 # Usage: make _go-tests-ci-internal GO_TEST_FLAGS="-short"
 _go-tests-ci-internal:
+	$(MAKE) -C cannon cannon elf # Required for cannon/provider_test TestLastStepCacheAccuracy
 	@echo "Setting up test directories..."
 	mkdir -p ./tmp/test-results ./tmp/testlogs
 	@echo "Running Go tests with gotestsum..."

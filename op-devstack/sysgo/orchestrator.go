@@ -46,6 +46,7 @@ type Orchestrator struct {
 	l2ELs           locks.RWMap[stack.L2ELNodeID, L2ELNode]
 	l2CLs           locks.RWMap[stack.L2CLNodeID, L2CLNode]
 	supervisors     locks.RWMap[stack.SupervisorID, Supervisor]
+	supernodes      locks.RWMap[stack.SupernodeID, *SuperNode]
 	testSequencers  locks.RWMap[stack.TestSequencerID, *TestSequencer]
 	batchers        locks.RWMap[stack.L2BatcherID, *L2Batcher]
 	challengers     locks.RWMap[stack.L2ChallengerID, *L2Challenger]
@@ -158,6 +159,7 @@ func (o *Orchestrator) Hydrate(sys stack.ExtensibleSystem) {
 	o.rollupBoosts.Range(rangeHydrateFn[stack.RollupBoostNodeID, *RollupBoostNode](sys))
 	o.l2CLs.Range(rangeHydrateFn[stack.L2CLNodeID, L2CLNode](sys))
 	o.supervisors.Range(rangeHydrateFn[stack.SupervisorID, Supervisor](sys))
+	o.supernodes.Range(rangeHydrateFn[stack.SupernodeID, *SuperNode](sys))
 	o.testSequencers.Range(rangeHydrateFn[stack.TestSequencerID, *TestSequencer](sys))
 	o.batchers.Range(rangeHydrateFn[stack.L2BatcherID, *L2Batcher](sys))
 	o.challengers.Range(rangeHydrateFn[stack.L2ChallengerID, *L2Challenger](sys))
@@ -175,6 +177,17 @@ func (o *Orchestrator) RegisterL2MetricsTargets(id stack.IDWithChain, endpoints 
 		existing, _ := o.l2MetricsEndpoints.Get(id.Key())
 		o.p.Logger().Warn("multiple endpoints registered with the same key", "key", id.Key(), "existing", existing, "new", endpoints)
 	}
+}
+
+// InteropTestControl returns the InteropTestControl for a given SupernodeID.
+// Returns nil if the supernode doesn't exist or doesn't implement the interface.
+// This function is for integration test control only.
+func (o *Orchestrator) InteropTestControl(id stack.SupernodeID) stack.InteropTestControl {
+	sn, ok := o.supernodes.Get(id)
+	if !ok {
+		return nil
+	}
+	return sn
 }
 
 type hydrator interface {

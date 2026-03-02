@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-service/sources"
 	"github.com/ethereum-optimism/optimism/op-supernode/supernode/activity"
 	"github.com/ethereum-optimism/optimism/op-supernode/supernode/activity/heartbeat"
+	"github.com/ethereum-optimism/optimism/op-supernode/supernode/activity/interop"
 	"github.com/ethereum-optimism/optimism/op-supernode/supernode/activity/superroot"
 	cc "github.com/ethereum-optimism/optimism/op-supernode/supernode/chain_container"
 	"github.com/ethereum-optimism/optimism/op-supernode/supernode/resources"
@@ -80,13 +81,34 @@ func New(ctx context.Context, log gethlog.Logger, version string, requestStop co
 			log.Error("missing virtual node config for chain", "chain", id)
 			continue
 		}
-		s.chains[chainID] = cc.NewChainContainer(chainID, vnCfgs[chainID], log, *cfg, initOverrides, nil, s.rpcRouter.SetHandler, s.metricsFanIn.SetMetricsRegistry)
+		container := cc.NewChainContainer(chainID, vnCfgs[chainID], log, *cfg, initOverrides, nil, s.rpcRouter.SetHandler, s.metricsFanIn.SetMetricsRegistry)
+		s.chains[chainID] = container
 	}
-	// Initialize activities
+
+	// Initialize fixed activities
 	s.activities = []activity.Activity{
 		heartbeat.New(log.New("activity", "heartbeat"), 10*time.Second),
 		superroot.New(log.New("activity", "superroot"), s.chains),
 	}
+
+	log.Info("initializing interop activity? %v", cfg.RawCtx.IsSet(interop.InteropActivationTimestampFlag.Name))
+	// Initialize interop activity if the activation timestamp is set (non-nil)
+	// If it's nil, don't start interop. If it's non-nil (including 0), do start it.
+	if cfg.InteropActivationTimestamp != nil {
+		interopActivity := interop.New(log.New("activity", "interop"), *cfg.InteropActivationTimestamp, s.chains, cfg.DataDir)
+		s.activities = append(s.activities, interopActivity)
+		for _, chain := range s.chains {
+			chain.RegisterVerifier(interopActivity)
+		}
+	}
+
+	// Set up reset callbacks on all chain containers
+	// When a chain resets, notify all activities
+	for _, chain := range s.chains {
+		chain.SetResetCallback(s.onChainReset)
+	}
+
+	// Set up http server
 	addr := net.JoinHostPort(cfg.RPCConfig.ListenAddr, strconv.Itoa(cfg.RPCConfig.ListenPort))
 	s.httpServer = httputil.NewHTTPServer(addr, s.rpcRouter)
 
@@ -207,6 +229,44 @@ func (s *Supernode) Stop(ctx context.Context) error {
 	return nil
 }
 
+// onChainReset is called when a chain container resets due to an invalidated block.
+// It notifies all activities about the reset so they can clean up cached state.
+func (s *Supernode) onChainReset(chainID eth.ChainID, timestamp uint64, invalidatedBlock eth.BlockRef) {
+	s.log.Info("chain reset detected, notifying activities",
+		"chainID", chainID,
+		"timestamp", timestamp,
+		"invalidatedBlock", invalidatedBlock,
+	)
+	for _, a := range s.activities {
+		a.Reset(chainID, timestamp, invalidatedBlock)
+	}
+}
+
+// PauseInteropActivity pauses the interop activity at the given timestamp.
+// When the interop activity attempts to process this timestamp, it returns early.
+// This function is for integration test control only.
+func (s *Supernode) PauseInteropActivity(ts uint64) {
+	for _, a := range s.activities {
+		if ia, ok := a.(*interop.Interop); ok {
+			ia.PauseAt(ts)
+			return
+		}
+	}
+	s.log.Warn("PauseInterop called but no interop activity found")
+}
+
+// ResumeInteropActivity clears any pause on the interop activity, allowing normal processing.
+// This function is for integration test control only.
+func (s *Supernode) ResumeInteropActivity() {
+	for _, a := range s.activities {
+		if ia, ok := a.(*interop.Interop); ok {
+			ia.Resume()
+			return
+		}
+	}
+	s.log.Warn("ResumeInterop called but no interop activity found")
+}
+
 func (s *Supernode) Stopped() bool { return s.stopped }
 
 // RPCAddr returns the bound RPC address (host:port) if the server is listening.
@@ -253,7 +313,11 @@ func (s *Supernode) initL1Client(ctx context.Context, cfg *config.CLIConfig) err
 	s.log.Info("initializing shared L1 client", "l1_addr", cfg.L1NodeAddr)
 
 	// Create L1 RPC client with basic configuration
-	l1RPC, err := client.NewRPC(ctx, s.log, cfg.L1NodeAddr, client.WithDialAttempts(10))
+	// Enable HTTP polling for L1 heads to support HTTP-only L1 connections (e.g., in tests)
+	l1RPC, err := client.NewRPC(ctx, s.log, cfg.L1NodeAddr,
+		client.WithDialAttempts(10),
+		client.WithHttpPollInterval(time.Second*2), // Poll every 2 seconds for HTTP connections
+	)
 	if err != nil {
 		return fmt.Errorf("failed to dial L1 address (%s): %w", cfg.L1NodeAddr, err)
 	}

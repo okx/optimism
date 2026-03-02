@@ -26,6 +26,7 @@
 !/op-service
 !/op-supervisor
 !/op-test-sequencer
+!/op-validator
 !/op-wheel
 !/op-alt-da
 !/op-faucet

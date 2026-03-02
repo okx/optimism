@@ -7,6 +7,8 @@ import { StdAssertions } from "forge-std/StdAssertions.sol";
 // Testing
 import { stdToml } from "forge-std/StdToml.sol";
 import { DisputeGames } from "test/setup/DisputeGames.sol";
+import { PastUpgrades } from "test/setup/PastUpgrades.sol";
+import { FeatureFlags } from "test/setup/FeatureFlags.sol";
 
 // Scripts
 import { Deployer } from "scripts/deploy/Deployer.sol";
@@ -30,7 +32,6 @@ import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
 import { IProxyAdmin } from "interfaces/universal/IProxyAdmin.sol";
 import { IOPContractsManager } from "interfaces/L1/IOPContractsManager.sol";
 import { IAnchorStateRegistry } from "interfaces/dispute/IAnchorStateRegistry.sol";
-import { IFaultDisputeGame } from "interfaces/dispute/IFaultDisputeGame.sol";
 import { IETHLockbox } from "interfaces/L1/IETHLockbox.sol";
 import { IOptimismPortal2 } from "interfaces/L1/IOptimismPortal2.sol";
 import { IOPContractsManagerUpgrader } from "interfaces/L1/IOPContractsManager.sol";
@@ -47,14 +48,11 @@ import { IOPContractsManagerUtils } from "interfaces/L1/opcm/IOPContractsManager
 ///         superchain-registry.
 ///         This contract must not have constructor logic because it is set into state using `etch`.
 
-contract ForkLive is Deployer, StdAssertions, DisputeGames {
+contract ForkLive is Deployer, StdAssertions, FeatureFlags {
     using stdToml for string;
     using LibString for string;
 
     bool public useOpsRepo;
-
-    /// @notice Thrown when testing with an unsupported chain ID.
-    error UnsupportedChainId();
 
     /// @notice Returns the base chain name to use for forking
     /// @return The base chain name as a string
@@ -180,15 +178,22 @@ contract ForkLive is Deployer, StdAssertions, DisputeGames {
             IDisputeGameFactory(artifacts.mustGetAddress("DisputeGameFactoryProxy"));
 
         // The PermissionedDisputeGame and PermissionedDelayedWETHProxy are not listed in the registry for OP, so we
-        // look it up onchain
-        IFaultDisputeGame permissionedDisputeGame =
-            IFaultDisputeGame(address(disputeGameFactory.gameImpls(GameTypes.PERMISSIONED_CANNON)));
-        artifacts.save("PermissionedDisputeGame", address(permissionedDisputeGame));
-        artifacts.save("PermissionedDelayedWETHProxy", address(permissionedDisputeGame.weth()));
+        // look it up onchain.
+        address permissionedGameImpl = address(disputeGameFactory.gameImpls(GameTypes.PERMISSIONED_CANNON));
+        artifacts.save("PermissionedDisputeGame", permissionedGameImpl);
 
-        // The SR seems out-of-date, so pull the DelayedWETH addresses from the PermissionedDisputeGame.
-        artifacts.save("DelayedWETHProxy", address(permissionedDisputeGame.weth()));
-        artifacts.save("DelayedWETHImpl", EIP1967Helper.getImplementation(address(permissionedDisputeGame.weth())));
+        // Get DelayedWETH for PERMISSIONED games
+        IDelayedWETH permissionedDelayedWeth =
+            DisputeGames.getGameImplDelayedWeth(disputeGameFactory, GameTypes.PERMISSIONED_CANNON);
+        artifacts.save("PermissionedDelayedWETHProxy", address(permissionedDelayedWeth));
+
+        // Get DelayedWETH for PERMISSIONLESS games (CANNON)
+        IDelayedWETH permissionlessDelayedWeth =
+            DisputeGames.getGameImplDelayedWeth(disputeGameFactory, GameTypes.CANNON);
+
+        // The SR seems out-of-date, so pull the DelayedWETH addresses from the games.
+        artifacts.save("DelayedWETHProxy", address(permissionlessDelayedWeth));
+        artifacts.save("DelayedWETHImpl", EIP1967Helper.getImplementation(address(permissionlessDelayedWeth)));
     }
 
     /// @notice Calls to the Deploy.s.sol contract etched by Setup.sol to a deterministic address, sets up the
@@ -269,8 +274,8 @@ contract ForkLive is Deployer, StdAssertions, DisputeGames {
         // Grab the existing PermissionedDisputeGame parameters.
         IDisputeGameFactory disputeGameFactory =
             IDisputeGameFactory(artifacts.mustGetAddress("DisputeGameFactoryProxy"));
-        address challenger = permissionedGameChallenger(disputeGameFactory);
-        address proposer = permissionedGameProposer(disputeGameFactory);
+        address challenger = DisputeGames.permissionedGameChallenger(disputeGameFactory);
+        address proposer = DisputeGames.permissionedGameProposer(disputeGameFactory);
 
         // Prepare the upgrade input.
         IOPContractsManagerUtils.DisputeGameConfig[] memory disputeGameConfigs =
@@ -309,15 +314,10 @@ contract ForkLive is Deployer, StdAssertions, DisputeGames {
         });
 
         // Add extra instructions to allow the DelayedWETH proxy to be deployed.
-        // TODO(#18502): Remove the extra instruction for custom gas token after U18 ships.
         IOPContractsManagerUtils.ExtraInstruction[] memory extraInstructions =
-            new IOPContractsManagerUtils.ExtraInstruction[](2);
+            new IOPContractsManagerUtils.ExtraInstruction[](1);
         extraInstructions[0] =
             IOPContractsManagerUtils.ExtraInstruction({ key: "PermittedProxyDeployment", data: bytes("DelayedWETH") });
-        extraInstructions[1] = IOPContractsManagerUtils.ExtraInstruction({
-            key: "overrides.cfg.useCustomGasToken",
-            data: abi.encode(false)
-        });
 
         vm.prank(_delegateCaller, true);
         (bool upgradeSuccess,) = address(_opcm).delegatecall(
@@ -343,14 +343,11 @@ contract ForkLive is Deployer, StdAssertions, DisputeGames {
         address upgrader = proxyAdmin.owner();
         vm.label(upgrader, "ProxyAdmin Owner");
 
-        // Run past upgrades depending on network.
-        if (block.chainid == 1) {
-            // Mainnet
-            // This is empty because the block number in the justfile is after the most recent upgrade so there are no
-            // past upgrades to run.
-        } else {
-            revert UnsupportedChainId();
-        }
+        // Run past upgrades from the TOML config.
+        IDisputeGameFactory disputeGameFactoryForPastUpgrades =
+            IDisputeGameFactory(artifacts.mustGetAddress("DisputeGameFactoryProxy"));
+        ISuperchainConfig superchainConfig = ISuperchainConfig(artifacts.mustGetAddress("SuperchainConfigProxy"));
+        PastUpgrades.runPastUpgrades(upgrader, systemConfig, superchainConfig, disputeGameFactoryForPastUpgrades);
 
         // Current upgrade.
         if (isDevFeatureEnabled(DevFeatures.OPCM_V2)) {
