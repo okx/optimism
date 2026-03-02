@@ -21,7 +21,7 @@ var (
 	ErrDecompressedSizeExceeded = errors.New("decompressed data size exceeds maximum allowed size")
 )
 
-// limitedReadCloser wraps an io.ReadCloser and enforces a maximum read limit
+// limitedReadCloser wraps an io.ReadCloser and enforces a maximum read limit.
 // It returns ErrDecompressedSizeExceeded when the limit is exceeded.
 // For X Layer: Read implements the io.Reader interface.
 type limitedReadCloser struct {
