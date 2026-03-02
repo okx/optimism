@@ -381,7 +381,7 @@ func (m *SimpleTxManager) SendAsync(ctx context.Context, candidate TxCandidate, 
 
 // prepare prepares the transaction for sending.
 func (m *SimpleTxManager) prepare(ctx context.Context, candidate TxCandidate) (*types.Transaction, error) {
-	// Reduced retry count from 30 to 5 for remote signers that implement their own retry logic
+	// X Layer: Reduced retry count from 30 to 5 for remote signers that implement their own retry logic
 	// Remote signers (like XLayer) already handle transient errors internally with intelligent retry
 	tx, err := retry.Do(ctx, 5, retry.Fixed(5*time.Second), func() (*types.Transaction, error) {
 		if m.closed.Load() {

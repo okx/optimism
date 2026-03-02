@@ -49,6 +49,7 @@ type ProposerConfig struct {
 
 	WaitNodeSync bool
 
+	// X Layer: Genesis height may not be zero
 	GenesisHeight uint64
 }
 
@@ -96,6 +97,7 @@ func (ps *ProposerService) initFromCLIConfig(ctx context.Context, version string
 	ps.NetworkTimeout = cfg.TxMgrConfig.NetworkTimeout
 	ps.AllowNonFinalized = cfg.AllowNonFinalized
 	ps.WaitNodeSync = cfg.WaitNodeSync
+	// X Layer: Genesis height may not be zero
 	ps.GenesisHeight = cfg.GenesisHeight
 
 	ps.initDGF(cfg)
