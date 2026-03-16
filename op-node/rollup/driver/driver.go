@@ -599,14 +599,15 @@ func (s *Driver) followUpstream() {
 	if s.syncConfig.SkipFollowSourceL1Check && s.xlayer.runtimeConfigSetter != nil &&
 		s.xlayer.runtimeConfigFetchInterval > 0 &&
 		time.Since(s.xlayer.lastRuntimeConfigFetchAt) >= s.xlayer.runtimeConfigFetchInterval {
+		s.xlayer.lastRuntimeConfigFetchAt = time.Now()
 		if rcSrc, ok := s.upstreamFollowSource.(XLayerRuntimeConfigSource); ok {
 			runtimeCfg, err := rcSrc.GetRuntimeConfig(s.driverCtx)
 			if err != nil {
 				s.log.Warn("Follow Upstream: Failed to fetch runtime config from upstream", "err", err)
-				// Keep previous value, do not block the follow source flow
 			} else if (runtimeCfg.P2PSequencerAddress != common.Address{}) {
 				s.xlayer.runtimeConfigSetter.SetP2PSequencerAddress(runtimeCfg.P2PSequencerAddress)
-				s.xlayer.lastRuntimeConfigFetchAt = time.Now()
+			} else {
+				s.log.Warn("Follow Upstream: upstream returned zero P2PSequencerAddress, keeping previous value")
 			}
 		}
 	}
