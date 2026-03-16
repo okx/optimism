@@ -553,5 +553,18 @@ func (s *Driver) followUpstream() {
 		s.emitter.Emit(s.driverCtx, derive.DeriverL1StatusEvent{Origin: status.CurrentL1})
 	}
 
+	// XLayer: fill StatusTracker L1 fields from upstream when skip-l1-check is enabled
+	if s.syncConfig.SkipFollowSourceL1Check {
+		if (status.HeadL1 != eth.L1BlockRef{}) {
+			s.StatusTracker.OnL1Unsafe(status.HeadL1)
+		}
+		if (status.SafeL1 != eth.L1BlockRef{}) {
+			s.StatusTracker.OnL1Safe(status.SafeL1)
+		}
+		if (status.FinalizedL1 != eth.L1BlockRef{}) {
+			s.StatusTracker.OnL1Finalized(status.FinalizedL1)
+		}
+	}
+
 	s.SyncDeriver.Engine.FollowSource(status.SafeL2, status.FinalizedL2)
 }
