@@ -590,13 +590,15 @@ func (s *Driver) followUpstream() {
 	// Throttled to runtimeConfigFetchInterval (default 10 min) to match upstream L1 reload behavior.
 	if s.syncConfig.SkipFollowSourceL1Check && s.runtimeConfigSetter != nil &&
 		time.Since(s.lastRuntimeConfigFetchAt) >= s.runtimeConfigFetchInterval {
-		runtimeCfg, err := s.upstreamFollowSource.GetRuntimeConfig(s.driverCtx)
-		if err != nil {
-			s.log.Warn("Follow Upstream: Failed to fetch runtime config from upstream", "err", err)
-			// Keep previous value, do not block the follow source flow
-		} else if (runtimeCfg.P2PSequencerAddress != common.Address{}) {
-			s.runtimeConfigSetter.SetP2PSequencerAddress(runtimeCfg.P2PSequencerAddress)
-			s.lastRuntimeConfigFetchAt = time.Now()
+		if rcSrc, ok := s.upstreamFollowSource.(XLayerRuntimeConfigSource); ok {
+			runtimeCfg, err := rcSrc.GetRuntimeConfig(s.driverCtx)
+			if err != nil {
+				s.log.Warn("Follow Upstream: Failed to fetch runtime config from upstream", "err", err)
+				// Keep previous value, do not block the follow source flow
+			} else if (runtimeCfg.P2PSequencerAddress != common.Address{}) {
+				s.runtimeConfigSetter.SetP2PSequencerAddress(runtimeCfg.P2PSequencerAddress)
+				s.lastRuntimeConfigFetchAt = time.Now()
+			}
 		}
 	}
 }

@@ -17,7 +17,11 @@ type L1FollowSource interface {
 type UpstreamFollowSource interface {
 	L1FollowSource
 	GetFollowStatus(ctx context.Context) (*sources.FollowStatus, error)
-	// XLayer: fetch runtime config from upstream (P2PSequencerAddress)
+}
+
+// XLayerRuntimeConfigSource is an optional interface for fetching P2PSequencerAddress
+// from an upstream node. Used in skip-l1-check mode via type assertion.
+type XLayerRuntimeConfigSource interface {
 	GetRuntimeConfig(ctx context.Context) (*sources.XLayerRuntimeConfigResponse, error)
 }
 
