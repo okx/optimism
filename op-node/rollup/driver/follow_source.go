@@ -17,6 +17,8 @@ type L1FollowSource interface {
 type UpstreamFollowSource interface {
 	L1FollowSource
 	GetFollowStatus(ctx context.Context) (*sources.FollowStatus, error)
+	// XLayer: fetch runtime config from upstream (P2PSequencerAddress)
+	GetRuntimeConfig(ctx context.Context) (*sources.XLayerRuntimeConfigResponse, error)
 }
 
 type L2FollowSource struct {
@@ -40,4 +42,8 @@ func (fs *L2FollowSource) GetFollowStatus(ctx context.Context) (*sources.FollowS
 
 func (fs *L2FollowSource) L1BlockRefByNumber(ctx context.Context, num uint64) (eth.L1BlockRef, error) {
 	return fs.l1Source.L1BlockRefByNumber(ctx, num)
+}
+
+func (fs *L2FollowSource) GetRuntimeConfig(ctx context.Context) (*sources.XLayerRuntimeConfigResponse, error) {
+	return fs.l2Source.GetRuntimeConfig(ctx)
 }

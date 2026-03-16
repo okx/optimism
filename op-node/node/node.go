@@ -278,6 +278,11 @@ func (n *OpNode) init(ctx context.Context, cfg *config.Config, overrides Initial
 		return fmt.Errorf("failed to init the runtime config: %w", err)
 	}
 
+	// XLayer: wire runtime config setter for skip-l1-check mode
+	if cfg.Sync.SkipL1Check() && n.runCfg != nil {
+		n.l2Driver.SetRuntimeConfigSetter(n.runCfg)
+	}
+
 	n.p2pSigner, err = initP2PSigner(ctx, cfg, n)
 	if err != nil {
 		return fmt.Errorf("failed to init the P2P signer: %w", err)
@@ -711,6 +716,16 @@ func registerAPIs(cfg *config.Config, node *OpNode, handler *oprpc.Handler) erro
 			return fmt.Errorf("failed to add Admin API: %w", err)
 		}
 		node.log.Info("Admin RPC enabled")
+	}
+	// XLayer: register xlayer namespace for runtime config (used by follower nodes)
+	if node.runCfg != nil {
+		if err := handler.AddAPI(rpc.API{
+			Namespace: "xlayer",
+			Service:   NewXLayerAPI(node.runCfg),
+		}); err != nil {
+			return fmt.Errorf("failed to add XLayer API: %w", err)
+		}
+		node.log.Info("XLayer RPC enabled")
 	}
 	return nil
 }

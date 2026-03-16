@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/ethereum-optimism/optimism/op-service/client"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 )
 
 type FollowClient struct {
 	rollupClient *RollupClient
+	rpc          client.RPC
 }
 
 type FollowStatus struct {
@@ -23,9 +26,9 @@ type FollowStatus struct {
 	FinalizedL1 eth.L1BlockRef
 }
 
-func NewFollowClient(client client.RPC) (*FollowClient, error) {
-	rollupClient := NewRollupClient(client)
-	return &FollowClient{rollupClient: rollupClient}, nil
+func NewFollowClient(rpcClient client.RPC) (*FollowClient, error) {
+	rollupClient := NewRollupClient(rpcClient)
+	return &FollowClient{rollupClient: rollupClient, rpc: rpcClient}, nil
 }
 
 func (s *FollowClient) GetFollowStatus(ctx context.Context) (*FollowStatus, error) {
@@ -41,4 +44,19 @@ func (s *FollowClient) GetFollowStatus(ctx context.Context) (*FollowStatus, erro
 		SafeL1:      status.SafeL1,
 		FinalizedL1: status.FinalizedL1,
 	}, nil
+}
+
+// XLayerRuntimeConfigResponse mirrors op-node/node.XLayerRuntimeConfigResponse.
+type XLayerRuntimeConfigResponse struct {
+	P2PSequencerAddress common.Address `json:"p2pSequencerAddress"`
+}
+
+// GetRuntimeConfig fetches the runtime config from the upstream xlayer_runtimeConfig RPC.
+func (s *FollowClient) GetRuntimeConfig(ctx context.Context) (*XLayerRuntimeConfigResponse, error) {
+	var result XLayerRuntimeConfigResponse
+	err := s.rpc.CallContext(ctx, &result, "xlayer_runtimeConfig")
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch xlayer_runtimeConfig: %w", err)
+	}
+	return &result, nil
 }

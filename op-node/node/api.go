@@ -209,3 +209,28 @@ func (a *opstackAPI) CommitBlockV1(ctx context.Context, envelope *opsigner.Signe
 func (a *opstackAPI) PublishBlockV1(ctx context.Context, signed *opsigner.SignedExecutionPayloadEnvelope) error {
 	return a.publisher.PublishBlock(ctx, signed)
 }
+
+// XLayer: xlayer_runtimeConfig RPC for follower nodes to fetch P2PSequencerAddress
+
+// XLayerRuntimeConfigResponse is the response type for xlayer_runtimeConfig.
+type XLayerRuntimeConfigResponse struct {
+	P2PSequencerAddress common.Address `json:"p2pSequencerAddress"`
+}
+
+type xlayerAPI struct {
+	runtimeConfig runtimeConfigReader
+}
+
+type runtimeConfigReader interface {
+	P2PSequencerAddress() common.Address
+}
+
+func NewXLayerAPI(runCfg runtimeConfigReader) *xlayerAPI {
+	return &xlayerAPI{runtimeConfig: runCfg}
+}
+
+func (a *xlayerAPI) RuntimeConfig(_ context.Context) (*XLayerRuntimeConfigResponse, error) {
+	return &XLayerRuntimeConfigResponse{
+		P2PSequencerAddress: a.runtimeConfig.P2PSequencerAddress(),
+	}, nil
+}
