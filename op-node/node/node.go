@@ -422,10 +422,11 @@ func initRuntimeConfig(ctx context.Context, cfg *config.Config, node *OpNode) er
 		runCfg := runcfg.NewRuntimeConfig(node.log, nil, &cfg.Rollup)
 		node.runCfg = runCfg
 
-		// Pre-load P2PSequencerAddress from upstream before P2P starts,
-		// otherwise gossip validation rejects all blocks due to zero-address signer.
+		// Best-effort pre-load P2PSequencerAddress from upstream before P2P starts.
+		// If this fails, gossip blocks will be rejected until the periodic followUpstream
+		// loop successfully fetches the signer address (within runtimeConfigFetchInterval).
 		if node.l2FollowSource != nil {
-			if err := retry.Do0(ctx, 10, retry.Exponential(), func() error {
+			if err := retry.Do0(ctx, 5, retry.Fixed(time.Second*5), func() error {
 				fetchCtx, cancel := context.WithTimeout(ctx, time.Second*10)
 				defer cancel()
 				runtimeCfg, err := node.l2FollowSource.GetRuntimeConfig(fetchCtx)
@@ -439,7 +440,7 @@ func initRuntimeConfig(ctx context.Context, cfg *config.Config, node *OpNode) er
 				runCfg.SetP2PSequencerAddress(runtimeCfg.P2PSequencerAddress)
 				return nil
 			}); err != nil {
-				return fmt.Errorf("XLayer: failed to pre-load P2PSequencerAddress from upstream: %w", err)
+				node.log.Warn("XLayer: failed to pre-load P2PSequencerAddress from upstream, will retry via followUpstream loop", "err", err)
 			}
 		}
 
