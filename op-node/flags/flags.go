@@ -472,12 +472,14 @@ var (
 )
 
 var requiredFlags = []cli.Flag{
-	L1NodeAddr,
+	// XLayer: L1NodeAddr moved to optionalFlags to support --l2.follow.source.skip.l1.check mode.
+	// L1 requirement is validated at config.Check() level instead.
 	L2EngineAddr,
 	L2EngineJWTSecret,
 }
 
 var optionalFlags = []cli.Flag{
+	L1NodeAddr,
 	BeaconAddr,
 	BeaconHeader,
 	BeaconFallbackAddrs,
