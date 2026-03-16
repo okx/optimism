@@ -515,7 +515,25 @@ func (s *Driver) followUpstream() {
 	}
 
 	// XLayer: skip L1 origin verification when fully trusting upstream source
-	if !s.syncConfig.SkipFollowSourceL1Check {
+	if s.syncConfig.SkipFollowSourceL1Check {
+		// Fill StatusTracker L1 fields from upstream
+		if (status.HeadL1 != eth.L1BlockRef{}) {
+			s.StatusTracker.OnL1Unsafe(status.HeadL1)
+		}
+		if (status.SafeL1 != eth.L1BlockRef{}) {
+			s.StatusTracker.OnL1Safe(status.SafeL1)
+		}
+		if (status.FinalizedL1 != eth.L1BlockRef{}) {
+			s.StatusTracker.OnL1Finalized(status.FinalizedL1)
+		}
+		// Inject CurrentL1 without L1 hash verification (trusted upstream)
+		if (status.CurrentL1 != eth.L1BlockRef{}) {
+			s.log.Debug("Follow Upstream: Inject L1 Info (trusted)", "currentL1", status.CurrentL1)
+			s.emitter.Emit(s.driverCtx, derive.DeriverL1StatusEvent{Origin: status.CurrentL1})
+		}
+	} else {
+		// L1 origin verification: validate external safe/finalized/CurrentL1 against local L1.
+		// This block preserves the original upstream logic; PR #19330 will add LocalSafeL2 verification here.
 		eSafeL1Origin, err := s.upstreamFollowSource.L1BlockRefByNumber(s.driverCtx, status.SafeL2.L1Origin.Number)
 		if err != nil {
 			s.log.Warn("Follow Upstream: Failed to look up L1 origin of external safe head", "err", err)
@@ -563,25 +581,6 @@ func (s *Driver) followUpstream() {
 
 			s.log.Debug("Follow Upstream: Inject L1 Info", "currentL1", status.CurrentL1)
 			s.emitter.Emit(s.driverCtx, derive.DeriverL1StatusEvent{Origin: status.CurrentL1})
-		}
-	} else {
-		// XLayer: skip-l1-check mode, inject CurrentL1 without L1 hash verification
-		if (status.CurrentL1 != eth.L1BlockRef{}) {
-			s.log.Debug("Follow Upstream: Inject L1 Info (trusted)", "currentL1", status.CurrentL1)
-			s.emitter.Emit(s.driverCtx, derive.DeriverL1StatusEvent{Origin: status.CurrentL1})
-		}
-	}
-
-	// XLayer: fill StatusTracker L1 fields from upstream when skip-l1-check is enabled
-	if s.syncConfig.SkipFollowSourceL1Check {
-		if (status.HeadL1 != eth.L1BlockRef{}) {
-			s.StatusTracker.OnL1Unsafe(status.HeadL1)
-		}
-		if (status.SafeL1 != eth.L1BlockRef{}) {
-			s.StatusTracker.OnL1Safe(status.SafeL1)
-		}
-		if (status.FinalizedL1 != eth.L1BlockRef{}) {
-			s.StatusTracker.OnL1Finalized(status.FinalizedL1)
 		}
 	}
 
