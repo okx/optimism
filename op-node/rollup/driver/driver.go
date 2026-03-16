@@ -498,54 +498,60 @@ func (s *Driver) followUpstream() {
 		return
 	}
 
-	eSafeL1Origin, err := s.upstreamFollowSource.L1BlockRefByNumber(s.driverCtx, status.SafeL2.L1Origin.Number)
-	if err != nil {
-		s.log.Warn("Follow Upstream: Failed to look up L1 origin of external safe head", "err", err)
-		return
-	}
-	if eSafeL1Origin.Hash != status.SafeL2.L1Origin.Hash {
-		s.log.Warn(
-			"Follow Upstream: Invalid external safe: L1 origin of external safe head mismatch",
-			"actual", eSafeL1Origin,
-			"expected", status.SafeL2.L1Origin,
-		)
-		return
-	}
-
-	eFinalizedL1Origin, err := s.upstreamFollowSource.L1BlockRefByNumber(s.driverCtx, status.FinalizedL2.L1Origin.Number)
-	if err != nil {
-		s.log.Warn("Follow Upstream: Failed to look up L1 origin of external finalized head", "err", err)
-		return
-	}
-	if eFinalizedL1Origin.Hash != status.FinalizedL2.L1Origin.Hash {
-		s.log.Warn(
-			"Follow Upstream: Invalid external finalized: L1 origin of external finalized head mismatch",
-			"actual", eFinalizedL1Origin,
-			"expected", status.FinalizedL2.L1Origin,
-		)
-		return
-	}
-
-	if (status.CurrentL1 == eth.L1BlockRef{}) {
-		s.log.Debug("Follow Upstream: CurrentL1 not available")
-	} else {
-		eCurrentL1, err := s.upstreamFollowSource.L1BlockRefByNumber(s.driverCtx, status.CurrentL1.Number)
+	// XLayer: skip L1 origin verification when fully trusting upstream source
+	if !s.syncConfig.SkipFollowSourceL1Check {
+		eSafeL1Origin, err := s.upstreamFollowSource.L1BlockRefByNumber(s.driverCtx, status.SafeL2.L1Origin.Number)
 		if err != nil {
-			s.log.Warn("Follow Upstream: Failed to look up external currentL1", "err", err)
+			s.log.Warn("Follow Upstream: Failed to look up L1 origin of external safe head", "err", err)
 			return
 		}
-		if eCurrentL1.Hash != status.CurrentL1.Hash {
+		if eSafeL1Origin.Hash != status.SafeL2.L1Origin.Hash {
 			s.log.Warn(
-				"Follow Upstream: Invalid external CurrentL1: L1 head mismatch",
-				"actual", eCurrentL1,
-				"expected", status.CurrentL1,
+				"Follow Upstream: Invalid external safe: L1 origin of external safe head mismatch",
+				"actual", eSafeL1Origin,
+				"expected", status.SafeL2.L1Origin,
 			)
 			return
 		}
 
+		eFinalizedL1Origin, err := s.upstreamFollowSource.L1BlockRefByNumber(s.driverCtx, status.FinalizedL2.L1Origin.Number)
+		if err != nil {
+			s.log.Warn("Follow Upstream: Failed to look up L1 origin of external finalized head", "err", err)
+			return
+		}
+		if eFinalizedL1Origin.Hash != status.FinalizedL2.L1Origin.Hash {
+			s.log.Warn(
+				"Follow Upstream: Invalid external finalized: L1 origin of external finalized head mismatch",
+				"actual", eFinalizedL1Origin,
+				"expected", status.FinalizedL2.L1Origin,
+			)
+			return
+		}
+
+		if (status.CurrentL1 == eth.L1BlockRef{}) {
+			s.log.Debug("Follow Upstream: CurrentL1 not available")
+		} else {
+			eCurrentL1, err := s.upstreamFollowSource.L1BlockRefByNumber(s.driverCtx, status.CurrentL1.Number)
+			if err != nil {
+				s.log.Warn("Follow Upstream: Failed to look up external currentL1", "err", err)
+				return
+			}
+			if eCurrentL1.Hash != status.CurrentL1.Hash {
+				s.log.Warn(
+					"Follow Upstream: Invalid external CurrentL1: L1 head mismatch",
+					"actual", eCurrentL1,
+					"expected", status.CurrentL1,
+				)
+				return
+			}
+		}
+	}
+
+	// Inject L1 info for batcher (regardless of L1 check mode)
+	if (status.CurrentL1 != eth.L1BlockRef{}) {
 		s.log.Debug("Follow Upstream: Inject L1 Info", "currentL1", status.CurrentL1)
 		s.emitter.Emit(s.driverCtx, derive.DeriverL1StatusEvent{Origin: status.CurrentL1})
 	}
-	// Only reach this point if all L1 checks passed
+
 	s.SyncDeriver.Engine.FollowSource(status.SafeL2, status.FinalizedL2)
 }
