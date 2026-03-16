@@ -421,7 +421,29 @@ func initRuntimeConfig(ctx context.Context, cfg *config.Config, node *OpNode) er
 	if cfg.Sync.SkipL1Check() {
 		runCfg := runcfg.NewRuntimeConfig(node.log, nil, &cfg.Rollup)
 		node.runCfg = runCfg
-		node.log.Info("XLayer: RuntimeConfig initialized without L1 source (skip-l1-check mode). P2P signer will be loaded from upstream.")
+
+		// Pre-load P2PSequencerAddress from upstream before P2P starts,
+		// otherwise gossip validation rejects all blocks due to zero-address signer.
+		if node.l2FollowSource != nil {
+			if err := retry.Do0(ctx, 10, retry.Exponential(), func() error {
+				fetchCtx, cancel := context.WithTimeout(ctx, time.Second*10)
+				defer cancel()
+				runtimeCfg, err := node.l2FollowSource.GetRuntimeConfig(fetchCtx)
+				if err != nil {
+					node.log.Warn("XLayer: failed to pre-load P2PSequencerAddress from upstream, retrying", "err", err)
+					return err
+				}
+				if (runtimeCfg.P2PSequencerAddress == common.Address{}) {
+					return fmt.Errorf("upstream returned zero P2PSequencerAddress")
+				}
+				runCfg.SetP2PSequencerAddress(runtimeCfg.P2PSequencerAddress)
+				return nil
+			}); err != nil {
+				return fmt.Errorf("XLayer: failed to pre-load P2PSequencerAddress from upstream: %w", err)
+			}
+		}
+
+		node.log.Info("XLayer: RuntimeConfig initialized without L1 source (skip-l1-check mode)")
 		return nil
 	}
 
