@@ -190,9 +190,14 @@ type Driver struct {
 
 	upstreamFollowSource UpstreamFollowSource
 
-	// XLayer: runtime config setter for skip-l1-check mode
-	runtimeConfigSetter       RuntimeConfigSetter
-	lastRuntimeConfigFetchAt  time.Time
+	// XLayer: state for skip-l1-check mode, grouped to minimize upstream merge conflicts.
+	xlayer xlayerFollowState
+}
+
+// xlayerFollowState holds XLayer-specific fields for skip-l1-check follow source mode.
+type xlayerFollowState struct {
+	runtimeConfigSetter        RuntimeConfigSetter
+	lastRuntimeConfigFetchAt   time.Time
 	runtimeConfigFetchInterval time.Duration
 }
 
@@ -205,8 +210,8 @@ type RuntimeConfigSetter interface {
 // interval should be cfg.RuntimeConfigReloadInterval (default 10 min).
 // If interval <= 0, runtime config is not periodically refreshed (only startup preload).
 func (s *Driver) SetRuntimeConfigSetter(setter RuntimeConfigSetter, interval time.Duration) {
-	s.runtimeConfigSetter = setter
-	s.runtimeConfigFetchInterval = interval
+	s.xlayer.runtimeConfigSetter = setter
+	s.xlayer.runtimeConfigFetchInterval = interval
 }
 
 // Start starts up the state loop.
@@ -591,17 +596,17 @@ func (s *Driver) followUpstream() {
 	// XLayer: periodically fetch P2PSequencerAddress from upstream when skip-l1-check is enabled.
 	// Throttled to runtimeConfigFetchInterval (default 10 min) to match upstream L1 reload behavior.
 	// Disabled when runtimeConfigFetchInterval <= 0 (only startup preload).
-	if s.syncConfig.SkipFollowSourceL1Check && s.runtimeConfigSetter != nil &&
-		s.runtimeConfigFetchInterval > 0 &&
-		time.Since(s.lastRuntimeConfigFetchAt) >= s.runtimeConfigFetchInterval {
+	if s.syncConfig.SkipFollowSourceL1Check && s.xlayer.runtimeConfigSetter != nil &&
+		s.xlayer.runtimeConfigFetchInterval > 0 &&
+		time.Since(s.xlayer.lastRuntimeConfigFetchAt) >= s.xlayer.runtimeConfigFetchInterval {
 		if rcSrc, ok := s.upstreamFollowSource.(XLayerRuntimeConfigSource); ok {
 			runtimeCfg, err := rcSrc.GetRuntimeConfig(s.driverCtx)
 			if err != nil {
 				s.log.Warn("Follow Upstream: Failed to fetch runtime config from upstream", "err", err)
 				// Keep previous value, do not block the follow source flow
 			} else if (runtimeCfg.P2PSequencerAddress != common.Address{}) {
-				s.runtimeConfigSetter.SetP2PSequencerAddress(runtimeCfg.P2PSequencerAddress)
-				s.lastRuntimeConfigFetchAt = time.Now()
+				s.xlayer.runtimeConfigSetter.SetP2PSequencerAddress(runtimeCfg.P2PSequencerAddress)
+				s.xlayer.lastRuntimeConfigFetchAt = time.Now()
 			}
 		}
 	}
