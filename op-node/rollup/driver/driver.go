@@ -202,9 +202,11 @@ type RuntimeConfigSetter interface {
 }
 
 // SetRuntimeConfigSetter sets the runtime config setter for skip-l1-check mode.
-func (s *Driver) SetRuntimeConfigSetter(setter RuntimeConfigSetter) {
+// interval should be cfg.RuntimeConfigReloadInterval (default 10 min).
+// If interval <= 0, runtime config is not periodically refreshed (only startup preload).
+func (s *Driver) SetRuntimeConfigSetter(setter RuntimeConfigSetter, interval time.Duration) {
 	s.runtimeConfigSetter = setter
-	s.runtimeConfigFetchInterval = 10 * time.Minute // match upstream L1 RuntimeConfigReloadInterval default
+	s.runtimeConfigFetchInterval = interval
 }
 
 // Start starts up the state loop.
@@ -588,7 +590,9 @@ func (s *Driver) followUpstream() {
 
 	// XLayer: periodically fetch P2PSequencerAddress from upstream when skip-l1-check is enabled.
 	// Throttled to runtimeConfigFetchInterval (default 10 min) to match upstream L1 reload behavior.
+	// Disabled when runtimeConfigFetchInterval <= 0 (only startup preload).
 	if s.syncConfig.SkipFollowSourceL1Check && s.runtimeConfigSetter != nil &&
+		s.runtimeConfigFetchInterval > 0 &&
 		time.Since(s.lastRuntimeConfigFetchAt) >= s.runtimeConfigFetchInterval {
 		if rcSrc, ok := s.upstreamFollowSource.(XLayerRuntimeConfigSource); ok {
 			runtimeCfg, err := rcSrc.GetRuntimeConfig(s.driverCtx)

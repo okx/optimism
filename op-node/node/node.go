@@ -280,7 +280,7 @@ func (n *OpNode) init(ctx context.Context, cfg *config.Config, overrides Initial
 
 	// XLayer: wire runtime config setter for skip-l1-check mode
 	if cfg.Sync.SkipL1Check() && n.runCfg != nil {
-		n.l2Driver.SetRuntimeConfigSetter(n.runCfg)
+		n.l2Driver.SetRuntimeConfigSetter(n.runCfg, cfg.RuntimeConfigReloadInterval)
 	}
 
 	n.p2pSigner, err = initP2PSigner(ctx, cfg, n)
