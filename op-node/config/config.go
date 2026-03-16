@@ -126,7 +126,7 @@ var ErrMissingPectraBlobSchedule = errors.New("probably missing Pectra blob sche
 // Check verifies that the given configuration makes sense
 func (cfg *Config) Check() error {
 	// XLayer: skip L1 and Beacon checks when fully trusting upstream source
-	if !cfg.Sync.SkipL1Check() {
+	if !cfg.Sync.ShouldSkipFollowSourceL1Check() {
 		if err := cfg.L1.Check(); err != nil {
 			return fmt.Errorf("l1 endpoint config error: %w", err)
 		}
@@ -137,7 +137,7 @@ func (cfg *Config) Check() error {
 	if cfg.L1ChainConfig == nil {
 		return fmt.Errorf("missing L1ChainConfig")
 	}
-	if !cfg.Sync.SkipL1Check() && cfg.Rollup.EcotoneTime != nil {
+	if !cfg.Sync.ShouldSkipFollowSourceL1Check() && cfg.Rollup.EcotoneTime != nil {
 		if cfg.Beacon == nil {
 			return fmt.Errorf("the Ecotone upgrade is scheduled (timestamp = %d) but no L1 Beacon API endpoint is configured", *cfg.Rollup.EcotoneTime)
 		}

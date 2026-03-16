@@ -232,7 +232,7 @@ func (n *OpNode) init(ctx context.Context, cfg *config.Config, overrides Initial
 	n.superAuthority = overrides.SuperAuthority
 
 	// XLayer: skip L1 initialization when fully trusting upstream source
-	if cfg.Sync.SkipL1Check() {
+	if cfg.Sync.ShouldSkipFollowSourceL1Check() {
 		n.log.Warn("XLayer: skip-l1-check enabled, skipping L1 source, Beacon API, and L1 handlers initialization")
 		if cfg.L1.Check() == nil {
 			n.log.Warn("XLayer: --l1 is ignored when --l2.follow.source.skip.l1.check is enabled")
@@ -266,7 +266,7 @@ func (n *OpNode) init(ctx context.Context, cfg *config.Config, overrides Initial
 		return fmt.Errorf("failed to init L2: %w", err)
 	}
 
-	if !cfg.Sync.SkipL1Check() {
+	if !cfg.Sync.ShouldSkipFollowSourceL1Check() {
 		n.l1HeadsSub, n.l1SafeSub, n.l1FinalizedSub, err = initL1Handlers(cfg, n)
 		if err != nil {
 			return fmt.Errorf("failed to init L1 Source: %w", err)
@@ -279,7 +279,7 @@ func (n *OpNode) init(ctx context.Context, cfg *config.Config, overrides Initial
 	}
 
 	// XLayer: wire runtime config setter for skip-l1-check mode
-	if cfg.Sync.SkipL1Check() && n.runCfg != nil {
+	if cfg.Sync.ShouldSkipFollowSourceL1Check() && n.runCfg != nil {
 		n.l2Driver.SetRuntimeConfigSetter(n.runCfg, cfg.RuntimeConfigReloadInterval)
 	}
 
@@ -418,7 +418,7 @@ func initL1Handlers(cfg *config.Config, node *OpNode) (ethereum.Subscription, et
 func initRuntimeConfig(ctx context.Context, cfg *config.Config, node *OpNode) error {
 	// XLayer: when skip-l1-check is enabled, create RuntimeConfig without L1 source.
 	// P2PSequencerAddress will be loaded from upstream via xlayer_runtimeConfig RPC.
-	if cfg.Sync.SkipL1Check() {
+	if cfg.Sync.ShouldSkipFollowSourceL1Check() {
 		runCfg := runcfg.NewRuntimeConfig(node.log, nil, &cfg.Rollup)
 		node.runCfg = runCfg
 

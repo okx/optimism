@@ -87,7 +87,7 @@ func (c *Config) FollowSourceEnabled() bool {
 	return c.L2FollowSourceEndpoint != ""
 }
 
-// SkipL1Check returns true when L1 verification should be skipped in follow source mode.
-func (c *Config) SkipL1Check() bool {
+// ShouldSkipFollowSourceL1Check returns true when L1 verification should be skipped in follow source mode.
+func (c *Config) ShouldSkipFollowSourceL1Check() bool {
 	return c.SkipFollowSourceL1Check && c.FollowSourceEnabled()
 }
