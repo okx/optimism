@@ -16,6 +16,11 @@ type FollowStatus struct {
 	SafeL2      eth.L2BlockRef
 	FinalizedL2 eth.L2BlockRef
 	CurrentL1   eth.L1BlockRef
+
+	// XLayer: L1 state from upstream, used when skip-l1-check is enabled
+	HeadL1      eth.L1BlockRef
+	SafeL1      eth.L1BlockRef
+	FinalizedL1 eth.L1BlockRef
 }
 
 func NewFollowClient(client client.RPC) (*FollowClient, error) {
@@ -32,5 +37,8 @@ func (s *FollowClient) GetFollowStatus(ctx context.Context) (*FollowStatus, erro
 		FinalizedL2: status.FinalizedL2,
 		SafeL2:      status.SafeL2,
 		CurrentL1:   status.CurrentL1,
+		HeadL1:      status.HeadL1,
+		SafeL1:      status.SafeL1,
+		FinalizedL1: status.FinalizedL1,
 	}, nil
 }
