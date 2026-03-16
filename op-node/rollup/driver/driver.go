@@ -191,7 +191,9 @@ type Driver struct {
 	upstreamFollowSource UpstreamFollowSource
 
 	// XLayer: runtime config setter for skip-l1-check mode
-	runtimeConfigSetter RuntimeConfigSetter
+	runtimeConfigSetter       RuntimeConfigSetter
+	lastRuntimeConfigFetchAt  time.Time
+	runtimeConfigFetchInterval time.Duration
 }
 
 // RuntimeConfigSetter allows updating the P2P sequencer address from an external source.
@@ -202,6 +204,7 @@ type RuntimeConfigSetter interface {
 // SetRuntimeConfigSetter sets the runtime config setter for skip-l1-check mode.
 func (s *Driver) SetRuntimeConfigSetter(setter RuntimeConfigSetter) {
 	s.runtimeConfigSetter = setter
+	s.runtimeConfigFetchInterval = 10 * time.Minute // match upstream L1 RuntimeConfigReloadInterval default
 }
 
 // Start starts up the state loop.
@@ -581,14 +584,17 @@ func (s *Driver) followUpstream() {
 
 	s.SyncDeriver.Engine.FollowSource(status.SafeL2, status.FinalizedL2)
 
-	// XLayer: periodically fetch P2PSequencerAddress from upstream when skip-l1-check is enabled
-	if s.syncConfig.SkipFollowSourceL1Check && s.runtimeConfigSetter != nil {
+	// XLayer: periodically fetch P2PSequencerAddress from upstream when skip-l1-check is enabled.
+	// Throttled to runtimeConfigFetchInterval (default 10 min) to match upstream L1 reload behavior.
+	if s.syncConfig.SkipFollowSourceL1Check && s.runtimeConfigSetter != nil &&
+		time.Since(s.lastRuntimeConfigFetchAt) >= s.runtimeConfigFetchInterval {
 		runtimeCfg, err := s.upstreamFollowSource.GetRuntimeConfig(s.driverCtx)
 		if err != nil {
 			s.log.Warn("Follow Upstream: Failed to fetch runtime config from upstream", "err", err)
 			// Keep previous value, do not block the follow source flow
 		} else if (runtimeCfg.P2PSequencerAddress != common.Address{}) {
 			s.runtimeConfigSetter.SetP2PSequencerAddress(runtimeCfg.P2PSequencerAddress)
+			s.lastRuntimeConfigFetchAt = time.Now()
 		}
 	}
 }
