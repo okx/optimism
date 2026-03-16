@@ -527,7 +527,7 @@ func (s *Driver) followUpstream() {
 	}
 
 	// XLayer: skip L1 origin verification when fully trusting upstream source
-	if s.syncConfig.SkipFollowSourceL1Check {
+	if s.syncConfig.ShouldSkipFollowSourceL1Check() {
 		// Fill StatusTracker L1 fields from upstream (only when changed)
 		if (status.HeadL1 != eth.L1BlockRef{}) && status.HeadL1 != s.xlayer.lastHeadL1 {
 			s.xlayer.lastHeadL1 = status.HeadL1
@@ -604,7 +604,7 @@ func (s *Driver) followUpstream() {
 	// XLayer: periodically fetch P2PSequencerAddress from upstream when skip-l1-check is enabled.
 	// Throttled to runtimeConfigFetchInterval (default 10 min) to match upstream L1 reload behavior.
 	// Disabled when runtimeConfigFetchInterval <= 0 (only startup preload).
-	if s.syncConfig.SkipFollowSourceL1Check && s.xlayer.runtimeConfigSetter != nil &&
+	if s.syncConfig.ShouldSkipFollowSourceL1Check() && s.xlayer.runtimeConfigSetter != nil &&
 		s.xlayer.runtimeConfigFetchInterval > 0 &&
 		time.Since(s.xlayer.lastRuntimeConfigFetchAt) >= s.xlayer.runtimeConfigFetchInterval {
 		s.xlayer.lastRuntimeConfigFetchAt = time.Now()
