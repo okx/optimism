@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"errors"
 
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/sources"
@@ -45,6 +46,9 @@ func (fs *L2FollowSource) GetFollowStatus(ctx context.Context) (*sources.FollowS
 }
 
 func (fs *L2FollowSource) L1BlockRefByNumber(ctx context.Context, num uint64) (eth.L1BlockRef, error) {
+	if fs.l1Source == nil {
+		return eth.L1BlockRef{}, errors.New("L1 source not available (skip-l1-check mode)")
+	}
 	return fs.l1Source.L1BlockRefByNumber(ctx, num)
 }
 
