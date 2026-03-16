@@ -199,6 +199,11 @@ type xlayerFollowState struct {
 	runtimeConfigSetter        RuntimeConfigSetter
 	lastRuntimeConfigFetchAt   time.Time
 	runtimeConfigFetchInterval time.Duration
+
+	// Cached upstream L1 refs for change detection (avoid unconditional StatusTracker writes)
+	lastHeadL1      eth.L1BlockRef
+	lastSafeL1      eth.L1BlockRef
+	lastFinalizedL1 eth.L1BlockRef
 }
 
 // RuntimeConfigSetter allows updating the P2P sequencer address from an external source.
@@ -523,14 +528,17 @@ func (s *Driver) followUpstream() {
 
 	// XLayer: skip L1 origin verification when fully trusting upstream source
 	if s.syncConfig.SkipFollowSourceL1Check {
-		// Fill StatusTracker L1 fields from upstream
-		if (status.HeadL1 != eth.L1BlockRef{}) {
+		// Fill StatusTracker L1 fields from upstream (only when changed)
+		if (status.HeadL1 != eth.L1BlockRef{}) && status.HeadL1 != s.xlayer.lastHeadL1 {
+			s.xlayer.lastHeadL1 = status.HeadL1
 			s.StatusTracker.OnL1Unsafe(status.HeadL1)
 		}
-		if (status.SafeL1 != eth.L1BlockRef{}) {
+		if (status.SafeL1 != eth.L1BlockRef{}) && status.SafeL1 != s.xlayer.lastSafeL1 {
+			s.xlayer.lastSafeL1 = status.SafeL1
 			s.StatusTracker.OnL1Safe(status.SafeL1)
 		}
-		if (status.FinalizedL1 != eth.L1BlockRef{}) {
+		if (status.FinalizedL1 != eth.L1BlockRef{}) && status.FinalizedL1 != s.xlayer.lastFinalizedL1 {
+			s.xlayer.lastFinalizedL1 = status.FinalizedL1
 			s.StatusTracker.OnL1Finalized(status.FinalizedL1)
 		}
 		// Inject CurrentL1 without L1 hash verification (trusted upstream)
