@@ -231,24 +231,33 @@ func (n *OpNode) init(ctx context.Context, cfg *config.Config, overrides Initial
 	// Store the supernode authority for payload validation
 	n.superAuthority = overrides.SuperAuthority
 
-	if overrides.Beacon == nil {
-		beacon, err := initL1BeaconAPI(ctx, cfg, n)
-		if err != nil {
-			return err
+	// XLayer: skip L1 initialization when fully trusting upstream source
+	if cfg.Sync.SkipL1Check() {
+		n.log.Warn("XLayer: skip-l1-check enabled, skipping L1 source, Beacon API, and L1 handlers initialization")
+		if cfg.L1.Check() == nil {
+			n.log.Warn("XLayer: --l1 is ignored when --l2.follow.source.skip.l1.check is enabled")
 		}
-		n.beacon = beacon
+		// n.l1Source, n.beacon remain nil
 	} else {
-		n.beacon = overrides.Beacon
-	}
+		if overrides.Beacon == nil {
+			beacon, err := initL1BeaconAPI(ctx, cfg, n)
+			if err != nil {
+				return err
+			}
+			n.beacon = beacon
+		} else {
+			n.beacon = overrides.Beacon
+		}
 
-	if overrides.L1Source == nil {
-		l1Source, err := initL1Source(ctx, cfg, n)
-		if err != nil {
-			return fmt.Errorf("failed to init L1 Source: %w", err)
+		if overrides.L1Source == nil {
+			l1Source, err := initL1Source(ctx, cfg, n)
+			if err != nil {
+				return fmt.Errorf("failed to init L1 Source: %w", err)
+			}
+			n.l1Source = l1Source
+		} else {
+			n.l1Source = overrides.L1Source
 		}
-		n.l1Source = l1Source
-	} else {
-		n.l1Source = overrides.L1Source
 	}
 
 	// initL2 may use side effects to register interop subsystem to the node.EventSystem
@@ -257,9 +266,11 @@ func (n *OpNode) init(ctx context.Context, cfg *config.Config, overrides Initial
 		return fmt.Errorf("failed to init L2: %w", err)
 	}
 
-	n.l1HeadsSub, n.l1SafeSub, n.l1FinalizedSub, err = initL1Handlers(cfg, n)
-	if err != nil {
-		return fmt.Errorf("failed to init L1 Source: %w", err)
+	if !cfg.Sync.SkipL1Check() {
+		n.l1HeadsSub, n.l1SafeSub, n.l1FinalizedSub, err = initL1Handlers(cfg, n)
+		if err != nil {
+			return fmt.Errorf("failed to init L1 Source: %w", err)
+		}
 	}
 
 	// initRuntimeConfig relies on side effects to set the runCfg, node.halted and call node.cancel if needed
@@ -400,6 +411,15 @@ func initL1Handlers(cfg *config.Config, node *OpNode) (ethereum.Subscription, et
 // initRuntimeConfig initializes the runtime config and starts a background loop to reload it at the configured interval.
 // note: this function relies on side effects to set node.runCfg
 func initRuntimeConfig(ctx context.Context, cfg *config.Config, node *OpNode) error {
+	// XLayer: when skip-l1-check is enabled, create RuntimeConfig without L1 source.
+	// P2PSequencerAddress will be loaded from upstream via xlayer_runtimeConfig RPC.
+	if cfg.Sync.SkipL1Check() {
+		runCfg := runcfg.NewRuntimeConfig(node.log, nil, &cfg.Rollup)
+		node.runCfg = runCfg
+		node.log.Info("XLayer: RuntimeConfig initialized without L1 source (skip-l1-check mode). P2P signer will be loaded from upstream.")
+		return nil
+	}
+
 	// attempt to load runtime config, repeat N times
 	runCfg := runcfg.NewRuntimeConfig(node.log, node.l1Source, &cfg.Rollup)
 	// Set node.runCfg early so handleProtocolVersionsUpdate can access it during initialization
