@@ -125,22 +125,25 @@ var ErrMissingPectraBlobSchedule = errors.New("probably missing Pectra blob sche
 
 // Check verifies that the given configuration makes sense
 func (cfg *Config) Check() error {
-	if err := cfg.L1.Check(); err != nil {
-		return fmt.Errorf("l1 endpoint config error: %w", err)
+	// XLayer: skip L1 and Beacon checks when fully trusting upstream source
+	if !cfg.Sync.SkipL1Check() {
+		if err := cfg.L1.Check(); err != nil {
+			return fmt.Errorf("l1 endpoint config error: %w", err)
+		}
+		if cfg.Rollup.EcotoneTime != nil {
+			if cfg.Beacon == nil {
+				return fmt.Errorf("the Ecotone upgrade is scheduled (timestamp = %d) but no L1 Beacon API endpoint is configured", *cfg.Rollup.EcotoneTime)
+			}
+			if err := cfg.Beacon.Check(); err != nil {
+				return fmt.Errorf("misconfigured L1 Beacon API endpoint: %w", err)
+			}
+		}
 	}
 	if err := cfg.L2.Check(); err != nil {
 		return fmt.Errorf("l2 endpoint config error: %w", err)
 	}
 	if cfg.L1ChainConfig == nil {
 		return fmt.Errorf("missing L1ChainConfig")
-	}
-	if cfg.Rollup.EcotoneTime != nil {
-		if cfg.Beacon == nil {
-			return fmt.Errorf("the Ecotone upgrade is scheduled (timestamp = %d) but no L1 Beacon API endpoint is configured", *cfg.Rollup.EcotoneTime)
-		}
-		if err := cfg.Beacon.Check(); err != nil {
-			return fmt.Errorf("misconfigured L1 Beacon API endpoint: %w", err)
-		}
 	}
 	if cfg.InteropConfig == nil {
 		return errors.New("missing interop config")
