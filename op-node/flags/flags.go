@@ -233,7 +233,7 @@ var (
 	}
 	// XLayer: Skip L1 check when following an upstream L2 CL source.
 	L2FollowSourceSkipL1Check = &cli.BoolFlag{
-		Name:     "l2.follow.source.skip.l1.check",
+		Name:     "l2.follow.source.skip-l1-check",
 		Usage:    "Skip L1 origin verification when following an upstream source. Fully trusts the upstream L2 node and removes L1 RPC dependency. Requires --l2.follow.source to be set.",
 		EnvVars:  prefixEnvVars("L2_FOLLOW_SOURCE_SKIP_L1_CHECK"),
 		Category: RollupCategory,
@@ -472,7 +472,7 @@ var (
 )
 
 var requiredFlags = []cli.Flag{
-	// XLayer: L1NodeAddr moved to optionalFlags to support --l2.follow.source.skip.l1.check mode.
+	// XLayer: L1NodeAddr moved to optionalFlags to support --l2.follow.source.skip-l1-check mode.
 	// L1 requirement is validated at config.Check() level instead.
 	L2EngineAddr,
 	L2EngineJWTSecret,

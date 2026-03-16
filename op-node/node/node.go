@@ -235,7 +235,7 @@ func (n *OpNode) init(ctx context.Context, cfg *config.Config, overrides Initial
 	if cfg.Sync.ShouldSkipFollowSourceL1Check() {
 		n.log.Warn("XLayer: skip-l1-check enabled, skipping L1 source, Beacon API, and L1 handlers initialization")
 		if cfg.L1.Check() == nil {
-			n.log.Warn("XLayer: --l1 is ignored when --l2.follow.source.skip.l1.check is enabled")
+			n.log.Warn("XLayer: --l1 is ignored when --l2.follow.source.skip-l1-check is enabled")
 		}
 		// n.l1Source, n.beacon remain nil
 	} else {

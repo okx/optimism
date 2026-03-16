@@ -367,7 +367,7 @@ func NewSyncConfig(ctx cliiface.Context, log log.Logger) (*sync.Config, error) {
 	engineKind := engine.Kind(ctx.String(flags.L2EngineKind.Name))
 	skipL1Check := ctx.Bool(flags.L2FollowSourceSkipL1Check.Name)
 	if skipL1Check && l2FollowSourceEndpoint == "" {
-		return nil, errors.New("--l2.follow.source.skip.l1.check requires --l2.follow.source to be set")
+		return nil, errors.New("--l2.follow.source.skip-l1-check requires --l2.follow.source to be set")
 	}
 	cfg := &sync.Config{
 		SyncMode:                       mode,
