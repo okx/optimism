@@ -560,13 +560,16 @@ func (s *Driver) followUpstream() {
 				)
 				return
 			}
-		}
-	}
 
-	// Inject L1 info for batcher (regardless of L1 check mode)
-	if (status.CurrentL1 != eth.L1BlockRef{}) {
-		s.log.Debug("Follow Upstream: Inject L1 Info", "currentL1", status.CurrentL1)
-		s.emitter.Emit(s.driverCtx, derive.DeriverL1StatusEvent{Origin: status.CurrentL1})
+			s.log.Debug("Follow Upstream: Inject L1 Info", "currentL1", status.CurrentL1)
+			s.emitter.Emit(s.driverCtx, derive.DeriverL1StatusEvent{Origin: status.CurrentL1})
+		}
+	} else {
+		// XLayer: skip-l1-check mode, inject CurrentL1 without L1 hash verification
+		if (status.CurrentL1 != eth.L1BlockRef{}) {
+			s.log.Debug("Follow Upstream: Inject L1 Info (trusted)", "currentL1", status.CurrentL1)
+			s.emitter.Emit(s.driverCtx, derive.DeriverL1StatusEvent{Origin: status.CurrentL1})
+		}
 	}
 
 	// XLayer: fill StatusTracker L1 fields from upstream when skip-l1-check is enabled
