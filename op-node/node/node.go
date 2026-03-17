@@ -231,24 +231,33 @@ func (n *OpNode) init(ctx context.Context, cfg *config.Config, overrides Initial
 	// Store the supernode authority for payload validation
 	n.superAuthority = overrides.SuperAuthority
 
-	if overrides.Beacon == nil {
-		beacon, err := initL1BeaconAPI(ctx, cfg, n)
-		if err != nil {
-			return err
+	// XLayer: skip L1 initialization when fully trusting upstream source
+	if cfg.Sync.ShouldSkipFollowSourceL1Check() {
+		n.log.Warn("XLayer: skip-l1-check enabled, skipping L1 source, Beacon API, and L1 handlers initialization")
+		if cfg.L1.Check() == nil {
+			n.log.Warn("XLayer: --l1 is ignored when --l2.follow.source.skip-l1-check is enabled")
 		}
-		n.beacon = beacon
+		// n.l1Source, n.beacon remain nil
 	} else {
-		n.beacon = overrides.Beacon
-	}
+		if overrides.Beacon == nil {
+			beacon, err := initL1BeaconAPI(ctx, cfg, n)
+			if err != nil {
+				return err
+			}
+			n.beacon = beacon
+		} else {
+			n.beacon = overrides.Beacon
+		}
 
-	if overrides.L1Source == nil {
-		l1Source, err := initL1Source(ctx, cfg, n)
-		if err != nil {
-			return fmt.Errorf("failed to init L1 Source: %w", err)
+		if overrides.L1Source == nil {
+			l1Source, err := initL1Source(ctx, cfg, n)
+			if err != nil {
+				return fmt.Errorf("failed to init L1 Source: %w", err)
+			}
+			n.l1Source = l1Source
+		} else {
+			n.l1Source = overrides.L1Source
 		}
-		n.l1Source = l1Source
-	} else {
-		n.l1Source = overrides.L1Source
 	}
 
 	// initL2 may use side effects to register interop subsystem to the node.EventSystem
@@ -257,14 +266,21 @@ func (n *OpNode) init(ctx context.Context, cfg *config.Config, overrides Initial
 		return fmt.Errorf("failed to init L2: %w", err)
 	}
 
-	n.l1HeadsSub, n.l1SafeSub, n.l1FinalizedSub, err = initL1Handlers(cfg, n)
-	if err != nil {
-		return fmt.Errorf("failed to init L1 Source: %w", err)
+	if !cfg.Sync.ShouldSkipFollowSourceL1Check() {
+		n.l1HeadsSub, n.l1SafeSub, n.l1FinalizedSub, err = initL1Handlers(cfg, n)
+		if err != nil {
+			return fmt.Errorf("failed to init L1 Source: %w", err)
+		}
 	}
 
 	// initRuntimeConfig relies on side effects to set the runCfg, node.halted and call node.cancel if needed
 	if err := initRuntimeConfig(ctx, cfg, n); err != nil {
 		return fmt.Errorf("failed to init the runtime config: %w", err)
+	}
+
+	// XLayer: wire runtime config setter for skip-l1-check mode
+	if cfg.Sync.ShouldSkipFollowSourceL1Check() && n.runCfg != nil {
+		n.l2Driver.SetRuntimeConfigSetter(n.runCfg, cfg.RuntimeConfigReloadInterval)
 	}
 
 	n.p2pSigner, err = initP2PSigner(ctx, cfg, n)
@@ -400,6 +416,38 @@ func initL1Handlers(cfg *config.Config, node *OpNode) (ethereum.Subscription, et
 // initRuntimeConfig initializes the runtime config and starts a background loop to reload it at the configured interval.
 // note: this function relies on side effects to set node.runCfg
 func initRuntimeConfig(ctx context.Context, cfg *config.Config, node *OpNode) error {
+	// XLayer: when skip-l1-check is enabled, create RuntimeConfig without L1 source.
+	// P2PSequencerAddress will be loaded from upstream via xlayer_runtimeConfig RPC.
+	if cfg.Sync.ShouldSkipFollowSourceL1Check() {
+		runCfg := runcfg.NewRuntimeConfig(node.log, nil, &cfg.Rollup)
+		node.runCfg = runCfg
+
+		// Best-effort pre-load P2PSequencerAddress from upstream before P2P starts.
+		// If this fails, gossip blocks will be rejected until the periodic followUpstream
+		// loop successfully fetches the signer address (within runtimeConfigFetchInterval).
+		if node.l2FollowSource != nil {
+			if err := retry.Do0(ctx, 5, retry.Fixed(time.Second*5), func() error {
+				fetchCtx, cancel := context.WithTimeout(ctx, time.Second*10)
+				defer cancel()
+				runtimeCfg, err := node.l2FollowSource.GetRuntimeConfig(fetchCtx)
+				if err != nil {
+					node.log.Warn("XLayer: failed to pre-load P2PSequencerAddress from upstream, retrying", "err", err)
+					return err
+				}
+				if (runtimeCfg.P2PSequencerAddress == common.Address{}) {
+					return fmt.Errorf("upstream returned zero P2PSequencerAddress")
+				}
+				runCfg.SetP2PSequencerAddress(runtimeCfg.P2PSequencerAddress)
+				return nil
+			}); err != nil {
+				node.log.Warn("XLayer: failed to pre-load P2PSequencerAddress from upstream, will retry via followUpstream loop", "err", err)
+			}
+		}
+
+		node.log.Info("XLayer: RuntimeConfig initialized without L1 source (skip-l1-check mode)")
+		return nil
+	}
+
 	// attempt to load runtime config, repeat N times
 	runCfg := runcfg.NewRuntimeConfig(node.log, node.l1Source, &cfg.Rollup)
 	// Set node.runCfg early so handleProtocolVersionsUpdate can access it during initialization
@@ -691,6 +739,16 @@ func registerAPIs(cfg *config.Config, node *OpNode, handler *oprpc.Handler) erro
 			return fmt.Errorf("failed to add Admin API: %w", err)
 		}
 		node.log.Info("Admin RPC enabled")
+	}
+	// XLayer: register xlayer namespace for runtime config (used by follower nodes)
+	if node.runCfg != nil {
+		if err := handler.AddAPI(rpc.API{
+			Namespace: "xlayer",
+			Service:   NewXLayerAPI(node.runCfg),
+		}); err != nil {
+			return fmt.Errorf("failed to add XLayer API: %w", err)
+		}
+		node.log.Info("XLayer RPC enabled")
 	}
 	return nil
 }

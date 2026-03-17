@@ -231,6 +231,14 @@ var (
 		Value:    time.Second * 10,
 		Category: RollupCategory,
 	}
+	// XLayer: Skip L1 check when following an upstream L2 CL source.
+	L2FollowSourceSkipL1Check = &cli.BoolFlag{
+		Name:     "l2.follow.source.skip-l1-check",
+		Usage:    "Skip L1 origin verification when following an upstream source. Fully trusts the upstream L2 node and removes L1 RPC dependency. Requires --l2.follow.source to be set.",
+		EnvVars:  prefixEnvVars("L2_FOLLOW_SOURCE_SKIP_L1_CHECK"),
+		Category: RollupCategory,
+		Required: false,
+	}
 	VerifierL1Confs = &cli.Uint64Flag{
 		Name:     "verifier.l1-confs",
 		Usage:    "Number of L1 blocks to keep distance from the L1 head before deriving L2 data from. Reorgs are supported, but may be slow to perform.",
@@ -464,12 +472,14 @@ var (
 )
 
 var requiredFlags = []cli.Flag{
-	L1NodeAddr,
+	// XLayer: L1NodeAddr moved to optionalFlags to support --l2.follow.source.skip-l1-check mode.
+	// L1 requirement is validated at config.Check() level instead.
 	L2EngineAddr,
 	L2EngineJWTSecret,
 }
 
 var optionalFlags = []cli.Flag{
+	L1NodeAddr,
 	BeaconAddr,
 	BeaconHeader,
 	BeaconFallbackAddrs,
@@ -511,6 +521,7 @@ var optionalFlags = []cli.Flag{
 	L2EngineKind,
 	L2EngineRpcTimeout,
 	L2FollowSource,
+	L2FollowSourceSkipL1Check,
 	InteropRPCAddr,
 	InteropRPCPort,
 	InteropJWTSecret,

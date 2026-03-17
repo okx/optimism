@@ -16,6 +16,7 @@ func syncConfigCliApp() *cli.App {
 		flags.SyncModeFlag,
 		flags.SyncModeReqRespFlag,
 		flags.L2FollowSource,
+		flags.L2FollowSourceSkipL1Check,
 		flags.L2EngineKind,
 		flags.SkipSyncStartCheck,
 	}, flags.P2PFlags("")..., // For p2p.sync.req-resp
@@ -35,4 +36,28 @@ func run(args []string) error {
 
 func TestNewSyncConfigDefault(t *testing.T) {
 	require.NoError(t, run(nil))
+}
+
+func TestNewSyncConfig_SkipL1CheckRequiresFollowSource(t *testing.T) {
+	// skip-l1-check without follow source should fail
+	err := run([]string{"--l2.follow.source.skip-l1-check"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "--l2.follow.source.skip-l1-check requires --l2.follow.source to be set")
+}
+
+func TestNewSyncConfig_SkipL1CheckWithFollowSource(t *testing.T) {
+	// skip-l1-check with follow source should succeed
+	err := run([]string{
+		"--l2.follow.source=http://localhost:9545",
+		"--l2.follow.source.skip-l1-check",
+	})
+	require.NoError(t, err)
+}
+
+func TestNewSyncConfig_FollowSourceWithoutSkipL1Check(t *testing.T) {
+	// follow source without skip-l1-check should succeed (standard Light CL mode)
+	err := run([]string{
+		"--l2.follow.source=http://localhost:9545",
+	})
+	require.NoError(t, err)
 }
