@@ -13,7 +13,7 @@ use crate::{
 use alloy_eips::BlockNumberOrTag;
 use alloy_provider::RootProvider;
 use kona_derive::StatefulAttributesBuilder;
-use kona_engine::{Engine, EngineState, OpEngineClient};
+use kona_engine::{Engine, EngineClient, EngineState, OpEngineClient, RollupBoostServer};
 use kona_genesis::{L1ChainConfig, RollupConfig};
 use kona_protocol::L2BlockInfo;
 use kona_providers_alloy::{
@@ -177,36 +177,24 @@ impl RollupNode {
         }
     }
 
-    /// Helper function to assemble the [`EngineActor`] since there are many structs created that
-    /// are not relevant to other actors or logic.
-    /// Note: ignoring complex type warning. This type only pertains to this function, so it is
-    /// better to have the full type here than have to piece it together from multiple type defs.
+    /// Assembles the [`EngineActor`] from a pre-built engine client.
+    ///
+    /// `rollup_boost` is `Some` when using the standard HTTP path and `None` when an in-process
+    /// client is injected (e.g. `RethInProcessClient`).
     #[allow(clippy::type_complexity)]
-    fn create_engine_actor(
+    fn create_engine_actor<E: EngineClient + 'static>(
         &self,
+        engine_client: Arc<E>,
+        rollup_boost: Option<Arc<RollupBoostServer>>,
         cancellation_token: CancellationToken,
         engine_request_rx: mpsc::Receiver<EngineActorRequest>,
         derivation_client: QueuedEngineDerivationClient,
         unsafe_head_tx: watch::Sender<L2BlockInfo>,
-    ) -> Result<
-        EngineActor<
-            EngineProcessor<
-                OpEngineClient<RootProvider, RootProvider<Optimism>>,
-                QueuedEngineDerivationClient,
-            >,
-            EngineRpcProcessor<OpEngineClient<RootProvider, RootProvider<Optimism>>>,
-        >,
-        String,
-    > {
+    ) -> EngineActor<EngineProcessor<E, QueuedEngineDerivationClient>, EngineRpcProcessor<E>> {
         let engine_state = EngineState::default();
         let (engine_state_tx, engine_state_rx) = watch::channel(engine_state);
         let (engine_queue_length_tx, engine_queue_length_rx) = watch::channel(0);
         let engine = Engine::new(engine_state, engine_state_tx, engine_queue_length_tx);
-
-        let engine_client = Arc::new(self.engine_config().build_engine_client().map_err(|e| {
-            error!(target: "service", error = ?e, "engine client build failed");
-            format!("Engine client build failed: {e:?}")
-        })?);
 
         let engine_processor = EngineProcessor::new(
             engine_client.clone(),
@@ -218,21 +206,16 @@ impl RollupNode {
 
         let engine_rpc_processor = EngineRpcProcessor::new(
             engine_client.clone(),
-            engine_client.rollup_boost.clone(),
+            rollup_boost,
             self.config.clone(),
             engine_state_rx,
             engine_queue_length_rx,
         );
 
-        Ok(EngineActor::new(
-            cancellation_token,
-            engine_request_rx,
-            engine_processor,
-            engine_rpc_processor,
-        ))
+        EngineActor::new(cancellation_token, engine_request_rx, engine_processor, engine_rpc_processor)
     }
 
-    /// Starts the rollup node service.
+    /// Starts the rollup node using an HTTP Engine API client built from [`EngineConfig`].
     ///
     /// The rollup node, in validator mode, listens to two sources of information to sync the L2
     /// chain:
@@ -252,6 +235,32 @@ impl RollupNode {
     /// finalizes `safe` blocks that it has derived when L1 finalized block updates are
     /// received.
     pub async fn start(&self) -> Result<(), String> {
+        let engine_client = Arc::new(self.engine_config().build_engine_client().map_err(|e| {
+            error!(target: "service", error = ?e, "engine client build failed");
+            format!("Engine client build failed: {e:?}")
+        })?);
+        let rollup_boost = Some(engine_client.rollup_boost.clone());
+        self.start_with_engine(engine_client, rollup_boost).await
+    }
+
+    /// Starts the rollup node with an injected engine client instead of building one from
+    /// [`EngineConfig`]. RollupBoost is not used in this path.
+    ///
+    /// This is the entry point for in-process engine integration (e.g. `RethInProcessClient`),
+    /// where the EL runs in the same OS process and communicates via channels rather than HTTP.
+    pub async fn start_with_client<E: EngineClient + 'static>(
+        &self,
+        engine_client: Arc<E>,
+    ) -> Result<(), String> {
+        self.start_with_engine(engine_client, None).await
+    }
+
+    /// Shared startup body. Wires all actors together and blocks until the node shuts down.
+    async fn start_with_engine<E: EngineClient + 'static>(
+        &self,
+        engine_client: Arc<E>,
+        rollup_boost: Option<Arc<RollupBoostServer>>,
+    ) -> Result<(), String> {
         // Create a global cancellation token for graceful shutdown of tasks.
         let cancellation = CancellationToken::new();
 
@@ -261,11 +270,13 @@ impl RollupNode {
         let (unsafe_head_tx, unsafe_head_rx) = watch::channel(L2BlockInfo::default());
 
         let engine_actor = self.create_engine_actor(
+            engine_client,
+            rollup_boost,
             cancellation.clone(),
             engine_actor_request_rx,
             QueuedEngineDerivationClient::new(derivation_actor_request_tx.clone()),
             unsafe_head_tx,
-        )?;
+        );
 
         // Select the concrete derivation actor implementation based on
         // RollupNode configuration.

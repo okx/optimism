@@ -25,8 +25,8 @@ pub trait EngineRpcRequestReceiver: Send + Sync {
 pub struct EngineRpcProcessor<EngineClient_: EngineClient> {
     /// An [`EngineClient`] used for creating engine tasks.
     engine_client: Arc<EngineClient_>,
-    // RollupBoost server handle
-    rollup_boost_server: Arc<RollupBoostServer>,
+    /// Optional RollupBoost server handle. `None` when the node uses an in-process engine client.
+    rollup_boost_server: Option<Arc<RollupBoostServer>>,
     /// The [`RollupConfig`] used to build tasks.
     rollup_config: Arc<RollupConfig>,
     /// Receiver for [`EngineState`] updates.
@@ -64,8 +64,12 @@ where
             EngineRpcRequest::RollupBoostHealthRequest(health_query) => {
                 trace!(target: "engine", ?health_query, "Received rollup boost health query.");
 
-                let health = self.rollup_boost_server.probes().health();
-                health_query.sender.send(health.into()).unwrap();
+                let health = self
+                    .rollup_boost_server
+                    .as_ref()
+                    .map(|s| s.probes().health().into())
+                    .unwrap_or(kona_rpc::RollupBoostHealth::ServiceUnavailable);
+                health_query.sender.send(health).unwrap();
             }
         }
 
@@ -73,15 +77,19 @@ where
     }
 
     fn handle_rollup_boost_admin_query(&self, admin_query: RollupBoostAdminQuery) {
+        let Some(server) = &self.rollup_boost_server else {
+            warn!(target: "engine", "RollupBoost admin request ignored: no RollupBoost server configured");
+            return;
+        };
         match admin_query {
             RollupBoostAdminQuery::SetExecutionMode { execution_mode, sender } => {
-                self.rollup_boost_server.set_execution_mode(execution_mode);
+                server.set_execution_mode(execution_mode);
                 let _ = sender.send(()).map_err(|_| {
                     warn!(target: "engine", "set execution mode response channel closed when trying to send");
                 });
             }
             RollupBoostAdminQuery::GetExecutionMode { sender } => {
-                let execution_mode = self.rollup_boost_server.get_execution_mode();
+                let execution_mode = server.get_execution_mode();
                 let _ = sender.send(execution_mode).map_err(|_| {
                     warn!(target: "engine", "get execution mode response channel closed when trying to send");
                 });
