@@ -1,27 +1,24 @@
 //! Mock implementations for testing engine client functionality.
 
-use crate::{EngineClient, HyperAuthClient};
+use crate::EngineClient;
 use alloy_eips::{BlockId, eip1898::BlockNumberOrTag};
 use alloy_network::{Ethereum, Network};
-use alloy_primitives::{Address, B256, BlockHash, StorageKey};
+use alloy_primitives::{Address, B256, StorageKey};
 use alloy_provider::{EthGetBlock, ProviderCall, RpcWithBlock};
 use alloy_rpc_types_engine::{
-    ClientVersionV1, ExecutionPayloadBodiesV1, ExecutionPayloadEnvelopeV2, ExecutionPayloadInputV2,
-    ExecutionPayloadV1, ExecutionPayloadV3, ForkchoiceState, ForkchoiceUpdated, PayloadId,
-    PayloadStatus,
+    ExecutionPayloadEnvelopeV2, ExecutionPayloadInputV2, ExecutionPayloadV1, ExecutionPayloadV3,
+    ForkchoiceState, ForkchoiceUpdated, PayloadId, PayloadStatus,
 };
 use alloy_rpc_types_eth::{Block, EIP1186AccountProofResponse, Transaction as EthTransaction};
 use alloy_transport::{TransportError, TransportErrorKind, TransportResult};
-use alloy_transport_http::Http;
 use async_trait::async_trait;
 use kona_genesis::RollupConfig;
 use kona_protocol::L2BlockInfo;
 use op_alloy_network::Optimism;
-use op_alloy_provider::ext::engine::OpEngineApi;
 use op_alloy_rpc_types::Transaction as OpTransaction;
 use op_alloy_rpc_types_engine::{
     OpExecutionPayloadEnvelopeV3, OpExecutionPayloadEnvelopeV4, OpExecutionPayloadV4,
-    OpPayloadAttributes, ProtocolVersion,
+    OpPayloadAttributes,
 };
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
@@ -67,20 +64,6 @@ pub struct MockEngineStorage {
     pub execution_payload_v3: Option<OpExecutionPayloadEnvelopeV3>,
     /// Storage for OP execution payload envelope v4 responses.
     pub execution_payload_v4: Option<OpExecutionPayloadEnvelopeV4>,
-
-    // Version-specific get_payload_bodies responses
-    /// Storage for `get_payload_bodies_by_hash_v1` responses.
-    pub get_payload_bodies_by_hash_v1_response: Option<ExecutionPayloadBodiesV1>,
-    /// Storage for `get_payload_bodies_by_range_v1` responses.
-    pub get_payload_bodies_by_range_v1_response: Option<ExecutionPayloadBodiesV1>,
-
-    // Non-versioned responses
-    /// Storage for client version responses.
-    pub client_versions: Option<Vec<ClientVersionV1>>,
-    /// Storage for protocol version responses.
-    pub protocol_version: Option<ProtocolVersion>,
-    /// Storage for capabilities responses.
-    pub capabilities: Option<Vec<String>>,
 
     // Storage for get_l1_block, get_l2_block, and get_proof
     /// Storage for L1 blocks by stringified `BlockId`.
@@ -198,42 +181,6 @@ impl MockEngineClientBuilder {
     /// Sets the execution payload v4 response.
     pub fn with_execution_payload_v4(mut self, payload: OpExecutionPayloadEnvelopeV4) -> Self {
         self.storage.execution_payload_v4 = Some(payload);
-        self
-    }
-
-    /// Sets the `get_payload_bodies_by_hash_v1` response.
-    pub fn with_payload_bodies_by_hash_response(
-        mut self,
-        bodies: ExecutionPayloadBodiesV1,
-    ) -> Self {
-        self.storage.get_payload_bodies_by_hash_v1_response = Some(bodies);
-        self
-    }
-
-    /// Sets the `get_payload_bodies_by_range_v1` response.
-    pub fn with_payload_bodies_by_range_response(
-        mut self,
-        bodies: ExecutionPayloadBodiesV1,
-    ) -> Self {
-        self.storage.get_payload_bodies_by_range_v1_response = Some(bodies);
-        self
-    }
-
-    /// Sets the client versions response.
-    pub fn with_client_versions(mut self, versions: Vec<ClientVersionV1>) -> Self {
-        self.storage.client_versions = Some(versions);
-        self
-    }
-
-    /// Sets the protocol version response.
-    pub const fn with_protocol_version(mut self, version: ProtocolVersion) -> Self {
-        self.storage.protocol_version = Some(version);
-        self
-    }
-
-    /// Sets the capabilities response.
-    pub fn with_capabilities(mut self, capabilities: Vec<String>) -> Self {
-        self.storage.capabilities = Some(capabilities);
         self
     }
 
@@ -365,31 +312,6 @@ impl MockEngineClient {
         self.storage.write().await.execution_payload_v4 = Some(payload);
     }
 
-    /// Sets the `get_payload_bodies_by_hash_v1` response.
-    pub async fn set_payload_bodies_by_hash_response(&self, bodies: ExecutionPayloadBodiesV1) {
-        self.storage.write().await.get_payload_bodies_by_hash_v1_response = Some(bodies);
-    }
-
-    /// Sets the `get_payload_bodies_by_range_v1` response.
-    pub async fn set_payload_bodies_by_range_response(&self, bodies: ExecutionPayloadBodiesV1) {
-        self.storage.write().await.get_payload_bodies_by_range_v1_response = Some(bodies);
-    }
-
-    /// Sets the client versions response.
-    pub async fn set_client_versions(&self, versions: Vec<ClientVersionV1>) {
-        self.storage.write().await.client_versions = Some(versions);
-    }
-
-    /// Sets the protocol version response.
-    pub async fn set_protocol_version(&self, version: ProtocolVersion) {
-        self.storage.write().await.protocol_version = Some(version);
-    }
-
-    /// Sets the capabilities response.
-    pub async fn set_capabilities(&self, capabilities: Vec<String>) {
-        self.storage.write().await.capabilities = Some(capabilities);
-    }
-
     /// Sets an L1 block response for a specific `BlockId`.
     pub async fn set_l1_block(&self, block_id: BlockId, block: Block<EthTransaction>) {
         let key = block_id_to_key(&block_id);
@@ -492,25 +414,6 @@ impl EngineClient for MockEngineClient {
         })
     }
 
-    async fn l2_block_by_label(
-        &self,
-        numtag: BlockNumberOrTag,
-    ) -> Result<Option<Block<OpTransaction>>, EngineClientError> {
-        let storage = self.storage.read().await;
-        Ok(storage.l2_blocks_by_label.get(&numtag).cloned())
-    }
-
-    async fn l2_block_info_by_label(
-        &self,
-        numtag: BlockNumberOrTag,
-    ) -> Result<Option<L2BlockInfo>, EngineClientError> {
-        let storage = self.storage.read().await;
-        Ok(storage.block_info_by_tag.get(&numtag).copied())
-    }
-}
-
-#[async_trait]
-impl OpEngineApi<Optimism, Http<HyperAuthClient>> for MockEngineClient {
     async fn new_payload_v2(
         &self,
         _payload: ExecutionPayloadInputV2,
@@ -616,62 +519,20 @@ impl OpEngineApi<Optimism, Http<HyperAuthClient>> for MockEngineClient {
         })
     }
 
-    async fn get_payload_bodies_by_hash_v1(
+    async fn l2_block_by_label(
         &self,
-        _block_hashes: Vec<BlockHash>,
-    ) -> TransportResult<ExecutionPayloadBodiesV1> {
+        numtag: BlockNumberOrTag,
+    ) -> Result<Option<Block<OpTransaction>>, EngineClientError> {
         let storage = self.storage.read().await;
-        storage.get_payload_bodies_by_hash_v1_response.clone().ok_or_else(|| {
-            TransportError::from(TransportErrorKind::custom_str(
-                "get_payload_bodies_by_hash_v1 was called but no response configured. \
-                 Use with_payload_bodies_by_hash_response() or set_payload_bodies_by_hash_response() to set a response."
-            ))
-        })
+        Ok(storage.l2_blocks_by_label.get(&numtag).cloned())
     }
 
-    async fn get_payload_bodies_by_range_v1(
+    async fn l2_block_info_by_label(
         &self,
-        _start: u64,
-        _count: u64,
-    ) -> TransportResult<ExecutionPayloadBodiesV1> {
+        numtag: BlockNumberOrTag,
+    ) -> Result<Option<L2BlockInfo>, EngineClientError> {
         let storage = self.storage.read().await;
-        storage.get_payload_bodies_by_range_v1_response.clone().ok_or_else(|| {
-            TransportError::from(TransportErrorKind::custom_str(
-                "get_payload_bodies_by_range_v1 was called but no response configured. \
-                 Use with_payload_bodies_by_range_response() or set_payload_bodies_by_range_response() to set a response."
-            ))
-        })
-    }
-
-    async fn get_client_version_v1(
-        &self,
-        _client_version: ClientVersionV1,
-    ) -> TransportResult<Vec<ClientVersionV1>> {
-        let storage = self.storage.read().await;
-        storage.client_versions.clone().ok_or_else(|| {
-            TransportError::from(TransportErrorKind::custom_str("No client versions set in mock"))
-        })
-    }
-
-    async fn signal_superchain_v1(
-        &self,
-        _recommended: ProtocolVersion,
-        _required: ProtocolVersion,
-    ) -> TransportResult<ProtocolVersion> {
-        let storage = self.storage.read().await;
-        storage.protocol_version.ok_or_else(|| {
-            TransportError::from(TransportErrorKind::custom_str("No protocol version set in mock"))
-        })
-    }
-
-    async fn exchange_capabilities(
-        &self,
-        _capabilities: Vec<String>,
-    ) -> TransportResult<Vec<String>> {
-        let storage = self.storage.read().await;
-        storage.capabilities.clone().ok_or_else(|| {
-            TransportError::from(TransportErrorKind::custom_str("No capabilities set in mock"))
-        })
+        Ok(storage.block_info_by_tag.get(&numtag).copied())
     }
 }
 
@@ -799,5 +660,25 @@ mod tests {
         // Verify the pre-configured response is returned
         let result = mock.new_payload_v2(payload).await.unwrap();
         assert_eq!(result.status, status.status);
+    }
+
+    /// Verify that `EngineClient` is transport-agnostic: a struct with no HTTP types whatsoever
+    /// can implement it and be used where `EngineClient` is required as a generic bound.
+    ///
+    /// This is the compile-time proof that removing `OpEngineApi<Optimism, Http<HyperAuthClient>>`
+    /// as a supertrait achieved the intended goal.
+    #[tokio::test]
+    async fn test_engine_client_is_transport_agnostic() {
+        // MockEngineClient has no HTTP types — it uses in-memory storage.
+        // If EngineClient still required OpEngineApi<Optimism, Http<HyperAuthClient>>,
+        // this would fail to compile.
+        fn assert_engine_client<C: EngineClient>(_: &C) {}
+
+        let mock = test_engine_client_builder().build();
+        assert_engine_client(&mock);
+
+        // Also verify it works as a trait object (dyn EngineClient).
+        let boxed: Box<dyn EngineClient> = Box::new(mock);
+        assert_eq!(boxed.cfg().block_time, RollupConfig::default().block_time);
     }
 }

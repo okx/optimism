@@ -64,10 +64,16 @@ pub enum EngineClientError {
 pub type HyperAuthClient<B = Full<Bytes>> = HyperClient<B, AuthService<Client<HttpConnector, B>>>;
 
 /// Engine API client used to communicate with L1/L2 ELs and optional rollup-boost.
-/// `EngineClient` trait that is very coupled to its only implementation.
-/// The main reason this exists is for mocking/unit testing.
+///
+/// This trait is transport-agnostic: it does not require an HTTP implementation, so it
+/// can be satisfied by both the standard [`OpEngineClient`] (HTTP/JWT) and by in-process
+/// implementations that send messages directly to an execution-layer engine via channels.
+///
+/// All Engine API methods used by the engine task queue
+/// (`BuildTask`, `InsertTask`, `SealTask`, `SynchronizeTask`) are declared here explicitly
+/// rather than inherited from a transport-specific supertrait.
 #[async_trait]
-pub trait EngineClient: OpEngineApi<Optimism, Http<HyperAuthClient>> + Send + Sync {
+pub trait EngineClient: Send + Sync {
     /// Returns a reference to the inner [`RollupConfig`].
     fn cfg(&self) -> &RollupConfig;
 
@@ -85,8 +91,68 @@ pub trait EngineClient: OpEngineApi<Optimism, Http<HyperAuthClient>> + Send + Sy
         keys: Vec<StorageKey>,
     ) -> RpcWithBlock<(Address, Vec<StorageKey>), EIP1186AccountProofResponse>;
 
+    // ── Engine API: new_payload ──────────────────────────────────────────────
+
     /// Sends the given payload to the execution layer client, as specified for the Paris fork.
     async fn new_payload_v1(&self, payload: ExecutionPayloadV1) -> TransportResult<PayloadStatus>;
+
+    /// Sends the given payload to the execution layer client, as specified for the Shanghai fork.
+    async fn new_payload_v2(
+        &self,
+        payload: ExecutionPayloadInputV2,
+    ) -> TransportResult<PayloadStatus>;
+
+    /// Sends the given payload to the execution layer client, as specified for the Cancun fork.
+    async fn new_payload_v3(
+        &self,
+        payload: ExecutionPayloadV3,
+        parent_beacon_block_root: B256,
+    ) -> TransportResult<PayloadStatus>;
+
+    /// Sends the given payload to the execution layer client, as specified for the Isthmus fork.
+    async fn new_payload_v4(
+        &self,
+        payload: OpExecutionPayloadV4,
+        parent_beacon_block_root: B256,
+    ) -> TransportResult<PayloadStatus>;
+
+    // ── Engine API: forkchoiceUpdated ────────────────────────────────────────
+
+    /// Sends a forkchoice update to the execution layer client, as specified for the Shanghai fork.
+    async fn fork_choice_updated_v2(
+        &self,
+        fork_choice_state: ForkchoiceState,
+        payload_attributes: Option<OpPayloadAttributes>,
+    ) -> TransportResult<ForkchoiceUpdated>;
+
+    /// Sends a forkchoice update to the execution layer client, as specified for the Cancun fork.
+    async fn fork_choice_updated_v3(
+        &self,
+        fork_choice_state: ForkchoiceState,
+        payload_attributes: Option<OpPayloadAttributes>,
+    ) -> TransportResult<ForkchoiceUpdated>;
+
+    // ── Engine API: getPayload ───────────────────────────────────────────────
+
+    /// Returns the payload for the given payload ID, as specified for the Shanghai fork.
+    async fn get_payload_v2(
+        &self,
+        payload_id: PayloadId,
+    ) -> TransportResult<ExecutionPayloadEnvelopeV2>;
+
+    /// Returns the payload for the given payload ID, as specified for the Cancun fork.
+    async fn get_payload_v3(
+        &self,
+        payload_id: PayloadId,
+    ) -> TransportResult<OpExecutionPayloadEnvelopeV3>;
+
+    /// Returns the payload for the given payload ID, as specified for the Isthmus fork.
+    async fn get_payload_v4(
+        &self,
+        payload_id: PayloadId,
+    ) -> TransportResult<OpExecutionPayloadEnvelopeV4>;
+
+    // ── L2 chain helpers ─────────────────────────────────────────────────────
 
     /// Fetches the [`Block<Transaction>`] for the given [`BlockNumberOrTag`].
     async fn l2_block_by_label(
@@ -301,6 +367,93 @@ where
 
     async fn new_payload_v1(&self, payload: ExecutionPayloadV1) -> TransportResult<PayloadStatus> {
         self.engine.new_payload_v1(payload).await
+    }
+
+    async fn new_payload_v2(
+        &self,
+        payload: ExecutionPayloadInputV2,
+    ) -> TransportResult<PayloadStatus> {
+        <L2Provider as OpEngineApi<Optimism, Http<HyperAuthClient>>>::new_payload_v2(
+            &self.engine,
+            payload,
+        )
+        .await
+    }
+
+    async fn new_payload_v3(
+        &self,
+        payload: ExecutionPayloadV3,
+        parent_beacon_block_root: B256,
+    ) -> TransportResult<PayloadStatus> {
+        self.rollup_boost.new_payload_v3(payload, vec![], parent_beacon_block_root).await.map_err(
+            |err| RollupBoostServerError::from(err).into(),
+        )
+    }
+
+    async fn new_payload_v4(
+        &self,
+        payload: OpExecutionPayloadV4,
+        parent_beacon_block_root: B256,
+    ) -> TransportResult<PayloadStatus> {
+        self.rollup_boost
+            .new_payload_v4(payload.clone(), vec![], parent_beacon_block_root, vec![])
+            .await
+            .map_err(|err| RollupBoostServerError::from(err).into())
+    }
+
+    async fn fork_choice_updated_v2(
+        &self,
+        fork_choice_state: ForkchoiceState,
+        payload_attributes: Option<OpPayloadAttributes>,
+    ) -> TransportResult<ForkchoiceUpdated> {
+        <L2Provider as OpEngineApi<Optimism, Http<HyperAuthClient>>>::fork_choice_updated_v2(
+            &self.engine,
+            fork_choice_state,
+            payload_attributes,
+        )
+        .await
+    }
+
+    async fn fork_choice_updated_v3(
+        &self,
+        fork_choice_state: ForkchoiceState,
+        payload_attributes: Option<OpPayloadAttributes>,
+    ) -> TransportResult<ForkchoiceUpdated> {
+        self.rollup_boost
+            .fork_choice_updated_v3(fork_choice_state, payload_attributes)
+            .await
+            .map_err(|err| RollupBoostServerError::from(err).into())
+    }
+
+    async fn get_payload_v2(
+        &self,
+        payload_id: PayloadId,
+    ) -> TransportResult<ExecutionPayloadEnvelopeV2> {
+        <L2Provider as OpEngineApi<Optimism, Http<HyperAuthClient>>>::get_payload_v2(
+            &self.engine,
+            payload_id,
+        )
+        .await
+    }
+
+    async fn get_payload_v3(
+        &self,
+        payload_id: PayloadId,
+    ) -> TransportResult<OpExecutionPayloadEnvelopeV3> {
+        self.rollup_boost
+            .get_payload_v3(payload_id)
+            .await
+            .map_err(|err| RollupBoostServerError::from(err).into())
+    }
+
+    async fn get_payload_v4(
+        &self,
+        payload_id: PayloadId,
+    ) -> TransportResult<OpExecutionPayloadEnvelopeV4> {
+        self.rollup_boost
+            .get_payload_v4(payload_id)
+            .await
+            .map_err(|err| RollupBoostServerError::from(err).into())
     }
 
     async fn l2_block_by_label(
