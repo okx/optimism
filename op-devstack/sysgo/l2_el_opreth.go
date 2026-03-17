@@ -261,7 +261,16 @@ func WithOpReth(id stack.L2ELNodeID, opts ...L2ELOption) stack.Option[*Orchestra
 			"--ws.api=admin,debug,eth,net,trace,txpool,web3,rpc,reth,miner",
 			"--ws.addr=127.0.0.1",
 			"--ws.port=0",
+			"--xlayer.enable-innertx",
 			"-vvvv",
+			"--txpool.max-account-slots=100000",
+			"--txpool.pending-max-count=100000",
+			"--txpool.queued-max-count=100000",
+			"--txpool.basefee-max-count=100000",
+			"--txpool.max-pending-txns=100000",
+			"--txpool.max-new-txns=100000",
+			"--txpool.pending-max-size=2000",
+			"--txpool.basefee-max-size=2000",
 		}
 
 		if areMetricsEnabled() {
