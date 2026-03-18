@@ -439,11 +439,13 @@ func CheckRequired(ctx *cli.Context, types []gameTypes.GameType) error {
 			return fmt.Errorf("flag %s is required", f.Names()[0])
 		}
 	}
-	if !ctx.IsSet(L2EthRpcFlag.Name) {
+	if !ctx.IsSet(L2EthRpcFlag.Name) && !onlyTeeGameTypes(types) { // For XLayer: TEE game type does not require L2 RPC
 		return fmt.Errorf("flag %s is required", L2EthRpcFlag.Name)
 	}
 	for _, gameType := range types {
 		switch gameType {
+		case gameTypes.TeeGameType: // For XLayer: TEE game type has no additional flag requirements
+			continue
 		case gameTypes.CannonGameType, gameTypes.PermissionedGameType:
 			if err := CheckCannonFlags(ctx); err != nil {
 				return err
@@ -665,5 +667,7 @@ func NewConfigFromCLI(ctx *cli.Context, logger log.Logger) (*config.Config, erro
 		AllowInvalidPrestate:              ctx.Bool(UnsafeAllowInvalidPrestate.Name),
 		ResponseDelay:                     ctx.Duration(ResponseDelayFlag.Name),
 		ResponseDelayAfter:                ctx.Uint64(ResponseDelayAfterFlag.Name),
+		TeeProverRpc:                      ctx.String(TeeProverRpcFlag.Name),         // For XLayer
+		TeeProvePollInterval:              ctx.Duration(TeeProvePollIntervalFlag.Name), // For XLayer
 	}, nil
 }

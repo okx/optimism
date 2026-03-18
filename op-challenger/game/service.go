@@ -11,6 +11,7 @@ import (
 	challengerClient "github.com/ethereum-optimism/optimism/op-challenger/game/client"
 	"github.com/ethereum-optimism/optimism/op-challenger/game/keccak"
 	"github.com/ethereum-optimism/optimism/op-challenger/game/keccak/fetcher"
+	"github.com/ethereum-optimism/optimism/op-challenger/game/tee" // For XLayer
 	"github.com/ethereum-optimism/optimism/op-challenger/game/zk"
 	"github.com/ethereum-optimism/optimism/op-challenger/sender"
 	"github.com/ethereum-optimism/optimism/op-service/sources"
@@ -226,6 +227,11 @@ func (s *Service) registerGameTypes(ctx context.Context, cfg *config.Config) err
 		return err
 	}
 	err = zk.RegisterGameTypes(ctx, s.l1Clock, s.logger, s.metrics, cfg, gameTypeRegistry, s.txSender, s.clientProvider, s.factoryContract)
+	if err != nil {
+		return err
+	}
+	// For XLayer
+	err = tee.RegisterGameTypes(ctx, s.l1Clock, s.logger, s.metrics, cfg, gameTypeRegistry, s.txSender, s.clientProvider, s.factoryContract)
 	if err != nil {
 		return err
 	}
