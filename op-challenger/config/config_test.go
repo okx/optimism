@@ -124,6 +124,9 @@ func validConfig(t *testing.T, gameType gameTypes.GameType) Config {
 	if gameType == gameTypes.OptimisticZKGameType {
 		applyValidConfigForOptimisticZK(&cfg)
 	}
+	if gameType == gameTypes.TeeGameType { // For XLayer
+		applyValidConfigForTee(&cfg)
+	}
 	return cfg
 }
 
