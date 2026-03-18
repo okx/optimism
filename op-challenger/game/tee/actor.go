@@ -54,8 +54,8 @@ type proveResult struct {
 
 // Actor is a TEE dispute game actor that defends proposals by submitting TEE proofs.
 // It uses a background goroutine pattern: when a prove is needed, a goroutine is started
-// that calls ProveAndWait (which polls at the user-configured interval). Act() checks
-// for results via a non-blocking channel read.
+// that calls ProveAndWait (which retries and polls at the user-configured interval). Act()
+// checks for results via a non-blocking channel read.
 type Actor struct {
 	logger             log.Logger
 	l1Clock            ClockReader
@@ -64,9 +64,11 @@ type Actor struct {
 	txSender           TxSender
 	gameStatusProvider GameStatusProvider
 	factory            *contracts.DisputeGameFactoryContract
+	proveTimeout       time.Duration    // total timeout for prove attempts including retries
 	serviceCtx         context.Context  // service-level ctx, outlives individual Act() calls
-	proveResultCh      chan proveResult // buffered(1), receives result from background goroutine
+	proveResultCh      chan proveResult  // buffered(1), receives result from background goroutine
 	proveInFlight      bool             // whether a background prove goroutine is running
+	proveGivenUp       bool             // true after prove timeout or non-retryable error — no more retries
 }
 
 // ActorCreator returns a generic.ActorCreator that creates TEE Actors.
@@ -74,6 +76,7 @@ func ActorCreator(
 	serviceCtx context.Context,
 	l1Clock ClockReader,
 	proverClient *ProverClient,
+	proveTimeout time.Duration,
 	gameStatusProvider GameStatusProvider,
 	contract ProvableContract,
 	txSender TxSender,
@@ -88,6 +91,7 @@ func ActorCreator(
 			txSender:           txSender,
 			gameStatusProvider: gameStatusProvider,
 			factory:            factory,
+			proveTimeout:       proveTimeout,
 			serviceCtx:         serviceCtx,
 			proveResultCh:      make(chan proveResult, 1),
 		}, nil
@@ -107,8 +111,20 @@ func (a *Actor) Act(ctx context.Context) error {
 	case result := <-a.proveResultCh:
 		a.proveInFlight = false
 		if result.err != nil {
-			a.logger.Error("Background TEE prove failed", "err", result.err, "game", a.contract.Addr())
-			// Don't return error — allow resolve logic to proceed, prove can retry next Act cycle
+			// Two possible errors from ProveAndWait:
+			// 1. context.DeadlineExceeded — proveTimeout (default 1h) expired after retries
+			// 2. errNonRetryable — code=10001 invalid params, retrying won't help
+			a.proveGivenUp = true
+			if errors.Is(result.err, context.DeadlineExceeded) {
+				a.logger.Error("TEE prove timed out, giving up",
+					"timeout", a.proveTimeout, "game", a.contract.Addr())
+			} else if errors.Is(result.err, errNonRetryable) {
+				a.logger.Error("TEE prove failed with non-retryable error, giving up",
+					"err", result.err, "game", a.contract.Addr())
+			} else {
+				a.logger.Error("TEE prove failed, giving up",
+					"err", result.err, "game", a.contract.Addr())
+			}
 		} else {
 			a.logger.Info("Background TEE prove finished, submitting proof", "game", a.contract.Addr())
 			tx, err := a.contract.ProveTx(ctx, result.proofBytes)
@@ -121,8 +137,8 @@ func (a *Actor) Act(ctx context.Context) error {
 		// No result yet
 	}
 
-	// 2. Start background prove if needed and not already in flight
-	if len(txs) == 0 && !a.proveInFlight {
+	// 2. Start background prove if needed, not already in flight, and not given up
+	if len(txs) == 0 && !a.proveInFlight && !a.proveGivenUp {
 		if err := a.tryStartProve(ctx, metadata); errors.Is(err, errNoProveRequired) {
 			a.logger.Debug("No prove required")
 		} else if err != nil {
@@ -163,12 +179,12 @@ func (a *Actor) tryStartProve(ctx context.Context, metadata contracts.Challenger
 	}
 
 	req := ProveRequest{
-		PreAppHash:       params.StartStateHash,
-		PostAppHash:      params.EndStateHash,
-		StartBlockHeight: params.StartBlockNum,
-		EndBlockHeight:   params.EndBlockNum,
-		StartBlockHash:   params.StartBlockHash,
-		EndBlockHash:     params.EndBlockHash,
+		StartBlkHeight:    params.StartBlockNum,
+		EndBlkHeight:      params.EndBlockNum,
+		StartBlkHash:      params.StartBlockHash,
+		EndBlkHash:        params.EndBlockHash,
+		StartBlkStateHash: params.StartStateHash,
+		EndBlkStateHash:   params.EndStateHash,
 	}
 
 	a.logger.Info("Starting background TEE prove",
@@ -178,9 +194,12 @@ func (a *Actor) tryStartProve(ctx context.Context, metadata contracts.Challenger
 
 	a.proveInFlight = true
 	go func() {
-		// Use serviceCtx so the goroutine survives individual Act() calls,
-		// but is cancelled when the service shuts down.
-		proofBytes, err := a.proverClient.ProveAndWait(a.serviceCtx, req)
+		// Use proveTimeout to bound the total prove time (including retries).
+		// The ctx is derived from serviceCtx so the goroutine survives individual
+		// Act() calls, but is cancelled when the service shuts down or timeout expires.
+		timeoutCtx, cancel := context.WithTimeout(a.serviceCtx, a.proveTimeout)
+		defer cancel()
+		proofBytes, err := a.proverClient.ProveAndWait(timeoutCtx, req)
 		a.proveResultCh <- proveResult{proofBytes: proofBytes, err: err}
 	}()
 
@@ -231,6 +250,9 @@ func (a *Actor) AdditionalStatus(ctx context.Context) ([]any, error) {
 	status := []any{"proposalStatus", metadata.ProposalStatus}
 	if a.proveInFlight {
 		status = append(status, "proveInFlight", true)
+	}
+	if a.proveGivenUp {
+		status = append(status, "proveGivenUp", true)
 	}
 	return status, nil
 }

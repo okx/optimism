@@ -3,8 +3,8 @@ package tee
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,44 +16,55 @@ import (
 )
 
 const (
-	defaultProvePath = "/prove"
-	defaultTaskPath  = "/task/%s"
+	taskBasePath = "/v1/task/"
 )
 
 // Task statuses returned by the TEE Prover.
 const (
-	TaskStatusFinished = "FINISHED"
-	TaskStatusPending  = "PENDING"
-	TaskStatusNotFound = "NOT_FOUND"
+	TaskStatusRunning  = "Running"
+	TaskStatusFinished = "Finished"
+	TaskStatusFailed   = "Failed"
 )
+
+// TEE Prover error codes.
+const (
+	codeOK             = 0
+	codeInvalidSig     = 10000 // Invalid signature — retryable
+	codeInvalidParams  = 10001 // Invalid parameters — NOT retryable
+	codeTaskNotFound   = 10004 // Task not found — triggers re-POST
+	codeInternalError  = 20001 // Internal error — retryable
+)
+
+// errNonRetryable is returned when the TEE Prover returns an error that should not be retried.
+var errNonRetryable = errors.New("non-retryable prover error")
 
 // ProveRequest is sent to the TEE Prover to initiate a proof task.
 type ProveRequest struct {
-	PreAppHash       common.Hash `json:"preAppHash"`
-	PostAppHash      common.Hash `json:"postAppHash"`
-	StartBlockHeight uint64      `json:"startBlockHeight"`
-	EndBlockHeight   uint64      `json:"endBlockHeight"`
-	StartBlockHash   common.Hash `json:"startBlockHash"`
-	EndBlockHash     common.Hash `json:"endBlockHash"`
+	StartBlkHeight    uint64      `json:"startBlkHeight"`
+	EndBlkHeight      uint64      `json:"endBlkHeight"`
+	StartBlkHash      common.Hash `json:"startBlkHash"`
+	EndBlkHash        common.Hash `json:"endBlkHash"`
+	StartBlkStateHash common.Hash `json:"startBlkStateHash"`
+	EndBlkStateHash   common.Hash `json:"endBlkStateHash"`
 }
 
-// ProveResponse is the response from the TEE Prover after submitting a prove task.
-type ProveResponse struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	Data    struct {
-		TaskID string `json:"taskId"`
-	} `json:"data"`
+// ProverResponse is the generic response envelope from the TEE Prover.
+type ProverResponse struct {
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data"`
 }
 
-// TaskResult is the response from polling a prove task's status.
-type TaskResult struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	Data    struct {
-		Status     string `json:"status"`
-		ProofBytes string `json:"proofBytes"`
-	} `json:"data"`
+// CreateTaskData is the data returned from POST /v1/task/.
+type CreateTaskData struct {
+	TaskID string `json:"taskId"`
+}
+
+// TaskResultData is the data returned from GET /v1/task/{taskId}.
+type TaskResultData struct {
+	Status     string `json:"status"`
+	ProofBytes string `json:"proofBytes"`
+	Detail     any    `json:"detail"`
 }
 
 // ProverClient communicates with the TEE Prover HTTP service.
@@ -81,7 +92,7 @@ func (c *ProverClient) Prove(ctx context.Context, req ProveRequest) (string, err
 		return "", fmt.Errorf("failed to marshal prove request: %w", err)
 	}
 
-	url := c.baseURL + defaultProvePath
+	url := c.baseURL + taskBasePath
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("failed to create prove request: %w", err)
@@ -103,17 +114,30 @@ func (c *ProverClient) Prove(ctx context.Context, req ProveRequest) (string, err
 		return "", fmt.Errorf("prove request failed with status %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	var proveResp ProveResponse
+	var proveResp ProverResponse
 	if err := json.Unmarshal(respBody, &proveResp); err != nil {
 		return "", fmt.Errorf("failed to unmarshal prove response: %w", err)
 	}
 
-	return proveResp.Data.TaskID, nil
+	if proveResp.Code != codeOK {
+		err := fmt.Errorf("prove request returned error code %d: %s", proveResp.Code, proveResp.Message)
+		if proveResp.Code == codeInvalidParams {
+			return "", fmt.Errorf("%w: %w", errNonRetryable, err)
+		}
+		return "", err
+	}
+
+	var data CreateTaskData
+	if err := json.Unmarshal(proveResp.Data, &data); err != nil {
+		return "", fmt.Errorf("failed to unmarshal prove response data: %w", err)
+	}
+
+	return data.TaskID, nil
 }
 
-// GetTaskResult polls the status of a prove task.
-func (c *ProverClient) GetTaskResult(ctx context.Context, taskID string) (*TaskResult, error) {
-	url := c.baseURL + fmt.Sprintf(defaultTaskPath, taskID)
+// GetTaskResult queries the status of a prove task.
+func (c *ProverClient) GetTaskResult(ctx context.Context, taskID string) (*TaskResultData, error) {
+	url := c.baseURL + taskBasePath + taskID
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task request: %w", err)
@@ -134,23 +158,109 @@ func (c *ProverClient) GetTaskResult(ctx context.Context, taskID string) (*TaskR
 		return nil, fmt.Errorf("task request failed with status %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	var result TaskResult
-	if err := json.Unmarshal(respBody, &result); err != nil {
+	var envelope ProverResponse
+	if err := json.Unmarshal(respBody, &envelope); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal task response: %w", err)
 	}
 
-	return &result, nil
-}
-
-// ProveAndWait submits a proof request and polls until it is finished or the context is cancelled.
-func (c *ProverClient) ProveAndWait(ctx context.Context, req ProveRequest) ([]byte, error) {
-	taskID, err := c.Prove(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to submit prove task: %w", err)
+	if envelope.Code == codeTaskNotFound {
+		return nil, fmt.Errorf("task %s not found (code %d)", taskID, codeTaskNotFound)
+	}
+	if envelope.Code != codeOK {
+		return nil, fmt.Errorf("task request returned error code %d: %s", envelope.Code, envelope.Message)
 	}
 
-	c.logger.Info("TEE prove task submitted", "taskID", taskID)
+	var data TaskResultData
+	if err := json.Unmarshal(envelope.Data, &data); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal task result data: %w", err)
+	}
 
+	return &data, nil
+}
+
+// DeleteTask terminates and deletes a prove task.
+func (c *ProverClient) DeleteTask(ctx context.Context, taskID string) error {
+	url := c.baseURL + taskBasePath + taskID
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create delete request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("failed to send delete request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read delete response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("delete request failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var envelope ProverResponse
+	if err := json.Unmarshal(respBody, &envelope); err != nil {
+		return fmt.Errorf("failed to unmarshal delete response: %w", err)
+	}
+
+	// code=10001 on DELETE means task already gone — treat as success
+	if envelope.Code != codeOK && envelope.Code != codeInvalidParams {
+		return fmt.Errorf("delete request returned error code %d: %s", envelope.Code, envelope.Message)
+	}
+
+	return nil
+}
+
+// ProveAndWait submits a proof request and retries until it succeeds or the context is cancelled.
+// On task failure (Failed status), it re-submits a new task. On non-retryable errors (code=10001),
+// it returns immediately. The ctx should have a timeout set by the caller to bound total prove time.
+func (c *ProverClient) ProveAndWait(ctx context.Context, req ProveRequest) ([]byte, error) {
+	for {
+		// 1. Submit task
+		taskID, err := c.Prove(ctx, req)
+		if err != nil {
+			if errors.Is(err, errNonRetryable) {
+				return nil, err
+			}
+			// Retryable error (10000, 20001, HTTP 5xx) — wait and retry
+			c.logger.Warn("Prove request failed, will retry", "err", err)
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(c.pollInterval):
+				continue
+			}
+		}
+
+		c.logger.Info("TEE prove task submitted", "taskID", taskID)
+
+		// 2. Poll task status
+		proofBytes, err := c.pollTask(ctx, taskID)
+		if err == nil {
+			return proofBytes, nil
+		}
+
+		// 3. Non-retryable → return immediately
+		if errors.Is(err, errNonRetryable) {
+			return nil, err
+		}
+
+		// 4. Retryable (Failed / task not found / HTTP error) → wait and re-POST
+		c.logger.Warn("Task failed, will re-submit", "taskID", taskID, "err", err)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(c.pollInterval):
+			continue
+		}
+	}
+}
+
+// pollTask polls a task until it finishes, fails, or the context is cancelled.
+func (c *ProverClient) pollTask(ctx context.Context, taskID string) ([]byte, error) {
 	ticker := time.NewTicker(c.pollInterval)
 	defer ticker.Stop()
 
@@ -161,24 +271,20 @@ func (c *ProverClient) ProveAndWait(ctx context.Context, req ProveRequest) ([]by
 		case <-ticker.C:
 			result, err := c.GetTaskResult(ctx, taskID)
 			if err != nil {
-				c.logger.Warn("Failed to poll TEE prove task", "taskID", taskID, "err", err)
-				continue
+				// HTTP error or task not found → return to outer retry loop
+				return nil, err
 			}
 
-			switch result.Data.Status {
+			switch result.Status {
 			case TaskStatusFinished:
 				c.logger.Info("TEE prove task finished", "taskID", taskID)
-				proofBytes, err := hex.DecodeString(strings.TrimPrefix(result.Data.ProofBytes, "0x"))
-				if err != nil {
-					return nil, fmt.Errorf("failed to decode proof bytes: %w", err)
-				}
-				return proofBytes, nil
-			case TaskStatusPending:
-				c.logger.Debug("TEE prove task still pending", "taskID", taskID)
-			case TaskStatusNotFound:
-				return nil, fmt.Errorf("TEE prove task not found: %s", taskID)
+				return decodeProofBytes(result.ProofBytes)
+			case TaskStatusFailed:
+				return nil, fmt.Errorf("task %s failed: %v", taskID, result.Detail)
+			case TaskStatusRunning:
+				c.logger.Debug("TEE prove task still running", "taskID", taskID)
 			default:
-				c.logger.Warn("Unknown TEE prove task status", "taskID", taskID, "status", result.Data.Status)
+				c.logger.Warn("Unknown TEE prove task status", "taskID", taskID, "status", result.Status)
 			}
 		}
 	}

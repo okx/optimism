@@ -91,6 +91,7 @@ type Config struct {
 	// For XLayer: TEE Dispute Game config
 	TeeProverRpc         string        // TEE Prover HTTP service URL
 	TeeProvePollInterval time.Duration // Polling interval for TEE Prover task status
+	TeeProveTimeout      time.Duration // Total timeout for a single game's prove attempt (including retries)
 
 	MaxPendingTx uint64 // Maximum number of pending transactions (0 == no limit)
 

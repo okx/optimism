@@ -32,6 +32,7 @@ func RegisterGameTypes(
 	}
 
 	proverClient := NewProverClient(cfg.TeeProverRpc, cfg.TeeProvePollInterval, logger)
+	proveTimeout := cfg.TeeProveTimeout
 
 	registry.RegisterGameType(gameTypes.TeeGameType, func(game gameTypes.GameMetadata, dir string) (scheduler.GamePlayer, error) {
 		contract, err := contracts.NewTeeDisputeGameContract(m, game.Proxy, clients.MultiCaller())
@@ -46,7 +47,7 @@ func RegisterGameTypes(
 			&client.NoopSyncStatusValidator{},
 			nil,
 			clients.L1Client(),
-			ActorCreator(ctx, l1Clock, proverClient, factoryContract, contract, txSender, factoryContract),
+			ActorCreator(ctx, l1Clock, proverClient, proveTimeout, factoryContract, contract, txSender, factoryContract),
 		)
 	})
 

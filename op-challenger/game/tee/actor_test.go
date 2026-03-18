@@ -87,14 +87,11 @@ func TestActor(t *testing.T) {
 			setup: func(t *testing.T, actor *Actor, stubs *teeTestStubs) {
 				stubs.contract.setDeadlineNotReached()
 				stubs.contract.challenge(t)
-				// Pre-load error result
+				// Pre-load error result — actor should set proveGivenUp=true
 				actor.proveResultCh <- proveResult{err: errors.New("tee prover failed")}
 				actor.proveInFlight = true
-				// After error, prove can retry (new goroutine starts), but no tx this cycle
-				// Note: the second tryStartProve will try to start a goroutine,
-				// but since the contract GetProveParams will succeed, it will launch one.
-				// For this test, the key assertion is no prove tx is sent.
 			},
+			// No prove or resolve tx — error consumed, proveGivenUp=true, no retry
 		},
 		{
 			name: "ChallengedExpiredNoProof",
@@ -188,7 +185,7 @@ func TestActorProveResultClearsInFlight(t *testing.T) {
 	require.False(t, actor.proveInFlight, "proveInFlight should be cleared after result consumed")
 }
 
-func TestActorProveErrorClearsInFlight(t *testing.T) {
+func TestActorProveErrorSetsGivenUp(t *testing.T) {
 	actor, stubs := setupTeeActorTest(t)
 	stubs.contract.setDeadlineNotReached()
 	stubs.contract.challenge(t)
@@ -198,9 +195,33 @@ func TestActorProveErrorClearsInFlight(t *testing.T) {
 
 	err := actor.Act(context.Background())
 	require.NoError(t, err)
-	// After error consumed, proveInFlight is cleared, then tryStartProve
-	// re-launches a goroutine (Challenged + deadline not expired), so proveInFlight is true again.
-	require.True(t, actor.proveInFlight, "proveInFlight should be true after retry goroutine started")
+	require.False(t, actor.proveInFlight, "proveInFlight should be cleared after error consumed")
+	require.True(t, actor.proveGivenUp, "proveGivenUp should be set after error")
+}
+
+func TestActorProveTimeoutSetsGivenUp(t *testing.T) {
+	actor, stubs := setupTeeActorTest(t)
+	stubs.contract.setDeadlineNotReached()
+	stubs.contract.challenge(t)
+
+	actor.proveInFlight = true
+	actor.proveResultCh <- proveResult{err: context.DeadlineExceeded}
+
+	err := actor.Act(context.Background())
+	require.NoError(t, err)
+	require.True(t, actor.proveGivenUp, "proveGivenUp should be set after timeout")
+}
+
+func TestActorProveGivenUpSkipsProve(t *testing.T) {
+	actor, stubs := setupTeeActorTest(t)
+	stubs.contract.setDeadlineNotReached()
+	stubs.contract.challenge(t)
+	actor.proveGivenUp = true // Already given up
+
+	err := actor.Act(context.Background())
+	require.NoError(t, err)
+	require.False(t, actor.proveInFlight, "should not start prove goroutine when given up")
+	require.Len(t, stubs.sender.sentData, 0, "no tx should be sent")
 }
 
 func setupTeeActorTest(t *testing.T) (*Actor, *teeTestStubs) {
@@ -224,6 +245,7 @@ func setupTeeActorTest(t *testing.T) (*Actor, *teeTestStubs) {
 		txSender:           txSender,
 		gameStatusProvider: contract,
 		factory:            nil,
+		proveTimeout:       1 * time.Hour,
 		serviceCtx:         context.Background(),
 		proveResultCh:      make(chan proveResult, 1),
 	}

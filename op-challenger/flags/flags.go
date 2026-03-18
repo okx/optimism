@@ -667,7 +667,8 @@ func NewConfigFromCLI(ctx *cli.Context, logger log.Logger) (*config.Config, erro
 		AllowInvalidPrestate:              ctx.Bool(UnsafeAllowInvalidPrestate.Name),
 		ResponseDelay:                     ctx.Duration(ResponseDelayFlag.Name),
 		ResponseDelayAfter:                ctx.Uint64(ResponseDelayAfterFlag.Name),
-		TeeProverRpc:                      ctx.String(TeeProverRpcFlag.Name),         // For XLayer
+		TeeProverRpc:                      ctx.String(TeeProverRpcFlag.Name),          // For XLayer
 		TeeProvePollInterval:              ctx.Duration(TeeProvePollIntervalFlag.Name), // For XLayer
+		TeeProveTimeout:                   ctx.Duration(TeeProveTimeoutFlag.Name),      // For XLayer
 	}, nil
 }

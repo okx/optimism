@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,21 +21,21 @@ func TestProveSuccess(t *testing.T) {
 	expectedTaskID := "task-abc-123"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
-		require.Equal(t, "/prove", r.URL.Path)
+		require.Equal(t, "/v1/task/", r.URL.Path)
 		require.Equal(t, "application/json", r.Header.Get("Content-Type"))
 
 		var req ProveRequest
 		err := json.NewDecoder(r.Body).Decode(&req)
 		require.NoError(t, err)
-		require.Equal(t, common.Hash{0x01}, req.PreAppHash)
-		require.Equal(t, common.Hash{0x02}, req.PostAppHash)
-		require.Equal(t, uint64(100), req.StartBlockHeight)
-		require.Equal(t, uint64(200), req.EndBlockHeight)
-		require.Equal(t, common.Hash{0x03}, req.StartBlockHash)
-		require.Equal(t, common.Hash{0x04}, req.EndBlockHash)
+		require.Equal(t, common.Hash{0x01}, req.StartBlkStateHash)
+		require.Equal(t, common.Hash{0x02}, req.EndBlkStateHash)
+		require.Equal(t, uint64(100), req.StartBlkHeight)
+		require.Equal(t, uint64(200), req.EndBlkHeight)
+		require.Equal(t, common.Hash{0x03}, req.StartBlkHash)
+		require.Equal(t, common.Hash{0x04}, req.EndBlkHash)
 
-		resp := ProveResponse{Code: "0", Message: "ok"}
-		resp.Data.TaskID = expectedTaskID
+		data, _ := json.Marshal(CreateTaskData{TaskID: expectedTaskID})
+		resp := ProverResponse{Code: codeOK, Message: "ok", Data: data}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 	}))
@@ -42,12 +43,12 @@ func TestProveSuccess(t *testing.T) {
 
 	client := NewProverClient(server.URL, time.Second, testlog.Logger(t, log.LvlInfo))
 	taskID, err := client.Prove(context.Background(), ProveRequest{
-		PreAppHash:       common.Hash{0x01},
-		PostAppHash:      common.Hash{0x02},
-		StartBlockHeight: 100,
-		EndBlockHeight:   200,
-		StartBlockHash:   common.Hash{0x03},
-		EndBlockHash:     common.Hash{0x04},
+		StartBlkStateHash: common.Hash{0x01},
+		EndBlkStateHash:   common.Hash{0x02},
+		StartBlkHeight:    100,
+		EndBlkHeight:      200,
+		StartBlkHash:      common.Hash{0x03},
+		EndBlkHash:        common.Hash{0x04},
 	})
 	require.NoError(t, err)
 	require.Equal(t, expectedTaskID, taskID)
@@ -78,14 +79,42 @@ func TestProveBadResponse(t *testing.T) {
 	require.Contains(t, err.Error(), "unmarshal")
 }
 
+func TestProveNonRetryableError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := ProverResponse{Code: codeInvalidParams, Message: "invalid params"}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := NewProverClient(server.URL, time.Second, testlog.Logger(t, log.LvlInfo))
+	_, err := client.Prove(context.Background(), ProveRequest{})
+	require.Error(t, err)
+	require.ErrorIs(t, err, errNonRetryable)
+}
+
+func TestProveRetryableErrorCode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := ProverResponse{Code: codeInternalError, Message: "internal error"}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := NewProverClient(server.URL, time.Second, testlog.Logger(t, log.LvlInfo))
+	_, err := client.Prove(context.Background(), ProveRequest{})
+	require.Error(t, err)
+	require.NotErrorIs(t, err, errNonRetryable, "internal error should be retryable")
+}
+
 func TestGetTaskFinished(t *testing.T) {
 	proofHex := "0xdeadbeef"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodGet, r.Method)
-		require.Equal(t, "/task/task-123", r.URL.Path)
-		resp := TaskResult{Code: "0", Message: "ok"}
-		resp.Data.Status = TaskStatusFinished
-		resp.Data.ProofBytes = proofHex
+		require.Equal(t, "/v1/task/task-123", r.URL.Path)
+		data, _ := json.Marshal(TaskResultData{
+			Status:     TaskStatusFinished,
+			ProofBytes: proofHex,
+		})
+		resp := ProverResponse{Code: codeOK, Message: "ok", Data: data}
 		json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
@@ -93,14 +122,14 @@ func TestGetTaskFinished(t *testing.T) {
 	client := NewProverClient(server.URL, time.Second, testlog.Logger(t, log.LvlInfo))
 	result, err := client.GetTaskResult(context.Background(), "task-123")
 	require.NoError(t, err)
-	require.Equal(t, TaskStatusFinished, result.Data.Status)
-	require.Equal(t, proofHex, result.Data.ProofBytes)
+	require.Equal(t, TaskStatusFinished, result.Status)
+	require.Equal(t, proofHex, result.ProofBytes)
 }
 
-func TestGetTaskPending(t *testing.T) {
+func TestGetTaskRunning(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := TaskResult{Code: "0", Message: "ok"}
-		resp.Data.Status = TaskStatusPending
+		data, _ := json.Marshal(TaskResultData{Status: TaskStatusRunning})
+		resp := ProverResponse{Code: codeOK, Message: "ok", Data: data}
 		json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
@@ -108,22 +137,21 @@ func TestGetTaskPending(t *testing.T) {
 	client := NewProverClient(server.URL, time.Second, testlog.Logger(t, log.LvlInfo))
 	result, err := client.GetTaskResult(context.Background(), "task-456")
 	require.NoError(t, err)
-	require.Equal(t, TaskStatusPending, result.Data.Status)
-	require.Empty(t, result.Data.ProofBytes)
+	require.Equal(t, TaskStatusRunning, result.Status)
+	require.Empty(t, result.ProofBytes)
 }
 
 func TestGetTaskNotFound(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := TaskResult{Code: "0", Message: "ok"}
-		resp.Data.Status = TaskStatusNotFound
+		resp := ProverResponse{Code: codeTaskNotFound, Message: "not found"}
 		json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
 	client := NewProverClient(server.URL, time.Second, testlog.Logger(t, log.LvlInfo))
-	result, err := client.GetTaskResult(context.Background(), "task-789")
-	require.NoError(t, err)
-	require.Equal(t, TaskStatusNotFound, result.Data.Status)
+	_, err := client.GetTaskResult(context.Background(), "task-789")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not found")
 }
 
 func TestGetTaskServerError(t *testing.T) {
@@ -139,24 +167,54 @@ func TestGetTaskServerError(t *testing.T) {
 	require.Contains(t, err.Error(), "502")
 }
 
+func TestDeleteTask(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodDelete, r.Method)
+		require.Equal(t, "/v1/task/task-del", r.URL.Path)
+		resp := ProverResponse{Code: codeOK, Message: "ok"}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := NewProverClient(server.URL, time.Second, testlog.Logger(t, log.LvlInfo))
+	err := client.DeleteTask(context.Background(), "task-del")
+	require.NoError(t, err)
+}
+
+func TestDeleteTaskNotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// code=10001 on DELETE means task already gone — should be treated as success
+		resp := ProverResponse{Code: codeInvalidParams, Message: "task not found"}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := NewProverClient(server.URL, time.Second, testlog.Logger(t, log.LvlInfo))
+	err := client.DeleteTask(context.Background(), "task-gone")
+	require.NoError(t, err)
+}
+
 func TestProveAndWaitSuccess(t *testing.T) {
-	callCount := 0
+	var getCount atomic.Int32
 	expectedProof := []byte{0xde, 0xad, 0xbe, 0xef}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
-			resp := ProveResponse{Code: "0", Message: "ok"}
-			resp.Data.TaskID = "task-wait"
+			data, _ := json.Marshal(CreateTaskData{TaskID: "task-wait"})
+			resp := ProverResponse{Code: codeOK, Message: "ok", Data: data}
 			json.NewEncoder(w).Encode(resp)
 		case http.MethodGet:
-			callCount++
-			resp := TaskResult{Code: "0", Message: "ok"}
-			if callCount >= 2 {
-				resp.Data.Status = TaskStatusFinished
-				resp.Data.ProofBytes = fmt.Sprintf("0x%x", expectedProof)
+			count := getCount.Add(1)
+			var data []byte
+			if count >= 2 {
+				data, _ = json.Marshal(TaskResultData{
+					Status:     TaskStatusFinished,
+					ProofBytes: fmt.Sprintf("0x%x", expectedProof),
+				})
 			} else {
-				resp.Data.Status = TaskStatusPending
+				data, _ = json.Marshal(TaskResultData{Status: TaskStatusRunning})
 			}
+			resp := ProverResponse{Code: codeOK, Message: "ok", Data: data}
 			json.NewEncoder(w).Encode(resp)
 		}
 	}))
@@ -166,19 +224,110 @@ func TestProveAndWaitSuccess(t *testing.T) {
 	proof, err := client.ProveAndWait(context.Background(), ProveRequest{})
 	require.NoError(t, err)
 	require.Equal(t, expectedProof, proof)
-	require.GreaterOrEqual(t, callCount, 2)
+	require.GreaterOrEqual(t, int(getCount.Load()), 2)
+}
+
+func TestProveAndWaitRetryAfterFailed(t *testing.T) {
+	var postCount atomic.Int32
+	var getCount atomic.Int32
+	expectedProof := []byte{0xca, 0xfe}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			count := postCount.Add(1)
+			taskID := fmt.Sprintf("task-%d", count)
+			data, _ := json.Marshal(CreateTaskData{TaskID: taskID})
+			resp := ProverResponse{Code: codeOK, Message: "ok", Data: data}
+			json.NewEncoder(w).Encode(resp)
+		case http.MethodGet:
+			count := getCount.Add(1)
+			var data []byte
+			if postCount.Load() == 1 {
+				// First task: always fail
+				data, _ = json.Marshal(TaskResultData{
+					Status: TaskStatusFailed,
+					Detail: "compute error",
+				})
+			} else if count >= 3 {
+				// Second task: finish after a poll
+				data, _ = json.Marshal(TaskResultData{
+					Status:     TaskStatusFinished,
+					ProofBytes: fmt.Sprintf("0x%x", expectedProof),
+				})
+			} else {
+				data, _ = json.Marshal(TaskResultData{Status: TaskStatusRunning})
+			}
+			resp := ProverResponse{Code: codeOK, Message: "ok", Data: data}
+			json.NewEncoder(w).Encode(resp)
+		}
+	}))
+	defer server.Close()
+
+	client := NewProverClient(server.URL, 10*time.Millisecond, testlog.Logger(t, log.LvlInfo))
+	proof, err := client.ProveAndWait(context.Background(), ProveRequest{})
+	require.NoError(t, err)
+	require.Equal(t, expectedProof, proof)
+	require.GreaterOrEqual(t, int(postCount.Load()), 2, "should have re-submitted after failure")
+}
+
+func TestProveAndWaitNonRetryableError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Return code=10001 (invalid params) — non-retryable
+		resp := ProverResponse{Code: codeInvalidParams, Message: "bad params"}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := NewProverClient(server.URL, 10*time.Millisecond, testlog.Logger(t, log.LvlInfo))
+	_, err := client.ProveAndWait(context.Background(), ProveRequest{})
+	require.Error(t, err)
+	require.ErrorIs(t, err, errNonRetryable)
+}
+
+func TestProveAndWaitRetryAfterPostError(t *testing.T) {
+	var postCount atomic.Int32
+	expectedProof := []byte{0xbb}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			count := postCount.Add(1)
+			if count == 1 {
+				// First POST: server error (retryable)
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("overloaded"))
+				return
+			}
+			data, _ := json.Marshal(CreateTaskData{TaskID: "task-retry"})
+			resp := ProverResponse{Code: codeOK, Message: "ok", Data: data}
+			json.NewEncoder(w).Encode(resp)
+		case http.MethodGet:
+			data, _ := json.Marshal(TaskResultData{
+				Status:     TaskStatusFinished,
+				ProofBytes: fmt.Sprintf("0x%x", expectedProof),
+			})
+			resp := ProverResponse{Code: codeOK, Message: "ok", Data: data}
+			json.NewEncoder(w).Encode(resp)
+		}
+	}))
+	defer server.Close()
+
+	client := NewProverClient(server.URL, 10*time.Millisecond, testlog.Logger(t, log.LvlInfo))
+	proof, err := client.ProveAndWait(context.Background(), ProveRequest{})
+	require.NoError(t, err)
+	require.Equal(t, expectedProof, proof)
+	require.GreaterOrEqual(t, int(postCount.Load()), 2)
 }
 
 func TestProveAndWaitContextCancel(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
-			resp := ProveResponse{Code: "0", Message: "ok"}
-			resp.Data.TaskID = "task-cancel"
+			data, _ := json.Marshal(CreateTaskData{TaskID: "task-cancel"})
+			resp := ProverResponse{Code: codeOK, Message: "ok", Data: data}
 			json.NewEncoder(w).Encode(resp)
 		case http.MethodGet:
-			resp := TaskResult{Code: "0", Message: "ok"}
-			resp.Data.Status = TaskStatusPending
+			data, _ := json.Marshal(TaskResultData{Status: TaskStatusRunning})
+			resp := ProverResponse{Code: codeOK, Message: "ok", Data: data}
 			json.NewEncoder(w).Encode(resp)
 		}
 	}))

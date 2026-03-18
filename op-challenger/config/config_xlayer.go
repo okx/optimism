@@ -13,6 +13,7 @@ var (
 
 const (
 	DefaultTeeProvePollInterval = 30 * time.Second
+	DefaultTeeProveTimeout      = 1 * time.Hour
 )
 
 // xlayerConfigCheckers holds additional config validation functions registered by XLayer extensions.

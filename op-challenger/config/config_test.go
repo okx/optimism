@@ -511,6 +511,9 @@ func TestRollupRpcRequired(t *testing.T) {
 		if gameType == gameTypes.SuperCannonGameType || gameType == gameTypes.SuperPermissionedGameType || gameType == gameTypes.SuperCannonKonaGameType {
 			continue
 		}
+		if gameType == gameTypes.TeeGameType { // For XLayer: TEE doesn't require RollupRpc
+			continue
+		}
 		t.Run(gameType.String(), func(t *testing.T) {
 			config := validConfig(t, gameType)
 			config.RollupRpc = ""

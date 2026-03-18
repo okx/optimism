@@ -18,10 +18,16 @@ var (
 		EnvVars: prefixEnvVars("TEE_PROVE_POLL_INTERVAL"),
 		Value:   config.DefaultTeeProvePollInterval,
 	}
+	TeeProveTimeoutFlag = &cli.DurationFlag{
+		Name:    "tee-prove-timeout",
+		Usage:   "Total timeout for a single game's prove attempt including retries (tee game type only)",
+		EnvVars: prefixEnvVars("TEE_PROVE_TIMEOUT"),
+		Value:   config.DefaultTeeProveTimeout,
+	}
 )
 
 func init() {
-	optionalFlags = append(optionalFlags, TeeProverRpcFlag, TeeProvePollIntervalFlag)
+	optionalFlags = append(optionalFlags, TeeProverRpcFlag, TeeProvePollIntervalFlag, TeeProveTimeoutFlag)
 }
 
 // onlyTeeGameTypes returns true if all enabled game types are TEE (which doesn't require L2 RPC).
