@@ -19,7 +19,7 @@ contract DisputeGameFactoryRouterCreateTest is Test {
     MockCloneableDisputeGame internal gameImpl;
 
     function setUp() public {
-        router = new DisputeGameFactoryRouter();
+        router = new DisputeGameFactoryRouter(address(this));
         factoryOne = new MockDisputeGameFactory();
         factoryTwo = new MockDisputeGameFactory();
         gameImpl = new MockCloneableDisputeGame();

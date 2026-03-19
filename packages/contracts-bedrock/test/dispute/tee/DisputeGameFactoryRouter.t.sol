@@ -21,7 +21,7 @@ contract DisputeGameFactoryRouterTest is Test {
     function setUp() public {
         owner = address(this);
         alice = makeAddr("alice");
-        router = new DisputeGameFactoryRouter();
+        router = new DisputeGameFactoryRouter(owner);
     }
 
     ////////////////////////////////////////////////////////////////

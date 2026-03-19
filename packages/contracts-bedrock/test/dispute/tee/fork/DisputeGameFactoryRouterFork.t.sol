@@ -70,7 +70,7 @@ contract DisputeGameFactoryRouterForkTest is TeeTestUtils {
         vm.createSelectFork(vm.envString("ETH_RPC_URL"));
         hasFork = true;
         xLayerFactory = DisputeGameFactory(XLAYER_FACTORY);
-        router = new DisputeGameFactoryRouter();
+        router = new DisputeGameFactoryRouter(address(this));
         router.setZone(ZONE_XLAYER, XLAYER_FACTORY);
     }
 

@@ -17,7 +17,9 @@ contract DisputeGameFactoryRouter is Ownable, IDisputeGameFactoryRouter {
     /// @notice Mapping of zoneId to DisputeGameFactory address.
     mapping(uint256 => address) public factories;
 
-    constructor() {}
+    constructor(address _owner) {
+        _transferOwnership(_owner);
+    }
 
     ////////////////////////////////////////////////////////////////
     //                    Zone Management                         //

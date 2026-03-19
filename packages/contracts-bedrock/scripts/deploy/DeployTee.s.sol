@@ -122,19 +122,16 @@ contract Deploy is Script {
 
     function _deployRouter(
         address routerOwner,
-        address deployer,
+        address,
         uint256[] memory zoneIds,
         address[] memory routerFactories
     )
         internal
         returns (DisputeGameFactoryRouter router)
     {
-        router = new DisputeGameFactoryRouter();
+        router = new DisputeGameFactoryRouter(routerOwner);
         for (uint256 i = 0; i < zoneIds.length; i++) {
             router.setZone(zoneIds[i], routerFactories[i]);
-        }
-        if (routerOwner != deployer) {
-            router.transferOwnership(routerOwner);
         }
     }
 

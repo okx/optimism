@@ -89,7 +89,7 @@ contract TeeDisputeGameTest is TeeTestUtils {
     }
 
     function test_initialize_tracksTxOriginProposerThroughRouter() public {
-        DisputeGameFactoryRouter router = new DisputeGameFactoryRouter();
+        DisputeGameFactoryRouter router = new DisputeGameFactoryRouter(address(this));
         uint256 zoneId = 1;
         router.setZone(zoneId, address(factory));
 
@@ -494,10 +494,17 @@ contract TeeDisputeGameTest is TeeTestUtils {
         (TeeDisputeGame child,,) =
             _createGame(proposer, ANCHOR_L2_BLOCK + 7, 0, keccak256("child-block"), keccak256("child-state"));
 
+        // Wait for child's challenge window to expire so gameOver() passes
+        vm.warp(block.timestamp + MAX_CHALLENGE_DURATION + 1);
+
+        // Child still cannot resolve because parent is IN_PROGRESS
         vm.expectRevert(ParentGameNotResolved.selector);
         child.resolve();
     }
 
+    /// @notice When parent resolves as CHALLENGER_WINS, child short-circuits to CHALLENGER_WINS.
+    /// @dev Realistic timing: child is created while parent is IN_PROGRESS (required by initialize),
+    ///      then parent later resolves as CHALLENGER_WINS, then child resolve short-circuits.
     function test_resolve_parentChallengerWinsShortCircuits() public {
         MockStatusDisputeGame parent = new MockStatusDisputeGame(
             proposer,
@@ -520,15 +527,20 @@ contract TeeDisputeGameTest is TeeTestUtils {
         );
         anchorStateRegistry.setGameFlags(IDisputeGame(address(parent)), true, true, false, false, false, true, false);
 
+        // Child created while parent is still IN_PROGRESS
         (TeeDisputeGame child,,) =
             _createGame(proposer, ANCHOR_L2_BLOCK + 7, 0, keccak256("child-block"), keccak256("child-state"));
 
-        parent.setStatus(GameStatus.CHALLENGER_WINS);
-        parent.setResolvedAt(uint64(block.timestamp));
-
+        // Challenger challenges the child
         vm.prank(challenger);
         child.challenge{value: CHALLENGER_BOND}();
 
+        // Time passes: parent is challenged and times out → CHALLENGER_WINS
+        vm.warp(block.timestamp + MAX_PROVE_DURATION + 1);
+        parent.setStatus(GameStatus.CHALLENGER_WINS);
+        parent.setResolvedAt(uint64(block.timestamp));
+
+        // Child resolve short-circuits because parent lost
         GameStatus status = child.resolve();
         assertEq(uint8(status), uint8(GameStatus.CHALLENGER_WINS));
         assertEq(child.normalModeCredit(challenger), DEFENDER_BOND + CHALLENGER_BOND);
@@ -563,6 +575,7 @@ contract TeeDisputeGameTest is TeeTestUtils {
         assertEq(game.normalModeCredit(thirdPartyProver), CHALLENGER_BOND);
         assertEq(game.normalModeCredit(proposer), DEFENDER_BOND);
 
+        // Simulate finality: game is proper and finalized (DEFENDER_WINS, not blacklisted)
         anchorStateRegistry.setGameFlags(game, true, true, false, false, true, true, true);
 
         uint256 proposerBalanceBefore = proposer.balance;
@@ -570,11 +583,43 @@ contract TeeDisputeGameTest is TeeTestUtils {
         game.claimCredit(proposer);
         game.claimCredit(thirdPartyProver);
 
+        assertEq(uint8(game.bondDistributionMode()), uint8(BondDistributionMode.NORMAL));
         assertEq(proposer.balance, proposerBalanceBefore + DEFENDER_BOND);
         assertEq(thirdPartyProver.balance, proverBalanceBefore + CHALLENGER_BOND);
     }
 
-    function test_claimCredit_refundModeRefundsDeposits() public {
+    /// @notice CHALLENGER_WINS in NORMAL mode: challenger takes all bonds, proposer gets nothing.
+    /// @dev A CHALLENGER_WINS game is still "proper" in real ASR (registered, not blacklisted,
+    ///      not retired, not paused), so closeGame → NORMAL mode → normalModeCredit only.
+    function test_claimCredit_challengerWinsNormalMode() public {
+        (TeeDisputeGame game,,) =
+            _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
+
+        vm.prank(challenger);
+        game.challenge{value: CHALLENGER_BOND}();
+
+        // Timeout without proof → CHALLENGER_WINS
+        vm.warp(block.timestamp + MAX_PROVE_DURATION + 1);
+        assertEq(uint8(game.resolve()), uint8(GameStatus.CHALLENGER_WINS));
+
+        // CHALLENGER_WINS game is still proper → NORMAL mode
+        // (registered, respected, not blacklisted, not retired, finalized)
+        anchorStateRegistry.setGameFlags(game, true, true, false, false, true, true, false);
+
+        // Challenger takes all bonds
+        uint256 challengerBalanceBefore = challenger.balance;
+        game.claimCredit(challenger);
+
+        assertEq(uint8(game.bondDistributionMode()), uint8(BondDistributionMode.NORMAL));
+        assertEq(challenger.balance, challengerBalanceBefore + DEFENDER_BOND + CHALLENGER_BOND);
+        // Proposer has zero credit — lost their bond
+        assertEq(game.normalModeCredit(proposer), 0);
+    }
+
+    /// @notice REFUND mode: only triggered by guardian blacklisting (not by CHALLENGER_WINS).
+    /// @dev In real ASR, isGameProper returns false only when the game is blacklisted, retired,
+    ///      or the system is paused. Here we simulate a blacklisted DEFENDER_WINS game.
+    function test_claimCredit_refundModeWhenBlacklisted() public {
         bytes32 endBlockHash = keccak256("end-block");
         bytes32 endStateHash = keccak256("end-state");
         (TeeDisputeGame game,,) =
@@ -583,19 +628,36 @@ contract TeeDisputeGameTest is TeeTestUtils {
         vm.prank(challenger);
         game.challenge{value: CHALLENGER_BOND}();
 
-        vm.warp(block.timestamp + MAX_PROVE_DURATION + 1);
-        assertEq(uint8(game.resolve()), uint8(GameStatus.CHALLENGER_WINS));
+        // Proposer proves — game would normally be DEFENDER_WINS
+        teeProofVerifier.setRegistered(executor, true);
+        TeeDisputeGame.BatchProof[] memory proofs = new TeeDisputeGame.BatchProof[](1);
+        proofs[0] = buildBatchProof(
+            BatchInput({
+                startBlockHash: ANCHOR_BLOCK_HASH,
+                startStateHash: ANCHOR_STATE_HASH,
+                endBlockHash: endBlockHash,
+                endStateHash: endStateHash,
+                l2Block: game.l2SequenceNumber()
+            }),
+            DEFAULT_EXECUTOR_KEY
+        );
+        vm.prank(proposer);
+        game.prove(abi.encode(proofs));
 
-        anchorStateRegistry.setGameFlags(game, true, true, false, false, true, false, false);
+        assertEq(uint8(game.resolve()), uint8(GameStatus.DEFENDER_WINS));
+
+        // Guardian blacklists the game (e.g. discovered exploit)
+        // → isGameProper returns false → REFUND mode
+        anchorStateRegistry.setGameFlags(game, true, true, true, false, true, false, false);
 
         uint256 proposerBalanceBefore = proposer.balance;
         uint256 challengerBalanceBefore = challenger.balance;
         game.claimCredit(proposer);
         game.claimCredit(challenger);
 
+        assertEq(uint8(game.bondDistributionMode()), uint8(BondDistributionMode.REFUND));
         assertEq(proposer.balance, proposerBalanceBefore + DEFENDER_BOND);
         assertEq(challenger.balance, challengerBalanceBefore + CHALLENGER_BOND);
-        assertEq(uint8(game.bondDistributionMode()), uint8(BondDistributionMode.REFUND));
     }
 
     function test_closeGame_revertWhenNotFinalized() public {
