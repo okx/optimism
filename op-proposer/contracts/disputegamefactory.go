@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/ethereum-optimism/optimism/op-service/bigs"
@@ -23,7 +24,23 @@ const (
 	methodVersion     = "version"
 
 	methodClaim = "claimData"
+
+	teeGameType uint32 = 1960 // For xlayer: TEE game type (TeeRollup)
 )
+
+// For xlayer: ABI for new game contract's no-arg claimData() struct getter
+const newGameClaimDataABIJSON = `[{"name":"claimData","type":"function","inputs":[],"outputs":[{"name":"parentIndex","type":"uint32"},{"name":"counteredBy","type":"address"},{"name":"prover","type":"address"},{"name":"claim","type":"bytes32"},{"name":"status","type":"uint8"},{"name":"deadline","type":"uint64"}],"stateMutability":"view"}]`
+
+// For xlayer: parsed ABI for new game contract's claimData() getter
+var newGameClaimDataABI abi.ABI
+
+func init() {
+	var err error
+	newGameClaimDataABI, err = abi.JSON(strings.NewReader(newGameClaimDataABIJSON))
+	if err != nil {
+		panic(fmt.Sprintf("failed to parse new game claim data ABI: %v", err))
+	}
+}
 
 type gameMetadata struct {
 	GameType  uint32
@@ -133,16 +150,33 @@ func (f *DisputeGameFactory) gameAtIndex(ctx context.Context, idx uint64) (gameM
 	timestamp := result.GetUint64(1)
 	address := result.GetAddress(2)
 
-	gameContract := batching.NewBoundContract(f.gameABI, address)
-	cCtx, cancel = context.WithTimeout(ctx, f.networkTimeout)
-	defer cancel()
-	result, err = f.caller.SingleCall(cCtx, rpcblock.Latest, gameContract.Call(methodClaim, big.NewInt(0)))
-	if err != nil {
-		return gameMetadata{}, fmt.Errorf("failed to load root claim of game %v: %w", idx, err)
+	var claimant common.Address
+	var claim common.Hash
+	if gameType == teeGameType {
+		// For xlayer: TEE game type (1960) uses new contract ABI — claimData() takes no args,
+		// returns (parentIndex, counteredBy, prover, claim, status, deadline).
+		// prover is at index 2, claim (bytes32) is at index 3.
+		newGameContract := batching.NewBoundContract(&newGameClaimDataABI, address)
+		cCtx, cancel = context.WithTimeout(ctx, f.networkTimeout)
+		defer cancel()
+		result, err = f.caller.SingleCall(cCtx, rpcblock.Latest, newGameContract.Call(methodClaim))
+		if err != nil {
+			return gameMetadata{}, fmt.Errorf("failed to load root claim of game %v: %w", idx, err)
+		}
+		claimant = result.GetAddress(2)
+		claim = result.GetHash(3)
+	} else {
+		gameContract := batching.NewBoundContract(f.gameABI, address)
+		cCtx, cancel = context.WithTimeout(ctx, f.networkTimeout)
+		defer cancel()
+		result, err = f.caller.SingleCall(cCtx, rpcblock.Latest, gameContract.Call(methodClaim, big.NewInt(0)))
+		if err != nil {
+			return gameMetadata{}, fmt.Errorf("failed to load root claim of game %v: %w", idx, err)
+		}
+		// We don't need most of the claim data, only the claim and the claimant which is the game proposer
+		claimant = result.GetAddress(2)
+		claim = result.GetHash(4)
 	}
-	// We don't need most of the claim data, only the claim and the claimant which is the game proposer
-	claimant := result.GetAddress(2)
-	claim := result.GetHash(4)
 
 	return gameMetadata{
 		GameType:  gameType,

@@ -123,6 +123,12 @@ func (ps *ProposerService) initFromCLIConfig(ctx context.Context, version string
 }
 
 func (ps *ProposerService) initRPCClients(ctx context.Context, cfg *CLIConfig) error {
+	// For xlayer: TeeRollup has no L1 derivation; CurrentL1 is always zero,
+	// which would cause waitNodeSync to block forever.
+	if cfg.DisputeGameType == TEEGameType && cfg.WaitNodeSync { // For xlayer
+		return fmt.Errorf("--wait-node-sync is not supported with TeeRollup game type (1960)")
+	}
+
 	l1Client, err := dial.DialEthClientWithTimeout(ctx, dial.DefaultDialTimeout, ps.Log, cfg.L1EthRpc)
 	if err != nil {
 		return fmt.Errorf("failed to dial L1 RPC: %w", err)
@@ -165,6 +171,14 @@ func (ps *ProposerService) initRPCClients(ctx context.Context, cfg *CLIConfig) e
 			clients = append(clients, cl)
 		}
 		ps.ProposalSource = source.NewSuperNodeProposalSource(ps.Log, clients...)
+	}
+	// For xlayer: initialize TeeRollup proposal source for game type 1960
+	if cfg.TeeRollupRpc != "" {
+		teeRollupClient, err := source.NewTeeRollupHTTPClient(cfg.TeeRollupRpc)
+		if err != nil {
+			return fmt.Errorf("failed to create TeeRollup HTTP client: %w", err)
+		}
+		ps.ProposalSource = source.NewTeeRollupProposalSource(ps.Log, teeRollupClient)
 	}
 	if ps.ProposalSource == nil {
 		return ErrMissingSource

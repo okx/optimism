@@ -138,6 +138,33 @@ func TestRequireSomeRPCSourceForUnknownGameTypes(t *testing.T) {
 	require.ErrorIs(t, cfg.Check(), ErrMissingSource)
 }
 
+// For xlayer: Tests for TeeRollup game type (1960) config validation.
+func TestTeeRollupRpc(t *testing.T) {
+	t.Run("RequiredForTEEGameType", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.DGFAddress = common.Address{0xaa}.Hex()
+		cfg.ProposalInterval = 20
+		cfg.RollupRpc = ""
+		cfg.SupervisorRpcs = nil
+		cfg.SuperNodeRpcs = nil
+		cfg.TeeRollupRpc = ""
+		cfg.DisputeGameType = 1960
+		require.ErrorIs(t, cfg.Check(), ErrMissingTeeRollupRpc)
+	})
+
+	t.Run("ValidWithTEEGameType", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.DGFAddress = common.Address{0xaa}.Hex()
+		cfg.ProposalInterval = 20
+		cfg.RollupRpc = ""
+		cfg.SupervisorRpcs = nil
+		cfg.SuperNodeRpcs = nil
+		cfg.TeeRollupRpc = "http://localhost:9999/tee-rollup"
+		cfg.DisputeGameType = 1960
+		require.NoError(t, cfg.Check())
+	})
+}
+
 func validConfig() *CLIConfig {
 	return &CLIConfig{
 		L1EthRpc:                     "http://localhost:8888/l1",

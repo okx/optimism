@@ -15,11 +15,15 @@ import (
 	"github.com/ethereum-optimism/optimism/op-service/txmgr"
 )
 
+// For xlayer: TEEGameType is the dispute game type ID for TeeRollup TEE attestations.
+const TEEGameType uint32 = 1960
+
 var (
 	ErrMissingRollupRpc     = errors.New("missing rollup rpc")
 	ErrMissingSupervisorRpc = errors.New("missing supervisor rpc or supernode rpc")
 	ErrMissingSource        = errors.New("missing proposal source rpc (rollup, supervisor, or supernode)")
 	ErrConflictingSource    = errors.New("must specify exactly one of rollup rpc, supervisor rpc, or supernode rpc")
+	ErrMissingTeeRollupRpc  = errors.New("tee-rollup-rpc is required for TeeRollup game type (1960)") // For xlayer
 
 	// preInteropGameTypes are  game types that enforce having a rollup rpc.
 	// It is ok if this list isn't complete, unknown game types will allow either rollup or supervisor
@@ -82,6 +86,9 @@ type CLIConfig struct {
 
 	// Whether to wait for the sequencer to sync to a recent block at startup.
 	WaitNodeSync bool
+
+	// For xlayer: TeeRollupRpc is the TeeRollup RPC service base URL for game type 1960.
+	TeeRollupRpc string
 }
 
 func (c *CLIConfig) Check() error {
@@ -118,6 +125,9 @@ func (c *CLIConfig) Check() error {
 	if len(c.SuperNodeRpcs) != 0 {
 		sourceCount++
 	}
+	if c.TeeRollupRpc != "" { // For xlayer
+		sourceCount++
+	}
 	if sourceCount > 1 {
 		return ErrConflictingSource
 	}
@@ -128,6 +138,10 @@ func (c *CLIConfig) Check() error {
 	// Require supervisor or supernode RPC for post interop game types
 	if c.DGFAddress != "" && slices.Contains(postInteropGameTypes, c.DisputeGameType) && len(c.SupervisorRpcs) == 0 && len(c.SuperNodeRpcs) == 0 {
 		return ErrMissingSupervisorRpc
+	}
+	// For xlayer: TeeRollup game type requires TeeRollupRpc
+	if c.DisputeGameType == TEEGameType && c.TeeRollupRpc == "" {
+		return ErrMissingTeeRollupRpc
 	}
 	// For unknown game types, allow any source, but require at least one.
 	if sourceCount == 0 {
@@ -155,5 +169,6 @@ func NewConfig(ctx *cli.Context) *CLIConfig {
 		DisputeGameType:              uint32(ctx.Uint(flags.DisputeGameTypeFlag.Name)),
 		ActiveSequencerCheckDuration: ctx.Duration(flags.ActiveSequencerCheckDurationFlag.Name),
 		WaitNodeSync:                 ctx.Bool(flags.WaitNodeSyncFlag.Name),
+		TeeRollupRpc:                 ctx.String(flags.TeeRollupRpcFlag.Name), // For xlayer
 	}
 }

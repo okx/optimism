@@ -79,6 +79,12 @@ var (
 		Value:   false,
 		EnvVars: prefixEnvVars("WAIT_NODE_SYNC"),
 	}
+	// For xlayer: TeeRollup RPC flag for game type 1960
+	TeeRollupRpcFlag = &cli.StringFlag{
+		Name:    "tee-rollup-rpc",
+		Usage:   "TeeRollup RPC service base URL (required when --game-type=1960)",
+		EnvVars: []string{"OP_PROPOSER_TEE_ROLLUP_RPC"},
+	}
 	// Legacy Flags
 	L2OutputHDPathFlag = txmgr.L2OutputHDPathFlag
 )
@@ -98,6 +104,7 @@ var optionalFlags = []cli.Flag{
 	DisputeGameTypeFlag,
 	ActiveSequencerCheckDurationFlag,
 	WaitNodeSyncFlag,
+	TeeRollupRpcFlag, // For xlayer
 }
 
 func init() {
