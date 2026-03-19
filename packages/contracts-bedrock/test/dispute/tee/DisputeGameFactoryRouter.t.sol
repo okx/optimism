@@ -25,74 +25,41 @@ contract DisputeGameFactoryRouterTest is Test {
     }
 
     ////////////////////////////////////////////////////////////////
-    //                    Zone CRUD Tests                         //
+    //                    Zone Management Tests                    //
     ////////////////////////////////////////////////////////////////
 
-    function test_registerZone() public {
-        router.registerZone(ZONE_XLAYER, XLAYER_FACTORY);
-        assertEq(router.getFactory(ZONE_XLAYER), XLAYER_FACTORY);
+    function test_setZone_register() public {
+        router.setZone(ZONE_XLAYER, XLAYER_FACTORY);
+        assertEq(router.factories(ZONE_XLAYER), XLAYER_FACTORY);
     }
 
-    function test_registerZone_revertDuplicate() public {
-        router.registerZone(ZONE_XLAYER, XLAYER_FACTORY);
-        vm.expectRevert(abi.encodeWithSelector(IDisputeGameFactoryRouter.ZoneAlreadyRegistered.selector, ZONE_XLAYER));
-        router.registerZone(ZONE_XLAYER, XLAYER_FACTORY);
-    }
-
-    function test_registerZone_revertZeroAddress() public {
-        vm.expectRevert(IDisputeGameFactoryRouter.ZeroAddress.selector);
-        router.registerZone(ZONE_XLAYER, address(0));
-    }
-
-    function test_updateZone() public {
-        router.registerZone(ZONE_XLAYER, XLAYER_FACTORY);
+    function test_setZone_update() public {
+        router.setZone(ZONE_XLAYER, XLAYER_FACTORY);
         address newFactory = makeAddr("newFactory");
-        router.updateZone(ZONE_XLAYER, newFactory);
-        assertEq(router.getFactory(ZONE_XLAYER), newFactory);
+        router.setZone(ZONE_XLAYER, newFactory);
+        assertEq(router.factories(ZONE_XLAYER), newFactory);
     }
 
-    function test_updateZone_revertNotRegistered() public {
-        vm.expectRevert(abi.encodeWithSelector(IDisputeGameFactoryRouter.ZoneNotRegistered.selector, ZONE_XLAYER));
-        router.updateZone(ZONE_XLAYER, XLAYER_FACTORY);
+    function test_setZone_remove() public {
+        router.setZone(ZONE_XLAYER, XLAYER_FACTORY);
+        router.setZone(ZONE_XLAYER, address(0));
+        assertEq(router.factories(ZONE_XLAYER), address(0));
     }
 
-    function test_removeZone() public {
-        router.registerZone(ZONE_XLAYER, XLAYER_FACTORY);
-        router.removeZone(ZONE_XLAYER);
-        assertEq(router.getFactory(ZONE_XLAYER), address(0));
+    function test_setZone_emitsEvent() public {
+        vm.expectEmit(true, true, true, true);
+        emit IDisputeGameFactoryRouter.ZoneSet(ZONE_XLAYER, address(0), XLAYER_FACTORY);
+        router.setZone(ZONE_XLAYER, XLAYER_FACTORY);
     }
 
-    function test_removeZone_revertNotRegistered() public {
-        vm.expectRevert(abi.encodeWithSelector(IDisputeGameFactoryRouter.ZoneNotRegistered.selector, ZONE_XLAYER));
-        router.removeZone(ZONE_XLAYER);
+    function test_setZone_revertNotOwner() public {
+        vm.prank(alice);
+        vm.expectRevert("Ownable: caller is not the owner");
+        router.setZone(ZONE_XLAYER, XLAYER_FACTORY);
     }
 
     ////////////////////////////////////////////////////////////////
-    //                    Access Control Tests                    //
-    ////////////////////////////////////////////////////////////////
-
-    function test_registerZone_revertNotOwner() public {
-        vm.prank(alice);
-        vm.expectRevert("Ownable: caller is not the owner");
-        router.registerZone(ZONE_XLAYER, XLAYER_FACTORY);
-    }
-
-    function test_updateZone_revertNotOwner() public {
-        router.registerZone(ZONE_XLAYER, XLAYER_FACTORY);
-        vm.prank(alice);
-        vm.expectRevert("Ownable: caller is not the owner");
-        router.updateZone(ZONE_XLAYER, makeAddr("newFactory"));
-    }
-
-    function test_removeZone_revertNotOwner() public {
-        router.registerZone(ZONE_XLAYER, XLAYER_FACTORY);
-        vm.prank(alice);
-        vm.expectRevert("Ownable: caller is not the owner");
-        router.removeZone(ZONE_XLAYER);
-    }
-
-    ////////////////////////////////////////////////////////////////
-    //                    Create Tests (Fork)                     //
+    //                    Create Tests                             //
     ////////////////////////////////////////////////////////////////
 
     function test_create_revertZoneNotRegistered() public {
@@ -107,7 +74,7 @@ contract DisputeGameFactoryRouterTest is Test {
     }
 
     function test_createBatch_revertBondMismatch() public {
-        router.registerZone(ZONE_XLAYER, XLAYER_FACTORY);
+        router.setZone(ZONE_XLAYER, XLAYER_FACTORY);
 
         IDisputeGameFactoryRouter.CreateParams[] memory params = new IDisputeGameFactoryRouter.CreateParams[](1);
         params[0] = IDisputeGameFactoryRouter.CreateParams({
@@ -123,15 +90,15 @@ contract DisputeGameFactoryRouterTest is Test {
     }
 
     ////////////////////////////////////////////////////////////////
-    //                    View Function Tests                     //
+    //                    View Function Tests                      //
     ////////////////////////////////////////////////////////////////
 
-    function test_getFactory_unregistered() public view {
-        assertEq(router.getFactory(999), address(0));
+    function test_factories_unregistered() public view {
+        assertEq(router.factories(999), address(0));
     }
 
     function test_factories_mapping() public {
-        router.registerZone(ZONE_XLAYER, XLAYER_FACTORY);
+        router.setZone(ZONE_XLAYER, XLAYER_FACTORY);
         assertEq(router.factories(ZONE_XLAYER), XLAYER_FACTORY);
     }
 

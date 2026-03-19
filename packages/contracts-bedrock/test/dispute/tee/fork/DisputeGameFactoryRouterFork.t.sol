@@ -71,7 +71,7 @@ contract DisputeGameFactoryRouterForkTest is TeeTestUtils {
         hasFork = true;
         xLayerFactory = DisputeGameFactory(XLAYER_FACTORY);
         router = new DisputeGameFactoryRouter();
-        router.registerZone(ZONE_XLAYER, XLAYER_FACTORY);
+        router.setZone(ZONE_XLAYER, XLAYER_FACTORY);
     }
 
     function test_liveFactoryReadPaths() public view {
@@ -200,7 +200,7 @@ contract DisputeGameFactoryRouterForkTest is TeeTestUtils {
         returns (SecondZoneFixture memory secondZone)
     {
         secondZone.factory = _deployLocalDisputeGameFactory();
-        router.registerZone(ZONE_SECOND, address(secondZone.factory));
+        router.setZone(ZONE_SECOND, address(secondZone.factory));
 
         secondZone.anchorStateRegistry = _deployRealAnchorStateRegistry(secondZone.factory);
         (secondZone.teeProofVerifier, secondZone.registeredExecutor) = _deployRealTeeProofVerifier();

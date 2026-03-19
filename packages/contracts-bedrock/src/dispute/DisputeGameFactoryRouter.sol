@@ -23,29 +23,12 @@ contract DisputeGameFactoryRouter is Ownable, IDisputeGameFactoryRouter {
     //                    Zone Management                         //
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Register a new zone with its factory address.
-    function registerZone(uint256 zoneId, address factory) external onlyOwner {
-        if (factory == address(0)) revert ZeroAddress();
-        if (factories[zoneId] != address(0)) revert ZoneAlreadyRegistered(zoneId);
-        factories[zoneId] = factory;
-        emit ZoneRegistered(zoneId, factory);
-    }
-
-    /// @notice Update an existing zone's factory address.
-    function updateZone(uint256 zoneId, address factory) external onlyOwner {
-        if (factory == address(0)) revert ZeroAddress();
+    /// @notice Set, update, or remove a zone's factory address.
+    /// @dev Pass address(0) as factory to remove the zone.
+    function setZone(uint256 zoneId, address factory) external onlyOwner {
         address oldFactory = factories[zoneId];
-        if (oldFactory == address(0)) revert ZoneNotRegistered(zoneId);
         factories[zoneId] = factory;
-        emit ZoneUpdated(zoneId, oldFactory, factory);
-    }
-
-    /// @notice Remove a zone.
-    function removeZone(uint256 zoneId) external onlyOwner {
-        address factory = factories[zoneId];
-        if (factory == address(0)) revert ZoneNotRegistered(zoneId);
-        delete factories[zoneId];
-        emit ZoneRemoved(zoneId, factory);
+        emit ZoneSet(zoneId, oldFactory, factory);
     }
 
     ////////////////////////////////////////////////////////////////
@@ -95,12 +78,4 @@ contract DisputeGameFactoryRouter is Ownable, IDisputeGameFactoryRouter {
         emit BatchGamesCreated(params.length);
     }
 
-    ////////////////////////////////////////////////////////////////
-    //                    View Functions                          //
-    ////////////////////////////////////////////////////////////////
-
-    /// @notice Get the factory address for a zone.
-    function getFactory(uint256 zoneId) external view returns (address) {
-        return factories[zoneId];
-    }
 }

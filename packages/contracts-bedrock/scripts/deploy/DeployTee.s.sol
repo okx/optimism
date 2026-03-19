@@ -131,7 +131,7 @@ contract Deploy is Script {
     {
         router = new DisputeGameFactoryRouter();
         for (uint256 i = 0; i < zoneIds.length; i++) {
-            router.registerZone(zoneIds[i], routerFactories[i]);
+            router.setZone(zoneIds[i], routerFactories[i]);
         }
         if (routerOwner != deployer) {
             router.transferOwnership(routerOwner);

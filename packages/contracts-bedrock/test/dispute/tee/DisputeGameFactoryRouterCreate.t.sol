@@ -29,8 +29,8 @@ contract DisputeGameFactoryRouterCreateTest is Test {
         factoryOne.setInitBond(GAME_TYPE, 1 ether);
         factoryTwo.setInitBond(GAME_TYPE, 2 ether);
 
-        router.registerZone(ZONE_ONE, address(factoryOne));
-        router.registerZone(ZONE_TWO, address(factoryTwo));
+        router.setZone(ZONE_ONE, address(factoryOne));
+        router.setZone(ZONE_TWO, address(factoryTwo));
     }
 
     function test_create_routesToZoneFactory() public {

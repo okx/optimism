@@ -17,26 +17,19 @@ interface IDisputeGameFactoryRouter {
 
     // ============ Events ============
 
-    event ZoneRegistered(uint256 indexed zoneId, address indexed factory);
-    event ZoneUpdated(uint256 indexed zoneId, address indexed oldFactory, address indexed newFactory);
-    event ZoneRemoved(uint256 indexed zoneId, address indexed factory);
+    event ZoneSet(uint256 indexed zoneId, address indexed oldFactory, address indexed newFactory);
     event GameCreated(uint256 indexed zoneId, address indexed proxy);
     event BatchGamesCreated(uint256 count);
 
     // ============ Errors ============
 
-    error ZoneAlreadyRegistered(uint256 zoneId);
     error ZoneNotRegistered(uint256 zoneId);
-    error ZeroAddress();
     error BatchEmpty();
     error BatchBondMismatch(uint256 totalBonds, uint256 msgValue);
 
     // ============ Functions ============
 
-    function registerZone(uint256 zoneId, address factory) external;
-    function updateZone(uint256 zoneId, address factory) external;
-    function removeZone(uint256 zoneId) external;
+    function setZone(uint256 zoneId, address factory) external;
     function create(uint256 zoneId, GameType gameType, Claim rootClaim, bytes calldata extraData) external payable returns (address proxy);
     function createBatch(CreateParams[] calldata params) external payable returns (address[] memory proxies);
-    function getFactory(uint256 zoneId) external view returns (address);
 }

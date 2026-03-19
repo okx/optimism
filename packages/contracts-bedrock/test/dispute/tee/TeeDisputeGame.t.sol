@@ -91,7 +91,7 @@ contract TeeDisputeGameTest is TeeTestUtils {
     function test_initialize_tracksTxOriginProposerThroughRouter() public {
         DisputeGameFactoryRouter router = new DisputeGameFactoryRouter();
         uint256 zoneId = 1;
-        router.registerZone(zoneId, address(factory));
+        router.setZone(zoneId, address(factory));
 
         bytes32 endBlockHash = keccak256("router-end-block");
         bytes32 endStateHash = keccak256("router-end-state");
