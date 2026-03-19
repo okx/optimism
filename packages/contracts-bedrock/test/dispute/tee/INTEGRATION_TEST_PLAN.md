@@ -1,4 +1,8 @@
-# TEE TEE Dispute Game — Integration Test Plan
+# TEE Dispute Game — Integration Test Plan
+
+## Status: IMPLEMENTED
+
+**File**: `TeeDisputeGameIntegration.t.sol` — 9 tests, all passing.
 
 ## Background
 
@@ -16,10 +20,6 @@ The integration layer only covers **one happy path** (unchallenged → prove →
 
 Critical paths involving **fund distribution (REFUND vs NORMAL)**, **parent-child game chains**, and **third-party prover bond splitting** have never been verified with real ASR + real Factory together.
 
-## Goal
-
-Create `TeeDisputeGameIntegration.t.sol` — a non-fork integration test suite that verifies the TEE TEE dispute game full lifecycle with real contracts, runnable in CI without any RPC dependency.
-
 ## Contract Setup
 
 ### Real contracts (deployed via Proxy where applicable)
@@ -27,10 +27,10 @@ Create `TeeDisputeGameIntegration.t.sol` — a non-fork integration test suite t
 | Contract | Deploy Method | Notes |
 |----------|--------------|-------|
 | `DisputeGameFactory` | Proxy + `initialize(owner)` | Replaces `MockDisputeGameFactory` |
-| `AnchorStateRegistry` | Proxy + `initialize(...)` | Already real in current integration test |
+| `AnchorStateRegistry` | Proxy + `initialize(...)` | DISPUTE_GAME_FINALITY_DELAY_SECONDS = 0 |
 | `TeeProofVerifier` | `new TeeProofVerifier(verifier, imageId, rootKey)` | With real enclave registration flow |
 | `TeeDisputeGame` | Implementation set in factory, cloned on `create()` | Real game logic |
-| `AccessManager` | `new AccessManager(timeout, factory)` | Already real |
+| `AccessManager` | `new AccessManager(timeout, factory)` | Manages proposer/challenger permissions |
 | `DisputeGameFactoryRouter` | `new DisputeGameFactoryRouter()` | For Router-based creation tests |
 
 ### Mocks (minimal, non-critical)
@@ -38,7 +38,7 @@ Create `TeeDisputeGameIntegration.t.sol` — a non-fork integration test suite t
 | Mock | Reason |
 |------|--------|
 | `MockRiscZeroVerifier` | ZK proof verification is out of scope; only need it to not revert during `register()` |
-| `MockSystemConfig` | Provides `paused()` and `guardian`; no real SystemConfig needed for these tests |
+| `MockSystemConfig` | Provides `paused()` and `guardian`; test contract acts as guardian for blacklist tests |
 
 ## Test Cases
 
@@ -49,8 +49,8 @@ Create `TeeDisputeGameIntegration.t.sol` — a non-fork integration test suite t
 **Verifies**:
 - Simplest happy path with real Factory + real ASR
 - `resolve()` returns `DEFENDER_WINS` when unchallenged and time expires
-- `closeGame()` → `ASR.isGameFinalized()` passes → `bondDistributionMode = NORMAL`
-- `setAnchorState` succeeds, `anchorGame` updates
+- `closeGame()` reverts with `GameNotFinalized` before finality delay passes
+- After finality: `bondDistributionMode = NORMAL`, `setAnchorState` succeeds
 - Proposer receives back `DEFENDER_BOND`
 
 ---
@@ -62,7 +62,7 @@ Create `TeeDisputeGameIntegration.t.sol` — a non-fork integration test suite t
 **Verifies**:
 - Challenge + prove flow with real TeeProofVerifier (registered enclave)
 - `resolve()` returns `DEFENDER_WINS`
-- `closeGame()` → `bondDistributionMode = NORMAL`
+- `bondDistributionMode = NORMAL`
 - Proposer receives `DEFENDER_BOND + CHALLENGER_BOND` (wins challenger's bond)
 - `setAnchorState` succeeds
 
@@ -80,44 +80,70 @@ Create `TeeDisputeGameIntegration.t.sol` — a non-fork integration test suite t
 
 ---
 
-### Test 4: `test_lifecycle_challenged_timeout_challengerWins_refund`
+### Test 4: `test_lifecycle_challenged_timeout_challengerWins`
 
 **Path**: create → challenge → (no prove) → wait MAX_PROVE_DURATION → resolve → closeGame → claimCredit
 
 **Verifies**:
-- **REFUND mode** — the most critical untested path with real contracts
 - `resolve()` returns `CHALLENGER_WINS`
-- `closeGame()` → `ASR.isGameProper()` returns false for CHALLENGER_WINS → `bondDistributionMode = REFUND`
-- `setAnchorState` is attempted but silently fails (try-catch in `closeGame`)
-- `anchorGame` does NOT update
-- Proposer gets back `DEFENDER_BOND`, challenger gets back `CHALLENGER_BOND` (each refunded their own deposit)
+- `bondDistributionMode = NORMAL` (game is still "proper" per real ASR — not blacklisted/retired/paused)
+- Challenger receives `DEFENDER_BOND + CHALLENGER_BOND` (takes all)
+- Proposer has zero credit — loses bond
+- `setAnchorState` silently fails (requires DEFENDER_WINS), anchor does NOT update
+
+**Key finding during implementation**: Real ASR considers a CHALLENGER_WINS game "proper" (registered, not blacklisted, not retired, not paused). The unit test used MockASR with manually set flags to force REFUND, which masked this behavior. REFUND mode only occurs via guardian intervention (blacklist) or system pause.
+
+---
+
+### Test 4b: `test_lifecycle_blacklisted_refund`
+
+**Path**: create → challenge → prove → resolve (DEFENDER_WINS) → guardian blacklists → closeGame → REFUND
+
+**Verifies**:
+- Guardian blacklist triggers REFUND mode even for a DEFENDER_WINS game
+- `isGameProper()` returns false after blacklisting
+- Each party gets their deposit back: proposer gets `DEFENDER_BOND`, challenger gets `CHALLENGER_BOND`
+- `setAnchorState` silently fails (blacklisted), anchor does NOT update
 
 ---
 
 ### Test 5: `test_lifecycle_parentChildChain_defenderWins`
 
-**Path**: create parent → resolve parent (DEFENDER_WINS) → create child (parentIndex=0) → resolve child
+**Path**: create parent → resolve parent (DEFENDER_WINS) → create child (parentIndex=0) → prove child → resolve child
 
 **Verifies**:
 - Child game's `startingOutputRoot` comes from parent's rootClaim (not anchor state)
-- Child cannot resolve before parent resolves (revert `ParentGameNotResolved`)
-- After parent resolves, child lifecycle works normally
+- After parent resolves and becomes anchor, child lifecycle works normally
 - Real Factory's `gameAtIndex()` is used to look up parent — validates the full lookup chain
+- Child becomes the new anchor (higher l2SequenceNumber)
 
 ---
 
 ### Test 6: `test_lifecycle_parentChallengerWins_childShortCircuits`
 
-**Path**: create parent → challenge parent → parent timeout → resolve parent (CHALLENGER_WINS) → create child → challenge child → resolve child
+**Path**: create parent → create child (while parent IN_PROGRESS) → challenge child → challenge parent → parent timeout → resolve parent (CHALLENGER_WINS) → resolve child
 
 **Verifies**:
-- When parent is `CHALLENGER_WINS`, child's resolve short-circuits to `CHALLENGER_WINS`
+- Child's resolve short-circuits to `CHALLENGER_WINS` when parent lost
 - Bond distribution for short-circuited child: challenger gets `DEFENDER_BOND + CHALLENGER_BOND`
 - Tests the cascading failure propagation through game chains
 
+**Key finding during implementation**: `initialize()` checks `proxy.status() == GameStatus.CHALLENGER_WINS` and reverts with `InvalidParentGame`. The child MUST be created while parent is still `IN_PROGRESS`. The short-circuit only happens at `resolve()` time, not at creation time.
+
 ---
 
-### Test 7: `test_lifecycle_viaRouter_fullCycle`
+### Test 7: `test_lifecycle_childCannotResolveBeforeParent`
+
+**Path**: create parent → create child → (fast forward) → child.resolve() reverts → parent.resolve() → child.resolve() succeeds
+
+**Verifies**:
+- `ParentGameNotResolved` revert when parent is still `IN_PROGRESS`
+- After parent resolves, child can resolve normally
+- Ordering dependency between parent and child resolution
+
+---
+
+### Test 8: `test_lifecycle_viaRouter_fullCycle`
 
 **Path**: Router.create → challenge → prove → resolve → closeGame → claimCredit
 
@@ -126,28 +152,20 @@ Create `TeeDisputeGameIntegration.t.sol` — a non-fork integration test suite t
 - `proposer()` is `tx.origin` (transparent pass-through)
 - Full lifecycle works identically when created via Router vs direct Factory call
 - Bond accounting attributes correctly to tx.origin proposer, not Router
+- `refundModeCredit(router)` is zero — Router doesn't capture any bonds
 
-## Shared Test Infrastructure
+## Key Findings from Implementation
 
-Reuse `TeeTestUtils` as base contract. Add a shared `setUp()` helper that deploys the full real-contract stack:
+1. **REFUND mode requires guardian intervention**: A CHALLENGER_WINS game is still "proper" per real ASR. The unit test's MockASR with `setGameFlags` to force REFUND was misleading — in production, REFUND only triggers via blacklist or system pause.
 
-```solidity
-function _deployFullStack() internal {
-    // 1. Deploy real DisputeGameFactory via Proxy
-    // 2. Deploy real AnchorStateRegistry via Proxy
-    // 3. Deploy real TeeProofVerifier (with MockRiscZeroVerifier)
-    //    - Register enclave via real register() flow
-    // 4. Deploy real AccessManager
-    // 5. Deploy real TeeDisputeGame implementation
-    // 6. Register implementation + init bond in factory
-    // 7. (Optional) Deploy DisputeGameFactoryRouter + register zone
-}
-```
+2. **Child creation timing constraint**: `initialize()` rejects a parent with `CHALLENGER_WINS` status. Children must be created while parent is `IN_PROGRESS`. The cascading failure only manifests at `resolve()` time.
+
+3. **Finality delay is load-bearing**: `closeGame()` requires `isGameFinalized()` which checks `resolvedAt + DISPUTE_GAME_FINALITY_DELAY_SECONDS < block.timestamp`. Even with delay=0, `vm.warp(block.timestamp + 1)` is needed after resolve.
 
 ## Relationship to Existing Tests
 
 | File | Action |
 |------|--------|
-| `AnchorStateRegistryCompatibility.t.sol` | Can be removed or kept as-is; the new integration tests fully subsume it |
+| `AnchorStateRegistryCompatibility.t.sol` | Subsumed by the new integration tests; can be removed |
 | `DisputeGameFactoryRouterFork.t.sol` | Keep — it uniquely tests XLayer cross-zone interop on mainnet fork |
 | Unit test files | Keep — they test error paths and edge cases exhaustively with fast mock-based isolation |
