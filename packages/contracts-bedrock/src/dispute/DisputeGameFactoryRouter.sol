@@ -76,8 +76,6 @@ contract DisputeGameFactoryRouter is Ownable, IDisputeGameFactoryRouter {
             proxies[i] = address(game);
             emit GameCreated(params[i].zoneId, proxies[i]);
         }
-
-        emit BatchGamesCreated(params.length);
     }
 
 }

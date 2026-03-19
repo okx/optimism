@@ -19,8 +19,6 @@ interface IDisputeGameFactoryRouter {
 
     event ZoneSet(uint256 indexed zoneId, address indexed oldFactory, address indexed newFactory);
     event GameCreated(uint256 indexed zoneId, address indexed proxy);
-    event BatchGamesCreated(uint256 count);
-
     // ============ Errors ============
 
     error ZoneNotRegistered(uint256 zoneId);
