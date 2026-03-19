@@ -24,11 +24,9 @@ var (
 		EnvVars: prefixEnvVars("TEE_PROVE_TIMEOUT"),
 		Value:   config.DefaultTeeProveTimeout,
 	}
-)
 
-func init() {
-	optionalFlags = append(optionalFlags, TeeProverRpcFlag, TeeProvePollIntervalFlag, TeeProveTimeoutFlag)
-}
+	teeFlags = []cli.Flag{TeeProverRpcFlag, TeeProvePollIntervalFlag, TeeProveTimeoutFlag}
+)
 
 // onlyTeeGameTypes returns true if all enabled game types are TEE (which doesn't require L2 RPC).
 func onlyTeeGameTypes(types []gameTypes.GameType) bool {
