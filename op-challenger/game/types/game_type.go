@@ -41,6 +41,7 @@ var SupportedGameTypes = []GameType{
 	SuperCannonKonaGameType,
 	SuperPermissionedGameType,
 	OptimisticZKGameType,
+	TeeGameType, // For XLayer
 }
 
 // Set implements the Set method required by the [cli.Generic] interface.
