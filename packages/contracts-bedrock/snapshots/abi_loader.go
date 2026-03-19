@@ -34,6 +34,9 @@ var systemConfig []byte
 //go:embed abi/CrossL2Inbox.json
 var crossL2Inbox []byte
 
+//go:embed abi/TeeDisputeGame.json
+var teeDisputeGame []byte // For XLayer
+
 func LoadDisputeGameFactoryABI() *abi.ABI {
 	return loadABI(disputeGameFactory)
 }
@@ -67,6 +70,10 @@ func LoadSystemConfigABI() *abi.ABI {
 
 func LoadCrossL2InboxABI() *abi.ABI {
 	return loadABI(crossL2Inbox)
+}
+
+func LoadTeeDisputeGameABI() *abi.ABI { // For XLayer
+	return loadABI(teeDisputeGame)
 }
 
 func loadABI(json []byte) *abi.ABI {

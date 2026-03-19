@@ -124,6 +124,9 @@ func validConfig(t *testing.T, gameType gameTypes.GameType) Config {
 	if gameType == gameTypes.OptimisticZKGameType {
 		applyValidConfigForOptimisticZK(&cfg)
 	}
+	if gameType == gameTypes.TeeGameType { // For XLayer
+		applyValidConfigForTee(&cfg)
+	}
 	return cfg
 }
 
@@ -506,6 +509,9 @@ func TestRollupRpcRequired(t *testing.T) {
 	for _, gameType := range gameTypes.SupportedGameTypes {
 		gameType := gameType
 		if gameType == gameTypes.SuperCannonGameType || gameType == gameTypes.SuperPermissionedGameType || gameType == gameTypes.SuperCannonKonaGameType {
+			continue
+		}
+		if gameType == gameTypes.TeeGameType { // For XLayer: TEE doesn't require RollupRpc
 			continue
 		}
 		t.Run(gameType.String(), func(t *testing.T) {
