@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"errors"
 
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/sources"
@@ -19,6 +20,12 @@ type UpstreamFollowSource interface {
 	GetFollowStatus(ctx context.Context) (*sources.FollowStatus, error)
 }
 
+// XLayerRuntimeConfigSource is an optional interface for fetching P2PSequencerAddress
+// from an upstream node. Used in skip-l1-check mode via type assertion.
+type XLayerRuntimeConfigSource interface {
+	GetRuntimeConfig(ctx context.Context) (*sources.XLayerRuntimeConfigResponse, error)
+}
+
 type L2FollowSource struct {
 	l2Source *sources.FollowClient
 	l1Source L1FollowSource
@@ -27,9 +34,10 @@ type L2FollowSource struct {
 var _ UpstreamFollowSource = (*L2FollowSource)(nil)
 
 func NewL2FollowSource(client *sources.FollowClient, l1Source L1FollowSource) *L2FollowSource {
-	if l1Source == nil || client == nil {
-		panic("NewL2FollowSource: sources must not be nil")
+	if client == nil {
+		panic("NewL2FollowSource: l2Source must not be nil")
 	}
+	// l1Source may be nil when skip-l1-check is enabled (L1 verification is skipped)
 	return &L2FollowSource{l2Source: client, l1Source: l1Source}
 }
 
@@ -38,5 +46,12 @@ func (fs *L2FollowSource) GetFollowStatus(ctx context.Context) (*sources.FollowS
 }
 
 func (fs *L2FollowSource) L1BlockRefByNumber(ctx context.Context, num uint64) (eth.L1BlockRef, error) {
+	if fs.l1Source == nil {
+		return eth.L1BlockRef{}, errors.New("L1 source not available (skip-l1-check mode)")
+	}
 	return fs.l1Source.L1BlockRefByNumber(ctx, num)
+}
+
+func (fs *L2FollowSource) GetRuntimeConfig(ctx context.Context) (*sources.XLayerRuntimeConfigResponse, error) {
+	return fs.l2Source.GetRuntimeConfig(ctx)
 }

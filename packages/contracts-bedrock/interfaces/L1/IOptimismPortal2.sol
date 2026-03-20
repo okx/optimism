@@ -34,6 +34,8 @@ interface IOptimismPortal2 is IProxyAdminOwnedBase {
     error OptimismPortal_ProofNotOldEnough();
     error OptimismPortal_Unproven();
     error OptimismPortal_InvalidLockboxState();
+    error OptimismPortal_OnlyCustomGasToken();
+    error OptimismPortal_InvalidGasToken();
     error OutOfGas();
     error UnexpectedList();
     error UnexpectedString();
@@ -49,6 +51,15 @@ interface IOptimismPortal2 is IProxyAdminOwnedBase {
     function anchorStateRegistry() external view returns (IAnchorStateRegistry);
     function ethLockbox() external view returns (IETHLockbox);
     function checkWithdrawal(bytes32 _withdrawalHash, address _proofSubmitter) external view;
+    function depositERC20Transaction(
+        address _to,
+        uint256 _mint,
+        uint256 _value,
+        uint64 _gasLimit,
+        bool _isCreation,
+        bytes memory _data
+    )
+        external;
     function depositTransaction(
         address _to,
         uint256 _value,

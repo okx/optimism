@@ -85,6 +85,13 @@ var (
 		Usage:   "TeeRollup RPC service base URL (required when --game-type=1960)",
 		EnvVars: []string{"OP_PROPOSER_TEE_ROLLUP_RPC"},
 	}
+	// X Layer: Genesis height may not be zero
+	GenesisHeight = &cli.Uint64Flag{
+		Name:    "genesis-height",
+		Usage:   "The genesis block height to use",
+		Value:   0,
+		EnvVars: prefixEnvVars("GENESIS_HEIGHT"),
+	}
 	// Legacy Flags
 	L2OutputHDPathFlag = txmgr.L2OutputHDPathFlag
 )
@@ -105,6 +112,7 @@ var optionalFlags = []cli.Flag{
 	ActiveSequencerCheckDurationFlag,
 	WaitNodeSyncFlag,
 	TeeRollupRpcFlag, // For xlayer
+	GenesisHeight,    // X Layer: Genesis height may not be zero
 }
 
 func init() {

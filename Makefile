@@ -13,8 +13,11 @@ help: ## Prints this help message
 build: build-go build-contracts ## Builds Go components and contracts-bedrock
 .PHONY: build
 
-build-go: submodules op-node op-proposer op-batcher op-challenger op-dispute-mon op-program cannon ## Builds main Go components
+build-go: submodules op-node op-proposer op-batcher op-challenger op-dispute-mon op-program cannon withdrawal op-conductor ## Builds main Go components
 .PHONY: build-go
+
+build-go-no-submodules: op-node op-proposer op-batcher op-challenger op-dispute-mon op-program cannon withdrawal op-conductor ## Used in Dockerfile
+.PHONY: build-go-no-submodules
 
 build-contracts:
 	(cd packages/contracts-bedrock && just build)
@@ -147,11 +150,26 @@ cannon:  ## Builds cannon binary
 	make -C ./cannon cannon
 .PHONY: cannon
 
-reproducible-prestate:   ## Builds reproducible prestates for op-program and kona
+withdrawal: ## Builds withdrawal binary
+	just $(JUSTFLAGS) ./op-chain-ops/withdrawal
+.PHONY: withdrawal
+
+op-conductor: ## Builds op-conductor binary
+	just $(JUSTFLAGS) ./op-conductor/op-conductor
+.PHONY: op-conductor
+
+reproducible-prestate-op-program:
 	make -C ./op-program build-reproducible-prestate
-	cd kona && just build-reproducible-prestate
+.PHONY: reproducible-prestate-op-program
+
+reproducible-prestate-kona:
+	cd rust && just build-kona-reproducible-prestate
+.PHONY: reproducible-prestate-kona
+
+reproducible-prestate:  reproducible-prestate-op-program reproducible-prestate-kona ## Builds reproducible prestates for op-program and kona
+	# Output the prestate hashes after all the builds complete so they are easy to find at the end of the build logs.
 	make -C ./op-program output-prestate-hash
-	cd kona && just output-prestate-hash
+	cd rust && just output-kona-prestate-hash
 .PHONY: reproducible-prestate
 
 cannon-prestates: cannon op-program
@@ -181,7 +199,6 @@ test-unit: ## Runs unit tests for individual components
 	make -C ./op-proposer test
 	make -C ./op-batcher test
 	make -C ./op-e2e test
-	(cd packages/contracts-bedrock && just test)
 .PHONY: test-unit
 
 # Remove the baseline-commit to generate a base reading & show all issues

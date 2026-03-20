@@ -423,16 +423,15 @@ func (l *BatchSubmitter) unsafeDABytes() int64 {
 }
 
 // sendToThrottlingLoop sends the current unsafe bytes to the throttling loop.
-// It is not blocking, no signal will be sent if the channel is full.
+// It is not blocking, no signal will be sent if the channel is full or if the throttling loop is not running.
 func (l *BatchSubmitter) sendToThrottlingLoop(unsafeBytesUpdated chan int64) {
-	if l.Config.ThrottleParams.LowerThreshold == 0 {
-		return
-	}
-
+	unsafeDABytes := l.unsafeDABytes()
+	l.Metr.RecordUnsafeDABytes(unsafeDABytes)
 	// notify the throttling loop it may be time to initiate throttling without blocking
 	select {
-	case unsafeBytesUpdated <- l.unsafeDABytes():
+	case unsafeBytesUpdated <- unsafeDABytes:
 	default:
+		// drop the update if there is no ready reader for the channel
 	}
 }
 
@@ -530,6 +529,9 @@ func (l *BatchSubmitter) blockLoadingLoop(ctx context.Context, wg *sync.WaitGrou
 	defer close(unsafeBytesUpdated)
 	defer close(publishSignal)
 	defer wg.Done()
+	// X Layer: debug log about unsafe/safe block on op-batcher
+	var preL2unsafeBlock eth.L2BlockRef
+	var preL2SafeBlock eth.L2BlockRef
 	for {
 		select {
 		case <-ticker.C:
@@ -538,7 +540,22 @@ func (l *BatchSubmitter) blockLoadingLoop(ctx context.Context, wg *sync.WaitGrou
 				l.Log.Warn("could not get sync status, retrying on next tick", "err", err)
 				continue
 			}
-
+			curL2unsafeBlock, curL2SafeBlock := syncStatus.UnsafeL2, syncStatus.SafeL2
+			if curL2unsafeBlock != preL2unsafeBlock || curL2SafeBlock != preL2SafeBlock {
+				if curL2unsafeBlock.Number >= curL2SafeBlock.Number {
+					l.Log.Debug("L2 sync status updated",
+						"unsafe_l2", curL2unsafeBlock,
+						"safe_l2", curL2SafeBlock, "gap", curL2unsafeBlock.Number-curL2SafeBlock.Number,
+					)
+				} else {
+					l.Log.Warn("L2 sync status updated with unsafe < safe (possible reorg)",
+						"unsafe_l2", curL2unsafeBlock,
+						"safe_l2", curL2SafeBlock,
+					)
+				}
+				preL2unsafeBlock = curL2unsafeBlock
+				preL2SafeBlock = curL2SafeBlock
+			}
 			blocksToLoad := l.syncAndPrune(syncStatus)
 
 			if blocksToLoad != nil {
@@ -703,7 +720,6 @@ func (l *BatchSubmitter) throttlingLoop(wg *sync.WaitGroup, unsafeBytesUpdated c
 	}
 
 	for unsafeBytes := range unsafeBytesUpdated {
-		l.Metr.RecordUnsafeDABytes(unsafeBytes)
 		newParams := l.throttleController.Update(uint64(unsafeBytes))
 		controllerType := l.throttleController.GetType()
 

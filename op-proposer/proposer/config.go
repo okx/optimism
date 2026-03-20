@@ -89,6 +89,8 @@ type CLIConfig struct {
 
 	// For xlayer: TeeRollupRpc is the TeeRollup RPC service base URL for game type 1960.
 	TeeRollupRpc string
+	// X Layer: Genesis height may not be zero
+	GenesisHeight uint64
 }
 
 func (c *CLIConfig) Check() error {
@@ -170,5 +172,6 @@ func NewConfig(ctx *cli.Context) *CLIConfig {
 		ActiveSequencerCheckDuration: ctx.Duration(flags.ActiveSequencerCheckDurationFlag.Name),
 		WaitNodeSync:                 ctx.Bool(flags.WaitNodeSyncFlag.Name),
 		TeeRollupRpc:                 ctx.String(flags.TeeRollupRpcFlag.Name), // For xlayer
+		GenesisHeight:                ctx.Uint64(flags.GenesisHeight.Name),    // X Layer: Genesis height may not be zero
 	}
 }

@@ -279,6 +279,9 @@ Conflicting configuration is deprecated, and will stop the op-node from starting
 	if err := dec.Decode(&rollupConfig); err != nil {
 		return nil, fmt.Errorf("failed to decode rollup config: %w", err)
 	}
+	// X Layer hardcoded fork configurations for file-loaded configs
+	rollup.ApplyXLayerHardcodedForks(&rollupConfig)
+	rollup.FixXLayerL2Time(&rollupConfig, rollupConfigPath)
 	return &rollupConfig, nil
 }
 
@@ -362,6 +365,10 @@ func NewSyncConfig(ctx cliiface.Context, log log.Logger) (*sync.Config, error) {
 		return nil, err
 	}
 	engineKind := engine.Kind(ctx.String(flags.L2EngineKind.Name))
+	skipL1Check := ctx.Bool(flags.L2FollowSourceSkipL1Check.Name)
+	if skipL1Check && l2FollowSourceEndpoint == "" {
+		return nil, errors.New("--l2.follow.source.skip-l1-check requires --l2.follow.source to be set")
+	}
 	cfg := &sync.Config{
 		SyncMode:                       mode,
 		SyncModeReqResp:                ctx.Bool(flags.SyncModeReqRespFlag.Name),
@@ -369,7 +376,8 @@ func NewSyncConfig(ctx cliiface.Context, log log.Logger) (*sync.Config, error) {
 		SupportsPostFinalizationELSync: engineKind.SupportsPostFinalizationELSync(),
 		L2FollowSourceEndpoint:         l2FollowSourceEndpoint,
 		// Sequencer needs a manual initial reset when follow source
-		NeedInitialResetEngine: ctx.Bool(flags.SequencerEnabledFlag.Name) && l2FollowSourceEndpoint != "",
+		NeedInitialResetEngine:  ctx.Bool(flags.SequencerEnabledFlag.Name) && l2FollowSourceEndpoint != "",
+		SkipFollowSourceL1Check: skipL1Check,
 	}
 	if ctx.Bool(flags.L2EngineSyncEnabled.Name) {
 		cfg.SyncMode = sync.ELSync
