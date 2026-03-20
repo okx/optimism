@@ -25,6 +25,7 @@ const (
 	FastGameType              GameType = 254
 	AlphabetGameType          GameType = 255
 	KailuaGameType            GameType = 1337           // Not supported by op-challenger
+	TeeGameType               GameType = 1960           // For XLayer
 	UnknownGameType           GameType = math.MaxUint32 // Not supported by op-challenger
 )
 
@@ -40,6 +41,7 @@ var SupportedGameTypes = []GameType{
 	SuperCannonKonaGameType,
 	SuperPermissionedGameType,
 	OptimisticZKGameType,
+	TeeGameType, // For XLayer
 }
 
 // Set implements the Set method required by the [cli.Generic] interface.
@@ -98,6 +100,8 @@ func (g GameType) String() string {
 		return "fast"
 	case AlphabetGameType:
 		return "alphabet"
+	case TeeGameType: // For XLayer
+		return "tee"
 	case KailuaGameType:
 		return "kailua"
 	default:
