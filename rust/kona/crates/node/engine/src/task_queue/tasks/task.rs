@@ -122,6 +122,7 @@ impl<EngineClient_: EngineClient> EngineTask<EngineClient_> {
         Ok(())
     }
 
+    #[allow(dead_code)] // used when metrics feature is enabled
     const fn task_metrics_label(&self) -> &'static str {
         match self {
             Self::Insert(_) => crate::Metrics::INSERT_TASK_LABEL,

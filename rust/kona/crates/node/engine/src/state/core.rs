@@ -121,6 +121,7 @@ impl EngineSyncState {
 
     /// Updates a block label metric, keyed by the label.
     #[inline]
+    #[allow(unused_variables)] // label and number unused when metrics feature is disabled
     fn update_block_label_metric(label: &'static str, number: u64) {
         kona_macros::set!(gauge, Metrics::BLOCK_LABELS, "label", label, number as f64);
     }

@@ -5,12 +5,12 @@ use crate::{
     InsertTaskError::{self},
     task_queue::build_and_seal,
 };
-use alloy_rpc_types_engine::{ExecutionPayload, PayloadId};
+use alloy_rpc_types_engine::PayloadId;
 use async_trait::async_trait;
 use derive_more::Constructor;
 use kona_genesis::RollupConfig;
 use kona_protocol::{L2BlockInfo, OpAttributesWithParent};
-use op_alloy_rpc_types_engine::{OpExecutionPayload, OpExecutionPayloadEnvelope};
+use op_alloy_rpc_types_engine::OpExecutionPayloadEnvelope;
 use std::{sync::Arc, time::Instant};
 use tokio::sync::mpsc;
 
@@ -72,45 +72,13 @@ impl<EngineClient_: EngineClient> SealTask<EngineClient_> {
         );
 
         let get_payload_version = EngineGetPayloadVersion::from_cfg(cfg, payload_timestamp);
-        let payload_envelope = match get_payload_version {
-            EngineGetPayloadVersion::V4 => {
-                let payload = engine.get_payload_v4(payload_id).await.map_err(|e| {
-                    error!(target: "engine", "Payload fetch failed: {e}");
-                    SealTaskError::GetPayloadFailed(e)
-                })?;
-
-                OpExecutionPayloadEnvelope {
-                    parent_beacon_block_root: Some(payload.parent_beacon_block_root),
-                    execution_payload: OpExecutionPayload::V4(payload.execution_payload),
-                }
-            }
-            EngineGetPayloadVersion::V3 => {
-                let payload = engine.get_payload_v3(payload_id).await.map_err(|e| {
-                    error!(target: "engine", "Payload fetch failed: {e}");
-                    SealTaskError::GetPayloadFailed(e)
-                })?;
-
-                OpExecutionPayloadEnvelope {
-                    parent_beacon_block_root: Some(payload.parent_beacon_block_root),
-                    execution_payload: OpExecutionPayload::V3(payload.execution_payload),
-                }
-            }
-            EngineGetPayloadVersion::V2 => {
-                let payload = engine.get_payload_v2(payload_id).await.map_err(|e| {
-                    error!(target: "engine", "Payload fetch failed: {e}");
-                    SealTaskError::GetPayloadFailed(e)
-                })?;
-
-                OpExecutionPayloadEnvelope {
-                    parent_beacon_block_root: None,
-                    execution_payload: match payload.execution_payload.into_payload() {
-                        ExecutionPayload::V1(payload) => OpExecutionPayload::V1(payload),
-                        ExecutionPayload::V2(payload) => OpExecutionPayload::V2(payload),
-                        _ => unreachable!("the response should be a V1 or V2 payload"),
-                    },
-                }
-            }
-        };
+        let payload_envelope = engine
+            .get_payload(get_payload_version, payload_id)
+            .await
+            .map_err(|e| {
+                error!(target: "engine", "Payload fetch failed: {e}");
+                SealTaskError::GetPayloadFailed(e)
+            })?;
 
         Ok(payload_envelope)
     }

@@ -1,14 +1,11 @@
 //! Mock implementations for testing engine client functionality.
 
-use crate::EngineClient;
+use crate::{EngineClient, EngineClientError, EngineForkchoiceVersion, EngineGetPayloadVersion};
 use alloy_eips::{BlockId, eip1898::BlockNumberOrTag};
 use alloy_network::{Ethereum, Network};
-use alloy_primitives::{Address, B256, StorageKey};
+use alloy_primitives::{Address, StorageKey};
 use alloy_provider::{EthGetBlock, ProviderCall, RpcWithBlock};
-use alloy_rpc_types_engine::{
-    ExecutionPayloadEnvelopeV2, ExecutionPayloadInputV2, ExecutionPayloadV1, ExecutionPayloadV3,
-    ForkchoiceState, ForkchoiceUpdated, PayloadId, PayloadStatus,
-};
+use alloy_rpc_types_engine::{ForkchoiceState, ForkchoiceUpdated, PayloadId, PayloadStatus};
 use alloy_rpc_types_eth::{Block, EIP1186AccountProofResponse, Transaction as EthTransaction};
 use alloy_transport::{TransportError, TransportErrorKind, TransportResult};
 use async_trait::async_trait;
@@ -16,14 +13,9 @@ use kona_genesis::RollupConfig;
 use kona_protocol::L2BlockInfo;
 use op_alloy_network::Optimism;
 use op_alloy_rpc_types::Transaction as OpTransaction;
-use op_alloy_rpc_types_engine::{
-    OpExecutionPayloadEnvelopeV3, OpExecutionPayloadEnvelopeV4, OpExecutionPayloadV4,
-    OpPayloadAttributes,
-};
+use op_alloy_rpc_types_engine::{OpExecutionPayloadEnvelope, OpPayloadAttributes};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
-
-use crate::EngineClientError;
 
 /// Builder for creating test `MockEngineClient` instances with sensible defaults
 pub fn test_engine_client_builder() -> MockEngineClientBuilder {
@@ -31,9 +23,6 @@ pub fn test_engine_client_builder() -> MockEngineClientBuilder {
 }
 
 /// Mock storage for engine client responses.
-///
-/// Each API method has version-specific storage to allow tests to verify
-/// which specific version was called and return different responses per version.
 #[derive(Debug, Clone, Default)]
 pub struct MockEngineStorage {
     /// Storage for block responses by tag.
@@ -41,36 +30,17 @@ pub struct MockEngineStorage {
     /// Storage for block info responses by tag.
     pub block_info_by_tag: HashMap<BlockNumberOrTag, L2BlockInfo>,
 
-    // Version-specific new_payload responses
-    /// Storage for `new_payload_v1` responses.
-    pub new_payload_v1_response: Option<PayloadStatus>,
-    /// Storage for `new_payload_v2` responses.
-    pub new_payload_v2_response: Option<PayloadStatus>,
-    /// Storage for `new_payload_v3` responses.
-    pub new_payload_v3_response: Option<PayloadStatus>,
-    /// Storage for `new_payload_v4` responses.
-    pub new_payload_v4_response: Option<PayloadStatus>,
-
-    // Version-specific fork_choice_updated responses
-    /// Storage for `fork_choice_updated_v2` responses.
-    pub fork_choice_updated_v2_response: Option<ForkchoiceUpdated>,
-    /// Storage for `fork_choice_updated_v3` responses.
-    pub fork_choice_updated_v3_response: Option<ForkchoiceUpdated>,
-
-    // Version-specific get_payload responses
-    /// Storage for execution payload envelope v2 responses.
-    pub execution_payload_v2: Option<ExecutionPayloadEnvelopeV2>,
-    /// Storage for OP execution payload envelope v3 responses.
-    pub execution_payload_v3: Option<OpExecutionPayloadEnvelopeV3>,
-    /// Storage for OP execution payload envelope v4 responses.
-    pub execution_payload_v4: Option<OpExecutionPayloadEnvelopeV4>,
+    /// Response for `new_payload` calls.
+    pub new_payload_response: Option<PayloadStatus>,
+    /// Response for `fork_choice_updated` calls.
+    pub fork_choice_updated_response: Option<ForkchoiceUpdated>,
+    /// Response for `get_payload` calls.
+    pub get_payload_response: Option<OpExecutionPayloadEnvelope>,
 
     // Storage for get_l1_block, get_l2_block, and get_proof
     /// Storage for L1 blocks by stringified `BlockId`.
-    /// L1 blocks use standard Ethereum transactions.
     pub l1_blocks_by_id: HashMap<String, Block<EthTransaction>>,
     /// Storage for L2 blocks by stringified `BlockId`.
-    /// L2 blocks use OP Stack transactions.
     pub l2_blocks_by_id: HashMap<String, Block<OpTransaction>>,
     /// Storage for proofs by (address, stringified `BlockId`) key.
     pub proofs_by_address: HashMap<(Address, String), EIP1186AccountProofResponse>,
@@ -130,57 +100,21 @@ impl MockEngineClientBuilder {
         self
     }
 
-    /// Sets the `new_payload_v1` response.
-    pub fn with_new_payload_v1_response(mut self, status: PayloadStatus) -> Self {
-        self.storage.new_payload_v1_response = Some(status);
+    /// Sets the `new_payload` response.
+    pub fn with_new_payload_response(mut self, status: PayloadStatus) -> Self {
+        self.storage.new_payload_response = Some(status);
         self
     }
 
-    /// Sets the `new_payload_v2` response.
-    pub fn with_new_payload_v2_response(mut self, status: PayloadStatus) -> Self {
-        self.storage.new_payload_v2_response = Some(status);
+    /// Sets the `fork_choice_updated` response.
+    pub fn with_fork_choice_updated_response(mut self, response: ForkchoiceUpdated) -> Self {
+        self.storage.fork_choice_updated_response = Some(response);
         self
     }
 
-    /// Sets the `new_payload_v3` response.
-    pub fn with_new_payload_v3_response(mut self, status: PayloadStatus) -> Self {
-        self.storage.new_payload_v3_response = Some(status);
-        self
-    }
-
-    /// Sets the `new_payload_v4` response.
-    pub fn with_new_payload_v4_response(mut self, status: PayloadStatus) -> Self {
-        self.storage.new_payload_v4_response = Some(status);
-        self
-    }
-
-    /// Sets the `fork_choice_updated_v2` response.
-    pub fn with_fork_choice_updated_v2_response(mut self, response: ForkchoiceUpdated) -> Self {
-        self.storage.fork_choice_updated_v2_response = Some(response);
-        self
-    }
-
-    /// Sets the `fork_choice_updated_v3` response.
-    pub fn with_fork_choice_updated_v3_response(mut self, response: ForkchoiceUpdated) -> Self {
-        self.storage.fork_choice_updated_v3_response = Some(response);
-        self
-    }
-
-    /// Sets the execution payload v2 response.
-    pub fn with_execution_payload_v2(mut self, payload: ExecutionPayloadEnvelopeV2) -> Self {
-        self.storage.execution_payload_v2 = Some(payload);
-        self
-    }
-
-    /// Sets the execution payload v3 response.
-    pub fn with_execution_payload_v3(mut self, payload: OpExecutionPayloadEnvelopeV3) -> Self {
-        self.storage.execution_payload_v3 = Some(payload);
-        self
-    }
-
-    /// Sets the execution payload v4 response.
-    pub fn with_execution_payload_v4(mut self, payload: OpExecutionPayloadEnvelopeV4) -> Self {
-        self.storage.execution_payload_v4 = Some(payload);
+    /// Sets the `get_payload` response.
+    pub fn with_get_payload_response(mut self, payload: OpExecutionPayloadEnvelope) -> Self {
+        self.storage.get_payload_response = Some(payload);
         self
     }
 
@@ -267,49 +201,19 @@ impl MockEngineClient {
         self.storage.write().await.block_info_by_tag.insert(tag, info);
     }
 
-    /// Sets the `new_payload_v1` response.
-    pub async fn set_new_payload_v1_response(&self, status: PayloadStatus) {
-        self.storage.write().await.new_payload_v1_response = Some(status);
+    /// Sets the `new_payload` response.
+    pub async fn set_new_payload_response(&self, status: PayloadStatus) {
+        self.storage.write().await.new_payload_response = Some(status);
     }
 
-    /// Sets the `new_payload_v2` response.
-    pub async fn set_new_payload_v2_response(&self, status: PayloadStatus) {
-        self.storage.write().await.new_payload_v2_response = Some(status);
+    /// Sets the `fork_choice_updated` response.
+    pub async fn set_fork_choice_updated_response(&self, response: ForkchoiceUpdated) {
+        self.storage.write().await.fork_choice_updated_response = Some(response);
     }
 
-    /// Sets the `new_payload_v3` response.
-    pub async fn set_new_payload_v3_response(&self, status: PayloadStatus) {
-        self.storage.write().await.new_payload_v3_response = Some(status);
-    }
-
-    /// Sets the `new_payload_v4` response.
-    pub async fn set_new_payload_v4_response(&self, status: PayloadStatus) {
-        self.storage.write().await.new_payload_v4_response = Some(status);
-    }
-
-    /// Sets the `fork_choice_updated_v2` response.
-    pub async fn set_fork_choice_updated_v2_response(&self, response: ForkchoiceUpdated) {
-        self.storage.write().await.fork_choice_updated_v2_response = Some(response);
-    }
-
-    /// Sets the `fork_choice_updated_v3` response.
-    pub async fn set_fork_choice_updated_v3_response(&self, response: ForkchoiceUpdated) {
-        self.storage.write().await.fork_choice_updated_v3_response = Some(response);
-    }
-
-    /// Sets the execution payload v2 response.
-    pub async fn set_execution_payload_v2(&self, payload: ExecutionPayloadEnvelopeV2) {
-        self.storage.write().await.execution_payload_v2 = Some(payload);
-    }
-
-    /// Sets the execution payload v3 response.
-    pub async fn set_execution_payload_v3(&self, payload: OpExecutionPayloadEnvelopeV3) {
-        self.storage.write().await.execution_payload_v3 = Some(payload);
-    }
-
-    /// Sets the execution payload v4 response.
-    pub async fn set_execution_payload_v4(&self, payload: OpExecutionPayloadEnvelopeV4) {
-        self.storage.write().await.execution_payload_v4 = Some(payload);
+    /// Sets the `get_payload` response.
+    pub async fn set_get_payload_response(&self, payload: OpExecutionPayloadEnvelope) {
+        self.storage.write().await.get_payload_response = Some(payload);
     }
 
     /// Sets an L1 block response for a specific `BlockId`.
@@ -404,117 +308,44 @@ impl EngineClient for MockEngineClient {
         })
     }
 
-    async fn new_payload_v1(&self, _payload: ExecutionPayloadV1) -> TransportResult<PayloadStatus> {
-        let storage = self.storage.read().await;
-        storage.new_payload_v1_response.clone().ok_or_else(|| {
-            TransportError::from(TransportErrorKind::custom_str(
-                "new_payload_v1 was called but no v1 response configured. \
-                 Use with_new_payload_v1_response() or set_new_payload_v1_response() to set a response."
-            ))
-        })
-    }
-
-    async fn new_payload_v2(
+    async fn new_payload(
         &self,
-        _payload: ExecutionPayloadInputV2,
+        _envelope: OpExecutionPayloadEnvelope,
     ) -> TransportResult<PayloadStatus> {
         let storage = self.storage.read().await;
-        storage.new_payload_v2_response.clone().ok_or_else(|| {
+        storage.new_payload_response.clone().ok_or_else(|| {
             TransportError::from(TransportErrorKind::custom_str(
-                "new_payload_v2 was called but no v2 response configured. \
-                 Use with_new_payload_v2_response() or set_new_payload_v2_response() to set a response."
+                "new_payload called but no response configured. \
+                 Use with_new_payload_response() or set_new_payload_response() to set a response.",
             ))
         })
     }
 
-    async fn new_payload_v3(
+    async fn fork_choice_updated(
         &self,
-        _payload: ExecutionPayloadV3,
-        _parent_beacon_block_root: B256,
-    ) -> TransportResult<PayloadStatus> {
-        let storage = self.storage.read().await;
-        storage.new_payload_v3_response.clone().ok_or_else(|| {
-            TransportError::from(TransportErrorKind::custom_str(
-                "new_payload_v3 was called but no v3 response configured. \
-                 Use with_new_payload_v3_response() or set_new_payload_v3_response() to set a response."
-            ))
-        })
-    }
-
-    async fn new_payload_v4(
-        &self,
-        _payload: OpExecutionPayloadV4,
-        _parent_beacon_block_root: B256,
-    ) -> TransportResult<PayloadStatus> {
-        let storage = self.storage.read().await;
-        storage.new_payload_v4_response.clone().ok_or_else(|| {
-            TransportError::from(TransportErrorKind::custom_str(
-                "new_payload_v4 was called but no v4 response configured. \
-                 Use with_new_payload_v4_response() or set_new_payload_v4_response() to set a response."
-            ))
-        })
-    }
-
-    async fn fork_choice_updated_v2(
-        &self,
+        _version: EngineForkchoiceVersion,
         _fork_choice_state: ForkchoiceState,
         _payload_attributes: Option<OpPayloadAttributes>,
     ) -> TransportResult<ForkchoiceUpdated> {
         let storage = self.storage.read().await;
-        storage.fork_choice_updated_v2_response.clone().ok_or_else(|| {
+        storage.fork_choice_updated_response.clone().ok_or_else(|| {
             TransportError::from(TransportErrorKind::custom_str(
-                "fork_choice_updated_v2 was called but no v2 response configured. \
-                 Use with_fork_choice_updated_v2_response() or set_fork_choice_updated_v2_response() to set a response."
+                "fork_choice_updated called but no response configured. \
+                 Use with_fork_choice_updated_response() or set_fork_choice_updated_response() to set a response.",
             ))
         })
     }
 
-    async fn fork_choice_updated_v3(
+    async fn get_payload(
         &self,
-        _fork_choice_state: ForkchoiceState,
-        _payload_attributes: Option<OpPayloadAttributes>,
-    ) -> TransportResult<ForkchoiceUpdated> {
-        let storage = self.storage.read().await;
-        storage.fork_choice_updated_v3_response.clone().ok_or_else(|| {
-            TransportError::from(TransportErrorKind::custom_str(
-                "fork_choice_updated_v3 was called but no v3 response configured. \
-                 Use with_fork_choice_updated_v3_response() or set_fork_choice_updated_v3_response() to set a response."
-            ))
-        })
-    }
-
-    async fn get_payload_v2(
-        &self,
+        _version: EngineGetPayloadVersion,
         _payload_id: PayloadId,
-    ) -> TransportResult<ExecutionPayloadEnvelopeV2> {
+    ) -> TransportResult<OpExecutionPayloadEnvelope> {
         let storage = self.storage.read().await;
-        storage.execution_payload_v2.clone().ok_or_else(|| {
+        storage.get_payload_response.clone().ok_or_else(|| {
             TransportError::from(TransportErrorKind::custom_str(
-                "No execution payload v2 set in mock",
-            ))
-        })
-    }
-
-    async fn get_payload_v3(
-        &self,
-        _payload_id: PayloadId,
-    ) -> TransportResult<OpExecutionPayloadEnvelopeV3> {
-        let storage = self.storage.read().await;
-        storage.execution_payload_v3.clone().ok_or_else(|| {
-            TransportError::from(TransportErrorKind::custom_str(
-                "No execution payload v3 set in mock",
-            ))
-        })
-    }
-
-    async fn get_payload_v4(
-        &self,
-        _payload_id: PayloadId,
-    ) -> TransportResult<OpExecutionPayloadEnvelopeV4> {
-        let storage = self.storage.read().await;
-        storage.execution_payload_v4.clone().ok_or_else(|| {
-            TransportError::from(TransportErrorKind::custom_str(
-                "No execution payload v4 set in mock",
+                "get_payload called but no response configured. \
+                 Use with_get_payload_response() or set_get_payload_response() to set a response.",
             ))
         })
     }
@@ -548,6 +379,7 @@ fn block_id_to_key(block_id: &BlockId) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy_primitives::B256;
     use alloy_rpc_types_engine::PayloadStatusEnum;
 
     #[tokio::test]
@@ -563,38 +395,15 @@ mod tests {
     #[tokio::test]
     async fn test_mock_payload_status() {
         let cfg = Arc::new(RollupConfig::default());
-
         let mock = MockEngineClient::new(cfg);
 
         let status =
             PayloadStatus { status: PayloadStatusEnum::Valid, latest_valid_hash: Some(B256::ZERO) };
 
-        mock.set_new_payload_v2_response(status.clone()).await;
+        mock.set_new_payload_response(status.clone()).await;
 
-        // Create a minimal ExecutionPayloadInputV2 for testing
-        use alloy_primitives::{Bytes, U256};
-        use alloy_rpc_types_engine::ExecutionPayloadV1;
-        let payload = ExecutionPayloadInputV2 {
-            execution_payload: ExecutionPayloadV1 {
-                parent_hash: B256::ZERO,
-                fee_recipient: Default::default(),
-                state_root: B256::ZERO,
-                receipts_root: B256::ZERO,
-                logs_bloom: Default::default(),
-                prev_randao: B256::ZERO,
-                block_number: 0,
-                gas_limit: 0,
-                gas_used: 0,
-                timestamp: 0,
-                extra_data: Bytes::new(),
-                base_fee_per_gas: U256::ZERO,
-                block_hash: B256::ZERO,
-                transactions: vec![],
-            },
-            withdrawals: None,
-        };
-
-        let result = mock.new_payload_v2(payload).await.unwrap();
+        // The mock ignores the envelope value — only the pre-configured response matters.
+        let result = mock.new_payload(OpExecutionPayloadEnvelope::default()).await.unwrap();
 
         assert_eq!(result.status, status.status);
     }
@@ -602,7 +411,6 @@ mod tests {
     #[tokio::test]
     async fn test_mock_forkchoice_updated() {
         let cfg = Arc::new(RollupConfig::default());
-
         let mock = MockEngineClient::new(cfg);
 
         let fcu = ForkchoiceUpdated {
@@ -613,9 +421,12 @@ mod tests {
             payload_id: None,
         };
 
-        mock.set_fork_choice_updated_v2_response(fcu.clone()).await;
+        mock.set_fork_choice_updated_response(fcu.clone()).await;
 
-        let result = mock.fork_choice_updated_v2(ForkchoiceState::default(), None).await.unwrap();
+        let result = mock
+            .fork_choice_updated(EngineForkchoiceVersion::V2, ForkchoiceState::default(), None)
+            .await
+            .unwrap();
 
         assert_eq!(result.payload_status.status, fcu.payload_status.status);
     }
@@ -628,37 +439,14 @@ mod tests {
 
         let mock = MockEngineClient::builder()
             .with_config(cfg.clone())
-            .with_new_payload_v2_response(status.clone())
+            .with_new_payload_response(status.clone())
             .build();
 
         // Verify the config was set
         assert_eq!(mock.cfg().block_time, cfg.block_time);
 
-        // Create a minimal ExecutionPayloadInputV2 for testing
-        use alloy_primitives::{Bytes, U256};
-        use alloy_rpc_types_engine::ExecutionPayloadV1;
-        let payload = ExecutionPayloadInputV2 {
-            execution_payload: ExecutionPayloadV1 {
-                parent_hash: B256::ZERO,
-                fee_recipient: Default::default(),
-                state_root: B256::ZERO,
-                receipts_root: B256::ZERO,
-                logs_bloom: Default::default(),
-                prev_randao: B256::ZERO,
-                block_number: 0,
-                gas_limit: 0,
-                gas_used: 0,
-                timestamp: 0,
-                extra_data: Bytes::new(),
-                base_fee_per_gas: U256::ZERO,
-                block_hash: B256::ZERO,
-                transactions: vec![],
-            },
-            withdrawals: None,
-        };
-
-        // Verify the pre-configured response is returned
-        let result = mock.new_payload_v2(payload).await.unwrap();
+        // The mock ignores the envelope value — only the pre-configured response matters.
+        let result = mock.new_payload(OpExecutionPayloadEnvelope::default()).await.unwrap();
         assert_eq!(result.status, status.status);
     }
 
