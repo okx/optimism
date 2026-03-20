@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"strings"
 	"time"
 
 	"github.com/ethereum-optimism/optimism/op-service/bigs"
@@ -24,23 +23,7 @@ const (
 	methodVersion     = "version"
 
 	methodClaim = "claimData"
-
-	teeGameType uint32 = 1960 // For xlayer: TEE game type (TeeRollup)
 )
-
-// For xlayer: ABI for new game contract's no-arg claimData() struct getter
-const newGameClaimDataABIJSON = `[{"name":"claimData","type":"function","inputs":[],"outputs":[{"name":"parentIndex","type":"uint32"},{"name":"counteredBy","type":"address"},{"name":"prover","type":"address"},{"name":"claim","type":"bytes32"},{"name":"status","type":"uint8"},{"name":"deadline","type":"uint64"}],"stateMutability":"view"}]`
-
-// For xlayer: parsed ABI for new game contract's claimData() getter
-var newGameClaimDataABI abi.ABI
-
-func init() {
-	var err error
-	newGameClaimDataABI, err = abi.JSON(strings.NewReader(newGameClaimDataABIJSON))
-	if err != nil {
-		panic(fmt.Sprintf("failed to parse new game claim data ABI: %v", err))
-	}
-}
 
 type gameMetadata struct {
 	GameType  uint32
@@ -55,6 +38,7 @@ type DisputeGameFactory struct {
 	contract       *batching.BoundContract
 	gameABI        *abi.ABI
 	networkTimeout time.Duration
+	teeCache       gameIndexCache // For xlayer: in-memory cache of immutable game index metadata
 }
 
 func NewDisputeGameFactory(addr common.Address, caller *batching.MultiCaller, networkTimeout time.Duration) *DisputeGameFactory {

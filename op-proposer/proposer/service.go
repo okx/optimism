@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/ethereum-optimism/optimism/op-proposer/contracts"
 	"github.com/ethereum-optimism/optimism/op-proposer/metrics"
 	"github.com/ethereum-optimism/optimism/op-proposer/proposer/rpc"
 	"github.com/ethereum-optimism/optimism/op-proposer/proposer/source"
@@ -277,6 +279,31 @@ func (ps *ProposerService) initDriver() error {
 		return err
 	}
 	ps.driver = driver
+
+	// For xlayer: wire parent index resolver into TeeRollupProposalSource after DGF caller is available
+	if teeSource, ok := ps.ProposalSource.(*source.TeeRollupProposalSource); ok {
+		if dgfCaller, ok := driver.dgfContract.(*contracts.DisputeGameFactory); ok {
+			proposer := driver.Txmgr.From()
+			gameType := uint32(ps.ProposerConfig.DisputeGameType)
+			teeSource.SetParentIdxFn(func(ctx context.Context) (uint32, bool, error) {
+				idx, found, err := dgfCaller.FindLastGameIndex(ctx, gameType, proposer, 1000) // For xlayer
+				if err != nil {
+					return 0, false, err
+				}
+				if !found {
+					return 0, false, nil
+				}
+				if idx > math.MaxUint32 {
+					return 0, false, fmt.Errorf("tee-rollup: game index %d exceeds uint32 range", idx)
+				}
+				return uint32(idx), true, nil
+			})
+		} else {
+			// For xlayer: dgfContract is not *contracts.DisputeGameFactory — parentIdxFn not wired, will use MaxUint32 sentinel
+			ps.Log.Warn("tee-rollup: dgfContract is not *DisputeGameFactory, parentIdxFn not wired")
+		}
+	}
+
 	return nil
 }
 

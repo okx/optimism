@@ -133,8 +133,9 @@ func (c *TeeRollupHTTPClient) Close() {}
 
 // For xlayer: TeeRollupProposalSource implements ProposalSource for TeeRollup TEE game type 1960.
 type TeeRollupProposalSource struct {
-	log     log.Logger
-	clients []TeeRollupClient
+	log         log.Logger
+	clients     []TeeRollupClient
+	parentIdxFn func(ctx context.Context) (uint32, bool, error) // For xlayer: resolves parent DGF game index
 }
 
 // For xlayer: NewTeeRollupProposalSource creates a new TeeRollupProposalSource.
@@ -146,6 +147,13 @@ func NewTeeRollupProposalSource(log log.Logger, clients ...TeeRollupClient) *Tee
 		log:     log,
 		clients: clients,
 	}
+}
+
+// For xlayer: SetParentIdxFn injects the callback that resolves the parent DGF game index.
+// MUST be called before Start() to satisfy Go's happens-before guarantee.
+// If nil (default), ProposalAtSequenceNum always uses math.MaxUint32 (anchor state sentinel).
+func (s *TeeRollupProposalSource) SetParentIdxFn(fn func(ctx context.Context) (uint32, bool, error)) {
+	s.parentIdxFn = fn
 }
 
 // For xlayer: SyncStatus queries all clients in parallel and returns the most conservative (lowest) height.
@@ -201,13 +209,24 @@ func (s *TeeRollupProposalSource) ProposalAtSequenceNum(ctx context.Context, seq
 			continue
 		}
 		rootClaim := computeRootClaim(info.BlockHash, info.AppHash)
+
+		// For xlayer: resolve parentIdx dynamically; fall back to MaxUint32 (anchor state) if not found or error
+		parentIdx := uint32(math.MaxUint32)
+		if s.parentIdxFn != nil {
+			if idx, found, err := s.parentIdxFn(ctx); err != nil {
+				s.log.Warn("tee-rollup: failed to resolve parent game index, using anchor sentinel", "err", err)
+			} else if found {
+				parentIdx = idx
+			}
+		}
+
 		proposal := Proposal{
 			Root:        rootClaim,
 			SequenceNum: seqNum,
 			CurrentL1:   eth.BlockID{}, // For xlayer: always zero — no L1 derivation
 			TeeRollupData: &TeeRollupProposalData{
 				L2SeqNum:  seqNum,
-				ParentIdx: math.MaxUint32, // For xlayer: type(uint32).max signals "no parent, use anchor state" in TeeDisputeGame
+				ParentIdx: parentIdx,
 				BlockHash: info.BlockHash,
 				StateHash: info.AppHash,
 			},
