@@ -3,9 +3,9 @@
 use crate::{EngineClient, EngineClientError, EngineForkchoiceVersion, EngineGetPayloadVersion};
 use alloy_eips::{BlockId, eip1898::BlockNumberOrTag};
 use alloy_network::{Ethereum, Network};
-use alloy_primitives::{Address, StorageKey};
+use alloy_primitives::{Address, StorageKey, B256, U256};
 use alloy_provider::{EthGetBlock, ProviderCall, RpcWithBlock};
-use alloy_rpc_types_engine::{ForkchoiceState, ForkchoiceUpdated, PayloadId, PayloadStatus};
+use alloy_rpc_types_engine::{ExecutionPayloadV1, ForkchoiceState, ForkchoiceUpdated, PayloadId, PayloadStatus};
 use alloy_rpc_types_eth::{Block, EIP1186AccountProofResponse, Transaction as EthTransaction};
 use alloy_transport::{TransportError, TransportErrorKind, TransportResult};
 use async_trait::async_trait;
@@ -13,7 +13,7 @@ use kona_genesis::RollupConfig;
 use kona_protocol::L2BlockInfo;
 use op_alloy_network::Optimism;
 use op_alloy_rpc_types::Transaction as OpTransaction;
-use op_alloy_rpc_types_engine::{OpExecutionPayloadEnvelope, OpPayloadAttributes};
+use op_alloy_rpc_types_engine::{OpExecutionPayload, OpExecutionPayloadEnvelope, OpPayloadAttributes};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 
@@ -162,6 +162,35 @@ impl Default for MockEngineClientBuilder {
     }
 }
 
+/// Returns a zeroed [`ExecutionPayloadV1`] for use in tests.
+pub fn default_execution_payload_v1() -> ExecutionPayloadV1 {
+    ExecutionPayloadV1 {
+        parent_hash: B256::ZERO,
+        fee_recipient: Address::ZERO,
+        state_root: B256::ZERO,
+        receipts_root: B256::ZERO,
+        logs_bloom: Default::default(),
+        prev_randao: B256::ZERO,
+        block_number: 0,
+        gas_limit: 0,
+        gas_used: 0,
+        timestamp: 0,
+        extra_data: Default::default(),
+        base_fee_per_gas: U256::ZERO,
+        block_hash: B256::ZERO,
+        transactions: vec![],
+    }
+}
+
+/// Returns a minimal [`OpExecutionPayloadEnvelope`] for use in tests.
+pub fn default_payload_envelope() -> OpExecutionPayloadEnvelope {
+    OpExecutionPayloadEnvelope {
+        parent_beacon_block_root: None,
+        execution_payload: OpExecutionPayload::V1(default_execution_payload_v1()),
+    }
+}
+
+/// Mock implementation of the `EngineClient` trait for testing.
 /// Mock implementation of the `EngineClient` trait for testing.
 ///
 /// This mock allows tests to configure expected responses for all `EngineClient`
@@ -381,6 +410,7 @@ mod tests {
     use super::*;
     use alloy_primitives::B256;
     use alloy_rpc_types_engine::PayloadStatusEnum;
+    use op_alloy_rpc_types_engine::OpExecutionPayload;
 
     #[tokio::test]
     async fn test_mock_engine_client_creation() {
@@ -403,7 +433,10 @@ mod tests {
         mock.set_new_payload_response(status.clone()).await;
 
         // The mock ignores the envelope value — only the pre-configured response matters.
-        let result = mock.new_payload(OpExecutionPayloadEnvelope::default()).await.unwrap();
+        let result = mock.new_payload(OpExecutionPayloadEnvelope {
+            parent_beacon_block_root: None,
+            execution_payload: OpExecutionPayload::V1(default_execution_payload_v1()),
+        }).await.unwrap();
 
         assert_eq!(result.status, status.status);
     }
@@ -446,7 +479,11 @@ mod tests {
         assert_eq!(mock.cfg().block_time, cfg.block_time);
 
         // The mock ignores the envelope value — only the pre-configured response matters.
-        let result = mock.new_payload(OpExecutionPayloadEnvelope::default()).await.unwrap();
+        let result = mock.new_payload(OpExecutionPayloadEnvelope {
+            parent_beacon_block_root: None,
+            execution_payload: OpExecutionPayload::V1(default_execution_payload_v1()),
+        }).await.unwrap();
+
         assert_eq!(result.status, status.status);
     }
 
