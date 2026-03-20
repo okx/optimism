@@ -22,6 +22,10 @@ var (
 	methodProposer  = "proposer"
 	methodBlockHash = "blockHash"
 	methodStateHash = "stateHash"
+
+	// ErrAnchorGameUnprovable is returned when a game uses anchor state (parentIndex=MaxUint32)
+	// and cannot be proved because individual start hashes are not recoverable from the combined anchor root.
+	ErrAnchorGameUnprovable = fmt.Errorf("anchor-based game (parentIndex=MaxUint32) cannot be proved: start hashes not recoverable")
 )
 
 // TeeProveParams contains the parameters needed to request a TEE proof.
@@ -225,30 +229,33 @@ func (g *TeeDisputeGameContractLatest) GetProveParams(ctx context.Context, facto
 
 	// Read start-side data from parent game
 	parentIndex := data.ParentIndex
-	if parentIndex != math.MaxUint32 {
-		// Get parent game address from factory
-		parentGame, err := factory.GetGame(ctx, uint64(parentIndex), rpcblock.Latest)
-		if err != nil {
-			return TeeProveParams{}, fmt.Errorf("failed to get parent game at index %d: %w", parentIndex, err)
-		}
-
-		// Read parent game's blockHash() and stateHash() CWIA getters
-		parentContract := batching.NewBoundContract(snapshots.LoadTeeDisputeGameABI(), parentGame.Proxy)
-		parentResults, err := g.multiCaller.Call(ctx, rpcblock.Latest,
-			parentContract.Call(methodBlockHash),
-			parentContract.Call(methodStateHash),
-		)
-		if err != nil {
-			return TeeProveParams{}, fmt.Errorf("failed to read parent game hashes: %w", err)
-		}
-		if len(parentResults) != 2 {
-			return TeeProveParams{}, fmt.Errorf("expected 2 parent results but got %v", len(parentResults))
-		}
-		params.StartBlockHash = parentResults[0].GetHash(0)
-		params.StartStateHash = parentResults[1].GetHash(0)
+	if parentIndex == math.MaxUint32 {
+		// Anchor-based games cannot be proved — the anchor root is a combined hash
+		// keccak256(blockHash, stateHash) and individual hashes are not recoverable.
+		// The game will resolve based on deadline expiry.
+		return TeeProveParams{}, ErrAnchorGameUnprovable
 	}
-	// For anchor game (parentIndex == MaxUint32), start hashes remain zero.
-	// This is an edge case that needs contract-side optimization.
+
+	// Get parent game address from factory
+	parentGame, err := factory.GetGame(ctx, uint64(parentIndex), rpcblock.Latest)
+	if err != nil {
+		return TeeProveParams{}, fmt.Errorf("failed to get parent game at index %d: %w", parentIndex, err)
+	}
+
+	// Read parent game's blockHash() and stateHash() CWIA getters
+	parentContract := batching.NewBoundContract(snapshots.LoadTeeDisputeGameABI(), parentGame.Proxy)
+	parentResults, err := g.multiCaller.Call(ctx, rpcblock.Latest,
+		parentContract.Call(methodBlockHash),
+		parentContract.Call(methodStateHash),
+	)
+	if err != nil {
+		return TeeProveParams{}, fmt.Errorf("failed to read parent game hashes: %w", err)
+	}
+	if len(parentResults) != 2 {
+		return TeeProveParams{}, fmt.Errorf("expected 2 parent results but got %v", len(parentResults))
+	}
+	params.StartBlockHash = parentResults[0].GetHash(0)
+	params.StartStateHash = parentResults[1].GetHash(0)
 
 	return params, nil
 }

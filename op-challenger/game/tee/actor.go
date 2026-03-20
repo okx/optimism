@@ -175,6 +175,11 @@ func (a *Actor) tryStartProve(ctx context.Context, metadata contracts.Challenger
 
 	params, err := a.contract.GetProveParams(ctx, a.factory)
 	if err != nil {
+		if errors.Is(err, contracts.ErrAnchorGameUnprovable) {
+			a.proveGivenUp = true
+			a.logger.Warn("Anchor-based game cannot be proved, giving up", "game", a.contract.Addr())
+			return errNoProveRequired
+		}
 		return fmt.Errorf("failed to get prove params: %w", err)
 	}
 
