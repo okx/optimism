@@ -98,7 +98,8 @@ contract AnchorStateRegistryCompatibilityTest is TeeTestUtils {
                 endStateHash: keccak256("end-state"),
                 l2Block: game.l2SequenceNumber()
             }),
-            DEFAULT_EXECUTOR_KEY
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
         );
 
         vm.prank(proposer);

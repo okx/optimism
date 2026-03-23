@@ -146,7 +146,8 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
                 endStateHash: endStateHash,
                 l2Block: game.l2SequenceNumber()
             }),
-            DEFAULT_EXECUTOR_KEY
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
         );
 
         vm.prank(proposer);
@@ -233,7 +234,8 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
                 endStateHash: endStateHash,
                 l2Block: game.l2SequenceNumber()
             }),
-            DEFAULT_EXECUTOR_KEY
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
         );
         vm.prank(proposer);
         game.prove(abi.encode(proofs));
@@ -305,7 +307,8 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
                 endStateHash: childEndStateHash,
                 l2Block: child.l2SequenceNumber()
             }),
-            DEFAULT_EXECUTOR_KEY
+            DEFAULT_EXECUTOR_KEY,
+            child.domainSeparator()
         );
 
         vm.prank(proposer);
@@ -488,7 +491,8 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
                 endStateHash: endStateHash,
                 l2Block: game.l2SequenceNumber()
             }),
-            DEFAULT_EXECUTOR_KEY
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
         );
 
         vm.prank(proposer);

@@ -236,7 +236,8 @@ contract TeeDisputeGameTest is TeeTestUtils {
                 endStateHash: endStateHash,
                 l2Block: game.l2SequenceNumber()
             }),
-            DEFAULT_EXECUTOR_KEY
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
         );
 
         vm.prank(proposer);
@@ -257,6 +258,7 @@ contract TeeDisputeGameTest is TeeTestUtils {
 
         teeProofVerifier.setRegistered(executor, true);
 
+        bytes32 domainSep = game.domainSeparator();
         TeeDisputeGame.BatchProof[] memory proofs = new TeeDisputeGame.BatchProof[](2);
         proofs[0] = buildBatchProof(
             BatchInput({
@@ -266,7 +268,8 @@ contract TeeDisputeGameTest is TeeTestUtils {
                 endStateHash: middleStateHash,
                 l2Block: ANCHOR_L2_BLOCK + 4
             }),
-            DEFAULT_EXECUTOR_KEY
+            DEFAULT_EXECUTOR_KEY,
+            domainSep
         );
         proofs[1] = buildBatchProof(
             BatchInput({
@@ -276,7 +279,8 @@ contract TeeDisputeGameTest is TeeTestUtils {
                 endStateHash: endStateHash,
                 l2Block: game.l2SequenceNumber()
             }),
-            DEFAULT_EXECUTOR_KEY
+            DEFAULT_EXECUTOR_KEY,
+            domainSep
         );
 
         vm.prank(proposer);
@@ -308,7 +312,8 @@ contract TeeDisputeGameTest is TeeTestUtils {
                 endStateHash: endStateHash,
                 l2Block: game.l2SequenceNumber()
             }),
-            DEFAULT_EXECUTOR_KEY
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
         );
 
         vm.prank(proposer);
@@ -338,7 +343,8 @@ contract TeeDisputeGameTest is TeeTestUtils {
                 endStateHash: keccak256("middle-state"),
                 l2Block: ANCHOR_L2_BLOCK + 4
             }),
-            DEFAULT_EXECUTOR_KEY
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
         );
         proofs[1] = buildBatchProof(
             BatchInput({
@@ -348,7 +354,8 @@ contract TeeDisputeGameTest is TeeTestUtils {
                 endStateHash: endStateHash,
                 l2Block: game.l2SequenceNumber()
             }),
-            DEFAULT_EXECUTOR_KEY
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
         );
 
         vm.prank(proposer);
@@ -374,7 +381,8 @@ contract TeeDisputeGameTest is TeeTestUtils {
                 endStateHash: middleStateHash,
                 l2Block: ANCHOR_L2_BLOCK + 4
             }),
-            DEFAULT_EXECUTOR_KEY
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
         );
         proofs[1] = buildBatchProof(
             BatchInput({
@@ -384,7 +392,8 @@ contract TeeDisputeGameTest is TeeTestUtils {
                 endStateHash: endStateHash,
                 l2Block: ANCHOR_L2_BLOCK + 4
             }),
-            DEFAULT_EXECUTOR_KEY
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
         );
 
         vm.prank(proposer);
@@ -408,7 +417,8 @@ contract TeeDisputeGameTest is TeeTestUtils {
                 endStateHash: endStateHash,
                 l2Block: game.l2SequenceNumber()
             }),
-            DEFAULT_EXECUTOR_KEY
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
         );
 
         vm.prank(proposer);
@@ -438,7 +448,8 @@ contract TeeDisputeGameTest is TeeTestUtils {
                 endStateHash: endStateHash,
                 l2Block: game.l2SequenceNumber() - 1
             }),
-            DEFAULT_EXECUTOR_KEY
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
         );
 
         vm.expectRevert(
@@ -463,7 +474,8 @@ contract TeeDisputeGameTest is TeeTestUtils {
                 endStateHash: endStateHash,
                 l2Block: game.l2SequenceNumber()
             }),
-            DEFAULT_EXECUTOR_KEY
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
         );
 
         vm.prank(proposer);
@@ -564,7 +576,8 @@ contract TeeDisputeGameTest is TeeTestUtils {
                 endStateHash: endStateHash,
                 l2Block: game.l2SequenceNumber()
             }),
-            DEFAULT_EXECUTOR_KEY
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
         );
 
         address unauthorized = makeAddr("unauthorized");
@@ -624,7 +637,8 @@ contract TeeDisputeGameTest is TeeTestUtils {
                 endStateHash: endStateHash,
                 l2Block: game.l2SequenceNumber()
             }),
-            DEFAULT_EXECUTOR_KEY
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
         );
         vm.prank(proposer);
         game.prove(abi.encode(proofs));

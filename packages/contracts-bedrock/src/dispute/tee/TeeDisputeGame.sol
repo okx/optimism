@@ -19,6 +19,7 @@ import {
     BondTransferFailed,
     ClaimAlreadyResolved,
     GameNotFinalized,
+    GamePaused,
     IncorrectBondAmount,
     InvalidBondDistributionMode,
     NoCreditToClaim,
@@ -47,8 +48,9 @@ uint32 constant TEE_DISPUTE_GAME_TYPE = 1960;
 ///      prove() accepts multiple chained batch proofs to support the scenario
 ///      where different TEE executors handle different sub-ranges within a single game.
 ///      Each batch carries (startBlockHash, startStateHash, endBlockHash, endStateHash, l2Block).
-///      batchDigest = keccak256(abi.encode(startBlockHash, startStateHash, endBlockHash, endStateHash, l2Block))
-///      is computed on-chain and verified via TEE ECDSA signature.
+///      batchDigest is computed on-chain as an EIP-712 typed data hash
+///      (domain: name="TeeDisputeGame", version="1", chainId, verifyingContract=TEE_PROOF_VERIFIER)
+///      and verified via TEE ECDSA signature.
 ///
 ///      rootClaim = keccak256(abi.encode(blockHash, stateHash)) where blockHash and stateHash
 ///      are passed via extraData. The anchor state stores this combined hash.
@@ -105,6 +107,18 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     error FinalHashMismatch(bytes32 expectedCombined, bytes32 actualCombined);
     error FinalBlockMismatch(uint256 expectedBlock, uint256 actualBlock);
     error RootClaimMismatch(bytes32 expectedRootClaim, bytes32 actualRootClaim);
+
+    ////////////////////////////////////////////////////////////////
+    //                       EIP-712 Constants                    //
+    ////////////////////////////////////////////////////////////////
+
+    bytes32 private constant DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    bytes32 private constant DOMAIN_NAME_HASH = keccak256("TeeDisputeGame");
+    bytes32 private constant DOMAIN_VERSION_HASH = keccak256("1");
+    bytes32 private constant BATCH_PROOF_TYPEHASH = keccak256(
+        "BatchProof(bytes32 startBlockHash,bytes32 startStateHash,bytes32 endBlockHash,bytes32 endStateHash,uint256 l2Block)"
+    );
 
     ////////////////////////////////////////////////////////////////
     //                         Immutables                         //
@@ -208,7 +222,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
             if (proxy.status() == GameStatus.CHALLENGER_WINS) revert InvalidParentGame();
         } else {
             (startingOutputRoot.root, startingOutputRoot.l2SequenceNumber) =
-                IAnchorStateRegistry(ANCHOR_STATE_REGISTRY).anchors(GAME_TYPE);
+                ANCHOR_STATE_REGISTRY.getAnchorRoot();
         }
 
         if (l2SequenceNumber() <= startingOutputRoot.l2SequenceNumber) {
@@ -266,7 +280,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     ///      3. proofs[i].l2Block < proofs[i+1].l2Block (monotonically increasing)
     ///      4. keccak256(proofs[last].endBlockHash, endStateHash) == rootClaim
     ///      5. proofs[last].l2Block == l2SequenceNumber
-    ///      6. Each batch's TEE signature is valid (via TEE_PROOF_VERIFIER)
+    ///      6. Each batch's EIP-712 typed digest + TEE signature is valid (via TEE_PROOF_VERIFIER)
     /// @param proofBytes ABI-encoded BatchProof[] array
     function prove(bytes calldata proofBytes) external returns (ProposalStatus) {
         if (msg.sender != proposer) revert BadAuth();
@@ -303,9 +317,10 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
                 revert BatchBlockNotIncreasing(i, prevBlock, proofs[i].l2Block);
             }
 
-            // Compute batchDigest on-chain and verify TEE signature
-            bytes32 batchDigest = keccak256(
+            // Compute EIP-712 typed batchDigest on-chain and verify TEE signature
+            bytes32 structHash = keccak256(
                 abi.encode(
+                    BATCH_PROOF_TYPEHASH,
                     proofs[i].startBlockHash,
                     proofs[i].startStateHash,
                     proofs[i].endBlockHash,
@@ -313,6 +328,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
                     proofs[i].l2Block
                 )
             );
+            bytes32 batchDigest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
             TEE_PROOF_VERIFIER.verifyBatch(batchDigest, proofs[i].signature);
 
             prevBlock = proofs[i].l2Block;
@@ -413,6 +429,8 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
             revert InvalidBondDistributionMode();
         }
 
+        if (ANCHOR_STATE_REGISTRY.paused()) revert GamePaused();
+
         bool finalized = ANCHOR_STATE_REGISTRY.isGameFinalized(IDisputeGame(address(this)));
         if (!finalized) {
             revert GameNotFinalized();
@@ -474,6 +492,8 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     //                    Immutable Getters                       //
     ////////////////////////////////////////////////////////////////
 
+    function domainSeparator() external view returns (bytes32) { return _domainSeparator(); }
+    function batchProofTypehash() external pure returns (bytes32) { return BATCH_PROOF_TYPEHASH; }
     function maxChallengeDuration() external view returns (Duration) { return MAX_CHALLENGE_DURATION; }
     function maxProveDuration() external view returns (Duration) { return MAX_PROVE_DURATION; }
     function disputeGameFactory() external view returns (IDisputeGameFactory) { return DISPUTE_GAME_FACTORY; }
@@ -486,6 +506,16 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     ////////////////////////////////////////////////////////////////
     //                    Internal Functions                      //
     ////////////////////////////////////////////////////////////////
+
+    /// @notice Computes the EIP-712 domain separator.
+    /// @dev Computed dynamically to support chain ID changes (e.g., hard forks).
+    ///      Uses TEE_PROOF_VERIFIER as verifyingContract since it is the signature
+    ///      verification endpoint and is unique per chain deployment.
+    function _domainSeparator() private view returns (bytes32) {
+        return keccak256(
+            abi.encode(DOMAIN_TYPEHASH, DOMAIN_NAME_HASH, DOMAIN_VERSION_HASH, block.chainid, address(TEE_PROOF_VERIFIER))
+        );
+    }
 
     function _getParentGameStatus() private view returns (GameStatus) {
         if (parentIndex() != type(uint32).max) {

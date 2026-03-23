@@ -264,7 +264,8 @@ contract DisputeGameFactoryRouterForkTest is TeeTestUtils {
                 endStateHash: endStateHash,
                 l2Block: game.l2SequenceNumber()
             }),
-            DEFAULT_EXECUTOR_KEY
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
         );
 
         address gameProposer = game.proposer();
