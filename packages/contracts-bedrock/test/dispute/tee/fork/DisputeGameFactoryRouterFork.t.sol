@@ -13,9 +13,8 @@ import {ISystemConfig} from "interfaces/L1/ISystemConfig.sol";
 import {ITeeProofVerifier} from "interfaces/dispute/ITeeProofVerifier.sol";
 import {DisputeGameFactoryRouter} from "src/dispute/DisputeGameFactoryRouter.sol";
 import {IDisputeGameFactoryRouter} from "interfaces/dispute/IDisputeGameFactoryRouter.sol";
-import {TeeDisputeGame} from "src/dispute/tee/TeeDisputeGame.sol";
+import {TeeDisputeGame, TEE_DISPUTE_GAME_TYPE} from "src/dispute/tee/TeeDisputeGame.sol";
 import {TeeProofVerifier} from "src/dispute/tee/TeeProofVerifier.sol";
-import {AccessManager, TEE_DISPUTE_GAME_TYPE} from "src/dispute/tee/AccessManager.sol";
 import {Claim, Duration, GameStatus, GameType, Hash, Proposal} from "src/dispute/lib/Types.sol";
 import {TeeTestUtils} from "test/dispute/tee/helpers/TeeTestUtils.sol";
 import {MockRiscZeroVerifier} from "test/dispute/tee/mocks/MockRiscZeroVerifier.sol";
@@ -205,11 +204,6 @@ contract DisputeGameFactoryRouterForkTest is TeeTestUtils {
         secondZone.anchorStateRegistry = _deployRealAnchorStateRegistry(secondZone.factory);
         (secondZone.teeProofVerifier, secondZone.registeredExecutor) = _deployRealTeeProofVerifier();
 
-        AccessManager accessManager =
-            new AccessManager(MAX_CHALLENGE_DURATION, IDisputeGameFactory(address(secondZone.factory)));
-        accessManager.setProposer(allowedProposer, true);
-        accessManager.setChallenger(challenger, true);
-
         secondZone.implementation = new TeeDisputeGame(
             Duration.wrap(MAX_CHALLENGE_DURATION),
             Duration.wrap(MAX_PROVE_DURATION),
@@ -217,7 +211,8 @@ contract DisputeGameFactoryRouterForkTest is TeeTestUtils {
             ITeeProofVerifier(address(secondZone.teeProofVerifier)),
             CHALLENGER_BOND,
             IAnchorStateRegistry(address(secondZone.anchorStateRegistry)),
-            accessManager
+            allowedProposer,
+            challenger
         );
 
         secondZone.factory.setImplementation(TEE_GAME_TYPE, IDisputeGame(address(secondZone.implementation)), bytes(""));

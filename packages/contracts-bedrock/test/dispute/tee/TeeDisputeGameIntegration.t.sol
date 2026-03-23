@@ -10,9 +10,8 @@ import {IDisputeGame} from "interfaces/dispute/IDisputeGame.sol";
 import {IAnchorStateRegistry} from "interfaces/dispute/IAnchorStateRegistry.sol";
 import {ISystemConfig} from "interfaces/L1/ISystemConfig.sol";
 import {ITeeProofVerifier} from "interfaces/dispute/ITeeProofVerifier.sol";
-import {TeeDisputeGame} from "src/dispute/tee/TeeDisputeGame.sol";
+import {TeeDisputeGame, TEE_DISPUTE_GAME_TYPE} from "src/dispute/tee/TeeDisputeGame.sol";
 import {TeeProofVerifier} from "src/dispute/tee/TeeProofVerifier.sol";
-import {AccessManager, TEE_DISPUTE_GAME_TYPE} from "src/dispute/tee/AccessManager.sol";
 import {DisputeGameFactoryRouter} from "src/dispute/DisputeGameFactoryRouter.sol";
 import {
     BondDistributionMode,
@@ -32,7 +31,7 @@ import {MockSystemConfig} from "test/dispute/tee/mocks/MockSystemConfig.sol";
 /// @title TeeDisputeGameIntegrationTest
 /// @notice Integration tests for the full TEE dispute game lifecycle using real contracts.
 ///         Only MockRiscZeroVerifier and MockSystemConfig are mocked; all core contracts
-///         (DisputeGameFactory, AnchorStateRegistry, TeeProofVerifier, AccessManager) are real.
+///         (DisputeGameFactory, AnchorStateRegistry, TeeProofVerifier) are real.
 contract TeeDisputeGameIntegrationTest is TeeTestUtils {
     uint256 internal constant DEFENDER_BOND = 1 ether;
     uint256 internal constant CHALLENGER_BOND = 2 ether;
@@ -50,7 +49,6 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
     DisputeGameFactory internal factory;
     AnchorStateRegistry internal anchorStateRegistry;
     TeeProofVerifier internal teeProofVerifier;
-    AccessManager internal accessManager;
     TeeDisputeGame internal implementation;
 
     address internal proposer;
@@ -76,11 +74,6 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
         // --- Deploy real TeeProofVerifier (with MockRiscZeroVerifier) ---
         teeProofVerifier = _deployTeeProofVerifier();
 
-        // --- Deploy real AccessManager ---
-        accessManager = new AccessManager(MAX_CHALLENGE_DURATION, IDisputeGameFactory(address(factory)));
-        accessManager.setProposer(proposer, true);
-        accessManager.setChallenger(challenger, true);
-
         // --- Deploy TeeDisputeGame implementation ---
         implementation = new TeeDisputeGame(
             Duration.wrap(MAX_CHALLENGE_DURATION),
@@ -89,7 +82,8 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
             ITeeProofVerifier(address(teeProofVerifier)),
             CHALLENGER_BOND,
             IAnchorStateRegistry(address(anchorStateRegistry)),
-            accessManager
+            proposer,
+            challenger
         );
 
         factory.setImplementation(TEE_GAME_TYPE, IDisputeGame(address(implementation)), bytes(""));

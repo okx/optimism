@@ -6,8 +6,7 @@ import {IDisputeGame} from "interfaces/dispute/IDisputeGame.sol";
 import {IAnchorStateRegistry} from "interfaces/dispute/IAnchorStateRegistry.sol";
 import {ITeeProofVerifier} from "interfaces/dispute/ITeeProofVerifier.sol";
 import {DisputeGameFactoryRouter} from "src/dispute/DisputeGameFactoryRouter.sol";
-import {TeeDisputeGame} from "src/dispute/tee/TeeDisputeGame.sol";
-import {AccessManager, TEE_DISPUTE_GAME_TYPE} from "src/dispute/tee/AccessManager.sol";
+import {TeeDisputeGame, TEE_DISPUTE_GAME_TYPE} from "src/dispute/tee/TeeDisputeGame.sol";
 import {BadAuth, GameNotFinalized, IncorrectBondAmount, UnexpectedRootClaim} from "src/dispute/lib/Errors.sol";
 import {
     ClaimAlreadyChallenged,
@@ -35,7 +34,6 @@ contract TeeDisputeGameTest is TeeTestUtils {
     MockDisputeGameFactory internal factory;
     MockAnchorStateRegistry internal anchorStateRegistry;
     MockTeeProofVerifier internal teeProofVerifier;
-    AccessManager internal accessManager;
     TeeDisputeGame internal implementation;
 
     address internal proposer;
@@ -56,10 +54,6 @@ contract TeeDisputeGameTest is TeeTestUtils {
         anchorStateRegistry = new MockAnchorStateRegistry();
         teeProofVerifier = new MockTeeProofVerifier();
 
-        accessManager = new AccessManager(MAX_CHALLENGE_DURATION, IDisputeGameFactory(address(factory)));
-        accessManager.setProposer(proposer, true);
-        accessManager.setChallenger(challenger, true);
-
         implementation = new TeeDisputeGame(
             Duration.wrap(MAX_CHALLENGE_DURATION),
             Duration.wrap(MAX_PROVE_DURATION),
@@ -67,7 +61,8 @@ contract TeeDisputeGameTest is TeeTestUtils {
             ITeeProofVerifier(address(teeProofVerifier)),
             CHALLENGER_BOND,
             IAnchorStateRegistry(address(anchorStateRegistry)),
-            accessManager
+            proposer,
+            challenger
         );
 
         factory.setImplementation(GameType.wrap(TEE_DISPUTE_GAME_TYPE), implementation);

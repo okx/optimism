@@ -7,7 +7,6 @@ import {IAnchorStateRegistry} from "interfaces/dispute/IAnchorStateRegistry.sol"
 import {Duration} from "src/dispute/lib/Types.sol";
 import {IRiscZeroVerifier} from "interfaces/dispute/IRiscZeroVerifier.sol";
 import {ITeeProofVerifier} from "interfaces/dispute/ITeeProofVerifier.sol";
-import {AccessManager} from "src/dispute/tee/AccessManager.sol";
 import {DisputeGameFactoryRouter} from "src/dispute/DisputeGameFactoryRouter.sol";
 import {TeeDisputeGame} from "src/dispute/tee/TeeDisputeGame.sol";
 import {TeeProofVerifier} from "src/dispute/tee/TeeProofVerifier.sol";
@@ -24,11 +23,10 @@ contract Deploy is Script {
         uint64 maxChallengeDuration;
         uint64 maxProveDuration;
         uint256 challengerBond;
-        uint256 fallbackTimeout;
         bool deployRouter;
         address proofVerifierOwner;
-        address[] proposers;
-        address[] challengers;
+        address proposer;
+        address challenger;
         uint256[] zoneIds;
         address[] routerFactories;
         address routerOwner;
@@ -38,7 +36,6 @@ contract Deploy is Script {
         external
         returns (
             TeeProofVerifier teeProofVerifier,
-            AccessManager accessManager,
             TeeDisputeGame teeDisputeGame,
             DisputeGameFactoryRouter router
         )
@@ -56,9 +53,6 @@ contract Deploy is Script {
             teeProofVerifier.transferOwnership(cfg.proofVerifierOwner);
         }
 
-        accessManager = new AccessManager(cfg.fallbackTimeout, cfg.disputeGameFactory);
-        _applyAllowlist(accessManager, cfg.proposers, cfg.challengers);
-
         teeDisputeGame = new TeeDisputeGame(
             Duration.wrap(cfg.maxChallengeDuration),
             Duration.wrap(cfg.maxProveDuration),
@@ -66,7 +60,8 @@ contract Deploy is Script {
             ITeeProofVerifier(address(teeProofVerifier)),
             cfg.challengerBond,
             cfg.anchorStateRegistry,
-            accessManager
+            cfg.proposer,
+            cfg.challenger
         );
 
         if (cfg.deployRouter) {
@@ -77,7 +72,6 @@ contract Deploy is Script {
 
         console2.log("deployer", cfg.deployer);
         console2.log("teeProofVerifier", address(teeProofVerifier));
-        console2.log("accessManager", address(accessManager));
         console2.log("teeDisputeGame", address(teeDisputeGame));
         if (cfg.deployRouter) {
             console2.log("router", address(router));
@@ -95,29 +89,13 @@ contract Deploy is Script {
         cfg.maxChallengeDuration = uint64(vm.envUint("MAX_CHALLENGE_DURATION"));
         cfg.maxProveDuration = uint64(vm.envUint("MAX_PROVE_DURATION"));
         cfg.challengerBond = vm.envUint("CHALLENGER_BOND");
-        cfg.fallbackTimeout = vm.envUint("FALLBACK_TIMEOUT");
         cfg.deployRouter = vm.envOr("DEPLOY_ROUTER", false);
         cfg.proofVerifierOwner = vm.envOr("PROOF_VERIFIER_OWNER", cfg.deployer);
-        cfg.proposers = _envAddressArray("PROPOSERS");
-        cfg.challengers = _envAddressArray("CHALLENGERS");
+        cfg.proposer = vm.envAddress("PROPOSER");
+        cfg.challenger = vm.envAddress("CHALLENGER");
         cfg.zoneIds = _envUintArray("ROUTER_ZONE_IDS");
         cfg.routerFactories = _envAddressArray("ROUTER_FACTORIES");
         cfg.routerOwner = vm.envOr("ROUTER_OWNER", cfg.deployer);
-    }
-
-    function _applyAllowlist(
-        AccessManager accessManager,
-        address[] memory proposers,
-        address[] memory challengers
-    )
-        internal
-    {
-        for (uint256 i = 0; i < proposers.length; i++) {
-            accessManager.setProposer(proposers[i], true);
-        }
-        for (uint256 i = 0; i < challengers.length; i++) {
-            accessManager.setChallenger(challengers[i], true);
-        }
     }
 
     function _deployRouter(

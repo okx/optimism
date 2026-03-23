@@ -33,15 +33,15 @@ import {IDisputeGame} from "interfaces/dispute/IDisputeGame.sol";
 import {IAnchorStateRegistry} from "interfaces/dispute/IAnchorStateRegistry.sol";
 import {ITeeProofVerifier} from "interfaces/dispute/ITeeProofVerifier.sol";
 
-// Contracts
-import {AccessManager, TEE_DISPUTE_GAME_TYPE} from "src/dispute/tee/AccessManager.sol";
+/// @dev Game type constant for TEE Dispute Game.
+uint32 constant TEE_DISPUTE_GAME_TYPE = 1960;
 
 /// @title TeeDisputeGame
 /// @notice A dispute game that uses TEE (AWS Nitro Enclave) ECDSA signatures
 ///         instead of SP1 ZK proofs for batch state transition verification.
 /// @dev Mirrors OPSuccinctFaultDisputeGame architecture but replaces
 ///      SP1_VERIFIER.verifyProof() with TEE_PROOF_VERIFIER.verifyBatch().
-///      Uses the same DisputeGameFactory, AnchorStateRegistry, and AccessManager
+///      Uses the same DisputeGameFactory and AnchorStateRegistry
 ///      infrastructure from OP Stack.
 ///
 ///      prove() accepts multiple chained batch proofs to support the scenario
@@ -117,7 +117,8 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     ITeeProofVerifier internal immutable TEE_PROOF_VERIFIER;
     uint256 internal immutable CHALLENGER_BOND;
     IAnchorStateRegistry internal immutable ANCHOR_STATE_REGISTRY;
-    AccessManager internal immutable ACCESS_MANAGER;
+    address internal immutable PROPOSER;
+    address internal immutable CHALLENGER;
 
     ////////////////////////////////////////////////////////////////
     //                         State Vars                         //
@@ -152,7 +153,8 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         ITeeProofVerifier _teeProofVerifier,
         uint256 _challengerBond,
         IAnchorStateRegistry _anchorStateRegistry,
-        AccessManager _accessManager
+        address _proposer,
+        address _challenger
     ) {
         GAME_TYPE = GameType.wrap(TEE_DISPUTE_GAME_TYPE);
         MAX_CHALLENGE_DURATION = _maxChallengeDuration;
@@ -161,7 +163,8 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         TEE_PROOF_VERIFIER = _teeProofVerifier;
         CHALLENGER_BOND = _challengerBond;
         ANCHOR_STATE_REGISTRY = _anchorStateRegistry;
-        ACCESS_MANAGER = _accessManager;
+        PROPOSER = _proposer;
+        CHALLENGER = _challenger;
     }
 
     ////////////////////////////////////////////////////////////////
@@ -171,7 +174,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     function initialize() external payable virtual {
         if (initialized) revert AlreadyInitialized();
         if (address(DISPUTE_GAME_FACTORY) != msg.sender) revert IncorrectDisputeGameFactory();
-        if (!ACCESS_MANAGER.isAllowedProposer(tx.origin)) revert BadAuth();
+        if (tx.origin != PROPOSER) revert BadAuth();
 
         assembly {
             if iszero(eq(calldatasize(), 0xBE)) {
@@ -235,7 +238,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
 
     function challenge() external payable returns (ProposalStatus) {
         if (claimData.status != ProposalStatus.Unchallenged) revert ClaimAlreadyChallenged();
-        if (!ACCESS_MANAGER.isAllowedChallenger(msg.sender)) revert BadAuth();
+        if (msg.sender != CHALLENGER) revert BadAuth();
         if (gameOver()) revert GameOver();
         if (msg.value != CHALLENGER_BOND) revert IncorrectBondAmount();
 
@@ -481,7 +484,8 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     function teeProofVerifier() external view returns (ITeeProofVerifier) { return TEE_PROOF_VERIFIER; }
     function challengerBond() external view returns (uint256) { return CHALLENGER_BOND; }
     function anchorStateRegistry() external view returns (IAnchorStateRegistry) { return ANCHOR_STATE_REGISTRY; }
-    function accessManager() external view returns (AccessManager) { return ACCESS_MANAGER; }
+    function proposer_() external view returns (address) { return PROPOSER; }
+    function challenger_() external view returns (address) { return CHALLENGER; }
 
     ////////////////////////////////////////////////////////////////
     //                    Internal Functions                      //

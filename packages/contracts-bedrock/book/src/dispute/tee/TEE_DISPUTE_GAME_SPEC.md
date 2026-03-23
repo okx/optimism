@@ -42,10 +42,10 @@ TeeDisputeGame is a dispute game contract for the OP Stack that replaces interac
               +----------+  +----+----+  +----------+
               v             v         v             v
     +----------------+ +---------+ +------------------+ +---------------+
-    | AccessManager  | | Anchor  | | TeeProofVerifier | | IDisputeGame  |
-    | (proposer/     | | State   | | (enclave ECDSA   | | (interface)   |
-    |  challenger    | | Registry| |  verification)   | |               |
-    |  whitelist)    | |         | +-------+----------+ +---------------+
+    | PROPOSER /     | | Anchor  | | TeeProofVerifier | | IDisputeGame  |
+    | CHALLENGER     | | State   | | (enclave ECDSA   | | (interface)   |
+    | (immutable     | | Registry| |  verification)   | |               |
+    |  addresses)    | |         | +-------+----------+ +---------------+
     +----------------+ +---------+         |
                                            v
                                   +------------------+
@@ -67,7 +67,8 @@ TeeDisputeGame is a dispute game contract for the OP Stack that replaces interac
 | `TEE_PROOF_VERIFIER`     | `ITeeProofVerifier`     | TEE signature verification contract              |
 | `CHALLENGER_BOND`        | `uint256`               | Fixed bond amount required to challenge           |
 | `ANCHOR_STATE_REGISTRY`  | `IAnchorStateRegistry`  | Anchor state management                          |
-| `ACCESS_MANAGER`         | `AccessManager`         | Proposer/challenger whitelist                    |
+| `PROPOSER`               | `address`               | Single allowed proposer address                  |
+| `CHALLENGER`             | `address`               | Single allowed challenger address                |
 
 ### Clone (CWIA) Data Layout
 
@@ -179,7 +180,7 @@ The game is "over" (no more interactions) when the deadline passes OR a valid pr
 
 1. **Not already initialized** -- reverts `AlreadyInitialized`
 2. **Caller is the factory** -- reverts `IncorrectDisputeGameFactory`
-3. **tx.origin is whitelisted proposer** (or permissionless mode active) -- reverts `BadAuth`
+3. **tx.origin == PROPOSER** -- reverts `BadAuth`
 4. **Calldata size is exactly 0xBE (190 bytes)** -- reverts with selector `0x9824bdab` (BadExtraData)
 5. **rootClaim == keccak256(abi.encode(blockHash, stateHash))** -- reverts `RootClaimMismatch`
 6. **Parent game validation** (if parentIndex != type(uint32).max):
@@ -404,19 +405,16 @@ This differs from FaultDisputeGame where rootClaim is an output root hash direct
 
 ## 10. Access Control
 
-### AccessManager Contract
+### Inline Immutable Pattern
 
-The `AccessManager` (inherits OZ `Ownable`) manages two permission sets:
+TeeDisputeGame uses simple immutable addresses for access control, matching PermissionedDisputeGame's pattern:
 
-| Role        | Storage                        | Check Function             | Fallback                              |
-|-------------|--------------------------------|----------------------------|---------------------------------------|
-| Proposer    | `mapping(address => bool) proposers` | `isAllowedProposer()`  | Permissionless after `FALLBACK_TIMEOUT` since last TEE game creation |
-| Challenger  | `mapping(address => bool) challengers` | `isAllowedChallenger()` | Permissionless if `challengers[address(0)] == true` |
+| Role        | Storage                       | Check                                      |
+|-------------|-------------------------------|---------------------------------------------|
+| Proposer    | `address internal immutable PROPOSER` | `initialize()`: `if (tx.origin != PROPOSER) revert BadAuth();` |
+| Challenger  | `address internal immutable CHALLENGER` | `challenge()`: `if (msg.sender != CHALLENGER) revert BadAuth();` |
 
-**Permissionless fallback for proposers:**
-- `getLastProposalTimestamp()` iterates backwards through `DisputeGameFactory.gameAtIndex()` to find the most recent TEE game
-- If `block.timestamp - lastProposalTimestamp > FALLBACK_TIMEOUT`, anyone can propose
-- This prevents liveness failures if all whitelisted proposers go offline
+Both addresses are set in the constructor and shared across all Clone instances. No external contract calls are needed for access control checks.
 
 ### TeeProofVerifier Roles
 
@@ -431,11 +429,11 @@ The `AccessManager` (inherits OZ `Ownable`) manages two permission sets:
 
 | Aspect                    | TeeDisputeGame                              | PermissionedDisputeGame                    |
 |----------------------------|----------------------------------------------|---------------------------------------------|
-| Proposer check             | `AccessManager.isAllowedProposer(tx.origin)` | `tx.origin == PROPOSER` (single address)   |
-| Challenger check           | `AccessManager.isAllowedChallenger(msg.sender)` | `msg.sender == PROPOSER \|\| msg.sender == CHALLENGER` |
-| Multiple proposers?        | Yes (whitelist mapping)                      | No (single immutable address)              |
-| Permissionless fallback?   | Yes (timeout-based)                          | No                                         |
-| Role management            | External AccessManager contract              | Immutable constructor params               |
+| Proposer check             | `tx.origin != PROPOSER` (single address)     | `tx.origin == PROPOSER` (single address)   |
+| Challenger check           | `msg.sender != CHALLENGER` (single address)  | `msg.sender == PROPOSER \|\| msg.sender == CHALLENGER` |
+| Multiple proposers?        | No (single immutable address)                | No (single immutable address)              |
+| Permissionless fallback?   | No                                           | No                                         |
+| Role management            | Immutable constructor params                 | Immutable constructor params               |
 
 ---
 
@@ -452,7 +450,7 @@ The `AccessManager` (inherits OZ `Ownable`) manages two permission sets:
 | **Bond custody**               | Native ETH in contract                | DelayedWETH                             | DelayedWETH                             |
 | **Bond model**                 | Fixed challenger bond                 | Position-dependent bond curve           | Position-dependent bond curve           |
 | **Time model**                 | Fixed deadlines (challenge, prove)    | Chess clock with extensions             | Chess clock with extensions             |
-| **Access control**             | AccessManager (whitelist + fallback)  | Permissionless                          | Single proposer + challenger addresses  |
+| **Access control**             | Single proposer + challenger addresses | Permissionless                          | Single proposer + challenger addresses  |
 | **Parent chaining**            | Explicit parentIndex in extraData     | N/A (uses ASR anchor only)             | N/A (uses ASR anchor only)             |
 | **L2 block challenge**         | N/A (blockHash in extraData)          | `challengeRootL2Block()` + RLP proof   | `challengeRootL2Block()` + RLP proof   |
 | **ASR anchor source**          | `anchors(GAME_TYPE)` (legacy path)    | `getAnchorRoot()` (unified path)       | `getAnchorRoot()` (unified path)       |
@@ -471,11 +469,11 @@ The `AccessManager` (inherits OZ `Ownable`) manages two permission sets:
 
 2. **TeeProofVerifier owner**: The owner can register arbitrary addresses as enclaves (the ZK proof verification is a trust gate, but the owner controls registration). A compromised owner could register a non-enclave address.
 
-3. **AccessManager owner**: Controls who can propose and challenge. A compromised owner could remove all challengers, leaving invalid proposals unchallenged.
+3. **Proposer/Challenger immutability**: The PROPOSER and CHALLENGER addresses are immutable constructor params. Changing them requires deploying a new implementation contract.
 
 4. **Single challenge model**: Unlike FaultDisputeGame's multi-round bisection, only ONE challenger can challenge a proposal. If the challenger fails to follow through with a proof, the proposal is accepted. There is no mechanism for a second challenger.
 
-5. **`tx.origin` usage**: `initialize()` checks `ACCESS_MANAGER.isAllowedProposer(tx.origin)`. Using `tx.origin` means the proposer's EOA is checked regardless of intermediate contracts, which is consistent with PermissionedDisputeGame but has known risks (e.g., meta-transaction relayers would inherit the tx.origin of the outer caller).
+5. **`tx.origin` usage**: `initialize()` checks `tx.origin != PROPOSER`. Using `tx.origin` means the proposer's EOA is checked regardless of intermediate contracts, which is consistent with PermissionedDisputeGame but has known risks (e.g., meta-transaction relayers would inherit the tx.origin of the outer caller).
 
 ### Potential Risks
 
@@ -487,9 +485,7 @@ The `AccessManager` (inherits OZ `Ownable`) manages two permission sets:
 
 4. **Bond held as native ETH**: Unlike FaultDisputeGame which uses DelayedWETH for withdrawal delays, TeeDisputeGame holds ETH directly. The finality delay is enforced by `ASR.isGameFinalized()` instead.
 
-5. **AccessManager fallback iteration**: `getLastProposalTimestamp()` iterates backwards through ALL games in the factory to find the last TEE game. This is O(n) and could become gas-expensive if there are many non-TEE games after the last TEE game.
-
-6. **Enclave registration root key comparison**: `TeeProofVerifier.register()` compares root keys via `keccak256(rootKey) != keccak256(expectedRootKey)`, which is correct but uses dynamic memory allocation for the hash. The `expectedRootKey` is stored as `bytes` (storage-heavy) rather than a `bytes32` hash.
+5. **Enclave registration root key comparison**: `TeeProofVerifier.register()` compares root keys via `keccak256(rootKey) != keccak256(expectedRootKey)`, which is correct but uses dynamic memory allocation for the hash. The `expectedRootKey` is stored as `bytes` (storage-heavy) rather than a `bytes32` hash.
 
 ---
 
@@ -536,33 +532,24 @@ bytes32 public immutable expectedRootKeyHash;
 // In register(): if (keccak256(rootKey) != expectedRootKeyHash) revert InvalidRootKey();
 ```
 
-### 5. Optimize AccessManager.getLastProposalTimestamp()
-
-The backward iteration through all factory games is O(n). Consider caching the last proposal timestamp:
-
-```solidity
-uint256 public lastProposalTimestamp;
-// Updated by TeeDisputeGame.initialize() via a callback
-```
-
-### 6. Consider allowing multiple challengers
+### 5. Consider allowing multiple challengers
 
 The current model allows only one challenger per game. If the first challenger colludes with the proposer (challenges but never provides proof), the game resolves in the challenger's favor, not a third party's. While the bond economics discourage this, allowing multiple challengers or a challenge-replacement mechanism would be more robust.
 
-### 7. Use EIP-712 typed data for batchDigest
+### 6. Use EIP-712 typed data for batchDigest
 
 The current `batchDigest` is a plain `keccak256(abi.encode(...))`. Using EIP-712 structured data would:
 - Prevent cross-contract replay if another contract uses the same digest scheme
 - Provide better wallet UX for TEE key management
 
-### 8. Add explicit receive()/fallback()
+### 7. Add explicit receive()/fallback()
 
 The contract accepts ETH via `initialize()` and `challenge()` (both `payable`), but has no `receive()` function. If ETH is accidentally sent directly, it will be lost. Consider adding a `receive()` that reverts.
 
-### 9. Consider reentrancy guard on claimCredit()
+### 8. Consider reentrancy guard on claimCredit()
 
 `claimCredit()` makes a low-level `call` to `_recipient` before the function completes. While credits are zeroed before the call, a reentrancy guard would be a defense-in-depth measure consistent with best practices.
 
-### 10. Align resolve() checks with FaultDisputeGame
+### 9. Align resolve() checks with FaultDisputeGame
 
 FaultDisputeGame uses `GameNotInProgress` error for the "already resolved" check. TeeDisputeGame uses `ClaimAlreadyResolved`. Consider using the same error for consistency, or renaming to avoid confusion (since `ClaimAlreadyResolved` is also used in FDG's `resolveClaim` with a different semantic meaning).
