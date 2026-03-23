@@ -39,13 +39,11 @@ contract TeeDisputeGameTest is TeeTestUtils {
     address internal proposer;
     address internal challenger;
     address internal executor;
-    address internal thirdPartyProver;
 
     function setUp() public {
         proposer = makeWallet(DEFAULT_PROPOSER_KEY, "proposer").addr;
         challenger = makeWallet(DEFAULT_CHALLENGER_KEY, "challenger").addr;
         executor = makeWallet(DEFAULT_EXECUTOR_KEY, "executor").addr;
-        thirdPartyProver = makeWallet(DEFAULT_THIRD_PARTY_PROVER_KEY, "third-party-prover").addr;
 
         vm.deal(proposer, 100 ether);
         vm.deal(challenger, 100 ether);
@@ -241,9 +239,10 @@ contract TeeDisputeGameTest is TeeTestUtils {
             DEFAULT_EXECUTOR_KEY
         );
 
+        vm.prank(proposer);
         TeeDisputeGame.ProposalStatus status = game.prove(abi.encode(proofs));
         (, , address prover,, TeeDisputeGame.ProposalStatus storedStatus,) = game.claimData();
-        assertEq(prover, address(this));
+        assertEq(prover, proposer);
         assertEq(uint8(status), uint8(TeeDisputeGame.ProposalStatus.UnchallengedAndValidProofProvided));
         assertEq(uint8(storedStatus), uint8(TeeDisputeGame.ProposalStatus.UnchallengedAndValidProofProvided));
     }
@@ -280,6 +279,7 @@ contract TeeDisputeGameTest is TeeTestUtils {
             DEFAULT_EXECUTOR_KEY
         );
 
+        vm.prank(proposer);
         TeeDisputeGame.ProposalStatus status = game.prove(abi.encode(proofs));
         assertEq(uint8(status), uint8(TeeDisputeGame.ProposalStatus.UnchallengedAndValidProofProvided));
     }
@@ -287,6 +287,7 @@ contract TeeDisputeGameTest is TeeTestUtils {
     function test_prove_revertEmptyBatchProofs() public {
         (TeeDisputeGame game,,) = _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
 
+        vm.prank(proposer);
         vm.expectRevert(TeeDisputeGame.EmptyBatchProofs.selector);
         game.prove(abi.encode(new TeeDisputeGame.BatchProof[](0)));
     }
@@ -310,6 +311,7 @@ contract TeeDisputeGameTest is TeeTestUtils {
             DEFAULT_EXECUTOR_KEY
         );
 
+        vm.prank(proposer);
         vm.expectRevert(
             abi.encodeWithSelector(
                 TeeDisputeGame.StartHashMismatch.selector,
@@ -349,6 +351,7 @@ contract TeeDisputeGameTest is TeeTestUtils {
             DEFAULT_EXECUTOR_KEY
         );
 
+        vm.prank(proposer);
         vm.expectRevert(abi.encodeWithSelector(TeeDisputeGame.BatchChainBreak.selector, 1));
         game.prove(abi.encode(proofs));
     }
@@ -384,6 +387,7 @@ contract TeeDisputeGameTest is TeeTestUtils {
             DEFAULT_EXECUTOR_KEY
         );
 
+        vm.prank(proposer);
         vm.expectRevert(abi.encodeWithSelector(TeeDisputeGame.BatchBlockNotIncreasing.selector, 1, ANCHOR_L2_BLOCK + 4, ANCHOR_L2_BLOCK + 4));
         game.prove(abi.encode(proofs));
     }
@@ -407,6 +411,7 @@ contract TeeDisputeGameTest is TeeTestUtils {
             DEFAULT_EXECUTOR_KEY
         );
 
+        vm.prank(proposer);
         vm.expectRevert(
             abi.encodeWithSelector(
                 TeeDisputeGame.FinalHashMismatch.selector,
@@ -439,6 +444,7 @@ contract TeeDisputeGameTest is TeeTestUtils {
         vm.expectRevert(
             abi.encodeWithSelector(TeeDisputeGame.FinalBlockMismatch.selector, game.l2SequenceNumber(), game.l2SequenceNumber() - 1)
         );
+        vm.prank(proposer);
         game.prove(abi.encode(proofs));
     }
 
@@ -460,6 +466,7 @@ contract TeeDisputeGameTest is TeeTestUtils {
             DEFAULT_EXECUTOR_KEY
         );
 
+        vm.prank(proposer);
         vm.expectRevert(MockTeeProofVerifier.EnclaveNotRegistered.selector);
         game.prove(abi.encode(proofs));
     }
@@ -541,14 +548,11 @@ contract TeeDisputeGameTest is TeeTestUtils {
         assertEq(child.normalModeCredit(challenger), DEFENDER_BOND + CHALLENGER_BOND);
     }
 
-    function test_resolve_challengedWithThirdPartyProverSplitsCreditAndClaimCredit() public {
+    function test_prove_revertUnauthorizedProver() public {
         bytes32 endBlockHash = keccak256("end-block");
         bytes32 endStateHash = keccak256("end-state");
         (TeeDisputeGame game,,) =
             _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, endBlockHash, endStateHash);
-
-        vm.prank(challenger);
-        game.challenge{value: CHALLENGER_BOND}();
 
         teeProofVerifier.setRegistered(executor, true);
         TeeDisputeGame.BatchProof[] memory proofs = new TeeDisputeGame.BatchProof[](1);
@@ -563,24 +567,10 @@ contract TeeDisputeGameTest is TeeTestUtils {
             DEFAULT_EXECUTOR_KEY
         );
 
-        vm.prank(thirdPartyProver);
+        address unauthorized = makeAddr("unauthorized");
+        vm.prank(unauthorized);
+        vm.expectRevert(BadAuth.selector);
         game.prove(abi.encode(proofs));
-
-        assertEq(uint8(game.resolve()), uint8(GameStatus.DEFENDER_WINS));
-        assertEq(game.normalModeCredit(thirdPartyProver), CHALLENGER_BOND);
-        assertEq(game.normalModeCredit(proposer), DEFENDER_BOND);
-
-        // Simulate finality: game is proper and finalized (DEFENDER_WINS, not blacklisted)
-        anchorStateRegistry.setGameFlags(game, true, true, false, false, true, true, true);
-
-        uint256 proposerBalanceBefore = proposer.balance;
-        uint256 proverBalanceBefore = thirdPartyProver.balance;
-        game.claimCredit(proposer);
-        game.claimCredit(thirdPartyProver);
-
-        assertEq(uint8(game.bondDistributionMode()), uint8(BondDistributionMode.NORMAL));
-        assertEq(proposer.balance, proposerBalanceBefore + DEFENDER_BOND);
-        assertEq(thirdPartyProver.balance, proverBalanceBefore + CHALLENGER_BOND);
     }
 
     /// @notice CHALLENGER_WINS in NORMAL mode: challenger takes all bonds, proposer gets nothing.

@@ -37,7 +37,7 @@ contract TeeProofVerifierTest is TeeTestUtils {
         bytes memory journal = buildJournal(1234, PCR_HASH, expectedRootKey, uncompressedPublicKey(enclaveWallet), "");
 
         vm.prank(makeAddr("attacker"));
-        vm.expectRevert(TeeProofVerifier.Unauthorized.selector);
+        vm.expectRevert("Ownable: caller is not the owner");
         verifier.register(hex"1234", journal);
     }
 
@@ -122,5 +122,10 @@ contract TeeProofVerifierTest is TeeTestUtils {
         address newOwner = makeAddr("newOwner");
         verifier.transferOwnership(newOwner);
         assertEq(verifier.owner(), newOwner);
+    }
+
+    function test_transferOwnership_revertZeroAddress() public {
+        vm.expectRevert("Ownable: new owner is the zero address");
+        verifier.transferOwnership(address(0));
     }
 }

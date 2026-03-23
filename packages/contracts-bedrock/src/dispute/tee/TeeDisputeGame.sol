@@ -269,6 +269,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     ///      6. Each batch's TEE signature is valid (via TEE_PROOF_VERIFIER)
     /// @param proofBytes ABI-encoded BatchProof[] array
     function prove(bytes calldata proofBytes) external returns (ProposalStatus) {
+        if (msg.sender != proposer) revert BadAuth();
         if (status != GameStatus.IN_PROGRESS) revert ClaimAlreadyResolved();
         if (gameOver()) revert GameOver();
 
@@ -370,12 +371,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
                 normalModeCredit[proposer] = address(this).balance;
             } else if (claimData.status == ProposalStatus.ChallengedAndValidProofProvided) {
                 status = GameStatus.DEFENDER_WINS;
-                if (claimData.prover == proposer) {
-                    normalModeCredit[claimData.prover] = address(this).balance;
-                } else {
-                    normalModeCredit[claimData.prover] = CHALLENGER_BOND;
-                    normalModeCredit[proposer] = address(this).balance - CHALLENGER_BOND;
-                }
+                normalModeCredit[proposer] = address(this).balance;
             } else {
                 revert InvalidProposalStatus();
             }

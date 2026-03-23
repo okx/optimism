@@ -101,6 +101,7 @@ contract AnchorStateRegistryCompatibilityTest is TeeTestUtils {
             DEFAULT_EXECUTOR_KEY
         );
 
+        vm.prank(proposer);
         game.prove(abi.encode(proofs));
         game.resolve();
 

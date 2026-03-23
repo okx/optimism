@@ -54,13 +54,11 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
     address internal proposer;
     address internal challenger;
     address internal executor;
-    address internal thirdPartyProver;
 
     function setUp() public {
         proposer = makeWallet(DEFAULT_PROPOSER_KEY, "proposer").addr;
         challenger = makeWallet(DEFAULT_CHALLENGER_KEY, "challenger").addr;
         executor = makeWallet(DEFAULT_EXECUTOR_KEY, "executor").addr;
-        thirdPartyProver = makeWallet(DEFAULT_THIRD_PARTY_PROVER_KEY, "third-party-prover").addr;
 
         vm.deal(proposer, 100 ether);
         vm.deal(challenger, 100 ether);
@@ -170,57 +168,7 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
     }
 
     ////////////////////////////////////////////////////////////////
-    //   Test 3: Challenged + Third-Party Proves → Bond Split     //
-    ////////////////////////////////////////////////////////////////
-
-    /// @notice create → challenge → third-party proves → resolve → claimCredit (proposer + prover)
-    function test_lifecycle_challenged_proveByThirdParty_bondSplit() public {
-        bytes32 endBlockHash = keccak256("end-block");
-        bytes32 endStateHash = keccak256("end-state");
-        (TeeDisputeGame game,,) = _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, endBlockHash, endStateHash);
-
-        // Challenger challenges
-        vm.prank(challenger);
-        game.challenge{value: CHALLENGER_BOND}();
-
-        // Third-party prover proves
-        TeeDisputeGame.BatchProof[] memory proofs = new TeeDisputeGame.BatchProof[](1);
-        proofs[0] = buildBatchProof(
-            BatchInput({
-                startBlockHash: ANCHOR_BLOCK_HASH,
-                startStateHash: ANCHOR_STATE_HASH,
-                endBlockHash: endBlockHash,
-                endStateHash: endStateHash,
-                l2Block: game.l2SequenceNumber()
-            }),
-            DEFAULT_EXECUTOR_KEY
-        );
-
-        vm.prank(thirdPartyProver);
-        game.prove(abi.encode(proofs));
-
-        // Resolve — third-party proved → DEFENDER_WINS with split
-        assertEq(uint8(game.resolve()), uint8(GameStatus.DEFENDER_WINS));
-        assertEq(game.normalModeCredit(proposer), DEFENDER_BOND);
-        assertEq(game.normalModeCredit(thirdPartyProver), CHALLENGER_BOND);
-
-        // Wait for finality
-        vm.warp(block.timestamp + 1);
-
-        // Both claim credit
-        uint256 proposerBalanceBefore = proposer.balance;
-        uint256 proverBalanceBefore = thirdPartyProver.balance;
-        game.claimCredit(proposer);
-        game.claimCredit(thirdPartyProver);
-
-        assertEq(uint8(game.bondDistributionMode()), uint8(BondDistributionMode.NORMAL));
-        assertEq(proposer.balance, proposerBalanceBefore + DEFENDER_BOND);
-        assertEq(thirdPartyProver.balance, proverBalanceBefore + CHALLENGER_BOND);
-        assertEq(address(anchorStateRegistry.anchorGame()), address(game));
-    }
-
-    ////////////////////////////////////////////////////////////////
-    //   Test 4: Challenged + Timeout → CHALLENGER_WINS → NORMAL  //
+    //   Test 3: Challenged + Timeout → CHALLENGER_WINS → NORMAL  //
     ////////////////////////////////////////////////////////////////
 
     /// @notice create → challenge → (no prove) → timeout → resolve → NORMAL → challenger takes all

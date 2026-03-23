@@ -230,7 +230,7 @@ The game is "over" (no more interactions) when the deadline passes OR a valid pr
 - Verifies chain of batch proofs (see Section 6)
 - Records `prover = msg.sender`
 - No bond required from prover
-- Anyone can call prove() (no access control), but TEE signature must be from registered enclave
+- Only the proposer can call `prove()` (`if (msg.sender != proposer) revert BadAuth()`) — this prevents frontrunning attacks where a third party could steal prover credit by submitting observed proof data
 - Once proved, `gameOver()` returns true, which blocks further `challenge()` calls — this is intentional since a valid TEE proof confirms the claim is correct
 
 ---
@@ -306,7 +306,7 @@ batchDigest = keccak256(abi.encode(
 | Unchallenged (deadline expired)      | Proposer (DEFENDER_WINS) | `normalModeCredit[proposer] = balance`                                                   |
 | Challenged (deadline expired, no proof) | Challenger (CHALLENGER_WINS) | `normalModeCredit[challenger] = balance`                                          |
 | UnchallengedAndValidProofProvided    | Proposer (DEFENDER_WINS) | `normalModeCredit[proposer] = balance`                                                   |
-| ChallengedAndValidProofProvided      | Proposer (DEFENDER_WINS) | If prover == proposer: `normalModeCredit[prover] = balance`<br>Else: `normalModeCredit[prover] = CHALLENGER_BOND`, `normalModeCredit[proposer] = balance - CHALLENGER_BOND` |
+| ChallengedAndValidProofProvided      | Proposer (DEFENDER_WINS) | `normalModeCredit[proposer] = balance` (proposer gets all bonds since only proposer can prove) |
 | Parent game CHALLENGER_WINS (child challenged) | Challenger (CHALLENGER_WINS) | `normalModeCredit[challenger] = balance`                                |
 | Parent game CHALLENGER_WINS (child unchallenged) | Proposer refunded (CHALLENGER_WINS) | `normalModeCredit[proposer] = balance`                           |
 

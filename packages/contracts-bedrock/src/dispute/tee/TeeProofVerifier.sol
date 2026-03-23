@@ -3,6 +3,7 @@ pragma solidity ^0.8.15;
 
 import {IRiscZeroVerifier} from "interfaces/dispute/IRiscZeroVerifier.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @title TEE Proof Verifier for OP Stack DisputeGame
 /// @notice Verifies TEE enclave identity via ZK proof (owner-gated registration) and
@@ -19,7 +20,7 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 ///      - pubkey_len bytes: pubkey (secp256k1 uncompressed, 65 bytes)
 ///      - 2 bytes: user_data_len (big-endian uint16)
 ///      - user_data_len bytes: user_data
-contract TeeProofVerifier {
+contract TeeProofVerifier is Ownable {
     // ============ Immutables ============
 
     /// @notice RISC Zero Groth16 verifier (only called during registration)
@@ -41,9 +42,6 @@ contract TeeProofVerifier {
     /// @notice Registered enclaves: EOA address => enclave info
     mapping(address => EnclaveInfo) public registeredEnclaves;
 
-    /// @notice Contract owner (can register and revoke enclaves)
-    address public owner;
-
     // ============ Events ============
 
     event EnclaveRegistered(
@@ -51,8 +49,6 @@ contract TeeProofVerifier {
     );
 
     event EnclaveRevoked(address indexed enclaveAddress);
-
-    event OwnerTransferred(address indexed oldOwner, address indexed newOwner);
 
     // ============ Errors ============
 
@@ -62,14 +58,6 @@ contract TeeProofVerifier {
     error EnclaveAlreadyRegistered();
     error EnclaveNotRegistered();
     error InvalidSignature();
-    error Unauthorized();
-
-    // ============ Modifiers ============
-
-    modifier onlyOwner() {
-        if (msg.sender != owner) revert Unauthorized();
-        _;
-    }
 
     // ============ Constructor ============
 
@@ -84,7 +72,6 @@ contract TeeProofVerifier {
         riscZeroVerifier = _riscZeroVerifier;
         imageId = _imageId;
         expectedRootKey = _rootKey;
-        owner = msg.sender;
     }
 
     // ============ Registration (Owner Only) ============
@@ -177,14 +164,6 @@ contract TeeProofVerifier {
         }
         delete registeredEnclaves[enclaveAddress];
         emit EnclaveRevoked(enclaveAddress);
-    }
-
-    /// @notice Transfer ownership
-    /// @param newOwner The new owner address
-    function transferOwnership(address newOwner) external onlyOwner {
-        address oldOwner = owner;
-        owner = newOwner;
-        emit OwnerTransferred(oldOwner, newOwner);
     }
 
     // ============ Internal Functions ============
