@@ -28,3 +28,6 @@ error InvalidProposalStatus();
 
 /// @notice Thrown when the game is initialized by an incorrect factory.
 error IncorrectDisputeGameFactory();
+
+/// @notice Thrown when prove() is called but the claim has not been challenged.
+error ClaimNotChallenged();

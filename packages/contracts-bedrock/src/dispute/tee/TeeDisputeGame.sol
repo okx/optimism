@@ -187,7 +187,8 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         }
 
         if (parentIndex() != type(uint32).max) {
-            (,, IDisputeGame proxy) = DISPUTE_GAME_FACTORY.gameAtIndex(parentIndex());
+            (GameType parentGameType,, IDisputeGame proxy) = DISPUTE_GAME_FACTORY.gameAtIndex(parentIndex());
+            if (GameType.unwrap(parentGameType) != GameType.unwrap(GAME_TYPE)) revert InvalidParentGame();
 
             if (
                 !ANCHOR_STATE_REGISTRY.isGameRespected(proxy) || ANCHOR_STATE_REGISTRY.isGameBlacklisted(proxy)
@@ -248,7 +249,14 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     }
 
     /// @notice Submit chained batch proofs to verify the full state transition.
-    /// @dev Each BatchProof covers a sub-range with (startBlockHash, startStateHash, endBlockHash, endStateHash).
+    /// @dev Can be called before or after challenge(). Early proving (before any challenge) is
+    ///      intentional — TEE enclaves are trusted, so a valid proof means the claim is correct.
+    ///      Once proved, gameOver() returns true, which blocks further challenges. The challenge
+    ///      mechanism is an economic incentive for the TEE to prove on demand, not a fraud-proof
+    ///      security layer. If the TEE is compromised, the system's security relies on enclave
+    ///      revocation via TeeProofVerifier.revoke(), not on the challenge window.
+    ///
+    ///      Each BatchProof covers a sub-range with (startBlockHash, startStateHash, endBlockHash, endStateHash).
     ///      The contract verifies:
     ///      1. keccak256(proofs[0].startBlockHash, startStateHash) == startingOutputRoot.root
     ///      2. proofs[i].end{Block,State}Hash == proofs[i+1].start{Block,State}Hash (chain continuity)
@@ -258,6 +266,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     ///      6. Each batch's TEE signature is valid (via TEE_PROOF_VERIFIER)
     /// @param proofBytes ABI-encoded BatchProof[] array
     function prove(bytes calldata proofBytes) external returns (ProposalStatus) {
+        if (status != GameStatus.IN_PROGRESS) revert ClaimAlreadyResolved();
         if (gameOver()) revert GameOver();
 
         BatchProof[] memory proofs = abi.decode(proofBytes, (BatchProof[]));
@@ -339,7 +348,11 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
 
         if (parentGameStatus == GameStatus.CHALLENGER_WINS) {
             status = GameStatus.CHALLENGER_WINS;
-            normalModeCredit[claimData.counteredBy] = address(this).balance;
+            // If the child was challenged, the challenger gets the bonds.
+            // If the child was never challenged (counteredBy == address(0)),
+            // refund the proposer — they should not lose their bond due to parent invalidation.
+            address recipient = claimData.counteredBy != address(0) ? claimData.counteredBy : proposer;
+            normalModeCredit[recipient] = address(this).balance;
         } else {
             if (!gameOver()) revert GameNotOver();
 

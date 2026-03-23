@@ -24,7 +24,7 @@ import {
     Proposal
 } from "src/dispute/lib/Types.sol";
 import {GameNotFinalized} from "src/dispute/lib/Errors.sol";
-import {ParentGameNotResolved} from "src/dispute/tee/lib/Errors.sol";
+import {ParentGameNotResolved, InvalidParentGame} from "src/dispute/tee/lib/Errors.sol";
 import {TeeTestUtils} from "test/dispute/tee/helpers/TeeTestUtils.sol";
 import {MockRiscZeroVerifier} from "test/dispute/tee/mocks/MockRiscZeroVerifier.sol";
 import {MockSystemConfig} from "test/dispute/tee/mocks/MockSystemConfig.sol";
@@ -431,6 +431,52 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
     }
 
     ////////////////////////////////////////////////////////////////
+    //  Test 6b: Parent Loses, Child Unchallenged → Proposer Refund //
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice When parent loses and child was never challenged, proposer should get their bond back
+    ///         (regression test for C-02: resolve() previously credited address(0))
+    function test_lifecycle_parentChallengerWins_childUnchallenged_proposerRefunded() public {
+        bytes32 parentEndBlockHash = keccak256("parent-end-block");
+        bytes32 parentEndStateHash = keccak256("parent-end-state");
+
+        // Create parent (still IN_PROGRESS)
+        (TeeDisputeGame parent,,) = _createGame(
+            proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, parentEndBlockHash, parentEndStateHash
+        );
+
+        // Create child BEFORE parent resolves — child is NOT challenged
+        bytes32 childEndBlockHash = keccak256("child-end-block");
+        bytes32 childEndStateHash = keccak256("child-end-state");
+        (TeeDisputeGame child,,) = _createGame(
+            proposer, ANCHOR_L2_BLOCK + 10, 0, childEndBlockHash, childEndStateHash
+        );
+
+        // Challenge parent and let it timeout → CHALLENGER_WINS
+        vm.prank(challenger);
+        parent.challenge{value: CHALLENGER_BOND}();
+
+        vm.warp(block.timestamp + MAX_PROVE_DURATION + 1);
+        parent.resolve();
+        assertEq(uint8(parent.status()), uint8(GameStatus.CHALLENGER_WINS));
+
+        // Child resolve short-circuits to CHALLENGER_WINS because parent lost
+        assertEq(uint8(child.resolve()), uint8(GameStatus.CHALLENGER_WINS));
+
+        // Proposer should get their bond back (not burned to address(0))
+        assertEq(child.normalModeCredit(proposer), DEFENDER_BOND);
+        assertEq(child.normalModeCredit(address(0)), 0);
+
+        // Wait for finality and claim
+        vm.warp(block.timestamp + 1);
+        uint256 proposerBalanceBefore = proposer.balance;
+        child.claimCredit(proposer);
+
+        assertEq(uint8(child.bondDistributionMode()), uint8(BondDistributionMode.NORMAL));
+        assertEq(proposer.balance, proposerBalanceBefore + DEFENDER_BOND);
+    }
+
+    ////////////////////////////////////////////////////////////////
     //  Test 7: Child Cannot Resolve Before Parent                 //
     ////////////////////////////////////////////////////////////////
 
@@ -523,6 +569,107 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
     }
 
     ////////////////////////////////////////////////////////////////
+    //   Test 9: Cross-Chain — Parent Game Wrong GameType           //
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice Creating a TZ game with a parent of a different GameType reverts
+    function test_initialize_revertParentGameWrongGameType() public {
+        // Register a second game type (XL = GameType 1) using the same implementation
+        GameType XL_GAME_TYPE = GameType.wrap(1);
+        factory.setImplementation(XL_GAME_TYPE, IDisputeGame(address(implementation)), bytes(""));
+        factory.setInitBond(XL_GAME_TYPE, DEFENDER_BOND);
+
+        // Create an XL game (index 0) — factory records it as GameType 1
+        bytes memory xlExtraData = buildExtraData(ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("xl-block"), keccak256("xl-state"));
+        Claim xlRootClaim = computeRootClaim(keccak256("xl-block"), keccak256("xl-state"));
+
+        vm.startPrank(proposer, proposer);
+        factory.create{value: DEFENDER_BOND}(XL_GAME_TYPE, xlRootClaim, xlExtraData);
+        vm.stopPrank();
+
+        // Try to create a TZ game (GameType 1960) with parentIndex=0 (the XL game)
+        // This should revert because parent's GameType (1) != child's GAME_TYPE (1960)
+        bytes memory tzExtraData = buildExtraData(ANCHOR_L2_BLOCK + 10, 0, keccak256("tz-block"), keccak256("tz-state"));
+        Claim tzRootClaim = computeRootClaim(keccak256("tz-block"), keccak256("tz-state"));
+
+        vm.startPrank(proposer, proposer);
+        vm.expectRevert(InvalidParentGame.selector);
+        factory.create{value: DEFENDER_BOND}(TEE_GAME_TYPE, tzRootClaim, tzExtraData);
+        vm.stopPrank();
+    }
+
+    ////////////////////////////////////////////////////////////////
+    //   Test 10: Cross-Chain — Anchor Isolation                    //
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice A resolved TZ game cannot update XL's AnchorStateRegistry
+    function test_crossChain_anchorIsolation() public {
+        // Deploy a second ASR for the "XL" chain with its own respectedGameType
+        GameType XL_GAME_TYPE = GameType.wrap(1);
+        AnchorStateRegistry xlAnchorStateRegistry = _deployAnchorStateRegistryForType(factory, XL_GAME_TYPE);
+
+        // Create and resolve a TZ game (DEFENDER_WINS)
+        bytes32 endBlockHash = keccak256("tz-end-block");
+        bytes32 endStateHash = keccak256("tz-end-state");
+        (TeeDisputeGame tzGame,,) = _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, endBlockHash, endStateHash);
+
+        vm.warp(block.timestamp + MAX_CHALLENGE_DURATION + 1);
+        tzGame.resolve();
+        vm.warp(block.timestamp + 1);
+
+        // TZ game CAN update TZ's ASR (via claimCredit → closeGame → setAnchorState)
+        tzGame.claimCredit(proposer);
+        assertEq(address(anchorStateRegistry.anchorGame()), address(tzGame));
+
+        // TZ game CANNOT update XL's ASR — isGameRegistered fails because
+        // the game was created by a factory that XL's ASR recognizes, but
+        // setAnchorState checks respectedGameType which is XL_GAME_TYPE (1), not 1960
+        vm.expectRevert();
+        xlAnchorStateRegistry.setAnchorState(IDisputeGame(address(tzGame)));
+    }
+
+    ////////////////////////////////////////////////////////////////
+    //   Test 11: Cross-Chain — Parent Chain Isolation               //
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice In a shared Factory, a child game can reference a same-type parent
+    ///         but NOT a different-type parent
+    function test_crossChain_parentChainIsolation() public {
+        // Register XL game type in the same factory
+        GameType XL_GAME_TYPE = GameType.wrap(1);
+        factory.setImplementation(XL_GAME_TYPE, IDisputeGame(address(implementation)), bytes(""));
+        factory.setInitBond(XL_GAME_TYPE, DEFENDER_BOND);
+
+        // Create XL game (index 0)
+        bytes memory xlExtraData = buildExtraData(ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("xl-block"), keccak256("xl-state"));
+        Claim xlRootClaim = computeRootClaim(keccak256("xl-block"), keccak256("xl-state"));
+
+        vm.startPrank(proposer, proposer);
+        factory.create{value: DEFENDER_BOND}(XL_GAME_TYPE, xlRootClaim, xlExtraData);
+        vm.stopPrank();
+
+        // Create TZ game (index 1)
+        (TeeDisputeGame tzParent,,) = _createGame(
+            proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("tz-block"), keccak256("tz-state")
+        );
+
+        // TZ child referencing TZ parent (index 1, same type) — should succeed
+        (TeeDisputeGame tzChild,,) = _createGame(
+            proposer, ANCHOR_L2_BLOCK + 10, 1, keccak256("tz-child-block"), keccak256("tz-child-state")
+        );
+        assertEq(uint8(tzChild.status()), uint8(GameStatus.IN_PROGRESS));
+
+        // TZ child referencing XL parent (index 0, wrong type) — should revert
+        bytes memory badExtraData = buildExtraData(ANCHOR_L2_BLOCK + 15, 0, keccak256("bad-block"), keccak256("bad-state"));
+        Claim badRootClaim = computeRootClaim(keccak256("bad-block"), keccak256("bad-state"));
+
+        vm.startPrank(proposer, proposer);
+        vm.expectRevert(InvalidParentGame.selector);
+        factory.create{value: DEFENDER_BOND}(TEE_GAME_TYPE, badRootClaim, badExtraData);
+        vm.stopPrank();
+    }
+
+    ////////////////////////////////////////////////////////////////
     //                 Infrastructure Helpers                       //
     ////////////////////////////////////////////////////////////////
 
@@ -566,6 +713,31 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
         verifier.register("", journal);
 
         return verifier;
+    }
+
+    function _deployAnchorStateRegistryForType(DisputeGameFactory _factory, GameType _gameType)
+        internal
+        returns (AnchorStateRegistry)
+    {
+        MockSystemConfig systemConfig = new MockSystemConfig(address(this));
+        AnchorStateRegistry impl = new AnchorStateRegistry(0);
+        Proxy proxy = new Proxy(address(this));
+        proxy.upgradeToAndCall(
+            address(impl),
+            abi.encodeCall(
+                impl.initialize,
+                (
+                    ISystemConfig(address(systemConfig)),
+                    IDisputeGameFactory(address(_factory)),
+                    Proposal({
+                        root: Hash.wrap(computeRootClaim(ANCHOR_BLOCK_HASH, ANCHOR_STATE_HASH).raw()),
+                        l2SequenceNumber: ANCHOR_L2_BLOCK
+                    }),
+                    _gameType
+                )
+            )
+        );
+        return AnchorStateRegistry(address(proxy));
     }
 
     function _createGame(
