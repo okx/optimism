@@ -223,12 +223,14 @@ The game is "over" (no more interactions) when the deadline passes OR a valid pr
 
 ### prove()
 
-- Can be called in both `Unchallenged` and `Challenged` states
+- Can be called in both `Unchallenged` and `Challenged` states (early proving is by design — TEE is trusted)
+- Requires game status `IN_PROGRESS` (cannot prove after resolution)
 - Accepts ABI-encoded `BatchProof[]` array
 - Verifies chain of batch proofs (see Section 6)
 - Records `prover = msg.sender`
 - No bond required from prover
 - Anyone can call prove() (no access control), but TEE signature must be from registered enclave
+- Once proved, `gameOver()` returns true, which blocks further `challenge()` calls — this is intentional since a valid TEE proof confirms the claim is correct
 
 ---
 
@@ -304,7 +306,8 @@ batchDigest = keccak256(abi.encode(
 | Challenged (deadline expired, no proof) | Challenger (CHALLENGER_WINS) | `normalModeCredit[challenger] = balance`                                          |
 | UnchallengedAndValidProofProvided    | Proposer (DEFENDER_WINS) | `normalModeCredit[proposer] = balance`                                                   |
 | ChallengedAndValidProofProvided      | Proposer (DEFENDER_WINS) | If prover == proposer: `normalModeCredit[prover] = balance`<br>Else: `normalModeCredit[prover] = CHALLENGER_BOND`, `normalModeCredit[proposer] = balance - CHALLENGER_BOND` |
-| Parent game CHALLENGER_WINS          | Challenger (CHALLENGER_WINS) | `normalModeCredit[challenger] = balance`                                          |
+| Parent game CHALLENGER_WINS (child challenged) | Challenger (CHALLENGER_WINS) | `normalModeCredit[challenger] = balance`                                |
+| Parent game CHALLENGER_WINS (child unchallenged) | Proposer refunded (CHALLENGER_WINS) | `normalModeCredit[proposer] = balance`                           |
 
 ### closeGame() and BondDistributionMode
 
@@ -357,7 +360,7 @@ The `GameType` check (`parentGameType == GAME_TYPE`) ensures TEE games can only 
 ### resolve() Parent Dependency
 
 - If parent exists and is still `IN_PROGRESS`: `resolve()` reverts with `ParentGameNotResolved`
-- If parent resolved as `CHALLENGER_WINS`: child automatically resolves as `CHALLENGER_WINS`
+- If parent resolved as `CHALLENGER_WINS`: child automatically resolves as `CHALLENGER_WINS`. If the child was challenged, the challenger gets all bonds. If the child was never challenged, the proposer's bond is refunded.
 - If parent resolved as `DEFENDER_WINS` (or no parent): normal resolution logic applies
 
 ---
@@ -476,7 +479,7 @@ The `AccessManager` (inherits OZ `Ownable`) manages two permission sets:
 
 ### Potential Risks
 
-1. **Parent chain invalidation cascade**: If a parent game is resolved as CHALLENGER_WINS after child games are created, all children automatically resolve as CHALLENGER_WINS. This is correct behavior but could lead to unexpected bond losses if proposers build deep chains on top of an invalid parent.
+1. **Parent chain invalidation cascade**: If a parent game is resolved as CHALLENGER_WINS after child games are created, all children automatically resolve as CHALLENGER_WINS. If the child was challenged, the challenger gets all bonds. If the child was never challenged, the proposer's bond is refunded (not burned to address(0)).
 
 2. **No replay protection on prove()**: The same proof bytes can be submitted to different game instances if they happen to cover the same state range. This is not a vulnerability (the proof is still valid), but it means provers don't need unique proofs per game.
 
