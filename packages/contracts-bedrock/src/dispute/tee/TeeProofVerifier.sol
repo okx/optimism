@@ -9,55 +9,64 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 /// @notice Verifies TEE enclave identity via ZK proof (owner-gated registration) and
 ///         batch state transitions via ECDSA signature (permissionless verification).
 /// @dev Two core responsibilities:
-///      1. register(): Owner verifies ZK proof of Nitro attestation, binds EOA <-> PCR on-chain
+///      1. register(): Owner verifies ZK proof of Nitro attestation, binds EOA on-chain
 ///      2. verifyBatch(): ecrecover signature, check signer is a registered enclave
 ///
-///      Journal format (from RISC Zero guest program):
-///      - 8 bytes: timestamp_ms (big-endian uint64)
-///      - 32 bytes: pcr_hash = SHA256(PCR0)
-///      - 96 bytes: root_pubkey (P384 without 0x04 prefix)
-///      - 1 byte: pubkey_len
-///      - pubkey_len bytes: pubkey (secp256k1 uncompressed, 65 bytes)
-///      - 2 bytes: user_data_len (big-endian uint16)
-///      - user_data_len bytes: user_data
+///      Uses generation-based revocation: incrementing enclaveGeneration invalidates
+///      all previously registered enclaves in O(1).
+///
+///      Journal is reconstructed on-chain from AttestationData + expectedRootKey,
+///      so rootKey mismatch causes ZK verify failure without explicit comparison.
 contract TeeProofVerifier is Ownable {
-    // ============ Immutables ============
+    // ============ Structs ============
+
+    /// @notice Attestation data from the RISC Zero guest program
+    struct AttestationData {
+        uint64 timestampMs;
+        bytes32 pcrHash;
+        bytes publicKey; // 65 bytes secp256k1 uncompressed (0x04 + x + y)
+        bytes userData;
+    }
+
+    // ============ State ============
 
     /// @notice RISC Zero Groth16 verifier (only called during registration)
-    IRiscZeroVerifier public immutable riscZeroVerifier;
+    IRiscZeroVerifier public riscZeroVerifier;
 
     /// @notice RISC Zero guest image ID (hash of the attestation verification guest ELF)
-    bytes32 public immutable imageId;
+    bytes32 public imageId;
 
     /// @notice Expected AWS Nitro root public key (96 bytes, P384 without 0x04 prefix)
     bytes public expectedRootKey;
 
-    // ============ State ============
+    /// @notice Current enclave generation (starts at 1, increments on bulk revocation)
+    uint256 public enclaveGeneration;
 
-    struct EnclaveInfo {
-        bytes32 pcrHash;
-        uint64 registeredAt;
-    }
+    /// @notice Generation at which each enclave was registered
+    mapping(address => uint256) public enclaveRegisteredGeneration;
 
-    /// @notice Registered enclaves: EOA address => enclave info
-    mapping(address => EnclaveInfo) public registeredEnclaves;
+    /// @notice PCR hash recorded for each enclave (on-chain record only, not validated)
+    mapping(address => bytes32) public enclavePcrHash;
 
     // ============ Events ============
 
-    event EnclaveRegistered(
-        address indexed enclaveAddress, bytes32 indexed pcrHash, uint64 timestampMs
-    );
-
+    event EnclaveRegistered(address indexed enclaveAddress, bytes32 indexed pcrHash, uint64 timestampMs);
     event EnclaveRevoked(address indexed enclaveAddress);
+    event AllEnclavesRevoked(uint256 previousGeneration, uint256 newGeneration);
+    event RiscZeroVerifierUpdated(IRiscZeroVerifier indexed oldVerifier, IRiscZeroVerifier indexed newVerifier);
+    event ImageIdUpdated(bytes32 indexed oldImageId, bytes32 indexed newImageId);
+    event ExpectedRootKeyUpdated(bytes oldKey, bytes newKey);
 
     // ============ Errors ============
 
     error InvalidProof();
-    error InvalidRootKey();
     error InvalidPublicKey();
     error EnclaveAlreadyRegistered();
     error EnclaveNotRegistered();
     error InvalidSignature();
+    error InvalidVerifierAddress();
+    error InvalidImageId();
+    error InvalidRootKeyLength();
 
     // ============ Constructor ============
 
@@ -69,55 +78,63 @@ contract TeeProofVerifier is Ownable {
         bytes32 _imageId,
         bytes memory _rootKey
     ) {
+        if (address(_riscZeroVerifier) == address(0)) revert InvalidVerifierAddress();
+        if (_imageId == bytes32(0)) revert InvalidImageId();
+        if (_rootKey.length != 96) revert InvalidRootKeyLength();
+
         riscZeroVerifier = _riscZeroVerifier;
         imageId = _imageId;
         expectedRootKey = _rootKey;
+        enclaveGeneration = 1;
     }
 
     // ============ Registration (Owner Only) ============
 
     /// @notice Register a TEE enclave by verifying its ZK attestation proof.
-    /// @dev Only callable by the owner. The owner calling register() is the trust gate --
-    ///      the PCR and EOA from the proof are automatically trusted upon registration.
+    /// @dev Only callable by the owner. The journal is reconstructed on-chain from
+    ///      attestationData + expectedRootKey. If the rootKey in the original attestation
+    ///      differs from expectedRootKey, the reconstructed digest won't match and
+    ///      the ZK proof verification will fail.
     /// @param seal The RISC Zero proof seal (Groth16)
-    /// @param journal The journal output from the guest program
-    function register(bytes calldata seal, bytes calldata journal) external onlyOwner {
-        // 1. Verify ZK proof
-        bytes32 journalDigest = sha256(journal);
+    /// @param attestationData Attestation fields from the guest program
+    function register(bytes calldata seal, AttestationData calldata attestationData) external onlyOwner {
+        // 1. Validate public key length
+        if (attestationData.publicKey.length != 65) {
+            revert InvalidPublicKey();
+        }
+
+        // 2. Extract EOA address from secp256k1 public key
+        address enclaveAddress = _extractAddress(attestationData.publicKey);
+
+        // 3. Check not already registered in current generation
+        if (enclaveRegisteredGeneration[enclaveAddress] == enclaveGeneration) {
+            revert EnclaveAlreadyRegistered();
+        }
+
+        // 4. Reconstruct journal digest (rootKey baked in from chain state)
+        bytes32 journalDigest = sha256(
+            abi.encodePacked(
+                attestationData.timestampMs,
+                attestationData.pcrHash,
+                expectedRootKey,
+                uint8(attestationData.publicKey.length),
+                attestationData.publicKey,
+                uint16(attestationData.userData.length),
+                attestationData.userData
+            )
+        );
+
+        // 5. Verify ZK proof
         try riscZeroVerifier.verify(seal, imageId, journalDigest) {}
         catch {
             revert InvalidProof();
         }
 
-        // 2. Parse journal
-        (
-            uint64 timestampMs,
-            bytes32 pcrHash,
-            bytes memory rootKey,
-            bytes memory publicKey,
-        ) = _parseJournal(journal);
+        // 6. Store registration
+        enclaveRegisteredGeneration[enclaveAddress] = enclaveGeneration;
+        enclavePcrHash[enclaveAddress] = attestationData.pcrHash;
 
-        // 3. Verify root key matches AWS Nitro official root
-        if (keccak256(rootKey) != keccak256(expectedRootKey)) {
-            revert InvalidRootKey();
-        }
-
-        // 4. Extract EOA address from secp256k1 public key (65 bytes: 0x04 + x + y)
-        if (publicKey.length != 65) {
-            revert InvalidPublicKey();
-        }
-        address enclaveAddress = _extractAddress(publicKey);
-
-        // 5. Check not already registered
-        if (registeredEnclaves[enclaveAddress].registeredAt != 0) {
-            revert EnclaveAlreadyRegistered();
-        }
-
-        // 6. Store registration (PCR is implicitly trusted by owner's approval)
-        registeredEnclaves[enclaveAddress] =
-            EnclaveInfo({pcrHash: pcrHash, registeredAt: timestampMs});
-
-        emit EnclaveRegistered(enclaveAddress, pcrHash, timestampMs);
+        emit EnclaveRegistered(enclaveAddress, attestationData.pcrHash, attestationData.timestampMs);
     }
 
     // ============ Batch Verification (Permissionless) ============
@@ -131,14 +148,12 @@ contract TeeProofVerifier is Ownable {
         view
         returns (address signer)
     {
-        // 1. Recover signer from signature
         (address recovered, ECDSA.RecoverError err) = ECDSA.tryRecover(digest, signature);
         if (err != ECDSA.RecoverError.NoError || recovered == address(0)) {
             revert InvalidSignature();
         }
 
-        // 2. Check signer is a registered enclave
-        if (registeredEnclaves[recovered].registeredAt == 0) {
+        if (enclaveRegisteredGeneration[recovered] != enclaveGeneration) {
             revert EnclaveNotRegistered();
         }
 
@@ -148,60 +163,53 @@ contract TeeProofVerifier is Ownable {
     // ============ Query Functions ============
 
     /// @notice Check if an address is a registered enclave
-    /// @param enclaveAddress The address to check
-    /// @return True if the address is registered
     function isRegistered(address enclaveAddress) external view returns (bool) {
-        return registeredEnclaves[enclaveAddress].registeredAt != 0;
+        return enclaveRegisteredGeneration[enclaveAddress] == enclaveGeneration;
     }
 
     // ============ Admin Functions ============
 
-    /// @notice Revoke a registered enclave
-    /// @param enclaveAddress The enclave address to revoke
+    /// @notice Revoke a single registered enclave
     function revoke(address enclaveAddress) external onlyOwner {
-        if (registeredEnclaves[enclaveAddress].registeredAt == 0) {
+        if (enclaveRegisteredGeneration[enclaveAddress] != enclaveGeneration) {
             revert EnclaveNotRegistered();
         }
-        delete registeredEnclaves[enclaveAddress];
+        enclaveRegisteredGeneration[enclaveAddress] = 0;
         emit EnclaveRevoked(enclaveAddress);
     }
 
-    // ============ Internal Functions ============
-
-    /// @notice Parse the journal bytes into attestation fields
-    function _parseJournal(bytes calldata journal)
-        internal
-        pure
-        returns (
-            uint64 timestampMs,
-            bytes32 pcrHash,
-            bytes memory rootKey,
-            bytes memory publicKey,
-            bytes memory userData
-        )
-    {
-        uint256 offset = 0;
-
-        timestampMs = uint64(bytes8(journal[offset:offset + 8]));
-        offset += 8;
-
-        pcrHash = bytes32(journal[offset:offset + 32]);
-        offset += 32;
-
-        rootKey = journal[offset:offset + 96];
-        offset += 96;
-
-        uint8 pubkeyLen = uint8(journal[offset]);
-        offset += 1;
-
-        publicKey = journal[offset:offset + pubkeyLen];
-        offset += pubkeyLen;
-
-        uint16 userDataLen = uint16(bytes2(journal[offset:offset + 2]));
-        offset += 2;
-
-        userData = journal[offset:offset + userDataLen];
+    /// @notice Revoke all registered enclaves by incrementing the generation counter
+    function revokeAll() external onlyOwner {
+        uint256 previousGeneration = enclaveGeneration;
+        enclaveGeneration = previousGeneration + 1;
+        emit AllEnclavesRevoked(previousGeneration, enclaveGeneration);
     }
+
+    /// @notice Update the RISC Zero verifier contract
+    function setRiscZeroVerifier(IRiscZeroVerifier _verifier) external onlyOwner {
+        if (address(_verifier) == address(0)) revert InvalidVerifierAddress();
+        IRiscZeroVerifier oldVerifier = riscZeroVerifier;
+        riscZeroVerifier = _verifier;
+        emit RiscZeroVerifierUpdated(oldVerifier, _verifier);
+    }
+
+    /// @notice Update the RISC Zero guest image ID
+    function setImageId(bytes32 _imageId) external onlyOwner {
+        if (_imageId == bytes32(0)) revert InvalidImageId();
+        bytes32 oldImageId = imageId;
+        imageId = _imageId;
+        emit ImageIdUpdated(oldImageId, _imageId);
+    }
+
+    /// @notice Update the expected AWS Nitro root public key
+    function setExpectedRootKey(bytes memory _rootKey) external onlyOwner {
+        if (_rootKey.length != 96) revert InvalidRootKeyLength();
+        bytes memory oldKey = expectedRootKey;
+        expectedRootKey = _rootKey;
+        emit ExpectedRootKeyUpdated(oldKey, _rootKey);
+    }
+
+    // ============ Internal Functions ============
 
     /// @notice Extract Ethereum address from secp256k1 uncompressed public key
     /// @param publicKey 65 bytes: 0x04 prefix + 32-byte x + 32-byte y

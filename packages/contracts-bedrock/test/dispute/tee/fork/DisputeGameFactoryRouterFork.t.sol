@@ -349,9 +349,13 @@ contract DisputeGameFactoryRouterForkTest is TeeTestUtils {
 
         registeredExecutor = enclaveWallet.addr;
         teeProofVerifier = new TeeProofVerifier(riscZeroVerifier, IMAGE_ID, expectedRootKey);
-        bytes memory journal =
-            buildJournal(1234, PCR_HASH, expectedRootKey, uncompressedPublicKey(enclaveWallet), "");
-        teeProofVerifier.register("", journal);
+        TeeProofVerifier.AttestationData memory data = TeeProofVerifier.AttestationData({
+            timestampMs: 1234,
+            pcrHash: PCR_HASH,
+            publicKey: uncompressedPublicKey(enclaveWallet),
+            userData: ""
+        });
+        teeProofVerifier.register("", data);
     }
 
     function _assertLiveFactoryFork() internal view {

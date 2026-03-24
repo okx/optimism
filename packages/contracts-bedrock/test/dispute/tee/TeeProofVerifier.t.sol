@@ -3,6 +3,7 @@ pragma solidity ^0.8.15;
 
 import {Vm} from "forge-std/Vm.sol";
 import {TeeProofVerifier} from "src/dispute/tee/TeeProofVerifier.sol";
+import {IRiscZeroVerifier} from "interfaces/dispute/IRiscZeroVerifier.sol";
 import {MockRiscZeroVerifier} from "test/dispute/tee/mocks/MockRiscZeroVerifier.sol";
 import {TeeTestUtils} from "test/dispute/tee/helpers/TeeTestUtils.sol";
 
@@ -22,65 +23,86 @@ contract TeeProofVerifierTest is TeeTestUtils {
         enclaveWallet = makeWallet(DEFAULT_EXECUTOR_KEY, "enclave");
     }
 
+    // ============ Helper ============
+
+    function _buildAttestationData(
+        uint64 timestampMs,
+        bytes32 pcrHash,
+        bytes memory publicKey,
+        bytes memory userData
+    )
+        internal
+        pure
+        returns (TeeProofVerifier.AttestationData memory)
+    {
+        return TeeProofVerifier.AttestationData({
+            timestampMs: timestampMs,
+            pcrHash: pcrHash,
+            publicKey: publicKey,
+            userData: userData
+        });
+    }
+
+    function _registerEnclave() internal {
+        TeeProofVerifier.AttestationData memory data =
+            _buildAttestationData(1234, PCR_HASH, uncompressedPublicKey(enclaveWallet), "data");
+        verifier.register(hex"1234", data);
+    }
+
+    // ============ Register Tests ============
+
     function test_register_succeeds() public {
-        bytes memory journal = buildJournal(1234, PCR_HASH, expectedRootKey, uncompressedPublicKey(enclaveWallet), "data");
+        TeeProofVerifier.AttestationData memory data =
+            _buildAttestationData(1234, PCR_HASH, uncompressedPublicKey(enclaveWallet), "data");
 
-        verifier.register(hex"1234", journal);
+        verifier.register(hex"1234", data);
 
-        (bytes32 pcrHash, uint64 registeredAt) = verifier.registeredEnclaves(enclaveWallet.addr);
-        assertEq(pcrHash, PCR_HASH);
-        assertEq(registeredAt, 1234);
+        assertEq(verifier.enclavePcrHash(enclaveWallet.addr), PCR_HASH);
+        assertEq(verifier.enclaveRegisteredGeneration(enclaveWallet.addr), verifier.enclaveGeneration());
         assertTrue(verifier.isRegistered(enclaveWallet.addr));
     }
 
     function test_register_revertUnauthorizedCaller() public {
-        bytes memory journal = buildJournal(1234, PCR_HASH, expectedRootKey, uncompressedPublicKey(enclaveWallet), "");
+        TeeProofVerifier.AttestationData memory data =
+            _buildAttestationData(1234, PCR_HASH, uncompressedPublicKey(enclaveWallet), "");
 
         vm.prank(makeAddr("attacker"));
         vm.expectRevert("Ownable: caller is not the owner");
-        verifier.register(hex"1234", journal);
+        verifier.register(hex"1234", data);
     }
 
     function test_register_revertInvalidProof() public {
         riscZeroVerifier.setShouldRevert(true);
-        bytes memory journal = buildJournal(1234, PCR_HASH, expectedRootKey, uncompressedPublicKey(enclaveWallet), "");
+        TeeProofVerifier.AttestationData memory data =
+            _buildAttestationData(1234, PCR_HASH, uncompressedPublicKey(enclaveWallet), "");
 
         vm.expectRevert(TeeProofVerifier.InvalidProof.selector);
-        verifier.register(hex"1234", journal);
-    }
-
-    function test_register_revertInvalidRootKey() public {
-        bytes memory badRootKey = abi.encodePacked(bytes32(uint256(4)), bytes32(uint256(5)), bytes32(uint256(6)));
-        bytes memory journal = buildJournal(1234, PCR_HASH, badRootKey, uncompressedPublicKey(enclaveWallet), "");
-
-        vm.expectRevert(TeeProofVerifier.InvalidRootKey.selector);
-        verifier.register(hex"1234", journal);
+        verifier.register(hex"1234", data);
     }
 
     function test_register_revertInvalidPublicKey() public {
         bytes memory shortPublicKey = abi.encodePacked(bytes32(uint256(1)), bytes32(uint256(2)));
-        bytes memory journal = buildJournal(1234, PCR_HASH, expectedRootKey, shortPublicKey, "");
+        TeeProofVerifier.AttestationData memory data =
+            _buildAttestationData(1234, PCR_HASH, shortPublicKey, "");
 
         vm.expectRevert(TeeProofVerifier.InvalidPublicKey.selector);
-        verifier.register(hex"1234", journal);
+        verifier.register(hex"1234", data);
     }
 
     function test_register_revertDuplicateEnclave() public {
-        bytes memory journal = buildJournal(1234, PCR_HASH, expectedRootKey, uncompressedPublicKey(enclaveWallet), "");
-        verifier.register(hex"1234", journal);
+        _registerEnclave();
+
+        TeeProofVerifier.AttestationData memory data =
+            _buildAttestationData(1234, PCR_HASH, uncompressedPublicKey(enclaveWallet), "data");
 
         vm.expectRevert(TeeProofVerifier.EnclaveAlreadyRegistered.selector);
-        verifier.register(hex"1234", journal);
+        verifier.register(hex"1234", data);
     }
 
-    function test_register_revertMalformedJournal() public {
-        vm.expectRevert();
-        verifier.register(hex"1234", hex"0001");
-    }
+    // ============ VerifyBatch Tests ============
 
     function test_verifyBatch_succeedsForRegisteredEnclave() public {
-        bytes memory journal = buildJournal(1234, PCR_HASH, expectedRootKey, uncompressedPublicKey(enclaveWallet), "");
-        verifier.register(hex"1234", journal);
+        _registerEnclave();
 
         bytes32 digest = keccak256("batch");
         bytes memory signature = signDigest(enclaveWallet.privateKey, digest);
@@ -97,16 +119,16 @@ contract TeeProofVerifierTest is TeeTestUtils {
     }
 
     function test_verifyBatch_revertForInvalidSignature() public {
-        bytes memory journal = buildJournal(1234, PCR_HASH, expectedRootKey, uncompressedPublicKey(enclaveWallet), "");
-        verifier.register(hex"1234", journal);
+        _registerEnclave();
 
         vm.expectRevert(TeeProofVerifier.InvalidSignature.selector);
         verifier.verifyBatch(keccak256("batch"), hex"1234");
     }
 
+    // ============ Revoke Tests ============
+
     function test_revoke_succeeds() public {
-        bytes memory journal = buildJournal(1234, PCR_HASH, expectedRootKey, uncompressedPublicKey(enclaveWallet), "");
-        verifier.register(hex"1234", journal);
+        _registerEnclave();
 
         verifier.revoke(enclaveWallet.addr);
 
@@ -118,6 +140,142 @@ contract TeeProofVerifierTest is TeeTestUtils {
         verifier.revoke(enclaveWallet.addr);
     }
 
+    function test_revoke_revertNonOwner() public {
+        _registerEnclave();
+        vm.prank(makeAddr("attacker"));
+        vm.expectRevert("Ownable: caller is not the owner");
+        verifier.revoke(enclaveWallet.addr);
+    }
+
+    function test_revoke_verifyBatchFailsAfterRevoke() public {
+        _registerEnclave();
+        bytes32 digest = keccak256("batch");
+        bytes memory signature = signDigest(enclaveWallet.privateKey, digest);
+        assertEq(verifier.verifyBatch(digest, signature), enclaveWallet.addr);
+
+        verifier.revoke(enclaveWallet.addr);
+
+        vm.expectRevert(TeeProofVerifier.EnclaveNotRegistered.selector);
+        verifier.verifyBatch(digest, signature);
+    }
+
+    function test_revoke_doubleRevokeReverts() public {
+        _registerEnclave();
+        verifier.revoke(enclaveWallet.addr);
+
+        vm.expectRevert(TeeProofVerifier.EnclaveNotRegistered.selector);
+        verifier.revoke(enclaveWallet.addr);
+    }
+
+    function test_revoke_canReRegisterAfterRevoke() public {
+        _registerEnclave();
+        verifier.revoke(enclaveWallet.addr);
+        assertFalse(verifier.isRegistered(enclaveWallet.addr));
+
+        _registerEnclave();
+        assertTrue(verifier.isRegistered(enclaveWallet.addr));
+    }
+
+    // ============ RevokeAll Tests ============
+
+    function test_revokeAll_invalidatesAllEnclaves() public {
+        _registerEnclave();
+        assertTrue(verifier.isRegistered(enclaveWallet.addr));
+
+        uint256 oldGen = verifier.enclaveGeneration();
+        verifier.revokeAll();
+
+        assertEq(verifier.enclaveGeneration(), oldGen + 1);
+        assertFalse(verifier.isRegistered(enclaveWallet.addr));
+    }
+
+    function test_revokeAll_enclaveCanReRegister() public {
+        _registerEnclave();
+        verifier.revokeAll();
+        assertFalse(verifier.isRegistered(enclaveWallet.addr));
+
+        // Re-register after generation bump
+        _registerEnclave();
+        assertTrue(verifier.isRegistered(enclaveWallet.addr));
+    }
+
+    function test_revokeAll_revertNonOwner() public {
+        vm.prank(makeAddr("attacker"));
+        vm.expectRevert("Ownable: caller is not the owner");
+        verifier.revokeAll();
+    }
+
+    function test_revokeAll_verifyBatchFailsAfterRevoke() public {
+        _registerEnclave();
+        bytes32 digest = keccak256("batch");
+        bytes memory signature = signDigest(enclaveWallet.privateKey, digest);
+
+        // Works before revokeAll
+        assertEq(verifier.verifyBatch(digest, signature), enclaveWallet.addr);
+
+        verifier.revokeAll();
+
+        // Fails after revokeAll
+        vm.expectRevert(TeeProofVerifier.EnclaveNotRegistered.selector);
+        verifier.verifyBatch(digest, signature);
+    }
+
+    // ============ Setter Tests ============
+
+    function test_setRiscZeroVerifier_succeeds() public {
+        MockRiscZeroVerifier newVerifier = new MockRiscZeroVerifier();
+        verifier.setRiscZeroVerifier(newVerifier);
+        assertEq(address(verifier.riscZeroVerifier()), address(newVerifier));
+    }
+
+    function test_setRiscZeroVerifier_revertZeroAddress() public {
+        vm.expectRevert(TeeProofVerifier.InvalidVerifierAddress.selector);
+        verifier.setRiscZeroVerifier(IRiscZeroVerifier(address(0)));
+    }
+
+    function test_setRiscZeroVerifier_revertNonOwner() public {
+        vm.prank(makeAddr("attacker"));
+        vm.expectRevert("Ownable: caller is not the owner");
+        verifier.setRiscZeroVerifier(IRiscZeroVerifier(address(1)));
+    }
+
+    function test_setImageId_succeeds() public {
+        bytes32 newImageId = keccak256("new-image");
+        verifier.setImageId(newImageId);
+        assertEq(verifier.imageId(), newImageId);
+    }
+
+    function test_setImageId_revertZero() public {
+        vm.expectRevert(TeeProofVerifier.InvalidImageId.selector);
+        verifier.setImageId(bytes32(0));
+    }
+
+    function test_setImageId_revertNonOwner() public {
+        vm.prank(makeAddr("attacker"));
+        vm.expectRevert("Ownable: caller is not the owner");
+        verifier.setImageId(keccak256("new-image"));
+    }
+
+    function test_setExpectedRootKey_succeeds() public {
+        bytes memory newKey = abi.encodePacked(bytes32(uint256(4)), bytes32(uint256(5)), bytes32(uint256(6)));
+        verifier.setExpectedRootKey(newKey);
+        assertEq(keccak256(verifier.expectedRootKey()), keccak256(newKey));
+    }
+
+    function test_setExpectedRootKey_revertInvalidLength() public {
+        vm.expectRevert(TeeProofVerifier.InvalidRootKeyLength.selector);
+        verifier.setExpectedRootKey(hex"1234");
+    }
+
+    function test_setExpectedRootKey_revertNonOwner() public {
+        bytes memory newKey = abi.encodePacked(bytes32(uint256(4)), bytes32(uint256(5)), bytes32(uint256(6)));
+        vm.prank(makeAddr("attacker"));
+        vm.expectRevert("Ownable: caller is not the owner");
+        verifier.setExpectedRootKey(newKey);
+    }
+
+    // ============ Ownership Tests ============
+
     function test_transferOwnership_updatesOwner() public {
         address newOwner = makeAddr("newOwner");
         verifier.transferOwnership(newOwner);
@@ -127,5 +285,22 @@ contract TeeProofVerifierTest is TeeTestUtils {
     function test_transferOwnership_revertZeroAddress() public {
         vm.expectRevert("Ownable: new owner is the zero address");
         verifier.transferOwnership(address(0));
+    }
+
+    // ============ Constructor Validation Tests ============
+
+    function test_constructor_revertZeroVerifier() public {
+        vm.expectRevert(TeeProofVerifier.InvalidVerifierAddress.selector);
+        new TeeProofVerifier(IRiscZeroVerifier(address(0)), IMAGE_ID, expectedRootKey);
+    }
+
+    function test_constructor_revertZeroImageId() public {
+        vm.expectRevert(TeeProofVerifier.InvalidImageId.selector);
+        new TeeProofVerifier(riscZeroVerifier, bytes32(0), expectedRootKey);
+    }
+
+    function test_constructor_revertInvalidRootKeyLength() public {
+        vm.expectRevert(TeeProofVerifier.InvalidRootKeyLength.selector);
+        new TeeProofVerifier(riscZeroVerifier, IMAGE_ID, hex"1234");
     }
 }

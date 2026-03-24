@@ -655,8 +655,13 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
 
         // Register the executor enclave via real register() flow
         Vm.Wallet memory enclaveWallet = makeWallet(DEFAULT_EXECUTOR_KEY, "integration-enclave");
-        bytes memory journal = buildJournal(1234, PCR_HASH, expectedRootKey, uncompressedPublicKey(enclaveWallet), "");
-        verifier.register("", journal);
+        TeeProofVerifier.AttestationData memory data = TeeProofVerifier.AttestationData({
+            timestampMs: 1234,
+            pcrHash: PCR_HASH,
+            publicKey: uncompressedPublicKey(enclaveWallet),
+            userData: ""
+        });
+        verifier.register("", data);
 
         return verifier;
     }
