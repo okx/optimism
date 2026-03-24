@@ -64,9 +64,6 @@ contract TeeProofVerifier is Ownable {
     error EnclaveAlreadyRegistered();
     error EnclaveNotRegistered();
     error InvalidSignature();
-    error InvalidVerifierAddress();
-    error InvalidImageId();
-    error InvalidRootKeyLength();
 
     // ============ Constructor ============
 
@@ -78,10 +75,6 @@ contract TeeProofVerifier is Ownable {
         bytes32 _imageId,
         bytes memory _rootKey
     ) {
-        if (address(_riscZeroVerifier) == address(0)) revert InvalidVerifierAddress();
-        if (_imageId == bytes32(0)) revert InvalidImageId();
-        if (_rootKey.length != 96) revert InvalidRootKeyLength();
-
         riscZeroVerifier = _riscZeroVerifier;
         imageId = _imageId;
         expectedRootKey = _rootKey;
@@ -187,7 +180,6 @@ contract TeeProofVerifier is Ownable {
 
     /// @notice Update the RISC Zero verifier contract
     function setRiscZeroVerifier(IRiscZeroVerifier _verifier) external onlyOwner {
-        if (address(_verifier) == address(0)) revert InvalidVerifierAddress();
         IRiscZeroVerifier oldVerifier = riscZeroVerifier;
         riscZeroVerifier = _verifier;
         emit RiscZeroVerifierUpdated(oldVerifier, _verifier);
@@ -195,7 +187,6 @@ contract TeeProofVerifier is Ownable {
 
     /// @notice Update the RISC Zero guest image ID
     function setImageId(bytes32 _imageId) external onlyOwner {
-        if (_imageId == bytes32(0)) revert InvalidImageId();
         bytes32 oldImageId = imageId;
         imageId = _imageId;
         emit ImageIdUpdated(oldImageId, _imageId);
@@ -203,7 +194,6 @@ contract TeeProofVerifier is Ownable {
 
     /// @notice Update the expected AWS Nitro root public key
     function setExpectedRootKey(bytes memory _rootKey) external onlyOwner {
-        if (_rootKey.length != 96) revert InvalidRootKeyLength();
         bytes memory oldKey = expectedRootKey;
         expectedRootKey = _rootKey;
         emit ExpectedRootKeyUpdated(oldKey, _rootKey);

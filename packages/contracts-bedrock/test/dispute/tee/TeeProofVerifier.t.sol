@@ -228,11 +228,6 @@ contract TeeProofVerifierTest is TeeTestUtils {
         assertEq(address(verifier.riscZeroVerifier()), address(newVerifier));
     }
 
-    function test_setRiscZeroVerifier_revertZeroAddress() public {
-        vm.expectRevert(TeeProofVerifier.InvalidVerifierAddress.selector);
-        verifier.setRiscZeroVerifier(IRiscZeroVerifier(address(0)));
-    }
-
     function test_setRiscZeroVerifier_revertNonOwner() public {
         vm.prank(makeAddr("attacker"));
         vm.expectRevert("Ownable: caller is not the owner");
@@ -245,11 +240,6 @@ contract TeeProofVerifierTest is TeeTestUtils {
         assertEq(verifier.imageId(), newImageId);
     }
 
-    function test_setImageId_revertZero() public {
-        vm.expectRevert(TeeProofVerifier.InvalidImageId.selector);
-        verifier.setImageId(bytes32(0));
-    }
-
     function test_setImageId_revertNonOwner() public {
         vm.prank(makeAddr("attacker"));
         vm.expectRevert("Ownable: caller is not the owner");
@@ -260,11 +250,6 @@ contract TeeProofVerifierTest is TeeTestUtils {
         bytes memory newKey = abi.encodePacked(bytes32(uint256(4)), bytes32(uint256(5)), bytes32(uint256(6)));
         verifier.setExpectedRootKey(newKey);
         assertEq(keccak256(verifier.expectedRootKey()), keccak256(newKey));
-    }
-
-    function test_setExpectedRootKey_revertInvalidLength() public {
-        vm.expectRevert(TeeProofVerifier.InvalidRootKeyLength.selector);
-        verifier.setExpectedRootKey(hex"1234");
     }
 
     function test_setExpectedRootKey_revertNonOwner() public {
@@ -287,20 +272,4 @@ contract TeeProofVerifierTest is TeeTestUtils {
         verifier.transferOwnership(address(0));
     }
 
-    // ============ Constructor Validation Tests ============
-
-    function test_constructor_revertZeroVerifier() public {
-        vm.expectRevert(TeeProofVerifier.InvalidVerifierAddress.selector);
-        new TeeProofVerifier(IRiscZeroVerifier(address(0)), IMAGE_ID, expectedRootKey);
-    }
-
-    function test_constructor_revertZeroImageId() public {
-        vm.expectRevert(TeeProofVerifier.InvalidImageId.selector);
-        new TeeProofVerifier(riscZeroVerifier, bytes32(0), expectedRootKey);
-    }
-
-    function test_constructor_revertInvalidRootKeyLength() public {
-        vm.expectRevert(TeeProofVerifier.InvalidRootKeyLength.selector);
-        new TeeProofVerifier(riscZeroVerifier, IMAGE_ID, hex"1234");
-    }
 }
