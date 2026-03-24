@@ -136,17 +136,7 @@ func (f *DisputeGameFactory) gameAtIndex(ctx context.Context, idx uint64) (gameM
 
 	var claimant common.Address
 	var claim common.Hash
-	if gameType == TEEGameType { // For xlayer: uses different claimData() ABI with no args
-		newGameContract := batching.NewBoundContract(&newGameClaimDataABI, address)
-		cCtx, cancel = context.WithTimeout(ctx, f.networkTimeout)
-		defer cancel()
-		result, err = f.caller.SingleCall(cCtx, rpcblock.Latest, newGameContract.Call(methodClaim))
-		if err != nil {
-			return gameMetadata{}, fmt.Errorf("failed to load root claim of game %v: %w", idx, err)
-		}
-		claimant = result.GetAddress(2)
-		claim = result.GetHash(3)
-	} else {
+	if gameType == 0 || gameType == 1 {
 		gameContract := batching.NewBoundContract(f.gameABI, address)
 		cCtx, cancel = context.WithTimeout(ctx, f.networkTimeout)
 		defer cancel()
@@ -157,7 +147,18 @@ func (f *DisputeGameFactory) gameAtIndex(ctx context.Context, idx uint64) (gameM
 		// We don't need most of the claim data, only the claim and the claimant which is the game proposer
 		claimant = result.GetAddress(2)
 		claim = result.GetHash(4)
+	} else if gameType == TEEGameType { // For xlayer: uses different claimData() ABI with no args
+		newGameContract := batching.NewBoundContract(&newGameClaimDataABI, address)
+		cCtx, cancel = context.WithTimeout(ctx, f.networkTimeout)
+		defer cancel()
+		result, err = f.caller.SingleCall(cCtx, rpcblock.Latest, newGameContract.Call(methodClaim))
+		if err != nil {
+			return gameMetadata{}, fmt.Errorf("failed to load root claim of game %v: %w", idx, err)
+		}
+		claimant = result.GetAddress(2)
+		claim = result.GetHash(3)
 	}
+	// Other game types are not handled, claimant and claim remain zero values
 
 	return gameMetadata{
 		GameType:  gameType,
