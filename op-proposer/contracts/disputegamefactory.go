@@ -38,7 +38,7 @@ type DisputeGameFactory struct {
 	contract       *batching.BoundContract
 	gameABI        *abi.ABI
 	networkTimeout time.Duration
-	teeCache       gameIndexCache // For xlayer: in-memory cache of immutable game index metadata
+	teeCache       gameIndexCache // For xlayer
 }
 
 func NewDisputeGameFactory(addr common.Address, caller *batching.MultiCaller, networkTimeout time.Duration) *DisputeGameFactory {
@@ -136,10 +136,7 @@ func (f *DisputeGameFactory) gameAtIndex(ctx context.Context, idx uint64) (gameM
 
 	var claimant common.Address
 	var claim common.Hash
-	if gameType == TEEGameType { // For xlayer: TEE game type uses different claimData() ABI
-		// For xlayer: TEE game type (1960) uses new contract ABI — claimData() takes no args,
-		// returns (parentIndex, counteredBy, prover, claim, status, deadline).
-		// prover is at index 2, claim (bytes32) is at index 3.
+	if gameType == TEEGameType { // For xlayer: uses different claimData() ABI with no args
 		newGameContract := batching.NewBoundContract(&newGameClaimDataABI, address)
 		cCtx, cancel = context.WithTimeout(ctx, f.networkTimeout)
 		defer cancel()

@@ -85,9 +85,9 @@ type CLIConfig struct {
 	// Whether to wait for the sequencer to sync to a recent block at startup.
 	WaitNodeSync bool
 
-	// For xlayer: TeeRollupRpc is the TeeRollup RPC service base URL for game type 1960.
+	// For xlayer: TeeRollup RPC base URL for game type 1960.
 	TeeRollupRpc string
-	// X Layer: Genesis height may not be zero
+	// For xlayer: genesis height (may be non-zero on XLayer).
 	GenesisHeight uint64
 }
 
@@ -125,7 +125,7 @@ func (c *CLIConfig) Check() error {
 	if len(c.SuperNodeRpcs) != 0 {
 		sourceCount++
 	}
-	if c.TeeRollupRpc != "" { // For xlayer
+	if c.TeeRollupRpc != "" {
 		sourceCount++
 	}
 	if sourceCount > 1 {
@@ -170,6 +170,6 @@ func NewConfig(ctx *cli.Context) *CLIConfig {
 		ActiveSequencerCheckDuration: ctx.Duration(flags.ActiveSequencerCheckDurationFlag.Name),
 		WaitNodeSync:                 ctx.Bool(flags.WaitNodeSyncFlag.Name),
 		TeeRollupRpc:                 ctx.String(flags.TeeRollupRpcFlag.Name), // For xlayer
-		GenesisHeight:                ctx.Uint64(flags.GenesisHeight.Name),    // X Layer: Genesis height may not be zero
+		GenesisHeight:                ctx.Uint64(flags.GenesisHeight.Name),    // For xlayer
 	}
 }

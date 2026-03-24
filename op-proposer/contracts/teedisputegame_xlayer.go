@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	lru "github.com/hashicorp/golang-lru/v2" // For xlayer: bounded LRU cache for game index entries
+	lru "github.com/hashicorp/golang-lru/v2" // bounded LRU cache for game index entries
 
 	"github.com/ethereum-optimism/optimism/op-service/sources/batching"
 	"github.com/ethereum-optimism/optimism/op-service/sources/batching/rpcblock"
@@ -15,46 +15,46 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-// For xlayer: TEEGameType is the dispute game type ID for TeeRollup TEE attestations.
+// TEEGameType is the dispute game type ID for TeeRollup TEE attestations.
 // Defined here (contracts package) so both contracts and proposer packages can reference it
 // without a circular import (proposer already imports contracts).
 const TEEGameType uint32 = 1960
 
-const TeeParentScanLimit = 1000 // For xlayer: max DGF entries to scan for parent game
+const TeeParentScanLimit = 1000 // max DGF entries to scan for parent game
 
-// For xlayer: GameStatus enum values matching TeeDisputeGame (Types.sol)
+// GameStatus enum values matching TeeDisputeGame (Types.sol)
 const (
 	GameStatusInProgress     uint8 = 0
 	GameStatusChallengerWins uint8 = 1
 	GameStatusDefenderWins   uint8 = 2
 )
 
-// For xlayer: ABI for new game contract's no-arg claimData() struct getter
+// ABI for new game contract's no-arg claimData() struct getter
 const newGameClaimDataABIJSON = `[{"name":"claimData","type":"function","inputs":[],"outputs":[{"name":"parentIndex","type":"uint32"},{"name":"counteredBy","type":"address"},{"name":"prover","type":"address"},{"name":"claim","type":"bytes32"},{"name":"status","type":"uint8"},{"name":"deadline","type":"uint64"}],"stateMutability":"view"}]`
 
-// For xlayer: ABI for TeeDisputeGame status() and proposer() getters
+// ABI for TeeDisputeGame status() and proposer() getters
 const teeGameStatusABIJSON = `[{"name":"status","type":"function","inputs":[],"outputs":[{"name":"","type":"uint8"}],"stateMutability":"view"}]`
 const teeGameProposerABIJSON = `[{"name":"proposer","type":"function","inputs":[],"outputs":[{"name":"","type":"address"}],"stateMutability":"view"}]`
 
-// For xlayer: ABI for DGF.gameImpls(uint32) — returns the implementation contract address for a game type
+// ABI for DGF.gameImpls(uint32) — returns the implementation contract address for a game type
 const dgfGameImplsABIJSON = `[{"name":"gameImpls","type":"function","inputs":[{"name":"_gameType","type":"uint32"}],"outputs":[{"name":"impl_","type":"address"}],"stateMutability":"view"}]`
 
-// For xlayer: ABI for TeeDisputeGame impl anchorStateRegistry() — returns the immutable ASR address
+// ABI for TeeDisputeGame impl anchorStateRegistry() — returns the immutable ASR address
 const teeGameAnchorStateRegistryABIJSON = `[{"name":"anchorStateRegistry","type":"function","inputs":[],"outputs":[{"name":"","type":"address"}],"stateMutability":"view"}]`
 
-// For xlayer: ASR validation ABIs
+// ASR validation ABIs
 const asrIsGameRespectedABIJSON = `[{"name":"isGameRespected","type":"function","inputs":[{"name":"_game","type":"address"}],"outputs":[{"name":"","type":"bool"}],"stateMutability":"view"}]`
 const asrIsGameBlacklistedABIJSON = `[{"name":"isGameBlacklisted","type":"function","inputs":[{"name":"_game","type":"address"}],"outputs":[{"name":"","type":"bool"}],"stateMutability":"view"}]`
 const asrIsGameRetiredABIJSON = `[{"name":"isGameRetired","type":"function","inputs":[{"name":"_game","type":"address"}],"outputs":[{"name":"","type":"bool"}],"stateMutability":"view"}]`
 
-// For xlayer: parsed ABI for new game contract's claimData() getter
+// parsed ABI for new game contract's claimData() getter
 var newGameClaimDataABI abi.ABI
 
-// For xlayer: parsed ABIs for TeeDisputeGame status() and proposer() getters
+// parsed ABIs for TeeDisputeGame status() and proposer() getters
 var teeGameStatusABI abi.ABI
 var teeGameProposerABI abi.ABI
 
-// For xlayer: parsed ABIs for DGF gameImpls, impl anchorStateRegistry, and ASR validation
+// parsed ABIs for DGF gameImpls, impl anchorStateRegistry, and ASR validation
 var dgfGameImplsABI abi.ABI
 var teeGameAnchorStateRegistryABI abi.ABI
 var asrIsGameRespectedABI abi.ABI
@@ -97,7 +97,7 @@ func init() {
 	}
 }
 
-// For xlayer: cachedGameEntry holds immutable per-game metadata cached by DGF index.
+// cachedGameEntry holds immutable per-game metadata cached by DGF index.
 type cachedGameEntry struct {
 	GameType        uint32
 	Address         common.Address
@@ -105,43 +105,43 @@ type cachedGameEntry struct {
 	ProposerFetched bool
 }
 
-// For xlayer: gameIndexCache is an in-memory cache of DGF index -> immutable game metadata.
+// gameIndexCache is an in-memory cache of DGF index -> immutable game metadata.
 // entries uses a lazily-initialized LRU cache (thread-safe) to bound memory usage.
 // asrAddr is cached separately with a mutex.
 type gameIndexCache struct {
-	mu      sync.RWMutex                        // For xlayer: protects asrAddr/asrAddrFetched only; entries uses lru's own lock
-	once    sync.Once                           // For xlayer: guards one-time LRU initialization
-	entries *lru.Cache[uint64, cachedGameEntry] // For xlayer: bounded LRU, thread-safe, lazily initialized
-	// For xlayer: ASR address fetched once from the game impl contract and cached
+	mu      sync.RWMutex                        // protects asrAddr/asrAddrFetched only; entries uses lru's own lock
+	once    sync.Once                           // guards one-time LRU initialization
+	entries *lru.Cache[uint64, cachedGameEntry] // bounded LRU, thread-safe, lazily initialized
+	// ASR address fetched once from the game impl contract and cached
 	asrAddr        common.Address
 	asrAddrFetched bool
 }
 
-// For xlayer: lruEntries returns the lazily-initialized LRU cache.
+// lruEntries returns the lazily-initialized LRU cache.
 // lru.New never fails for a positive size, so the error is safely ignored.
 func (c *gameIndexCache) lruEntries() *lru.Cache[uint64, cachedGameEntry] {
 	c.once.Do(func() {
-		c.entries, _ = lru.New[uint64, cachedGameEntry](4096) // For xlayer: 4096-entry bounded LRU
+		c.entries, _ = lru.New[uint64, cachedGameEntry](4096) // 4096-entry bounded LRU
 	})
 	return c.entries
 }
 
 func (c *gameIndexCache) get(idx uint64) (cachedGameEntry, bool) {
-	return c.lruEntries().Get(idx) // For xlayer: lru.Cache is thread-safe; no mutex needed
+	return c.lruEntries().Get(idx) // lru.Cache is thread-safe; no mutex needed
 }
 
 func (c *gameIndexCache) set(idx uint64, e cachedGameEntry) {
-	c.lruEntries().Add(idx, e) // For xlayer: lru.Cache is thread-safe; no mutex needed
+	c.lruEntries().Add(idx, e) // lru.Cache is thread-safe; no mutex needed
 }
 
-// For xlayer: getASRAddr returns the cached ASR address if available.
+// getASRAddr returns the cached ASR address if available.
 func (c *gameIndexCache) getASRAddr() (common.Address, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.asrAddr, c.asrAddrFetched
 }
 
-// For xlayer: setASRAddr stores the ASR address in the cache.
+// setASRAddr stores the ASR address in the cache.
 func (c *gameIndexCache) setASRAddr(addr common.Address) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -149,7 +149,7 @@ func (c *gameIndexCache) setASRAddr(addr common.Address) {
 	c.asrAddrFetched = true
 }
 
-// For xlayer: gameStatusAt fetches the current GameStatus of a TeeDisputeGame proxy via status() getter.
+// gameStatusAt fetches the current GameStatus of a TeeDisputeGame proxy via status() getter.
 // Status is mutable (changes on resolve) and must NOT be cached.
 func (f *DisputeGameFactory) gameStatusAt(ctx context.Context, proxyAddr common.Address) (uint8, error) {
 	cCtx, cancel := context.WithTimeout(ctx, f.networkTimeout)
@@ -162,7 +162,7 @@ func (f *DisputeGameFactory) gameStatusAt(ctx context.Context, proxyAddr common.
 	return result.GetUint8(0), nil
 }
 
-// For xlayer: gameProposerAt fetches the proposer() of a TeeDisputeGame proxy.
+// gameProposerAt fetches the proposer() of a TeeDisputeGame proxy.
 // Proposer is immutable (set to tx.origin in initialize()) but cached lazily.
 func (f *DisputeGameFactory) gameProposerAt(ctx context.Context, proxyAddr common.Address) (common.Address, error) {
 	cCtx, cancel := context.WithTimeout(ctx, f.networkTimeout)
@@ -175,7 +175,7 @@ func (f *DisputeGameFactory) gameProposerAt(ctx context.Context, proxyAddr commo
 	return result.GetAddress(0), nil
 }
 
-// For xlayer: asrAddrFromImpl fetches the AnchorStateRegistry address from the DGF's
+// asrAddrFromImpl fetches the AnchorStateRegistry address from the DGF's
 // game implementation contract for the given gameType. The result is immutable and cached.
 func (f *DisputeGameFactory) asrAddrFromImpl(ctx context.Context, gameType uint32) (common.Address, error) {
 	if addr, ok := f.teeCache.getASRAddr(); ok {
@@ -203,7 +203,7 @@ func (f *DisputeGameFactory) asrAddrFromImpl(ctx context.Context, gameType uint3
 	return addr, nil
 }
 
-// For xlayer: isValidParentGame checks AnchorStateRegistry conditions for a candidate parent game.
+// isValidParentGame checks AnchorStateRegistry conditions for a candidate parent game.
 // Mirrors TeeDisputeGame.initialize() validation: respected && !blacklisted && !retired.
 func (f *DisputeGameFactory) isValidParentGame(ctx context.Context, asrAddr common.Address, proxyAddr common.Address) (bool, error) {
 	asrRespected := batching.NewBoundContract(&asrIsGameRespectedABI, asrAddr)
@@ -244,7 +244,7 @@ func (f *DisputeGameFactory) isValidParentGame(ctx context.Context, asrAddr comm
 	return true, nil
 }
 
-// For xlayer: FindLastGameIndex scans the DGF in reverse to find the most recent game with the
+// FindLastGameIndex scans the DGF in reverse to find the most recent game with the
 // given gameType that is a valid parent candidate:
 //   - DEFENDER_WINS: accepted immediately (contract allows it)
 //   - IN_PROGRESS + self-proposed: accepted (proposer == self)
@@ -253,7 +253,7 @@ func (f *DisputeGameFactory) isValidParentGame(ctx context.Context, asrAddr comm
 //
 // Uses an in-memory cache for immutable fields (GameType, Address, Proposer) to avoid redundant RPCs.
 // Returns (idx, true, nil) if found, (0, false, nil) if not found within maxScan, or (0, false, err) on error.
-func (f *DisputeGameFactory) FindLastGameIndex(ctx context.Context, gameType uint32, proposer common.Address, maxScan uint64) (uint64, bool, error) { // For xlayer
+func (f *DisputeGameFactory) FindLastGameIndex(ctx context.Context, gameType uint32, proposer common.Address, maxScan uint64) (uint64, bool, error) {
 	gameCount, err := f.gameCount(ctx)
 	if err != nil {
 		return 0, false, fmt.Errorf("tee-rollup: failed to get game count: %w", err)
@@ -268,7 +268,7 @@ func (f *DisputeGameFactory) FindLastGameIndex(ctx context.Context, gameType uin
 		}
 		scanned++
 
-		// For xlayer: check cache first — GameType and Address are immutable per DGF index
+		// check cache first — GameType and Address are immutable per DGF index
 		entry, cached := f.teeCache.get(idx)
 		if !cached {
 			game, err := f.gameAtIndex(ctx, idx)
@@ -286,13 +286,13 @@ func (f *DisputeGameFactory) FindLastGameIndex(ctx context.Context, gameType uin
 			continue
 		}
 
-		// For xlayer: fetch status fresh — mutable, must not be cached
+		// fetch status fresh — mutable, must not be cached
 		status, err := f.gameStatusAt(ctx, entry.Address)
 		if err != nil {
 			return 0, false, fmt.Errorf("tee-rollup: failed to get status at index %d: %w", idx, err)
 		}
 
-		// For xlayer: contract rejects CHALLENGER_WINS parents (TeeDisputeGame.sol:204)
+		// contract rejects CHALLENGER_WINS parents (TeeDisputeGame.sol:204)
 		if status == GameStatusChallengerWins {
 			if idx == 0 {
 				break
@@ -300,7 +300,7 @@ func (f *DisputeGameFactory) FindLastGameIndex(ctx context.Context, gameType uin
 			continue
 		}
 
-		// For xlayer: validate against AnchorStateRegistry using impl's ASR address
+		// validate against AnchorStateRegistry using impl's ASR address
 		asrAddr, err := f.asrAddrFromImpl(ctx, gameType)
 		if err != nil {
 			return 0, false, fmt.Errorf("tee-rollup: failed to get ASR addr at index %d: %w", idx, err)
@@ -310,31 +310,31 @@ func (f *DisputeGameFactory) FindLastGameIndex(ctx context.Context, gameType uin
 			return 0, false, fmt.Errorf("tee-rollup: failed to validate parent game at index %d: %w", idx, err)
 		}
 		if !valid {
-			// For xlayer: game is retired/blacklisted/not-respected — skip
+			// game is retired/blacklisted/not-respected — skip
 			if idx == 0 {
 				break
 			}
 			continue
 		}
 
-		// For xlayer: DEFENDER_WINS — accept immediately
+		// DEFENDER_WINS — accept immediately
 		if status == GameStatusDefenderWins {
 			return idx, true, nil
 		}
 
-		// For xlayer: IN_PROGRESS — only accept if self-proposed
+		// IN_PROGRESS — only accept if self-proposed
 		// Check cached proposer first; only call gameProposerAt on cache miss
 		gameProposer := entry.Proposer
 		if !entry.ProposerFetched {
 			gameProposer, err = f.gameProposerAt(ctx, entry.Address)
 			if err != nil {
-				// For xlayer: cannot verify proposer — skip this game
+				// cannot verify proposer — skip this game
 				if idx == 0 {
 					break
 				}
 				continue
 			}
-			// For xlayer: cache proposer (immutable — set once in initialize())
+			// cache proposer (immutable — set once in initialize())
 			entry.Proposer = gameProposer
 			entry.ProposerFetched = true
 			f.teeCache.set(idx, entry)
@@ -343,7 +343,7 @@ func (f *DisputeGameFactory) FindLastGameIndex(ctx context.Context, gameType uin
 		if gameProposer == proposer {
 			return idx, true, nil
 		}
-		// For xlayer: IN_PROGRESS by another proposer — skip
+		// IN_PROGRESS by another proposer — skip
 
 		if idx == 0 {
 			break

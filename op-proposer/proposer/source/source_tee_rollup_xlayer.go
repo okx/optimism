@@ -20,7 +20,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 )
 
-// For xlayer: TeeRollupBlockInfo holds confirmed block info returned by the TeeRollup RPC.
+// TeeRollupBlockInfo holds confirmed block info returned by the TeeRollup RPC.
 type TeeRollupBlockInfo struct {
 	Height    uint64
 	AppHash   common.Hash
@@ -40,21 +40,21 @@ type teeRollupData struct {
 	BlockHash *string `json:"blockHash"`
 }
 
-// For xlayer: TeeRollupClient is the interface for the TeeRollup RPC client.
+// TeeRollupClient is the interface for the TeeRollup RPC client.
 type TeeRollupClient interface {
 	ConfirmedBlockInfo(ctx context.Context) (TeeRollupBlockInfo, error)
 	ConfirmedBlockInfoAtHeight(ctx context.Context, height uint64) (TeeRollupBlockInfo, error)
 	Close()
 }
 
-// For xlayer: TeeRollupHTTPClient implements TeeRollupClient using HTTP REST.
+// TeeRollupHTTPClient implements TeeRollupClient using HTTP REST.
 type TeeRollupHTTPClient struct {
 	baseURL    string
 	httpClient *http.Client
 	cache      *lru.Cache[uint64, TeeRollupBlockInfo]
 }
 
-// For xlayer: NewTeeRollupHTTPClient creates a new TeeRollupHTTPClient.
+// NewTeeRollupHTTPClient creates a new TeeRollupHTTPClient.
 func NewTeeRollupHTTPClient(baseURL string) (*TeeRollupHTTPClient, error) {
 	cache, err := lru.New[uint64, TeeRollupBlockInfo](16)
 	if err != nil {
@@ -69,7 +69,7 @@ func NewTeeRollupHTTPClient(baseURL string) (*TeeRollupHTTPClient, error) {
 	}, nil
 }
 
-// For xlayer: ConfirmedBlockInfo fetches the latest confirmed block info from TeeRollup RPC.
+// ConfirmedBlockInfo fetches the latest confirmed block info from TeeRollup RPC.
 // GET /v1/chain/confirmed_block_info
 func (c *TeeRollupHTTPClient) ConfirmedBlockInfo(ctx context.Context) (TeeRollupBlockInfo, error) {
 	url := c.baseURL + "/v1/chain/confirmed_block_info"
@@ -82,11 +82,11 @@ func (c *TeeRollupHTTPClient) ConfirmedBlockInfo(ctx context.Context) (TeeRollup
 		return TeeRollupBlockInfo{}, fmt.Errorf("tee-rollup: HTTP request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK { // For xlayer
-		return TeeRollupBlockInfo{}, fmt.Errorf("tee-rollup: HTTP request failed with status %d", resp.StatusCode) // For xlayer
-	} // For xlayer
+	if resp.StatusCode != http.StatusOK {
+		return TeeRollupBlockInfo{}, fmt.Errorf("tee-rollup: HTTP request failed with status %d", resp.StatusCode)
+	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // For xlayer
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 	if err != nil {
 		return TeeRollupBlockInfo{}, fmt.Errorf("tee-rollup: failed to read response body: %w", err)
 	}
@@ -115,7 +115,7 @@ func (c *TeeRollupHTTPClient) ConfirmedBlockInfo(ctx context.Context) (TeeRollup
 	return info, nil
 }
 
-// For xlayer: ConfirmedBlockInfoAtHeight fetches confirmed block info at a specific height.
+// ConfirmedBlockInfoAtHeight fetches confirmed block info at a specific height.
 // Returns from LRU cache if available; otherwise fetches from RPC and validates exact height match.
 func (c *TeeRollupHTTPClient) ConfirmedBlockInfoAtHeight(ctx context.Context, height uint64) (TeeRollupBlockInfo, error) {
 	if cached, ok := c.cache.Get(height); ok {
@@ -131,20 +131,20 @@ func (c *TeeRollupHTTPClient) ConfirmedBlockInfoAtHeight(ctx context.Context, he
 	return info, nil
 }
 
-// For xlayer: Close is a no-op for HTTP client (satisfies TeeRollupClient interface).
+// Close is a no-op (satisfies TeeRollupClient interface).
 func (c *TeeRollupHTTPClient) Close() {}
 
-// For xlayer: TeeRollupProposalSource implements ProposalSource for TeeRollup TEE game type 1960.
+// TeeRollupProposalSource implements ProposalSource for TeeRollup TEE game type 1960.
 type TeeRollupProposalSource struct {
 	log         log.Logger
 	clients     []TeeRollupClient
-	parentIdxFn func(ctx context.Context) (uint32, bool, error) // For xlayer: resolves parent DGF game index
+	parentIdxFn func(ctx context.Context) (uint32, bool, error) // resolves parent DGF game index
 }
 
-// For xlayer: NewTeeRollupProposalSource creates a new TeeRollupProposalSource.
+// NewTeeRollupProposalSource creates a new TeeRollupProposalSource.
 func NewTeeRollupProposalSource(log log.Logger, clients ...TeeRollupClient) *TeeRollupProposalSource {
 	if len(clients) == 0 {
-		panic("no TeeRollup clients provided") // For xlayer
+		panic("no TeeRollup clients provided")
 	}
 	return &TeeRollupProposalSource{
 		log:     log,
@@ -152,14 +152,14 @@ func NewTeeRollupProposalSource(log log.Logger, clients ...TeeRollupClient) *Tee
 	}
 }
 
-// For xlayer: SetParentIdxFn injects the callback that resolves the parent DGF game index.
+// SetParentIdxFn injects the callback that resolves the parent DGF game index.
 // MUST be called before Start() to satisfy Go's happens-before guarantee.
 // If nil (default), ProposalAtSequenceNum always uses math.MaxUint32 (anchor state sentinel).
 func (s *TeeRollupProposalSource) SetParentIdxFn(fn func(ctx context.Context) (uint32, bool, error)) {
 	s.parentIdxFn = fn
 }
 
-// For xlayer: SyncStatus queries all clients in parallel and returns the most conservative (lowest) height.
+// SyncStatus queries all clients in parallel and returns the most conservative (lowest) height.
 // CurrentL1 is always zero value — TeeRollup has no L1 derivation.
 func (s *TeeRollupProposalSource) SyncStatus(ctx context.Context) (SyncStatus, error) {
 	type result struct {
@@ -195,13 +195,13 @@ func (s *TeeRollupProposalSource) SyncStatus(ctx context.Context) (SyncStatus, e
 		return SyncStatus{}, errors.Join(errs...)
 	}
 	return SyncStatus{
-		CurrentL1:   eth.BlockID{}, // For xlayer: always zero — no L1 derivation
+		CurrentL1:   eth.BlockID{}, // always zero — no L1 derivation
 		SafeL2:      lowestHeight,
 		FinalizedL2: lowestHeight,
 	}, nil
 }
 
-// For xlayer: ProposalAtSequenceNum fetches the proposal at the given L2 sequence number.
+// ProposalAtSequenceNum fetches the proposal at the given L2 sequence number.
 // Tries clients in order, fails over on error. Only accepts exact height match.
 func (s *TeeRollupProposalSource) ProposalAtSequenceNum(ctx context.Context, seqNum uint64) (Proposal, error) {
 	var lastErr error
@@ -213,7 +213,7 @@ func (s *TeeRollupProposalSource) ProposalAtSequenceNum(ctx context.Context, seq
 		}
 		rootClaim := computeRootClaim(info.BlockHash, info.AppHash)
 
-		// For xlayer: resolve parentIdx dynamically; fall back to MaxUint32 (anchor state) if not found or error
+		// resolve parentIdx dynamically; fall back to MaxUint32 (anchor sentinel) on error
 		parentIdx := uint32(math.MaxUint32)
 		if s.parentIdxFn != nil {
 			if idx, found, err := s.parentIdxFn(ctx); err != nil {
@@ -226,7 +226,7 @@ func (s *TeeRollupProposalSource) ProposalAtSequenceNum(ctx context.Context, seq
 		proposal := Proposal{
 			Root:        rootClaim,
 			SequenceNum: seqNum,
-			CurrentL1:   eth.BlockID{}, // For xlayer: always zero — no L1 derivation
+			CurrentL1:   eth.BlockID{}, // always zero — no L1 derivation
 			TeeRollupData: &TeeRollupProposalData{
 				L2SeqNum:  seqNum,
 				ParentIdx: parentIdx,
@@ -239,13 +239,13 @@ func (s *TeeRollupProposalSource) ProposalAtSequenceNum(ctx context.Context, seq
 	return Proposal{}, fmt.Errorf("tee-rollup: all clients failed for seqNum=%d: %w", seqNum, lastErr)
 }
 
-// For xlayer: computeRootClaim computes the root claim as keccak256(abi.encode(blockHash, stateHash)).
+// computeRootClaim computes the root claim as keccak256(abi.encode(blockHash, stateHash)).
 // abi.encode of two bytes32 values = 64 bytes (each padded to 32 bytes).
 func computeRootClaim(blockHash, stateHash common.Hash) common.Hash {
 	return crypto.Keccak256Hash(append(blockHash.Bytes(), stateHash.Bytes()...))
 }
 
-// For xlayer: Close closes all underlying TeeRollup clients.
+// Close closes all underlying TeeRollup clients.
 func (s *TeeRollupProposalSource) Close() {
 	for _, cl := range s.clients {
 		cl.Close()

@@ -10,24 +10,24 @@ import (
 	"github.com/ethereum-optimism/optimism/op-proposer/proposer/source"
 )
 
-// For xlayer: initTeeSource wires the parent game index resolver into TeeRollupProposalSource.
+// initTeeSource wires the parent game index resolver into TeeRollupProposalSource.
 // Must be called after NewL2OutputSubmitter returns so that driver.dgfContract is available.
 // Returns an error if dgfContract is not *contracts.DisputeGameFactory, to prevent silent
 // MaxUint32 sentinel usage in production.
 func initTeeSource(ps *ProposerService, driver *L2OutputSubmitter) error {
 	teeSource, ok := ps.ProposalSource.(*source.TeeRollupProposalSource)
 	if !ok {
-		return nil // For xlayer: not a TEE game type — nothing to wire
+		return nil // not a TEE game type — nothing to wire
 	}
 	dgfCaller, ok := driver.dgfContract.(*contracts.DisputeGameFactory)
 	if !ok {
-		// For xlayer: dgfContract is not *contracts.DisputeGameFactory — fail fast to prevent silent MaxUint32 sentinel usage in production
+		// dgfContract is not *contracts.DisputeGameFactory — fail fast to prevent silent MaxUint32 sentinel usage in production
 		return fmt.Errorf("tee-rollup: dgfContract is not *contracts.DisputeGameFactory, cannot wire parentIdxFn")
 	}
 	proposer := driver.Txmgr.From()
 	gameType := uint32(ps.ProposerConfig.DisputeGameType)
 	teeSource.SetParentIdxFn(func(ctx context.Context) (uint32, bool, error) {
-		idx, found, err := dgfCaller.FindLastGameIndex(ctx, gameType, proposer, contracts.TeeParentScanLimit) // For xlayer
+		idx, found, err := dgfCaller.FindLastGameIndex(ctx, gameType, proposer, contracts.TeeParentScanLimit)
 		if err != nil {
 			return 0, false, err
 		}

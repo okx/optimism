@@ -79,13 +79,13 @@ var (
 		Value:   false,
 		EnvVars: prefixEnvVars("WAIT_NODE_SYNC"),
 	}
-	// For xlayer: TeeRollup RPC flag for game type 1960
+	// For xlayer: TeeRollup RPC flag
 	TeeRollupRpcFlag = &cli.StringFlag{
 		Name:    "tee-rollup-rpc",
 		Usage:   "TeeRollup RPC service base URL (required when --game-type=1960)",
 		EnvVars: []string{"OP_PROPOSER_TEE_ROLLUP_RPC"},
 	}
-	// X Layer: Genesis height may not be zero
+	// For xlayer: genesis height
 	GenesisHeight = &cli.Uint64Flag{
 		Name:    "genesis-height",
 		Usage:   "The genesis block height to use",
@@ -112,7 +112,7 @@ var optionalFlags = []cli.Flag{
 	ActiveSequencerCheckDurationFlag,
 	WaitNodeSyncFlag,
 	TeeRollupRpcFlag, // For xlayer
-	GenesisHeight,    // X Layer: Genesis height may not be zero
+	GenesisHeight,    // For xlayer
 }
 
 func init() {

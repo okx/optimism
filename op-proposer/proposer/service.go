@@ -98,7 +98,6 @@ func (ps *ProposerService) initFromCLIConfig(ctx context.Context, version string
 	ps.NetworkTimeout = cfg.TxMgrConfig.NetworkTimeout
 	ps.AllowNonFinalized = cfg.AllowNonFinalized
 	ps.WaitNodeSync = cfg.WaitNodeSync
-	// X Layer: Genesis height may not be zero
 	ps.GenesisHeight = cfg.GenesisHeight
 
 	ps.initDGF(cfg)
@@ -129,9 +128,8 @@ func (ps *ProposerService) initFromCLIConfig(ctx context.Context, version string
 }
 
 func (ps *ProposerService) initRPCClients(ctx context.Context, cfg *CLIConfig) error {
-	// For xlayer: TeeRollup has no L1 derivation; CurrentL1 is always zero,
-	// which would cause waitNodeSync to block forever.
-	if cfg.DisputeGameType == contracts.TEEGameType && cfg.WaitNodeSync { // For xlayer
+	// For xlayer: TeeRollup has no L1 derivation; CurrentL1 is always zero — waitNodeSync would block forever.
+	if cfg.DisputeGameType == contracts.TEEGameType && cfg.WaitNodeSync {
 		return fmt.Errorf("--wait-node-sync is not supported with TeeRollup game type (1960)")
 	}
 
@@ -178,7 +176,7 @@ func (ps *ProposerService) initRPCClients(ctx context.Context, cfg *CLIConfig) e
 		}
 		ps.ProposalSource = source.NewSuperNodeProposalSource(ps.Log, clients...)
 	}
-	// For xlayer: initialize TeeRollup proposal source for game type 1960
+	// For xlayer: initialize TeeRollup proposal source
 	if cfg.TeeRollupRpc != "" {
 		teeRollupClient, err := source.NewTeeRollupHTTPClient(cfg.TeeRollupRpc)
 		if err != nil {
