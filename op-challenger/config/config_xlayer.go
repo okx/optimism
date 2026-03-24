@@ -8,7 +8,9 @@ import (
 )
 
 var (
-	ErrMissingTeeProverRpc = errors.New("missing TEE prover rpc url")
+	ErrMissingTeeProverRpc          = errors.New("missing TEE prover rpc url")
+	ErrInvalidTeeProvePollInterval  = errors.New("TEE prove poll interval must be greater than 0")
+	ErrInvalidTeeProveTimeout       = errors.New("TEE prove timeout must be greater than 0")
 )
 
 const (
@@ -27,6 +29,12 @@ func checkTeeConfig(c Config) error {
 	if c.GameTypeEnabled(gameTypes.TeeGameType) {
 		if c.TeeProverRpc == "" {
 			return ErrMissingTeeProverRpc
+		}
+		if c.TeeProvePollInterval <= 0 {
+			return ErrInvalidTeeProvePollInterval
+		}
+		if c.TeeProveTimeout <= 0 {
+			return ErrInvalidTeeProveTimeout
 		}
 	}
 	return nil

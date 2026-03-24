@@ -311,6 +311,7 @@ func (g *TeeDisputeGameContractLatest) ClaimCreditTx(ctx context.Context, recipi
 }
 
 func (g *TeeDisputeGameContractLatest) GetBondDistributionMode(ctx context.Context, block rpcblock.Block) (types.BondDistributionMode, error) {
+	defer g.metrics.StartContractRequest("GetBondDistributionMode")()
 	result, err := g.multiCaller.SingleCall(ctx, block, g.contract.Call(methodBondDistributionMode))
 	if err != nil {
 		return 0, fmt.Errorf("failed to fetch bond mode: %w", err)

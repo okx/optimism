@@ -2,6 +2,7 @@ package tee
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -98,6 +99,7 @@ func ActorCreator(
 	}
 }
 
+// NOTE: must be called from a single goroutine.
 func (a *Actor) Act(ctx context.Context) error {
 	metadata, err := a.contract.GetChallengerMetadata(ctx, rpcblock.Latest)
 	if err != nil {
@@ -266,5 +268,5 @@ func decodeProofBytes(hexStr string) ([]byte, error) {
 	if len(hexStr) >= 2 && hexStr[:2] == "0x" {
 		hexStr = hexStr[2:]
 	}
-	return common.Hex2Bytes(hexStr), nil
+	return hex.DecodeString(hexStr)
 }

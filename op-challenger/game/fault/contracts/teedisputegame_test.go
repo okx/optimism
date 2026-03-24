@@ -3,6 +3,7 @@ package contracts
 import (
 	"context"
 	"errors"
+	"math"
 	"math/big"
 	"testing"
 	"time"
@@ -227,6 +228,80 @@ func TestTeeCloseGameTx(t *testing.T) {
 		tx, err := game.CloseGameTx(context.Background())
 		require.ErrorIs(t, err, ErrSimulationFailed)
 		require.Equal(t, txmgr.TxCandidate{}, tx)
+	})
+}
+
+func TestTeeGetProveParams(t *testing.T) {
+	parentGameAddr := common.Address{0xbb, 0xcc, 0x01}
+	factoryAddr := common.Address{0xff, 0xaa, 0x01}
+
+	t.Run("WithParentGame", func(t *testing.T) {
+		stubRpc, game := setupTeeDisputeGameTest(t)
+		teeAbi := snapshots.LoadTeeDisputeGameABI()
+
+		// Set up factory contract on the same stub RPC
+		factoryAbi := snapshots.LoadDisputeGameFactoryABI()
+		stubRpc.AddContract(factoryAddr, factoryAbi)
+		caller := batching.NewMultiCaller(stubRpc, batching.DefaultBatchSize)
+		factory := newDisputeGameFactoryContract(contractMetrics.NoopContractMetrics, factoryAddr, caller, factoryAbi, getGameArgsNoOp)
+
+		// Current game responses
+		expectedEndBlockNum := uint64(200)
+		expectedEndBlockHash := common.Hash{0x11}
+		expectedEndStateHash := common.Hash{0x22}
+		expectedStartBlockNum := uint64(100)
+		parentIndex := uint32(5)
+		stubRpc.SetResponse(teeGameAddr, methodL2SequenceNumber, rpcblock.Latest, nil, []interface{}{new(big.Int).SetUint64(expectedEndBlockNum)})
+		stubRpc.SetResponse(teeGameAddr, methodBlockHash, rpcblock.Latest, nil, []interface{}{expectedEndBlockHash})
+		stubRpc.SetResponse(teeGameAddr, methodStateHash, rpcblock.Latest, nil, []interface{}{expectedEndStateHash})
+		stubRpc.SetResponse(teeGameAddr, methodStartingBlockNumber, rpcblock.Latest, nil, []interface{}{new(big.Int).SetUint64(expectedStartBlockNum)})
+		stubRpc.SetResponse(teeGameAddr, methodClaimData, rpcblock.Latest, nil, []interface{}{
+			parentIndex, common.Address{}, common.Address{}, common.Hash{}, uint8(0), uint64(0),
+		})
+
+		// Factory returns parent game address
+		stubRpc.SetResponse(factoryAddr, methodGameAtIndex, rpcblock.Latest,
+			[]interface{}{new(big.Int).SetUint64(uint64(parentIndex))},
+			[]interface{}{uint32(gameTypes.TeeGameType), uint64(0), parentGameAddr})
+
+		// Parent game responses
+		expectedStartBlockHash := common.Hash{0x33}
+		expectedStartStateHash := common.Hash{0x44}
+		stubRpc.AddContract(parentGameAddr, teeAbi)
+		stubRpc.SetResponse(parentGameAddr, methodBlockHash, rpcblock.Latest, nil, []interface{}{expectedStartBlockHash})
+		stubRpc.SetResponse(parentGameAddr, methodStateHash, rpcblock.Latest, nil, []interface{}{expectedStartStateHash})
+
+		params, err := game.GetProveParams(context.Background(), factory)
+		require.NoError(t, err)
+		require.Equal(t, TeeProveParams{
+			StartBlockHash: expectedStartBlockHash,
+			StartStateHash: expectedStartStateHash,
+			EndBlockHash:   expectedEndBlockHash,
+			EndStateHash:   expectedEndStateHash,
+			StartBlockNum:  expectedStartBlockNum,
+			EndBlockNum:    expectedEndBlockNum,
+		}, params)
+	})
+
+	t.Run("AnchorGame", func(t *testing.T) {
+		stubRpc, game := setupTeeDisputeGameTest(t)
+
+		factoryAbi := snapshots.LoadDisputeGameFactoryABI()
+		stubRpc.AddContract(factoryAddr, factoryAbi)
+		caller := batching.NewMultiCaller(stubRpc, batching.DefaultBatchSize)
+		factory := newDisputeGameFactoryContract(contractMetrics.NoopContractMetrics, factoryAddr, caller, factoryAbi, getGameArgsNoOp)
+
+		// parentIndex = MaxUint32 means anchor game
+		stubRpc.SetResponse(teeGameAddr, methodL2SequenceNumber, rpcblock.Latest, nil, []interface{}{new(big.Int).SetUint64(200)})
+		stubRpc.SetResponse(teeGameAddr, methodBlockHash, rpcblock.Latest, nil, []interface{}{common.Hash{0x11}})
+		stubRpc.SetResponse(teeGameAddr, methodStateHash, rpcblock.Latest, nil, []interface{}{common.Hash{0x22}})
+		stubRpc.SetResponse(teeGameAddr, methodStartingBlockNumber, rpcblock.Latest, nil, []interface{}{new(big.Int).SetUint64(100)})
+		stubRpc.SetResponse(teeGameAddr, methodClaimData, rpcblock.Latest, nil, []interface{}{
+			uint32(math.MaxUint32), common.Address{}, common.Address{}, common.Hash{}, uint8(0), uint64(0),
+		})
+
+		_, err := game.GetProveParams(context.Background(), factory)
+		require.ErrorIs(t, err, ErrAnchorGameUnprovable)
 	})
 }
 
