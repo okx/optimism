@@ -1,0 +1,40 @@
+[workspace]
+members = ["prover", "methods", "methods/guest"]
+resolver = "2"
+
+[workspace.package]
+license = "AGPL-3.0-or-later"
+
+[profile.dev]
+opt-level = 1
+incremental = true
+
+[profile.dev.package."*"]
+opt-level = 1
+
+# Keep guest optimized for reasonable execution time
+[profile.dev.package.methods]
+opt-level = 3
+
+[profile.release]
+opt-level = 3
+debug = 1
+lto = true
+
+[workspace.dependencies]
+risc0-zkvm = { version = "3.0.3", default-features = false, features = ["std"] }
+risc0-build = { version = "3.0.3" }
+boundless-market = "1.2.0"
+alloy = { version = "1.0", features = ["network", "rpc-types", "providers", "transports", "sol-types", "signers", "signer-local"] }
+alloy-primitives = "1.0"
+url = "2.5"
+serde = { version = "1.0", features = ["derive"] }
+hex = "0.4.3"
+clap = { version = "4.5.20", features = ["derive"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+sha2 = "0.10"
+bincode = "1.3"
+tokio = { version = "1.0", features = ["full"] }
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors"] }

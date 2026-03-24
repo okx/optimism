@@ -1,0 +1,40 @@
+[package]
+name = "prover"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "upload_program"
+path = "src/bin/upload_program.rs"
+required-features = ["embed-methods"]
+
+[[bin]]
+name = "request_proof"
+path = "src/bin/request_proof.rs"
+
+[dependencies]
+boundless-market = { workspace = true }
+alloy = { workspace = true }
+alloy-primitives = { workspace = true }
+url = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+clap = { workspace = true }
+hex = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tracing = "0.1"
+bincode = { workspace = true }
+serde_json = "1.0"
+anyhow = "1.0"
+base64 = "0.22"
+
+[features]
+default = []
+embed-methods = ["methods"]
+
+[dependencies.methods]
+path = "../methods"
+optional = true

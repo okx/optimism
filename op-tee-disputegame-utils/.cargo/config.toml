@@ -1,0 +1,3 @@
+[env]
+# Skip building Metal GPU kernels - use CPU-only mode (matches project's CPU-optimized design)
+RISC0_SKIP_BUILD_KERNELS = "1"

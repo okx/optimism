@@ -1,0 +1,15 @@
+[package]
+name = "guest"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+risc0-zkvm = { workspace = true, default-features = false, features = ["std"] }
+serde = { workspace = true }
+# 使用 RISC Zero 兼容的 sha2 版本
+sha2 = { git = "https://github.com/risc0/RustCrypto-hashes", tag = "sha2-v0.10.8-risczero.0" }
+bincode = { workspace = true }
+hex = { workspace = true }
+# 新增依赖用于生产级attestation验证
+p384 = { version = "0.13.0", features = ["ecdsa-core"] }
+x509-cert = "0.2.5"
