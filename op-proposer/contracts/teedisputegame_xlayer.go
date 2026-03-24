@@ -32,9 +32,8 @@ const (
 // ABI for new game contract's no-arg claimData() struct getter
 const newGameClaimDataABIJSON = `[{"name":"claimData","type":"function","inputs":[],"outputs":[{"name":"parentIndex","type":"uint32"},{"name":"counteredBy","type":"address"},{"name":"prover","type":"address"},{"name":"claim","type":"bytes32"},{"name":"status","type":"uint8"},{"name":"deadline","type":"uint64"}],"stateMutability":"view"}]`
 
-// ABI for TeeDisputeGame status() and proposer() getters
-const teeGameStatusABIJSON = `[{"name":"status","type":"function","inputs":[],"outputs":[{"name":"","type":"uint8"}],"stateMutability":"view"}]`
-const teeGameProposerABIJSON = `[{"name":"proposer","type":"function","inputs":[],"outputs":[{"name":"","type":"address"}],"stateMutability":"view"}]`
+// ABI for TeeDisputeGame proxy: status() and proposer()
+const teeGameABIJSON = `[{"name":"status","type":"function","inputs":[],"outputs":[{"name":"","type":"uint8"}],"stateMutability":"view"},{"name":"proposer","type":"function","inputs":[],"outputs":[{"name":"","type":"address"}],"stateMutability":"view"}]`
 
 // ABI for DGF.gameImpls(uint32) — returns the implementation contract address for a game type
 const dgfGameImplsABIJSON = `[{"name":"gameImpls","type":"function","inputs":[{"name":"_gameType","type":"uint32"}],"outputs":[{"name":"impl_","type":"address"}],"stateMutability":"view"}]`
@@ -42,24 +41,21 @@ const dgfGameImplsABIJSON = `[{"name":"gameImpls","type":"function","inputs":[{"
 // ABI for TeeDisputeGame impl anchorStateRegistry() — returns the immutable ASR address
 const teeGameAnchorStateRegistryABIJSON = `[{"name":"anchorStateRegistry","type":"function","inputs":[],"outputs":[{"name":"","type":"address"}],"stateMutability":"view"}]`
 
-// ASR validation ABIs
-const asrIsGameRespectedABIJSON = `[{"name":"isGameRespected","type":"function","inputs":[{"name":"_game","type":"address"}],"outputs":[{"name":"","type":"bool"}],"stateMutability":"view"}]`
-const asrIsGameBlacklistedABIJSON = `[{"name":"isGameBlacklisted","type":"function","inputs":[{"name":"_game","type":"address"}],"outputs":[{"name":"","type":"bool"}],"stateMutability":"view"}]`
-const asrIsGameRetiredABIJSON = `[{"name":"isGameRetired","type":"function","inputs":[{"name":"_game","type":"address"}],"outputs":[{"name":"","type":"bool"}],"stateMutability":"view"}]`
+// ABI for ASR validation: isGameRespected, isGameBlacklisted, isGameRetired
+const asrValidationABIJSON = `[{"name":"isGameRespected","type":"function","inputs":[{"name":"_game","type":"address"}],"outputs":[{"name":"","type":"bool"}],"stateMutability":"view"},{"name":"isGameBlacklisted","type":"function","inputs":[{"name":"_game","type":"address"}],"outputs":[{"name":"","type":"bool"}],"stateMutability":"view"},{"name":"isGameRetired","type":"function","inputs":[{"name":"_game","type":"address"}],"outputs":[{"name":"","type":"bool"}],"stateMutability":"view"}]`
 
 // parsed ABI for new game contract's claimData() getter
 var newGameClaimDataABI abi.ABI
 
-// parsed ABIs for TeeDisputeGame status() and proposer() getters
-var teeGameStatusABI abi.ABI
-var teeGameProposerABI abi.ABI
+// parsed ABI for TeeDisputeGame proxy: status() + proposer()
+var teeGameABI abi.ABI
 
-// parsed ABIs for DGF gameImpls, impl anchorStateRegistry, and ASR validation
+// parsed ABIs for DGF gameImpls and impl anchorStateRegistry
 var dgfGameImplsABI abi.ABI
 var teeGameAnchorStateRegistryABI abi.ABI
-var asrIsGameRespectedABI abi.ABI
-var asrIsGameBlacklistedABI abi.ABI
-var asrIsGameRetiredABI abi.ABI
+
+// parsed ABI for ASR validation: isGameRespected + isGameBlacklisted + isGameRetired
+var asrValidationABI abi.ABI
 
 func init() {
 	var err error
@@ -67,13 +63,9 @@ func init() {
 	if err != nil {
 		panic(fmt.Sprintf("failed to parse new game claim data ABI: %v", err))
 	}
-	teeGameStatusABI, err = abi.JSON(strings.NewReader(teeGameStatusABIJSON))
+	teeGameABI, err = abi.JSON(strings.NewReader(teeGameABIJSON))
 	if err != nil {
-		panic(fmt.Sprintf("failed to parse tee game status ABI: %v", err))
-	}
-	teeGameProposerABI, err = abi.JSON(strings.NewReader(teeGameProposerABIJSON))
-	if err != nil {
-		panic(fmt.Sprintf("failed to parse tee game proposer ABI: %v", err))
+		panic(fmt.Sprintf("failed to parse tee game ABI: %v", err))
 	}
 	dgfGameImplsABI, err = abi.JSON(strings.NewReader(dgfGameImplsABIJSON))
 	if err != nil {
@@ -83,17 +75,9 @@ func init() {
 	if err != nil {
 		panic(fmt.Sprintf("failed to parse tee game anchorStateRegistry ABI: %v", err))
 	}
-	asrIsGameRespectedABI, err = abi.JSON(strings.NewReader(asrIsGameRespectedABIJSON))
+	asrValidationABI, err = abi.JSON(strings.NewReader(asrValidationABIJSON))
 	if err != nil {
-		panic(fmt.Sprintf("failed to parse ASR isGameRespected ABI: %v", err))
-	}
-	asrIsGameBlacklistedABI, err = abi.JSON(strings.NewReader(asrIsGameBlacklistedABIJSON))
-	if err != nil {
-		panic(fmt.Sprintf("failed to parse ASR isGameBlacklisted ABI: %v", err))
-	}
-	asrIsGameRetiredABI, err = abi.JSON(strings.NewReader(asrIsGameRetiredABIJSON))
-	if err != nil {
-		panic(fmt.Sprintf("failed to parse ASR isGameRetired ABI: %v", err))
+		panic(fmt.Sprintf("failed to parse ASR validation ABI: %v", err))
 	}
 }
 
@@ -149,30 +133,19 @@ func (c *gameIndexCache) setASRAddr(addr common.Address) {
 	c.asrAddrFetched = true
 }
 
-// gameStatusAt fetches the current GameStatus of a TeeDisputeGame proxy via status() getter.
-// Status is mutable (changes on resolve) and must NOT be cached.
-func (f *DisputeGameFactory) gameStatusAt(ctx context.Context, proxyAddr common.Address) (uint8, error) {
+// gameStatusAndProposerAt fetches status and proposer of a TeeDisputeGame proxy in one batch call.
+func (f *DisputeGameFactory) gameStatusAndProposerAt(ctx context.Context, proxyAddr common.Address) (uint8, common.Address, error) {
 	cCtx, cancel := context.WithTimeout(ctx, f.networkTimeout)
 	defer cancel()
-	statusContract := batching.NewBoundContract(&teeGameStatusABI, proxyAddr)
-	result, err := f.caller.SingleCall(cCtx, rpcblock.Latest, statusContract.Call("status"))
+	gameContract := batching.NewBoundContract(&teeGameABI, proxyAddr)
+	results, err := f.caller.Call(cCtx, rpcblock.Latest,
+		gameContract.Call("status"),
+		gameContract.Call("proposer"),
+	)
 	if err != nil {
-		return 0, fmt.Errorf("tee-rollup: failed to get status of game %v: %w", proxyAddr, err)
+		return 0, common.Address{}, fmt.Errorf("tee-rollup: failed to get status/proposer of game %v: %w", proxyAddr, err)
 	}
-	return result.GetUint8(0), nil
-}
-
-// gameProposerAt fetches the proposer() of a TeeDisputeGame proxy.
-// Proposer is immutable (set to tx.origin in initialize()) but cached lazily.
-func (f *DisputeGameFactory) gameProposerAt(ctx context.Context, proxyAddr common.Address) (common.Address, error) {
-	cCtx, cancel := context.WithTimeout(ctx, f.networkTimeout)
-	defer cancel()
-	proposerContract := batching.NewBoundContract(&teeGameProposerABI, proxyAddr)
-	result, err := f.caller.SingleCall(cCtx, rpcblock.Latest, proposerContract.Call("proposer"))
-	if err != nil {
-		return common.Address{}, fmt.Errorf("tee-rollup: failed to get proposer of game %v: %w", proxyAddr, err)
-	}
-	return result.GetAddress(0), nil
+	return results[0].GetUint8(0), results[1].GetAddress(0), nil
 }
 
 // asrAddrFromImpl fetches the AnchorStateRegistry address from the DGF's
@@ -206,42 +179,21 @@ func (f *DisputeGameFactory) asrAddrFromImpl(ctx context.Context, gameType uint3
 // isValidParentGame checks AnchorStateRegistry conditions for a candidate parent game.
 // Mirrors TeeDisputeGame.initialize() validation: respected && !blacklisted && !retired.
 func (f *DisputeGameFactory) isValidParentGame(ctx context.Context, asrAddr common.Address, proxyAddr common.Address) (bool, error) {
-	asrRespected := batching.NewBoundContract(&asrIsGameRespectedABI, asrAddr)
-	asrBlacklisted := batching.NewBoundContract(&asrIsGameBlacklistedABI, asrAddr)
-	asrRetired := batching.NewBoundContract(&asrIsGameRetiredABI, asrAddr)
-
 	cCtx, cancel := context.WithTimeout(ctx, f.networkTimeout)
 	defer cancel()
-	result, err := f.caller.SingleCall(cCtx, rpcblock.Latest, asrRespected.Call("isGameRespected", proxyAddr))
+	asrContract := batching.NewBoundContract(&asrValidationABI, asrAddr)
+	results, err := f.caller.Call(cCtx, rpcblock.Latest,
+		asrContract.Call("isGameRespected", proxyAddr),
+		asrContract.Call("isGameBlacklisted", proxyAddr),
+		asrContract.Call("isGameRetired", proxyAddr),
+	)
 	if err != nil {
-		return false, fmt.Errorf("tee-rollup: failed to call isGameRespected for %v: %w", proxyAddr, err)
+		return false, fmt.Errorf("tee-rollup: failed ASR validation for %v: %w", proxyAddr, err)
 	}
-	respected := result.GetBool(0)
-	if !respected {
-		return false, nil
-	}
-
-	cCtx, cancel = context.WithTimeout(ctx, f.networkTimeout)
-	defer cancel()
-	result, err = f.caller.SingleCall(cCtx, rpcblock.Latest, asrBlacklisted.Call("isGameBlacklisted", proxyAddr))
-	if err != nil {
-		return false, fmt.Errorf("tee-rollup: failed to call isGameBlacklisted for %v: %w", proxyAddr, err)
-	}
-	if result.GetBool(0) {
-		return false, nil
-	}
-
-	cCtx, cancel = context.WithTimeout(ctx, f.networkTimeout)
-	defer cancel()
-	result, err = f.caller.SingleCall(cCtx, rpcblock.Latest, asrRetired.Call("isGameRetired", proxyAddr))
-	if err != nil {
-		return false, fmt.Errorf("tee-rollup: failed to call isGameRetired for %v: %w", proxyAddr, err)
-	}
-	if result.GetBool(0) {
-		return false, nil
-	}
-
-	return true, nil
+	respected := results[0].GetBool(0)
+	blacklisted := results[1].GetBool(0)
+	retired := results[2].GetBool(0)
+	return respected && !blacklisted && !retired, nil
 }
 
 // FindLastGameIndex scans the DGF in reverse to find the most recent game with the
@@ -286,10 +238,18 @@ func (f *DisputeGameFactory) FindLastGameIndex(ctx context.Context, gameType uin
 			continue
 		}
 
-		// fetch status fresh — mutable, must not be cached
-		status, err := f.gameStatusAt(ctx, entry.Address)
+		// fetch status and proposer together (status is always fresh; proposer cached after first fetch)
+		status, gameProposer, err := f.gameStatusAndProposerAt(ctx, entry.Address)
 		if err != nil {
-			return 0, false, fmt.Errorf("tee-rollup: failed to get status at index %d: %w", idx, err)
+			return 0, false, fmt.Errorf("tee-rollup: failed to get status/proposer at index %d: %w", idx, err)
+		}
+		// cache proposer if not yet cached (immutable — set once in initialize())
+		if !entry.ProposerFetched {
+			entry.Proposer = gameProposer
+			entry.ProposerFetched = true
+			f.teeCache.set(idx, entry)
+		} else {
+			gameProposer = entry.Proposer // use cached value
 		}
 
 		// contract rejects CHALLENGER_WINS parents (TeeDisputeGame.sol:204)
@@ -323,23 +283,6 @@ func (f *DisputeGameFactory) FindLastGameIndex(ctx context.Context, gameType uin
 		}
 
 		// IN_PROGRESS — only accept if self-proposed
-		// Check cached proposer first; only call gameProposerAt on cache miss
-		gameProposer := entry.Proposer
-		if !entry.ProposerFetched {
-			gameProposer, err = f.gameProposerAt(ctx, entry.Address)
-			if err != nil {
-				// cannot verify proposer — skip this game
-				if idx == 0 {
-					break
-				}
-				continue
-			}
-			// cache proposer (immutable — set once in initialize())
-			entry.Proposer = gameProposer
-			entry.ProposerFetched = true
-			f.teeCache.set(idx, entry)
-		}
-
 		if gameProposer == proposer {
 			return idx, true, nil
 		}
