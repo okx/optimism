@@ -7,6 +7,7 @@ import (
 
 	"github.com/urfave/cli/v2"
 
+	"github.com/ethereum-optimism/optimism/op-proposer/contracts"
 	"github.com/ethereum-optimism/optimism/op-proposer/flags"
 	oplog "github.com/ethereum-optimism/optimism/op-service/log"
 	opmetrics "github.com/ethereum-optimism/optimism/op-service/metrics"
@@ -14,9 +15,6 @@ import (
 	oprpc "github.com/ethereum-optimism/optimism/op-service/rpc"
 	"github.com/ethereum-optimism/optimism/op-service/txmgr"
 )
-
-// For xlayer: TEEGameType is the dispute game type ID for TeeRollup TEE attestations.
-const TEEGameType uint32 = 1960
 
 var (
 	ErrMissingRollupRpc     = errors.New("missing rollup rpc")
@@ -142,7 +140,7 @@ func (c *CLIConfig) Check() error {
 		return ErrMissingSupervisorRpc
 	}
 	// For xlayer: TeeRollup game type requires TeeRollupRpc
-	if c.DisputeGameType == TEEGameType && c.TeeRollupRpc == "" {
+	if c.DisputeGameType == contracts.TEEGameType && c.TeeRollupRpc == "" {
 		return ErrMissingTeeRollupRpc
 	}
 	// For unknown game types, allow any source, but require at least one.

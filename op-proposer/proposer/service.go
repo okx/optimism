@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -132,7 +131,7 @@ func (ps *ProposerService) initFromCLIConfig(ctx context.Context, version string
 func (ps *ProposerService) initRPCClients(ctx context.Context, cfg *CLIConfig) error {
 	// For xlayer: TeeRollup has no L1 derivation; CurrentL1 is always zero,
 	// which would cause waitNodeSync to block forever.
-	if cfg.DisputeGameType == TEEGameType && cfg.WaitNodeSync { // For xlayer
+	if cfg.DisputeGameType == contracts.TEEGameType && cfg.WaitNodeSync { // For xlayer
 		return fmt.Errorf("--wait-node-sync is not supported with TeeRollup game type (1960)")
 	}
 
@@ -280,27 +279,10 @@ func (ps *ProposerService) initDriver() error {
 	}
 	ps.driver = driver
 
-	// For xlayer: wire parent index resolver into TeeRollupProposalSource after DGF caller is available
-	if teeSource, ok := ps.ProposalSource.(*source.TeeRollupProposalSource); ok {
-		if dgfCaller, ok := driver.dgfContract.(*contracts.DisputeGameFactory); ok {
-			proposer := driver.Txmgr.From()
-			gameType := uint32(ps.ProposerConfig.DisputeGameType)
-			teeSource.SetParentIdxFn(func(ctx context.Context) (uint32, bool, error) {
-				idx, found, err := dgfCaller.FindLastGameIndex(ctx, gameType, proposer, 1000) // For xlayer
-				if err != nil {
-					return 0, false, err
-				}
-				if !found {
-					return 0, false, nil
-				}
-				if idx > math.MaxUint32 {
-					return 0, false, fmt.Errorf("tee-rollup: game index %d exceeds uint32 range", idx)
-				}
-				return uint32(idx), true, nil
-			})
-		} else {
-			// For xlayer: dgfContract is not *contracts.DisputeGameFactory — parentIdxFn not wired, will use MaxUint32 sentinel
-			ps.Log.Warn("tee-rollup: dgfContract is not *DisputeGameFactory, parentIdxFn not wired")
+	// For xlayer: wire TEE-specific parent index resolver only for TEE game type
+	if ps.ProposerConfig.DisputeGameType == contracts.TEEGameType {
+		if err := initTeeSource(ps, driver); err != nil {
+			return err
 		}
 	}
 

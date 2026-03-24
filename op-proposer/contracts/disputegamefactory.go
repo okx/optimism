@@ -136,7 +136,7 @@ func (f *DisputeGameFactory) gameAtIndex(ctx context.Context, idx uint64) (gameM
 
 	var claimant common.Address
 	var claim common.Hash
-	if gameType == teeGameType {
+	if gameType == TEEGameType { // For xlayer: TEE game type uses different claimData() ABI
 		// For xlayer: TEE game type (1960) uses new contract ABI — claimData() takes no args,
 		// returns (parentIndex, counteredBy, prover, claim, status, deadline).
 		// prover is at index 2, claim (bytes32) is at index 3.

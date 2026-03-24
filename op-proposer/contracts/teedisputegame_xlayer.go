@@ -7,15 +7,20 @@ import (
 	"strings"
 	"sync"
 
+	lru "github.com/hashicorp/golang-lru/v2" // For xlayer: bounded LRU cache for game index entries
+
 	"github.com/ethereum-optimism/optimism/op-service/sources/batching"
 	"github.com/ethereum-optimism/optimism/op-service/sources/batching/rpcblock"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 )
 
-const teeGameType uint32 = 1960 // For xlayer: TEE game type (TeeRollup)
+// For xlayer: TEEGameType is the dispute game type ID for TeeRollup TEE attestations.
+// Defined here (contracts package) so both contracts and proposer packages can reference it
+// without a circular import (proposer already imports contracts).
+const TEEGameType uint32 = 1960
 
-const teeParentScanLimit = 1000 // For xlayer: max DGF entries to scan for parent game
+const TeeParentScanLimit = 1000 // For xlayer: max DGF entries to scan for parent game
 
 // For xlayer: GameStatus enum values matching TeeDisputeGame (Types.sol)
 const (
@@ -100,32 +105,33 @@ type cachedGameEntry struct {
 	ProposerFetched bool
 }
 
-// For xlayer: gameIndexCache is an in-memory, RWMutex-protected cache of DGF index -> immutable game metadata.
-// GameType and Address are cached on first fetch. Proposer (also immutable) is cached lazily on first need.
-// Game status is NOT cached — it changes when a game is resolved.
-// ASR address is fetched once from the game impl contract and cached for the lifetime of the process.
+// For xlayer: gameIndexCache is an in-memory cache of DGF index -> immutable game metadata.
+// entries uses a lazily-initialized LRU cache (thread-safe) to bound memory usage.
+// asrAddr is cached separately with a mutex.
 type gameIndexCache struct {
-	mu      sync.RWMutex
-	entries map[uint64]cachedGameEntry
+	mu      sync.RWMutex                        // For xlayer: protects asrAddr/asrAddrFetched only; entries uses lru's own lock
+	once    sync.Once                           // For xlayer: guards one-time LRU initialization
+	entries *lru.Cache[uint64, cachedGameEntry] // For xlayer: bounded LRU, thread-safe, lazily initialized
 	// For xlayer: ASR address fetched once from the game impl contract and cached
 	asrAddr        common.Address
 	asrAddrFetched bool
 }
 
+// For xlayer: lruEntries returns the lazily-initialized LRU cache.
+// lru.New never fails for a positive size, so the error is safely ignored.
+func (c *gameIndexCache) lruEntries() *lru.Cache[uint64, cachedGameEntry] {
+	c.once.Do(func() {
+		c.entries, _ = lru.New[uint64, cachedGameEntry](4096) // For xlayer: 4096-entry bounded LRU
+	})
+	return c.entries
+}
+
 func (c *gameIndexCache) get(idx uint64) (cachedGameEntry, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	e, ok := c.entries[idx]
-	return e, ok
+	return c.lruEntries().Get(idx) // For xlayer: lru.Cache is thread-safe; no mutex needed
 }
 
 func (c *gameIndexCache) set(idx uint64, e cachedGameEntry) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.entries == nil {
-		c.entries = make(map[uint64]cachedGameEntry)
-	}
-	c.entries[idx] = e
+	c.lruEntries().Add(idx, e) // For xlayer: lru.Cache is thread-safe; no mutex needed
 }
 
 // For xlayer: getASRAddr returns the cached ASR address if available.

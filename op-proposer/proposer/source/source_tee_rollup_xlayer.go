@@ -82,8 +82,11 @@ func (c *TeeRollupHTTPClient) ConfirmedBlockInfo(ctx context.Context) (TeeRollup
 		return TeeRollupBlockInfo{}, fmt.Errorf("tee-rollup: HTTP request failed: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK { // For xlayer
+		return TeeRollupBlockInfo{}, fmt.Errorf("tee-rollup: HTTP request failed with status %d", resp.StatusCode) // For xlayer
+	} // For xlayer
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // For xlayer
 	if err != nil {
 		return TeeRollupBlockInfo{}, fmt.Errorf("tee-rollup: failed to read response body: %w", err)
 	}
