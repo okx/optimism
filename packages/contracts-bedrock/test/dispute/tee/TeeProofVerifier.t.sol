@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.15;
 
-import {Vm} from "forge-std/Vm.sol";
-import {TeeProofVerifier} from "src/dispute/tee/TeeProofVerifier.sol";
-import {IRiscZeroVerifier} from "interfaces/dispute/IRiscZeroVerifier.sol";
-import {MockRiscZeroVerifier} from "test/dispute/tee/mocks/MockRiscZeroVerifier.sol";
-import {TeeTestUtils} from "test/dispute/tee/helpers/TeeTestUtils.sol";
+import { Vm } from "forge-std/Vm.sol";
+import { TeeProofVerifier } from "src/dispute/tee/TeeProofVerifier.sol";
+import { IRiscZeroVerifier } from "interfaces/dispute/IRiscZeroVerifier.sol";
+import { MockRiscZeroVerifier } from "test/dispute/tee/mocks/MockRiscZeroVerifier.sol";
+import { TeeTestUtils } from "test/dispute/tee/helpers/TeeTestUtils.sol";
 
 contract TeeProofVerifierTest is TeeTestUtils {
     MockRiscZeroVerifier internal riscZeroVerifier;
@@ -82,8 +82,7 @@ contract TeeProofVerifierTest is TeeTestUtils {
 
     function test_register_revertInvalidPublicKey() public {
         bytes memory shortPublicKey = abi.encodePacked(bytes32(uint256(1)), bytes32(uint256(2)));
-        TeeProofVerifier.AttestationData memory data =
-            _buildAttestationData(1234, PCR_HASH, shortPublicKey, "");
+        TeeProofVerifier.AttestationData memory data = _buildAttestationData(1234, PCR_HASH, shortPublicKey, "");
 
         vm.expectRevert(TeeProofVerifier.InvalidPublicKey.selector);
         verifier.register(hex"1234", data);
@@ -271,5 +270,4 @@ contract TeeProofVerifierTest is TeeTestUtils {
         vm.expectRevert("Ownable: new owner is the zero address");
         verifier.transferOwnership(address(0));
     }
-
 }

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.15;
 
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {ITeeProofVerifier} from "interfaces/dispute/ITeeProofVerifier.sol";
+import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import { ITeeProofVerifier } from "interfaces/dispute/ITeeProofVerifier.sol";
 
 contract MockTeeProofVerifier is ITeeProofVerifier {
     error EnclaveNotRegistered();
@@ -16,21 +16,14 @@ contract MockTeeProofVerifier is ITeeProofVerifier {
         registered[enclave] = value;
     }
 
-    function verifyBatch(bytes32 digest, bytes calldata signature)
-        external
-        view
-        returns (address signer)
-    {
+    function verifyBatch(bytes32 digest, bytes calldata signature) external view returns (address signer) {
         (address recovered, ECDSA.RecoverError err) = ECDSA.tryRecover(digest, signature);
         if (err != ECDSA.RecoverError.NoError || recovered == address(0)) revert InvalidSignature();
         if (!registered[recovered]) revert EnclaveNotRegistered();
         return recovered;
     }
 
-    function verifyBatchAndRecord(bytes32 digest, bytes calldata signature)
-        external
-        returns (address signer)
-    {
+    function verifyBatchAndRecord(bytes32 digest, bytes calldata signature) external returns (address signer) {
         lastDigest = digest;
         lastSignature = signature;
         return this.verifyBatch(digest, signature);
