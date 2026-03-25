@@ -1,25 +1,25 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.15;
 
-import {IDisputeGameFactory} from "interfaces/dispute/IDisputeGameFactory.sol";
-import {IDisputeGame} from "interfaces/dispute/IDisputeGame.sol";
-import {IAnchorStateRegistry} from "interfaces/dispute/IAnchorStateRegistry.sol";
-import {ITeeProofVerifier} from "interfaces/dispute/ITeeProofVerifier.sol";
-import {DisputeGameFactoryRouter} from "src/dispute/DisputeGameFactoryRouter.sol";
-import {TeeDisputeGame, TEE_DISPUTE_GAME_TYPE} from "src/dispute/tee/TeeDisputeGame.sol";
-import {BadAuth, GameNotFinalized, IncorrectBondAmount, UnexpectedRootClaim} from "src/dispute/lib/Errors.sol";
+import { IDisputeGameFactory } from "interfaces/dispute/IDisputeGameFactory.sol";
+import { IDisputeGame } from "interfaces/dispute/IDisputeGame.sol";
+import { IAnchorStateRegistry } from "interfaces/dispute/IAnchorStateRegistry.sol";
+import { ITeeProofVerifier } from "interfaces/dispute/ITeeProofVerifier.sol";
+import { DisputeGameFactoryRouter } from "src/dispute/DisputeGameFactoryRouter.sol";
+import { TeeDisputeGame, TEE_DISPUTE_GAME_TYPE } from "src/dispute/tee/TeeDisputeGame.sol";
+import { BadAuth, GameNotFinalized, IncorrectBondAmount, UnexpectedRootClaim } from "src/dispute/lib/Errors.sol";
 import {
     ClaimAlreadyChallenged,
     InvalidParentGame,
     ParentGameNotResolved,
     GameNotOver
 } from "src/dispute/tee/lib/Errors.sol";
-import {BondDistributionMode, Duration, GameType, Claim, Hash, GameStatus} from "src/dispute/lib/Types.sol";
-import {MockAnchorStateRegistry} from "test/dispute/tee/mocks/MockAnchorStateRegistry.sol";
-import {MockDisputeGameFactory} from "test/dispute/tee/mocks/MockDisputeGameFactory.sol";
-import {MockStatusDisputeGame} from "test/dispute/tee/mocks/MockStatusDisputeGame.sol";
-import {MockTeeProofVerifier} from "test/dispute/tee/mocks/MockTeeProofVerifier.sol";
-import {TeeTestUtils} from "test/dispute/tee/helpers/TeeTestUtils.sol";
+import { BondDistributionMode, Duration, GameType, Claim, Hash, GameStatus } from "src/dispute/lib/Types.sol";
+import { MockAnchorStateRegistry } from "test/dispute/tee/mocks/MockAnchorStateRegistry.sol";
+import { MockDisputeGameFactory } from "test/dispute/tee/mocks/MockDisputeGameFactory.sol";
+import { MockStatusDisputeGame } from "test/dispute/tee/mocks/MockStatusDisputeGame.sol";
+import { MockTeeProofVerifier } from "test/dispute/tee/mocks/MockTeeProofVerifier.sol";
+import { TeeTestUtils } from "test/dispute/tee/helpers/TeeTestUtils.sol";
 
 contract TeeDisputeGameTest is TeeTestUtils {
     uint256 internal constant DEFENDER_BOND = 1 ether;
@@ -66,12 +66,15 @@ contract TeeDisputeGameTest is TeeTestUtils {
         factory.setImplementation(GameType.wrap(TEE_DISPUTE_GAME_TYPE), implementation);
         factory.setInitBond(GameType.wrap(TEE_DISPUTE_GAME_TYPE), DEFENDER_BOND);
 
-        anchorStateRegistry.setAnchor(Hash.wrap(computeRootClaim(ANCHOR_BLOCK_HASH, ANCHOR_STATE_HASH).raw()), ANCHOR_L2_BLOCK);
+        anchorStateRegistry.setAnchor(
+            Hash.wrap(computeRootClaim(ANCHOR_BLOCK_HASH, ANCHOR_STATE_HASH).raw()), ANCHOR_L2_BLOCK
+        );
         anchorStateRegistry.setRespectedGameType(GameType.wrap(TEE_DISPUTE_GAME_TYPE));
     }
 
     function test_initialize_usesAnchorStateForRootGame() public {
-        (TeeDisputeGame game,,) = _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
+        (TeeDisputeGame game,,) =
+            _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
 
         (Hash startingRoot, uint256 startingBlockNumber) = game.startingOutputRoot();
         assertEq(startingRoot.raw(), computeRootClaim(ANCHOR_BLOCK_HASH, ANCHOR_STATE_HASH).raw());
@@ -88,12 +91,12 @@ contract TeeDisputeGameTest is TeeTestUtils {
 
         bytes32 endBlockHash = keccak256("router-end-block");
         bytes32 endStateHash = keccak256("router-end-state");
-        bytes memory extraData =
-            buildExtraData(ANCHOR_L2_BLOCK + 5, type(uint32).max, endBlockHash, endStateHash);
+        bytes memory extraData = buildExtraData(ANCHOR_L2_BLOCK + 5, type(uint32).max, endBlockHash, endStateHash);
         Claim rootClaim = computeRootClaim(endBlockHash, endStateHash);
 
         vm.startPrank(proposer, proposer);
-        address proxy = router.create{value: DEFENDER_BOND}(zoneId, GameType.wrap(TEE_DISPUTE_GAME_TYPE), rootClaim, extraData);
+        address proxy =
+            router.create{ value: DEFENDER_BOND }(zoneId, GameType.wrap(TEE_DISPUTE_GAME_TYPE), rootClaim, extraData);
         vm.stopPrank();
 
         TeeDisputeGame game = TeeDisputeGame(payable(proxy));
@@ -153,12 +156,16 @@ contract TeeDisputeGameTest is TeeTestUtils {
                 TeeDisputeGame.RootClaimMismatch.selector, expectedRootClaim.raw(), wrongRootClaim.raw()
             )
         );
-        factory.create{value: DEFENDER_BOND}(GameType.wrap(TEE_DISPUTE_GAME_TYPE), wrongRootClaim, extraData);
+        factory.create{ value: DEFENDER_BOND }(GameType.wrap(TEE_DISPUTE_GAME_TYPE), wrongRootClaim, extraData);
         vm.stopPrank();
     }
 
     function test_initialize_revertWhenL2SequenceNumberDoesNotAdvance() public {
-        vm.expectRevert(abi.encodeWithSelector(UnexpectedRootClaim.selector, computeRootClaim(keccak256("block"), keccak256("state"))));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UnexpectedRootClaim.selector, computeRootClaim(keccak256("block"), keccak256("state"))
+            )
+        );
         _createGame(proposer, ANCHOR_L2_BLOCK, type(uint32).max, keccak256("block"), keccak256("state"));
     }
 
@@ -189,12 +196,13 @@ contract TeeDisputeGameTest is TeeTestUtils {
     }
 
     function test_challenge_updatesState() public {
-        (TeeDisputeGame game,,) = _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
+        (TeeDisputeGame game,,) =
+            _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
 
         vm.prank(challenger);
-        TeeDisputeGame.ProposalStatus proposalStatus = game.challenge{value: CHALLENGER_BOND}();
+        TeeDisputeGame.ProposalStatus proposalStatus = game.challenge{ value: CHALLENGER_BOND }();
 
-        (, address counteredBy,, , TeeDisputeGame.ProposalStatus storedStatus,) = game.claimData();
+        (, address counteredBy,,, TeeDisputeGame.ProposalStatus storedStatus,) = game.claimData();
         assertEq(counteredBy, challenger);
         assertEq(uint8(proposalStatus), uint8(TeeDisputeGame.ProposalStatus.Challenged));
         assertEq(uint8(storedStatus), uint8(TeeDisputeGame.ProposalStatus.Challenged));
@@ -202,22 +210,24 @@ contract TeeDisputeGameTest is TeeTestUtils {
     }
 
     function test_challenge_revertIncorrectBond() public {
-        (TeeDisputeGame game,,) = _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
+        (TeeDisputeGame game,,) =
+            _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
 
         vm.prank(challenger);
         vm.expectRevert(IncorrectBondAmount.selector);
-        game.challenge{value: CHALLENGER_BOND - 1}();
+        game.challenge{ value: CHALLENGER_BOND - 1 }();
     }
 
     function test_challenge_revertWhenAlreadyChallenged() public {
-        (TeeDisputeGame game,,) = _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
+        (TeeDisputeGame game,,) =
+            _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
 
         vm.prank(challenger);
-        game.challenge{value: CHALLENGER_BOND}();
+        game.challenge{ value: CHALLENGER_BOND }();
 
         vm.prank(challenger);
         vm.expectRevert(ClaimAlreadyChallenged.selector);
-        game.challenge{value: CHALLENGER_BOND}();
+        game.challenge{ value: CHALLENGER_BOND }();
     }
 
     function test_prove_succeedsWithSingleBatch() public {
@@ -242,7 +252,7 @@ contract TeeDisputeGameTest is TeeTestUtils {
 
         vm.prank(proposer);
         TeeDisputeGame.ProposalStatus status = game.prove(abi.encode(proofs));
-        (, , address prover,, TeeDisputeGame.ProposalStatus storedStatus,) = game.claimData();
+        (,, address prover,, TeeDisputeGame.ProposalStatus storedStatus,) = game.claimData();
         assertEq(prover, proposer);
         assertEq(uint8(status), uint8(TeeDisputeGame.ProposalStatus.UnchallengedAndValidProofProvided));
         assertEq(uint8(storedStatus), uint8(TeeDisputeGame.ProposalStatus.UnchallengedAndValidProofProvided));
@@ -289,7 +299,8 @@ contract TeeDisputeGameTest is TeeTestUtils {
     }
 
     function test_prove_revertEmptyBatchProofs() public {
-        (TeeDisputeGame game,,) = _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
+        (TeeDisputeGame game,,) =
+            _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
 
         vm.prank(proposer);
         vm.expectRevert(TeeDisputeGame.EmptyBatchProofs.selector);
@@ -397,7 +408,11 @@ contract TeeDisputeGameTest is TeeTestUtils {
         );
 
         vm.prank(proposer);
-        vm.expectRevert(abi.encodeWithSelector(TeeDisputeGame.BatchBlockNotIncreasing.selector, 1, ANCHOR_L2_BLOCK + 4, ANCHOR_L2_BLOCK + 4));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                TeeDisputeGame.BatchBlockNotIncreasing.selector, 1, ANCHOR_L2_BLOCK + 4, ANCHOR_L2_BLOCK + 4
+            )
+        );
         game.prove(abi.encode(proofs));
     }
 
@@ -453,7 +468,9 @@ contract TeeDisputeGameTest is TeeTestUtils {
         );
 
         vm.expectRevert(
-            abi.encodeWithSelector(TeeDisputeGame.FinalBlockMismatch.selector, game.l2SequenceNumber(), game.l2SequenceNumber() - 1)
+            abi.encodeWithSelector(
+                TeeDisputeGame.FinalBlockMismatch.selector, game.l2SequenceNumber(), game.l2SequenceNumber() - 1
+            )
         );
         vm.prank(proposer);
         game.prove(abi.encode(proofs));
@@ -547,7 +564,7 @@ contract TeeDisputeGameTest is TeeTestUtils {
 
         // Challenger challenges the child
         vm.prank(challenger);
-        child.challenge{value: CHALLENGER_BOND}();
+        child.challenge{ value: CHALLENGER_BOND }();
 
         // Time passes: parent is challenged and times out → CHALLENGER_WINS
         vm.warp(block.timestamp + MAX_PROVE_DURATION + 1);
@@ -594,7 +611,7 @@ contract TeeDisputeGameTest is TeeTestUtils {
             _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
 
         vm.prank(challenger);
-        game.challenge{value: CHALLENGER_BOND}();
+        game.challenge{ value: CHALLENGER_BOND }();
 
         // Timeout without proof → CHALLENGER_WINS
         vm.warp(block.timestamp + MAX_PROVE_DURATION + 1);
@@ -624,7 +641,7 @@ contract TeeDisputeGameTest is TeeTestUtils {
             _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, endBlockHash, endStateHash);
 
         vm.prank(challenger);
-        game.challenge{value: CHALLENGER_BOND}();
+        game.challenge{ value: CHALLENGER_BOND }();
 
         // Proposer proves — game would normally be DEFENDER_WINS
         teeProofVerifier.setRegistered(executor, true);
@@ -660,7 +677,8 @@ contract TeeDisputeGameTest is TeeTestUtils {
     }
 
     function test_closeGame_revertWhenNotFinalized() public {
-        (TeeDisputeGame game,,) = _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
+        (TeeDisputeGame game,,) =
+            _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
         vm.warp(block.timestamp + MAX_CHALLENGE_DURATION + 1);
         game.resolve();
 
@@ -669,7 +687,8 @@ contract TeeDisputeGameTest is TeeTestUtils {
     }
 
     function test_resolve_revertWhenGameNotOver() public {
-        (TeeDisputeGame game,,) = _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
+        (TeeDisputeGame game,,) =
+            _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
 
         vm.expectRevert(GameNotOver.selector);
         game.resolve();
@@ -690,7 +709,11 @@ contract TeeDisputeGameTest is TeeTestUtils {
 
         vm.startPrank(creator, creator);
         game = TeeDisputeGame(
-            payable(address(factory.create{value: DEFENDER_BOND}(GameType.wrap(TEE_DISPUTE_GAME_TYPE), rootClaim, extraData)))
+            payable(
+                address(
+                    factory.create{ value: DEFENDER_BOND }(GameType.wrap(TEE_DISPUTE_GAME_TYPE), rootClaim, extraData)
+                )
+            )
         );
         vm.stopPrank();
     }

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.15;
 
-import {Test} from "forge-std/Test.sol";
-import {Vm} from "forge-std/Vm.sol";
-import {Claim} from "src/dispute/lib/Types.sol";
-import {TeeDisputeGame} from "src/dispute/tee/TeeDisputeGame.sol";
+import { Test } from "forge-std/Test.sol";
+import { Vm } from "forge-std/Vm.sol";
+import { Claim } from "src/dispute/lib/Types.sol";
+import { TeeDisputeGame } from "src/dispute/tee/TeeDisputeGame.sol";
 
 abstract contract TeeTestUtils is Test {
     uint256 internal constant DEFAULT_PROPOSER_KEY = 0xA11CE;
@@ -60,9 +60,7 @@ abstract contract TeeTestUtils is Test {
     }
 
     function computeDomainSeparator(address verifier) internal view returns (bytes32) {
-        return keccak256(
-            abi.encode(DOMAIN_TYPEHASH, DOMAIN_NAME_HASH, DOMAIN_VERSION_HASH, block.chainid, verifier)
-        );
+        return keccak256(abi.encode(DOMAIN_TYPEHASH, DOMAIN_NAME_HASH, DOMAIN_VERSION_HASH, block.chainid, verifier));
     }
 
     function computeEIP712Digest(BatchInput memory batch, bytes32 domainSeparator) internal pure returns (bytes32) {
@@ -74,7 +72,11 @@ abstract contract TeeTestUtils is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function buildBatchProof(BatchInput memory batch, uint256 privateKey, bytes32 domainSeparator)
+    function buildBatchProof(
+        BatchInput memory batch,
+        uint256 privateKey,
+        bytes32 domainSeparator
+    )
         internal
         returns (TeeDisputeGame.BatchProof memory)
     {
@@ -88,7 +90,10 @@ abstract contract TeeTestUtils is Test {
         });
     }
 
-    function buildBatchProofWithSignature(BatchInput memory batch, bytes memory signature)
+    function buildBatchProofWithSignature(
+        BatchInput memory batch,
+        bytes memory signature
+    )
         internal
         pure
         returns (TeeDisputeGame.BatchProof memory)

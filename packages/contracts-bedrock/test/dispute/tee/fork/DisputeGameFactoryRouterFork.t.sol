@@ -1,24 +1,24 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.15;
 
-import {Vm} from "forge-std/Vm.sol";
-import {Proxy} from "src/universal/Proxy.sol";
-import {AnchorStateRegistry} from "src/dispute/AnchorStateRegistry.sol";
-import {DisputeGameFactory} from "src/dispute/DisputeGameFactory.sol";
-import {PermissionedDisputeGame} from "src/dispute/PermissionedDisputeGame.sol";
-import {IDisputeGameFactory} from "interfaces/dispute/IDisputeGameFactory.sol";
-import {IDisputeGame} from "interfaces/dispute/IDisputeGame.sol";
-import {IAnchorStateRegistry} from "interfaces/dispute/IAnchorStateRegistry.sol";
-import {ISystemConfig} from "interfaces/L1/ISystemConfig.sol";
-import {ITeeProofVerifier} from "interfaces/dispute/ITeeProofVerifier.sol";
-import {DisputeGameFactoryRouter} from "src/dispute/DisputeGameFactoryRouter.sol";
-import {IDisputeGameFactoryRouter} from "interfaces/dispute/IDisputeGameFactoryRouter.sol";
-import {TeeDisputeGame, TEE_DISPUTE_GAME_TYPE} from "src/dispute/tee/TeeDisputeGame.sol";
-import {TeeProofVerifier} from "src/dispute/tee/TeeProofVerifier.sol";
-import {Claim, Duration, GameStatus, GameType, Hash, Proposal} from "src/dispute/lib/Types.sol";
-import {TeeTestUtils} from "test/dispute/tee/helpers/TeeTestUtils.sol";
-import {MockRiscZeroVerifier} from "test/dispute/tee/mocks/MockRiscZeroVerifier.sol";
-import {MockSystemConfig} from "test/dispute/tee/mocks/MockSystemConfig.sol";
+import { Vm } from "forge-std/Vm.sol";
+import { Proxy } from "src/universal/Proxy.sol";
+import { AnchorStateRegistry } from "src/dispute/AnchorStateRegistry.sol";
+import { DisputeGameFactory } from "src/dispute/DisputeGameFactory.sol";
+import { PermissionedDisputeGame } from "src/dispute/PermissionedDisputeGame.sol";
+import { IDisputeGameFactory } from "interfaces/dispute/IDisputeGameFactory.sol";
+import { IDisputeGame } from "interfaces/dispute/IDisputeGame.sol";
+import { IAnchorStateRegistry } from "interfaces/dispute/IAnchorStateRegistry.sol";
+import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
+import { ITeeProofVerifier } from "interfaces/dispute/ITeeProofVerifier.sol";
+import { DisputeGameFactoryRouter } from "src/dispute/DisputeGameFactoryRouter.sol";
+import { IDisputeGameFactoryRouter } from "interfaces/dispute/IDisputeGameFactoryRouter.sol";
+import { TeeDisputeGame, TEE_DISPUTE_GAME_TYPE } from "src/dispute/tee/TeeDisputeGame.sol";
+import { TeeProofVerifier } from "src/dispute/tee/TeeProofVerifier.sol";
+import { Claim, Duration, GameStatus, GameType, Hash, Proposal } from "src/dispute/lib/Types.sol";
+import { TeeTestUtils } from "test/dispute/tee/helpers/TeeTestUtils.sol";
+import { MockRiscZeroVerifier } from "test/dispute/tee/mocks/MockRiscZeroVerifier.sol";
+import { MockSystemConfig } from "test/dispute/tee/mocks/MockSystemConfig.sol";
 
 contract DisputeGameFactoryRouterForkTest is TeeTestUtils {
     struct SecondZoneFixture {
@@ -96,7 +96,7 @@ contract DisputeGameFactoryRouterForkTest is TeeTestUtils {
         bytes memory extraData = abi.encodePacked(uint256(1_000_000_000));
 
         vm.startPrank(xLayer.proposer, xLayer.proposer);
-        address proxy = router.create{value: xLayer.initBond}(ZONE_XLAYER, xLayer.gameType, rootClaim, extraData);
+        address proxy = router.create{ value: xLayer.initBond }(ZONE_XLAYER, xLayer.gameType, rootClaim, extraData);
         vm.stopPrank();
 
         assertTrue(proxy != address(0));
@@ -165,7 +165,7 @@ contract DisputeGameFactoryRouterForkTest is TeeTestUtils {
         });
 
         vm.startPrank(xLayer.proposer, xLayer.proposer);
-        address[] memory proxies = router.createBatch{value: xLayer.initBond + DEFENDER_BOND}(params);
+        address[] memory proxies = router.createBatch{ value: xLayer.initBond + DEFENDER_BOND }(params);
         vm.stopPrank();
 
         assertEq(proxies.length, 2);
@@ -234,7 +234,7 @@ contract DisputeGameFactoryRouterForkTest is TeeTestUtils {
         rootClaim = computeRootClaim(endBlockHash, endStateHash);
 
         vm.startPrank(proposer, proposer);
-        address proxy = router.create{value: DEFENDER_BOND}(ZONE_SECOND, TEE_GAME_TYPE, rootClaim, extraData);
+        address proxy = router.create{ value: DEFENDER_BOND }(ZONE_SECOND, TEE_GAME_TYPE, rootClaim, extraData);
         vm.stopPrank();
 
         game = TeeDisputeGame(payable(proxy));
@@ -253,7 +253,7 @@ contract DisputeGameFactoryRouterForkTest is TeeTestUtils {
         assertEq(startingBlockNumber, ANCHOR_L2_BLOCK);
 
         vm.prank(challenger);
-        game.challenge{value: CHALLENGER_BOND}();
+        game.challenge{ value: CHALLENGER_BOND }();
 
         TeeDisputeGame.BatchProof[] memory proofs = new TeeDisputeGame.BatchProof[](1);
         proofs[0] = buildBatchProof(
@@ -306,10 +306,7 @@ contract DisputeGameFactoryRouterForkTest is TeeTestUtils {
     function _deployLocalDisputeGameFactory() internal returns (DisputeGameFactory factory) {
         DisputeGameFactory implementation = new DisputeGameFactory();
         Proxy proxy = new Proxy(address(this));
-        proxy.upgradeToAndCall(
-            address(implementation),
-            abi.encodeCall(implementation.initialize, (address(this)))
-        );
+        proxy.upgradeToAndCall(address(implementation), abi.encodeCall(implementation.initialize, (address(this))));
         factory = DisputeGameFactory(address(proxy));
     }
 
@@ -344,14 +341,17 @@ contract DisputeGameFactoryRouterForkTest is TeeTestUtils {
     {
         Vm.Wallet memory enclaveWallet = makeWallet(DEFAULT_EXECUTOR_KEY, "fork-registered-enclave");
         MockRiscZeroVerifier riscZeroVerifier = new MockRiscZeroVerifier();
-        bytes memory expectedRootKey =
-            abi.encodePacked(bytes32(uint256(1)), bytes32(uint256(2)), bytes32(uint256(3)));
+        bytes memory expectedRootKey = abi.encodePacked(bytes32(uint256(1)), bytes32(uint256(2)), bytes32(uint256(3)));
 
         registeredExecutor = enclaveWallet.addr;
         teeProofVerifier = new TeeProofVerifier(riscZeroVerifier, IMAGE_ID, expectedRootKey);
-        bytes memory journal =
-            buildJournal(1234, PCR_HASH, expectedRootKey, uncompressedPublicKey(enclaveWallet), "");
-        teeProofVerifier.register("", journal);
+        TeeProofVerifier.AttestationData memory data = TeeProofVerifier.AttestationData({
+            timestampMs: 1234,
+            pcrHash: PCR_HASH,
+            publicKey: uncompressedPublicKey(enclaveWallet),
+            userData: ""
+        });
+        teeProofVerifier.register("", data);
     }
 
     function _assertLiveFactoryFork() internal view {

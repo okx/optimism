@@ -2,7 +2,7 @@
 pragma solidity ^0.8.15;
 
 // Libraries
-import {Clone} from "@solady/utils/Clone.sol";
+import { Clone } from "@solady/utils/Clone.sol";
 import {
     BondDistributionMode,
     Claim,
@@ -28,11 +28,11 @@ import {
 import "src/dispute/tee/lib/Errors.sol";
 
 // Interfaces
-import {ISemver} from "interfaces/universal/ISemver.sol";
-import {IDisputeGameFactory} from "interfaces/dispute/IDisputeGameFactory.sol";
-import {IDisputeGame} from "interfaces/dispute/IDisputeGame.sol";
-import {IAnchorStateRegistry} from "interfaces/dispute/IAnchorStateRegistry.sol";
-import {ITeeProofVerifier} from "interfaces/dispute/ITeeProofVerifier.sol";
+import { ISemver } from "interfaces/universal/ISemver.sol";
+import { IDisputeGameFactory } from "interfaces/dispute/IDisputeGameFactory.sol";
+import { IDisputeGame } from "interfaces/dispute/IDisputeGame.sol";
+import { IAnchorStateRegistry } from "interfaces/dispute/IAnchorStateRegistry.sol";
+import { ITeeProofVerifier } from "interfaces/dispute/ITeeProofVerifier.sol";
 
 /// @dev Game type constant for TEE Dispute Game.
 uint32 constant TEE_DISPUTE_GAME_TYPE = 1960;
@@ -89,7 +89,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         bytes32 endBlockHash;
         bytes32 endStateHash;
         uint256 l2Block;
-        bytes signature;    // 65 bytes ECDSA (r + s + v)
+        bytes signature; // 65 bytes ECDSA (r + s + v)
     }
 
     ////////////////////////////////////////////////////////////////
@@ -221,8 +221,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
 
             if (proxy.status() == GameStatus.CHALLENGER_WINS) revert InvalidParentGame();
         } else {
-            (startingOutputRoot.root, startingOutputRoot.l2SequenceNumber) =
-                ANCHOR_STATE_REGISTRY.getAnchorRoot();
+            (startingOutputRoot.root, startingOutputRoot.l2SequenceNumber) = ANCHOR_STATE_REGISTRY.getAnchorRoot();
         }
 
         if (l2SequenceNumber() <= startingOutputRoot.l2SequenceNumber) {
@@ -417,7 +416,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         refundModeCredit[_recipient] = 0;
         normalModeCredit[_recipient] = 0;
 
-        (bool success,) = _recipient.call{value: recipientCredit}(hex"");
+        (bool success,) = _recipient.call{ value: recipientCredit }(hex"");
         if (!success) revert BondTransferFailed();
     }
 
@@ -436,7 +435,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
             revert GameNotFinalized();
         }
 
-        try ANCHOR_STATE_REGISTRY.setAnchorState(IDisputeGame(address(this))) {} catch {}
+        try ANCHOR_STATE_REGISTRY.setAnchorState(IDisputeGame(address(this))) { } catch { }
 
         bool properGame = ANCHOR_STATE_REGISTRY.isGameProper(IDisputeGame(address(this)));
 
@@ -469,18 +468,53 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     //                    IDisputeGame Impl                       //
     ////////////////////////////////////////////////////////////////
 
-    function gameType() public view returns (GameType gameType_) { gameType_ = GAME_TYPE; }
-    function gameCreator() public pure returns (address creator_) { creator_ = _getArgAddress(0x00); }
-    function rootClaim() public pure returns (Claim rootClaim_) { rootClaim_ = Claim.wrap(_getArgBytes32(0x14)); }
-    function l1Head() public pure returns (Hash l1Head_) { l1Head_ = Hash.wrap(_getArgBytes32(0x34)); }
-    function l2SequenceNumber() public pure returns (uint256 l2SequenceNumber_) { l2SequenceNumber_ = _getArgUint256(0x54); }
-    function l2BlockNumber() public pure returns (uint256 l2BlockNumber_) { l2BlockNumber_ = l2SequenceNumber(); }
-    function parentIndex() public pure returns (uint32 parentIndex_) { parentIndex_ = _getArgUint32(0x74); }
-    function blockHash() public pure returns (bytes32 blockHash_) { blockHash_ = _getArgBytes32(0x78); }
-    function stateHash() public pure returns (bytes32 stateHash_) { stateHash_ = _getArgBytes32(0x98); }
-    function startingBlockNumber() external view returns (uint256) { return startingOutputRoot.l2SequenceNumber; }
-    function startingRootHash() external view returns (Hash) { return startingOutputRoot.root; }
-    function extraData() public pure returns (bytes memory extraData_) { extraData_ = _getArgBytes(0x54, 0x64); }
+    function gameType() public view returns (GameType gameType_) {
+        gameType_ = GAME_TYPE;
+    }
+
+    function gameCreator() public pure returns (address creator_) {
+        creator_ = _getArgAddress(0x00);
+    }
+
+    function rootClaim() public pure returns (Claim rootClaim_) {
+        rootClaim_ = Claim.wrap(_getArgBytes32(0x14));
+    }
+
+    function l1Head() public pure returns (Hash l1Head_) {
+        l1Head_ = Hash.wrap(_getArgBytes32(0x34));
+    }
+
+    function l2SequenceNumber() public pure returns (uint256 l2SequenceNumber_) {
+        l2SequenceNumber_ = _getArgUint256(0x54);
+    }
+
+    function l2BlockNumber() public pure returns (uint256 l2BlockNumber_) {
+        l2BlockNumber_ = l2SequenceNumber();
+    }
+
+    function parentIndex() public pure returns (uint32 parentIndex_) {
+        parentIndex_ = _getArgUint32(0x74);
+    }
+
+    function blockHash() public pure returns (bytes32 blockHash_) {
+        blockHash_ = _getArgBytes32(0x78);
+    }
+
+    function stateHash() public pure returns (bytes32 stateHash_) {
+        stateHash_ = _getArgBytes32(0x98);
+    }
+
+    function startingBlockNumber() external view returns (uint256) {
+        return startingOutputRoot.l2SequenceNumber;
+    }
+
+    function startingRootHash() external view returns (Hash) {
+        return startingOutputRoot.root;
+    }
+
+    function extraData() public pure returns (bytes memory extraData_) {
+        extraData_ = _getArgBytes(0x54, 0x64);
+    }
 
     function gameData() external view returns (GameType gameType_, Claim rootClaim_, bytes memory extraData_) {
         gameType_ = gameType();
@@ -492,16 +526,45 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     //                    Immutable Getters                       //
     ////////////////////////////////////////////////////////////////
 
-    function domainSeparator() external view returns (bytes32) { return _domainSeparator(); }
-    function batchProofTypehash() external pure returns (bytes32) { return BATCH_PROOF_TYPEHASH; }
-    function maxChallengeDuration() external view returns (Duration) { return MAX_CHALLENGE_DURATION; }
-    function maxProveDuration() external view returns (Duration) { return MAX_PROVE_DURATION; }
-    function disputeGameFactory() external view returns (IDisputeGameFactory) { return DISPUTE_GAME_FACTORY; }
-    function teeProofVerifier() external view returns (ITeeProofVerifier) { return TEE_PROOF_VERIFIER; }
-    function challengerBond() external view returns (uint256) { return CHALLENGER_BOND; }
-    function anchorStateRegistry() external view returns (IAnchorStateRegistry) { return ANCHOR_STATE_REGISTRY; }
-    function proposer_() external view returns (address) { return PROPOSER; }
-    function challenger_() external view returns (address) { return CHALLENGER; }
+    function domainSeparator() external view returns (bytes32) {
+        return _domainSeparator();
+    }
+
+    function batchProofTypehash() external pure returns (bytes32) {
+        return BATCH_PROOF_TYPEHASH;
+    }
+
+    function maxChallengeDuration() external view returns (Duration) {
+        return MAX_CHALLENGE_DURATION;
+    }
+
+    function maxProveDuration() external view returns (Duration) {
+        return MAX_PROVE_DURATION;
+    }
+
+    function disputeGameFactory() external view returns (IDisputeGameFactory) {
+        return DISPUTE_GAME_FACTORY;
+    }
+
+    function teeProofVerifier() external view returns (ITeeProofVerifier) {
+        return TEE_PROOF_VERIFIER;
+    }
+
+    function challengerBond() external view returns (uint256) {
+        return CHALLENGER_BOND;
+    }
+
+    function anchorStateRegistry() external view returns (IAnchorStateRegistry) {
+        return ANCHOR_STATE_REGISTRY;
+    }
+
+    function proposer_() external view returns (address) {
+        return PROPOSER;
+    }
+
+    function challenger_() external view returns (address) {
+        return CHALLENGER;
+    }
 
     ////////////////////////////////////////////////////////////////
     //                    Internal Functions                      //
@@ -513,7 +576,9 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     ///      verification endpoint and is unique per chain deployment.
     function _domainSeparator() private view returns (bytes32) {
         return keccak256(
-            abi.encode(DOMAIN_TYPEHASH, DOMAIN_NAME_HASH, DOMAIN_VERSION_HASH, block.chainid, address(TEE_PROOF_VERIFIER))
+            abi.encode(
+                DOMAIN_TYPEHASH, DOMAIN_NAME_HASH, DOMAIN_VERSION_HASH, block.chainid, address(TEE_PROOF_VERIFIER)
+            )
         );
     }
 
