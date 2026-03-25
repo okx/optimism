@@ -47,7 +47,7 @@ func RegisterGameTypes(
 			&client.NoopSyncStatusValidator{},
 			nil,
 			clients.L1Client(),
-			ActorCreator(ctx, l1Clock, proverClient, proveTimeout, factoryContract, contract, txSender, factoryContract),
+			ActorCreator(ctx, l1Clock, proverClient, proveTimeout, contract, txSender, factoryContract),
 		)
 	})
 
