@@ -34,8 +34,11 @@ var systemConfig []byte
 //go:embed abi/CrossL2Inbox.json
 var crossL2Inbox []byte
 
+//go:embed abi/AnchorStateRegistry.json
+var anchorStateRegistry []byte // For xlayer
+
 //go:embed abi/TeeDisputeGame.json
-var teeDisputeGame []byte // For XLayer
+var teeDisputeGame []byte // For xlayer
 
 func LoadDisputeGameFactoryABI() *abi.ABI {
 	return loadABI(disputeGameFactory)
@@ -72,7 +75,11 @@ func LoadCrossL2InboxABI() *abi.ABI {
 	return loadABI(crossL2Inbox)
 }
 
-func LoadTeeDisputeGameABI() *abi.ABI { // For XLayer
+func LoadAnchorStateRegistryABI() *abi.ABI { // For xlayer
+	return loadABI(anchorStateRegistry)
+}
+
+func LoadTeeDisputeGameABI() *abi.ABI { // For xlayer
 	return loadABI(teeDisputeGame)
 }
 

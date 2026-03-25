@@ -148,7 +148,8 @@ func (f *DisputeGameFactory) gameAtIndex(ctx context.Context, idx uint64) (gameM
 		claimant = result.GetAddress(2)
 		claim = result.GetHash(4)
 	} else if gameType == TEEGameType { // For xlayer: uses different claimData() ABI with no args
-		newGameContract := batching.NewBoundContract(&newGameClaimDataABI, address)
+		// For xlayer: use snapshot ABI loaded from compiled artifact instead of inline JSON
+		newGameContract := batching.NewBoundContract(teeDisputeGameSnapshotABI, address)
 		cCtx, cancel = context.WithTimeout(ctx, f.networkTimeout)
 		defer cancel()
 		result, err = f.caller.SingleCall(cCtx, rpcblock.Latest, newGameContract.Call(methodClaim))
