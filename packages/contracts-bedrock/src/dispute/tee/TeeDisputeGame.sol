@@ -443,6 +443,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     function gameCreator() public pure returns (address creator_) { creator_ = _getArgAddress(0x00); }
     function rootClaim() public pure returns (Claim rootClaim_) { rootClaim_ = Claim.wrap(_getArgBytes32(0x14)); }
     function l1Head() public pure returns (Hash l1Head_) { l1Head_ = Hash.wrap(_getArgBytes32(0x34)); }
+    function rootClaimByChainId(uint256) external pure returns (Claim rootClaim_) { rootClaim_ = Claim.wrap(_getArgBytes32(0x14)); }
     function l2SequenceNumber() public pure returns (uint256 l2SequenceNumber_) { l2SequenceNumber_ = _getArgUint256(0x54); }
     function l2BlockNumber() public pure returns (uint256 l2BlockNumber_) { l2BlockNumber_ = l2SequenceNumber(); }
     function parentIndex() public pure returns (uint32 parentIndex_) { parentIndex_ = _getArgUint32(0x74); }
