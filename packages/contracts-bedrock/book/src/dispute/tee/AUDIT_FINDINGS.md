@@ -246,7 +246,7 @@ A whitelisted proposer interacting with any malicious contract could have `facto
 **Recommendation:**
 This is a known OP Stack pattern. Document the risk prominently. Proposers should be advised to never interact with untrusted contracts from their whitelisted EOA. Long-term, consider passing the proposer address explicitly from the factory.
 
-> **Response: Acknowledged, won't fix.** This is a known OP Stack pattern used across all permissioned dispute games (including `PermissionedDisputeGame`). `tx.origin` is necessary to attribute the proposer through intermediate contracts like `DisputeGameFactoryRouter`. Proposers are trusted operators that should use dedicated EOAs.
+> **Response: Acknowledged, won't fix.** This is a known OP Stack pattern used across all permissioned dispute games (including `PermissionedDisputeGame`). `tx.origin` is necessary to attribute the proposer through intermediate contracts. Proposers are trusted operators that should use dedicated EOAs.
 
 ---
 

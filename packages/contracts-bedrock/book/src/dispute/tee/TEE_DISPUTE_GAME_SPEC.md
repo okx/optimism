@@ -11,7 +11,6 @@ TeeDisputeGame is a dispute game contract for the OP Stack that replaces interac
 - Integrates with `AnchorStateRegistry` for anchor state management, finalization, and validity checks
 - Uses `BondDistributionMode` (NORMAL/REFUND) from the shared Types library
 - Implements `IDisputeGame` interface for compatibility with `OptimismPortal` and other OP infrastructure
-- Adds a `DisputeGameFactoryRouter` for multi-zone game creation
 - Game type constant: `1960`
 
 ---
@@ -21,12 +20,6 @@ TeeDisputeGame is a dispute game contract for the OP Stack that replaces interac
 ### Contract Relationship Diagram
 
 ```
-                          +---------------------------+
-                          | DisputeGameFactoryRouter  |
-                          |  (multi-zone routing)     |
-                          +------------+--------------+
-                                       |
-                                       v
                           +---------------------------+
                           |   DisputeGameFactory      |
                           |  (creates Clone proxies)  |
