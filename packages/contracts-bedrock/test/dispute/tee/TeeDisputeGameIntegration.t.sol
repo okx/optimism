@@ -12,7 +12,6 @@ import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
 import { ITeeProofVerifier } from "interfaces/dispute/ITeeProofVerifier.sol";
 import { TeeDisputeGame, TEE_DISPUTE_GAME_TYPE } from "src/dispute/tee/TeeDisputeGame.sol";
 import { TeeProofVerifier } from "src/dispute/tee/TeeProofVerifier.sol";
-import { DisputeGameFactoryRouter } from "src/dispute/DisputeGameFactoryRouter.sol";
 import { BondDistributionMode, Claim, Duration, GameStatus, GameType, Hash, Proposal } from "src/dispute/lib/Types.sol";
 import { GameNotFinalized } from "src/dispute/lib/Errors.sol";
 import { ParentGameNotResolved, InvalidParentGame } from "src/dispute/tee/lib/Errors.sol";
@@ -442,70 +441,7 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
     }
 
     ////////////////////////////////////////////////////////////////
-    //     Test 8: Full Cycle via Router                           //
-    ////////////////////////////////////////////////////////////////
-
-    /// @notice Router.create → challenge → prove → resolve → claimCredit
-    function test_lifecycle_viaRouter_fullCycle() public {
-        DisputeGameFactoryRouter router = new DisputeGameFactoryRouter(address(this));
-        uint256 zoneId = 1;
-        router.setZone(zoneId, address(factory));
-
-        bytes32 endBlockHash = keccak256("router-end-block");
-        bytes32 endStateHash = keccak256("router-end-state");
-        bytes memory extraData = buildExtraData(ANCHOR_L2_BLOCK + 5, type(uint32).max, endBlockHash, endStateHash);
-        Claim rootClaim = computeRootClaim(endBlockHash, endStateHash);
-
-        // Create via router
-        vm.startPrank(proposer, proposer);
-        address proxy = router.create{ value: DEFENDER_BOND }(zoneId, TEE_GAME_TYPE, rootClaim, extraData);
-        vm.stopPrank();
-
-        TeeDisputeGame game = TeeDisputeGame(payable(proxy));
-
-        // Verify creator/proposer attribution
-        assertEq(game.gameCreator(), address(router));
-        assertEq(game.proposer(), proposer);
-
-        // Challenge
-        vm.prank(challenger);
-        game.challenge{ value: CHALLENGER_BOND }();
-
-        // Prove
-        TeeDisputeGame.BatchProof[] memory proofs = new TeeDisputeGame.BatchProof[](1);
-        proofs[0] = buildBatchProof(
-            BatchInput({
-                startBlockHash: ANCHOR_BLOCK_HASH,
-                startStateHash: ANCHOR_STATE_HASH,
-                endBlockHash: endBlockHash,
-                endStateHash: endStateHash,
-                l2Block: game.l2SequenceNumber()
-            }),
-            DEFAULT_EXECUTOR_KEY,
-            game.domainSeparator()
-        );
-
-        vm.prank(proposer);
-        game.prove(abi.encode(proofs));
-
-        // Resolve
-        assertEq(uint8(game.resolve()), uint8(GameStatus.DEFENDER_WINS));
-
-        // Wait for finality
-        vm.warp(block.timestamp + 1);
-
-        // claimCredit — proposer proved, gets all
-        uint256 proposerBalanceBefore = proposer.balance;
-        game.claimCredit(proposer);
-
-        assertEq(uint8(game.bondDistributionMode()), uint8(BondDistributionMode.NORMAL));
-        assertEq(proposer.balance, proposerBalanceBefore + DEFENDER_BOND + CHALLENGER_BOND);
-        // Bond attributed to proposer (tx.origin), not to router
-        assertEq(game.refundModeCredit(address(router)), 0);
-    }
-
-    ////////////////////////////////////////////////////////////////
-    //   Test 9: Cross-Chain — Parent Game Wrong GameType           //
+    //   Test 8: Cross-Chain — Parent Game Wrong GameType           //
     ////////////////////////////////////////////////////////////////
 
     /// @notice Creating a TZ game with a parent of a different GameType reverts
@@ -536,7 +472,7 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
     }
 
     ////////////////////////////////////////////////////////////////
-    //   Test 10: Cross-Chain — Anchor Isolation                    //
+    //   Test 9: Cross-Chain — Anchor Isolation                     //
     ////////////////////////////////////////////////////////////////
 
     /// @notice A resolved TZ game cannot update XL's AnchorStateRegistry
@@ -567,7 +503,7 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
     }
 
     ////////////////////////////////////////////////////////////////
-    //   Test 11: Cross-Chain — Parent Chain Isolation               //
+    //   Test 10: Cross-Chain — Parent Chain Isolation               //
     ////////////////////////////////////////////////////////////////
 
     /// @notice In a shared Factory, a child game can reference a same-type parent

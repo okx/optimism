@@ -1,21 +1,26 @@
 # TEE Dispute Game 本地部署联调指南
 
-> 供 TEE ZK Prover 对接联调使用，mock attestation + mock ZK proof。
-> 全部通过 forge script / cast 命令行操作。
+> 供 TEE ZK Prover 对接联调使用。全部通过 forge script / cast 命令行操作。
 
 ## 目录
 
 - [架构概览](#架构概览)
 - [真实 vs Mock 对照](#真实-vs-mock-对照)
+- [脚本一览](#脚本一览)
 - [前置条件](#前置条件)
-- [快速开始](#快速开始)
-- [分步详解](#分步详解)
+- [Mock 模式（快速验证）](#mock-模式快速验证)
   - [Step 1: 启动 Anvil](#step-1-启动-anvil)
   - [Step 2: 部署合约](#step-2-部署合约)
   - [Step 3: 运行 E2E](#step-3-运行-e2e)
   - [Step 4: 领取 Bond](#step-4-领取-bond)
+- [Fork 模式（真实 ZK Proof 验证）](#fork-模式真实-zk-proof-验证)
+  - [概述](#概述)
+  - [Step 1: Fork 主网启动 Anvil](#step-1-fork-主网启动-anvil)
+  - [Step 2: 部署合约（真实 RiscZero Verifier）](#step-2-部署合约真实-risczero-verifier)
+  - [Step 3: 运行 E2E（真实 seal + 外部签名）](#step-3-运行-e2e真实-seal--外部签名)
+  - [Journal 字段解析](#journal-字段解析)
 - [Prover 对接核心概念](#prover-对接核心概念)
-  - [注册 Enclave (Mock Attestation)](#注册-enclave-mock-attestation)
+  - [注册 Enclave](#注册-enclave)
   - [prove() 输入格式](#prove-输入格式)
   - [从外部传入 prove 输入](#从外部传入-prove-输入)
   - [EIP-712 签名规范](#eip-712-签名规范)
@@ -84,6 +89,15 @@
 
 整个 prove 流程中唯一 mock 的是**被签名的数据**（block/state hash 默认是假值，但可以通过环境变量替换为真实数据）。签名的生成和验证链路与生产环境完全一致。
 
+## 脚本一览
+
+| 脚本 | 用途 | RiscZero Verifier |
+|---|---|---|
+| `scripts/tee/DeployTeeMock.s.sol` | Mock 模式部署 | MockRiscZeroVerifier（任意 seal 通过） |
+| `scripts/tee/TeeProveE2E.s.sol` | Mock E2E（本地签名） | 同上 |
+| `scripts/tee/DeployTeeFork.s.sol` | Fork 模式部署 | 主网真实 RiscZeroVerifierRouter |
+| `scripts/tee/TeeProveE2EFork.s.sol` | Fork E2E（真实 seal + 外部签名） | 同上 |
+
 ---
 
 ## 前置条件
@@ -91,7 +105,9 @@
 - 已安装 [Foundry](https://book.getfoundry.sh/getting-started/installation)（`forge`、`cast`、`anvil`）
 - 已 clone 仓库并安装依赖
 
-## 快速开始
+## Mock 模式（快速验证）
+
+### 快速开始
 
 ```bash
 # Terminal 1: 启动 Anvil
@@ -139,10 +155,6 @@ forge script scripts/tee/TeeProveE2E.s.sol \
 
 === E2E Complete (steps 1-5 passed) ===
 ```
-
----
-
-## 分步详解
 
 ### Step 1: 启动 Anvil
 
@@ -237,15 +249,143 @@ cast send <GAME_ADDRESS> 'claimCredit(address)' \
 
 ---
 
+## Fork 模式（真实 ZK Proof 验证）
+
+### 概述
+
+Fork 模式通过 `anvil --fork-url` fork 以太坊主网，使用链上已部署的 **RiscZeroVerifierRouter** (`0x8EaB2D97Dfce405A1692a21b3ff3A172d593D319`) 进行真实的 Groth16 ZK proof 验证。
+
+与 mock 模式的区别：
+
+| | Mock 模式 | Fork 模式 |
+|---|---|---|
+| RiscZero Verifier | MockRiscZeroVerifier（任意 seal 通过） | 主网真实 RiscZeroVerifierRouter |
+| `register()` seal | 空字节 `0x` | 真实 Groth16 seal（如 Boundless 返回的） |
+| imageId | 假值 | 真实 guest image ID |
+| expectedRootKey | 假值 | 真实 AWS Nitro P384 root key（96 字节） |
+| prove() 签名 | ENCLAVE_KEY 本地签名 | 外部传入 `BATCH_SIGNATURE` |
+
+### Step 1: Fork 主网启动 Anvil
+
+```bash
+# 需要以太坊主网 RPC（Alchemy / Infura / 自建节点）
+anvil --fork-url $ETH_RPC_URL --block-time 1
+```
+
+> 注意：fork 主网后 chainId 为 1（非 mock 模式的 31337）。Anvil 默认账户同样预充 10000 ETH。prover 构造 EIP-712 签名时 chainId 必须使用 1。
+
+### Step 2: 部署合约（真实 RiscZero Verifier）
+
+脚本：`scripts/tee/DeployTeeFork.s.sol`
+
+```bash
+PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+PROPOSER=0x70997970C51812dc3A010C7d01b50e0d17dc79C8 \
+CHALLENGER=0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC \
+RISC_ZERO_VERIFIER=0x8EaB2D97Dfce405A1692a21b3ff3A172d593D319 \
+RISC_ZERO_IMAGE_ID=0x<guest image id bytes32> \
+NITRO_ROOT_KEY=0x<96 字节 AWS Nitro P384 root key hex> \
+forge script scripts/tee/DeployTeeFork.s.sol \
+  --rpc-url http://localhost:8545 --broadcast
+```
+
+**环境变量说明：**
+
+| 变量 | 说明 |
+|---|---|
+| `RISC_ZERO_VERIFIER` | 主网 RiscZeroVerifierRouter 地址 |
+| `RISC_ZERO_IMAGE_ID` | RISC Zero guest program 的 image ID（ELF hash） |
+| `NITRO_ROOT_KEY` | AWS Nitro Enclave P384 root public key，96 字节（不含 0x04 前缀） |
+
+保存输出的 `TeeProofVerifier` 和 `DisputeGameFactory` 地址。
+
+### Step 3: 运行 E2E（真实 seal + 外部签名）
+
+脚本：`scripts/tee/TeeProveE2EFork.s.sol`
+
+```bash
+PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+PROPOSER_KEY=0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d \
+CHALLENGER_KEY=0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a \
+TEE_PROOF_VERIFIER=<部署输出的地址> \
+DISPUTE_GAME_FACTORY=<部署输出的地址> \
+SEAL=0x<Boundless 返回的 groth16 seal hex> \
+ATT_TIMESTAMP_MS=<attestation 中的 timestampMs> \
+ATT_PCR_HASH=0x<attestation 中的 pcrHash> \
+ATT_PUBLIC_KEY=0x<65 字节未压缩公钥 hex> \
+ATT_USER_DATA=0x<userData hex，可为空 0x> \
+BATCH_SIGNATURE=0x<TEE prover 签名的 65 字节 r+s+v hex> \
+END_BLOCK_HASH=0x<终态 block hash> \
+END_STATE_HASH=0x<终态 state hash> \
+L2_SEQUENCE_NUMBER=<L2 区块号> \
+forge script scripts/tee/TeeProveE2EFork.s.sol \
+  --rpc-url http://localhost:8545 --broadcast
+```
+
+**环境变量说明：**
+
+| 变量 | 说明 |
+|---|---|
+| `SEAL` | Boundless 返回的 Groth16 proof seal（hex 编码） |
+| `ATT_TIMESTAMP_MS` | attestation 中的 Unix 时间戳（毫秒） |
+| `ATT_PCR_HASH` | PCR0 hash（bytes32） |
+| `ATT_PUBLIC_KEY` | enclave 的 65 字节未压缩 secp256k1 公钥 |
+| `ATT_USER_DATA` | attestation 中的附加数据（可为空 `0x`） |
+| `BATCH_SIGNATURE` | TEE prover 对 EIP-712 batch digest 的签名（65 字节） |
+
+### Journal 字段解析
+
+`register()` 时合约会用 `attestationData` + `expectedRootKey` 重建 journal，然后计算 `journalDigest = SHA256(journal)` 交给 RiscZero verifier 验证。
+
+如果你有 Boundless 返回的原始 journal（hex），按以下顺序拆解为环境变量：
+
+```
+journal = timestampMs (8 bytes)       --> ATT_TIMESTAMP_MS（转为 uint64 十进制）
+       || pcrHash     (32 bytes)      --> ATT_PCR_HASH（0x 前缀 hex）
+       || rootKey     (96 bytes)      --> 跳过（合约从 expectedRootKey 取，部署时通过 NITRO_ROOT_KEY 设置）
+       || pubKeyLen   (1 byte = 0x41) --> 跳过
+       || publicKey   (65 bytes)      --> ATT_PUBLIC_KEY（0x 前缀 hex）
+       || userDataLen (2 bytes)       --> 跳过
+       || userData    (variable)      --> ATT_USER_DATA（0x 前缀 hex，可为空 0x）
+```
+
+**示例：用 cast 从 journal hex 中提取字段**
+
+```bash
+JOURNAL=0x<完整 journal hex>
+
+# timestampMs: 前 8 字节 = 16 hex chars
+ATT_TIMESTAMP_MS=$(cast to-dec $(echo $JOURNAL | cut -c3-18))
+
+# pcrHash: 接下来 32 字节 = 64 hex chars (offset 18)
+ATT_PCR_HASH=0x$(echo $JOURNAL | cut -c19-82)
+
+# 跳过 rootKey: 96 字节 = 192 hex chars (offset 82)
+# pubKeyLen: 1 字节 = 2 hex chars (offset 274), 值应为 0x41 = 65
+# publicKey: 65 字节 = 130 hex chars (offset 276)
+ATT_PUBLIC_KEY=0x$(echo $JOURNAL | cut -c277-406)
+
+# userDataLen: 2 字节 = 4 hex chars (offset 406)
+USER_DATA_LEN=$(cast to-dec 0x$(echo $JOURNAL | cut -c407-410))
+# userData: 从 offset 410 开始
+if [ "$USER_DATA_LEN" -gt 0 ]; then
+  ATT_USER_DATA=0x$(echo $JOURNAL | cut -c411-$((410 + USER_DATA_LEN * 2)))
+else
+  ATT_USER_DATA=0x
+fi
+```
+
+---
+
 ## Prover 对接核心概念
 
-### 注册 Enclave (Mock Attestation)
+### 注册 Enclave
 
 ```solidity
 function register(bytes calldata seal, AttestationData calldata attestationData) external onlyOwner
 ```
 
-使用 `MockRiscZeroVerifier` 时，ZK proof 验证被跳过。只需提供：
+Mock 模式下使用 `MockRiscZeroVerifier`，ZK proof 验证被跳过。只需提供：
 
 - `seal`：空字节 `0x`
 - `attestationData.publicKey`：**65 字节 secp256k1 未压缩公钥**（`0x04` + 32 字节 x + 32 字节 y）
@@ -256,6 +396,8 @@ function register(bytes calldata seal, AttestationData calldata attestationData)
 合约通过 `keccak256(x || y)` 从公钥中提取 Ethereum 地址。后续 `verifyBatch()` 会通过 ECDSA recover 得到 signer 地址，与这个注册地址进行比对。
 
 **关键**：用于签名 batch 的私钥必须与注册时提供的公钥是同一对密钥。
+
+Fork 模式下需要提供真实的 seal 和 attestation data，详见 [Fork 模式](#fork-模式真实-zk-proof-验证)。
 
 ### prove() 输入格式
 
@@ -287,87 +429,37 @@ struct BatchProof {
 
 ### 从外部传入 prove 输入
 
-`TeeProveE2E.s.sol` 支持两种模式：
+两套 E2E 脚本均支持通过环境变量覆盖 batch 数据（不设时使用 mock 默认值）：
 
-**Mock 模式**（默认）：脚本用 `ENCLAVE_KEY` 在本地签名，用于快速验证全流程。
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `START_BLOCK_HASH` | `keccak256("genesis-block")` | batch 起始 block hash，必须匹配 anchor |
+| `START_STATE_HASH` | `keccak256("genesis-state")` | batch 起始 state hash，必须匹配 anchor |
+| `END_BLOCK_HASH` | `keccak256("end-block-100")` | batch 终态 block hash |
+| `END_STATE_HASH` | `keccak256("end-state-100")` | batch 终态 state hash |
+| `L2_SEQUENCE_NUMBER` | `100` | L2 区块号 |
 
-**External 模式**（对接用）：TEE prover 在 enclave 内签好名，把 signature 传出来。脚本不需要也不应该拿到 enclave 私钥。
+**签名来源的区别：**
 
-#### 环境变量
-
-| 变量 | 必填 | 默认值 | 说明 |
-|---|---|---|---|
-| `BATCH_SIGNATURE` | External 模式必填 | 无 | 65 字节签名 hex（`r+s+v`），设置后进入 external 模式 |
-| `ENCLAVE_ADDR` | External 模式必填 | 无 | 已注册的 enclave 地址（用于校验注册状态） |
-| `ENCLAVE_KEY` | Mock 模式必填 | 无 | enclave 私钥，仅 mock 模式使用 |
-| `START_BLOCK_HASH` | 否 | `keccak256("genesis-block")` | batch 起始 block hash，必须匹配 anchor |
-| `START_STATE_HASH` | 否 | `keccak256("genesis-state")` | batch 起始 state hash，必须匹配 anchor |
-| `END_BLOCK_HASH` | 否 | `keccak256("end-block-100")` | batch 终态 block hash |
-| `END_STATE_HASH` | 否 | `keccak256("end-state-100")` | batch 终态 state hash |
-| `L2_SEQUENCE_NUMBER` | 否 | `100` | L2 区块号 |
-
-#### External 模式（TEE Prover 对接）
-
-TEE prover 的对接流程：
-
-1. Prover 从链上查询 `game.domainSeparator()` 和 batch 数据
-2. Prover 在 TEE enclave 内按 [EIP-712 签名规范](#eip-712-签名规范) 计算 digest 并签名
-3. Prover 将 65 字节签名（`r+s+v`）传出
-4. 通过 `BATCH_SIGNATURE` 环境变量传给脚本
-
-```bash
-# 1. 先查询 domain separator（prover 签名时需要）
-cast call <GAME_ADDRESS> 'domainSeparator()(bytes32)' --rpc-url http://localhost:8545
-
-# 2. TEE prover 在 enclave 内签名，产出 65 字节签名 hex
-
-# 3. 用外部签名运行脚本
-PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
-PROPOSER_KEY=0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d \
-CHALLENGER_KEY=0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a \
-TEE_PROOF_VERIFIER=0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512 \
-DISPUTE_GAME_FACTORY=0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9 \
-ENCLAVE_ADDR=0x<已注册的 enclave 地址> \
-BATCH_SIGNATURE=0x<65 字节 r+s+v 签名 hex> \
-END_BLOCK_HASH=0x<prover 计算的终态 block hash> \
-END_STATE_HASH=0x<prover 计算的终态 state hash> \
-L2_SEQUENCE_NUMBER=<目标 L2 区块号> \
-forge script scripts/tee/TeeProveE2E.s.sol \
-  --rpc-url http://localhost:8545 --broadcast
-```
-
-> 注意：external 模式下不需要设置 `ENCLAVE_KEY`。enclave 私钥始终留在 TEE 内部，不会暴露。
-
-#### Mock 模式（快速验证）
-
-```bash
-# 脚本用 ENCLAVE_KEY 在本地签名
-PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
-PROPOSER_KEY=0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d \
-CHALLENGER_KEY=0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a \
-ENCLAVE_KEY=0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6 \
-TEE_PROOF_VERIFIER=0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512 \
-DISPUTE_GAME_FACTORY=0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9 \
-forge script scripts/tee/TeeProveE2E.s.sol \
-  --rpc-url http://localhost:8545 --broadcast
-```
-
-#### 注意事项
-
-- `START_BLOCK_HASH` / `START_STATE_HASH` 必须满足 `keccak256(abi.encode(startBlockHash, startStateHash))` 等于链上 anchor state 的 root。可查询：`cast call $ANCHOR_STATE_REGISTRY 'getAnchorRoot()(bytes32,uint256)'`
-- `END_BLOCK_HASH` / `END_STATE_HASH` 的 `keccak256(abi.encode(...))` 会作为 `rootClaim` 写入 game。
-- `L2_SEQUENCE_NUMBER` 必须大于 anchor 的 l2SequenceNumber。
-- `BATCH_SIGNATURE` 必须是对正确 EIP-712 digest 的签名，且签名者必须是已注册的 enclave。签名格式：`abi.encodePacked(r, s, v)` = 65 字节。
+| 脚本 | 签名方式 | 说明 |
+|---|---|---|
+| `TeeProveE2E.s.sol` | `ENCLAVE_KEY` 本地签名 | mock 模式，私钥在本地 |
+| `TeeProveE2EFork.s.sol` | `BATCH_SIGNATURE` 外部传入 | fork 模式，私钥留在 TEE 内 |
 
 **查询当前 anchor state（用于确定 START_BLOCK_HASH / START_STATE_HASH）：**
 
 ```bash
-# 返回 (root, l2SequenceNumber)
 cast call $ANCHOR_STATE_REGISTRY 'getAnchorRoot()(bytes32,uint256)' \
   --rpc-url http://localhost:8545
 ```
 
 默认部署的 anchor root = `keccak256(abi.encode(keccak256("genesis-block"), keccak256("genesis-state")))`，l2SequenceNumber = 0。
+
+**注意事项：**
+- `START_BLOCK_HASH` / `START_STATE_HASH` 必须满足 `keccak256(abi.encode(startBlockHash, startStateHash))` 等于链上 anchor root。
+- `END_BLOCK_HASH` / `END_STATE_HASH` 的 `keccak256(abi.encode(...))` 会作为 `rootClaim` 写入 game。
+- `L2_SEQUENCE_NUMBER` 必须大于 anchor 的 l2SequenceNumber。
+- `BATCH_SIGNATURE`（仅 fork 模式）必须是对正确 EIP-712 digest 的签名，签名者必须是已注册的 enclave，格式：`abi.encodePacked(r, s, v)` = 65 字节。
 
 ### EIP-712 签名规范
 
@@ -378,7 +470,7 @@ cast call $ANCHOR_STATE_REGISTRY 'getAnchorRoot()(bytes32,uint256)' \
 ```
 name:              "TeeDisputeGame"
 version:           "1"
-chainId:           <当前链 ID>   (Anvil = 31337)
+chainId:           <当前链 ID>   (mock 模式 = 31337, fork 主网 = 1)
 verifyingContract: <TeeProofVerifier 地址>   (注意：不是 game 地址！)
 ```
 
@@ -567,7 +659,13 @@ CHALLENGER    DEFENDER
 
 ### `register()` 报 `InvalidProof` 错误
 
-确认部署的是 `MockRiscZeroVerifier` 并传给了 `TeeProofVerifier` 构造函数。mock 的 `shouldRevert` 默认为 `false`。
+**Mock 模式**：确认部署的是 `MockRiscZeroVerifier` 并传给了 `TeeProofVerifier` 构造函数。mock 的 `shouldRevert` 默认为 `false`。
+
+**Fork 模式**：说明 seal 或 attestation data 与链上验证不匹配。检查：
+1. `RISC_ZERO_IMAGE_ID` 是否与生成 seal 时使用的 guest program 一致
+2. `NITRO_ROOT_KEY` 是否与 attestation 中的 root key 一致（96 字节，P384）
+3. `ATT_*` 字段是否与 journal 中的值完全对应（参考 [Journal 字段解析](#journal-字段解析)）
+4. `SEAL` 是否完整、未被截断
 
 ### `verifyBatch()` 报 `EnclaveNotRegistered` 错误
 
@@ -580,7 +678,7 @@ CHALLENGER    DEFENDER
 说明 ecrecover 恢复出的地址与预期不一致，检查以下几点：
 
 1. EIP-712 domain 中的 **`verifyingContract`** 必须是 `TeeProofVerifier` 地址（不是 game 地址）
-2. **`chainId`** 必须匹配当前链（Anvil = 31337）
+2. **`chainId`** 必须匹配当前链（mock 模式 = 31337，fork 主网 = 1）
 3. **签名格式**必须是 `r(32) + s(32) + v(1)` = 65 字节，用 `abi.encodePacked(r, s, v)` 打包
 4. 读取 `game.domainSeparator()` 与你的链下计算结果对比
 

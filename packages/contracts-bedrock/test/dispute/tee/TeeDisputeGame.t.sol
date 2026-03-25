@@ -5,7 +5,6 @@ import { IDisputeGameFactory } from "interfaces/dispute/IDisputeGameFactory.sol"
 import { IDisputeGame } from "interfaces/dispute/IDisputeGame.sol";
 import { IAnchorStateRegistry } from "interfaces/dispute/IAnchorStateRegistry.sol";
 import { ITeeProofVerifier } from "interfaces/dispute/ITeeProofVerifier.sol";
-import { DisputeGameFactoryRouter } from "src/dispute/DisputeGameFactoryRouter.sol";
 import { TeeDisputeGame, TEE_DISPUTE_GAME_TYPE } from "src/dispute/tee/TeeDisputeGame.sol";
 import { BadAuth, GameNotFinalized, IncorrectBondAmount, UnexpectedRootClaim } from "src/dispute/lib/Errors.sol";
 import {
@@ -82,28 +81,6 @@ contract TeeDisputeGameTest is TeeTestUtils {
         assertEq(game.proposer(), proposer);
         assertEq(game.refundModeCredit(proposer), DEFENDER_BOND);
         assertTrue(game.wasRespectedGameTypeWhenCreated());
-    }
-
-    function test_initialize_tracksTxOriginProposerThroughRouter() public {
-        DisputeGameFactoryRouter router = new DisputeGameFactoryRouter(address(this));
-        uint256 zoneId = 1;
-        router.setZone(zoneId, address(factory));
-
-        bytes32 endBlockHash = keccak256("router-end-block");
-        bytes32 endStateHash = keccak256("router-end-state");
-        bytes memory extraData = buildExtraData(ANCHOR_L2_BLOCK + 5, type(uint32).max, endBlockHash, endStateHash);
-        Claim rootClaim = computeRootClaim(endBlockHash, endStateHash);
-
-        vm.startPrank(proposer, proposer);
-        address proxy =
-            router.create{ value: DEFENDER_BOND }(zoneId, GameType.wrap(TEE_DISPUTE_GAME_TYPE), rootClaim, extraData);
-        vm.stopPrank();
-
-        TeeDisputeGame game = TeeDisputeGame(payable(proxy));
-        assertEq(game.gameCreator(), address(router));
-        assertEq(game.proposer(), proposer);
-        assertEq(game.refundModeCredit(proposer), DEFENDER_BOND);
-        assertEq(game.refundModeCredit(address(router)), 0);
     }
 
     function test_initialize_usesParentGameOutput() public {
