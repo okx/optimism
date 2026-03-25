@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	taskBasePath = "/v1/task/"
+	taskBasePath = "/task/"
 )
 
 // Task statuses returned by the TEE Prover.

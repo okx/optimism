@@ -21,7 +21,7 @@ func TestProveSuccess(t *testing.T) {
 	expectedTaskID := "task-abc-123"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
-		require.Equal(t, "/v1/task/", r.URL.Path)
+		require.Equal(t, "/task/", r.URL.Path)
 		require.Equal(t, "application/json", r.Header.Get("Content-Type"))
 
 		var req ProveRequest
@@ -109,7 +109,7 @@ func TestGetTaskFinished(t *testing.T) {
 	proofHex := "0xdeadbeef"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodGet, r.Method)
-		require.Equal(t, "/v1/task/task-123", r.URL.Path)
+		require.Equal(t, "/task/task-123", r.URL.Path)
 		data, _ := json.Marshal(TaskResultData{
 			Status:     TaskStatusFinished,
 			ProofBytes: proofHex,
@@ -170,7 +170,7 @@ func TestGetTaskServerError(t *testing.T) {
 func TestDeleteTask(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodDelete, r.Method)
-		require.Equal(t, "/v1/task/task-del", r.URL.Path)
+		require.Equal(t, "/task/task-del", r.URL.Path)
 		resp := ProverResponse{Code: codeOK, Message: "ok"}
 		json.NewEncoder(w).Encode(resp)
 	}))
