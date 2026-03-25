@@ -76,10 +76,10 @@ For full details see the [Boundless quick-start guide](https://docs.boundless.ne
 
 > **Docker is required.** The RISC Zero build system uses Docker to compile the guest ELF reproducibly. Make sure the Docker daemon is running before proceeding.
 
-Run from the `zk-prover/` directory:
+Run from the `op-tee-disputegame-utils/` directory:
 
 ```bash
-cd zk-prover
+cd op-tee-disputegame-utils
 
 RPC_URL=https://mainnet.base.org \
 PRIVATE_KEY=0x<your-key> \
@@ -131,7 +131,7 @@ The two proof outputs are:
 
 | Output | Description |
 |---|---|
-| **`journal`** (public inputs) | ABI-encoded PCR values (PCR0, PCR1, PCR2) and the TEE EOA public key extracted from the attestation. These are the publicly verifiable claims. |
+| **`journal`** (public inputs) | Raw bytes encoding: attestation timestamp, SHA256(PCR0), root CA public key, enclave public key, and user data. These are the publicly verifiable claims passed to `register()` as `AttestationData`. |
 | **`seal`** (Groth16 proof) | Compact SNARK proof that the journal was derived from a valid Nitro attestation signed by the AWS root key — without revealing the full attestation document. |
 
 `seal` + `journal` form the calldata submitted to the **`TeeVerifier` contract**. On successful on-chain verification, the contract registers the PCR hash and TEE EOA public key — making that Enclave instance a trusted attesting party recognized by the **`TeeDisputeGame` contract**.
@@ -140,18 +140,21 @@ The two proof outputs are:
 
 ---
 
-Run from the `zk-prover/` directory:
+Run from the `op-tee-disputegame-utils/` directory:
 
 ```bash
-cd zk-prover
+cd op-tee-disputegame-utils
 
 RPC_URL=https://mainnet.base.org \
 PRIVATE_KEY=0x<your-key> \
 PINATA_JWT=<your-jwt> \
   cargo run --release -p prover --bin request_proof -- \
-    --attestation "$attest_doc" \
+    --attestation "$attest_doc" \   # Note: $attest_doc should be the base64-encoded Nitro attestation document
     --program-info program_info.json \
-    --output ./proof_result.json
+    --output ./proof_result.jsocargo run --release -p prover --bin request_proof -- \
+    --attestation "$attest_doc" \   # Note: $attest_doc should be the base64-encoded Nitro attestation document
+    --program-info program_info.json \
+    --output ./proof_result.jsonn
 ```
 
 ### Flags
@@ -196,7 +199,14 @@ If `--output` is provided, the result JSON will contain:
   "journal_hex": "...",
   "image_id_hex": "...",
   "request_id": "...",
-  "register_calldata": "0x..."
+  "register_calldata": "0x...",
+  "journal_parsed": {
+    "timestamp_ms": 1234567890000,
+    "pcr0_hash": "0x<hex>",
+    "root_pubkey": "0x<hex>",
+    "enclave_pubkey": "0x<hex>",
+    "user_data": "0x<hex>"
+  }
 }
 ```
 
@@ -209,7 +219,7 @@ Proof fulfillment typically takes **5–15 minutes** depending on prover availab
 The `register_calldata` encodes a call to the following Solidity function:
 
 ```solidity
-function register(bytes calldata seal, bytes calldata journal) external onlyOwner;
+function register(bytes calldata seal, AttestationData calldata attestationData) external onlyOwner;
 ```
 
 Send the calldata to the deployed `TeeVerifier` contract using your preferred method:

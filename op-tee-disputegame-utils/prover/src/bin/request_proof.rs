@@ -27,8 +27,14 @@ use url::Url;
 // ABI definition for the on-chain TeeVerifier register function.
 alloy::sol! {
     interface ITeeVerifier {
+        struct AttestationData {
+            uint64 timestampMs;
+            bytes32 pcrHash;
+            bytes publicKey;
+            bytes userData;
+        }
         /// Register a TEE EOA on-chain by verifying a Groth16 ZK proof of the Nitro attestation.
-        function register(bytes calldata seal, bytes calldata journal) external;
+        function register(bytes calldata seal, AttestationData calldata attestationData) external;
     }
 }
 
@@ -207,10 +213,41 @@ async fn main() {
     let seal_hex = hex::encode(&seal);
     let journal_hex = hex::encode(&journal);
 
-    // ABI-encode calldata for: register(bytes calldata seal, bytes calldata journal)
+    // Parse journal fields (layout from guest/src/main.rs):
+    //   [0..8]   timestamp (u64 BE, milliseconds)
+    //   [8..40]  SHA256(PCR0) (32 bytes)
+    //   [40..136] root CA pubkey (96 bytes, P-384 point without 0x04 prefix)
+    //   [136]    enclave pubkey length (1 byte)
+    //   [137..137+n] enclave pubkey bytes
+    //   [137+n..137+n+2] user data length (u16 BE)
+    //   [139+n..] user data bytes
+    let mut joff = 0usize;
+    let timestamp_ms = u64::from_be_bytes(journal[joff..joff + 8].try_into().unwrap());
+    joff += 8;
+    let pcr0_hash: [u8; 32] = journal[joff..joff + 32].try_into().unwrap();
+    let pcr0_hash_hex = hex::encode(&pcr0_hash);
+    joff += 32;
+    let root_pubkey_hex = hex::encode(&journal[joff..joff + 96]);
+    joff += 96;
+    let enclave_pubkey_len = journal[joff] as usize;
+    joff += 1;
+    let enclave_pubkey = journal[joff..joff + enclave_pubkey_len].to_vec();
+    let enclave_pubkey_hex = hex::encode(&enclave_pubkey);
+    joff += enclave_pubkey_len;
+    let user_data_len = u16::from_be_bytes(journal[joff..joff + 2].try_into().unwrap()) as usize;
+    joff += 2;
+    let user_data = journal[joff..joff + user_data_len].to_vec();
+    let user_data_hex = hex::encode(&user_data);
+
+    // ABI-encode calldata for: register(bytes calldata seal, AttestationData calldata attestationData)
     let register_calldata = ITeeVerifier::registerCall {
         seal: seal.clone().into(),
-        journal: journal.clone().into(),
+        attestationData: ITeeVerifier::AttestationData {
+            timestampMs: timestamp_ms,
+            pcrHash: pcr0_hash.into(),
+            publicKey: enclave_pubkey.clone().into(),
+            userData: user_data.clone().into(),
+        },
     }
     .abi_encode();
     let register_calldata_hex = hex::encode(&register_calldata);
@@ -228,6 +265,13 @@ async fn main() {
             "image_id_hex": image_id_hex,
             "request_id": format!("{:x}", request_id),
             "register_calldata": format!("0x{}", register_calldata_hex),
+            "journal_parsed": {
+                "timestamp_ms": timestamp_ms,
+                "pcr0_hash": pcr0_hash_hex,
+                "root_pubkey": root_pubkey_hex,
+                "enclave_pubkey": enclave_pubkey_hex,
+                "user_data": user_data_hex,
+            },
         });
         std::fs::write(&path, serde_json::to_string_pretty(&json).unwrap())
             .unwrap_or_else(|e| panic!("Failed to write {}: {}", path.display(), e));
