@@ -178,42 +178,6 @@ func (c *ProverClient) GetTaskResult(ctx context.Context, taskID string) (*TaskR
 	return &data, nil
 }
 
-// DeleteTask terminates and deletes a prove task.
-func (c *ProverClient) DeleteTask(ctx context.Context, taskID string) error {
-	url := c.baseURL + taskBasePath + taskID
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create delete request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("failed to send delete request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read delete response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("delete request failed with status %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var envelope ProverResponse
-	if err := json.Unmarshal(respBody, &envelope); err != nil {
-		return fmt.Errorf("failed to unmarshal delete response: %w", err)
-	}
-
-	// code=10001 on DELETE means task already gone — treat as success
-	if envelope.Code != codeOK && envelope.Code != codeInvalidParams {
-		return fmt.Errorf("delete request returned error code %d: %s", envelope.Code, envelope.Message)
-	}
-
-	return nil
-}
-
 // ProveAndWait submits a proof request and retries until it succeeds or the context is cancelled.
 // On task failure (Failed status), it re-submits a new task. On non-retryable errors (code=10001),
 // it returns immediately. The ctx should have a timeout set by the caller to bound total prove time.

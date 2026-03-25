@@ -167,33 +167,6 @@ func TestGetTaskServerError(t *testing.T) {
 	require.Contains(t, err.Error(), "502")
 }
 
-func TestDeleteTask(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, http.MethodDelete, r.Method)
-		require.Equal(t, "/task/task-del", r.URL.Path)
-		resp := ProverResponse{Code: codeOK, Message: "ok"}
-		json.NewEncoder(w).Encode(resp)
-	}))
-	defer server.Close()
-
-	client := NewProverClient(server.URL, time.Second, testlog.Logger(t, log.LvlInfo))
-	err := client.DeleteTask(context.Background(), "task-del")
-	require.NoError(t, err)
-}
-
-func TestDeleteTaskNotFound(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// code=10001 on DELETE means task already gone — should be treated as success
-		resp := ProverResponse{Code: codeInvalidParams, Message: "task not found"}
-		json.NewEncoder(w).Encode(resp)
-	}))
-	defer server.Close()
-
-	client := NewProverClient(server.URL, time.Second, testlog.Logger(t, log.LvlInfo))
-	err := client.DeleteTask(context.Background(), "task-gone")
-	require.NoError(t, err)
-}
-
 func TestProveAndWaitSuccess(t *testing.T) {
 	var getCount atomic.Int32
 	expectedProof := []byte{0xde, 0xad, 0xbe, 0xef}
