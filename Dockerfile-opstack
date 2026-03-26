@@ -15,8 +15,9 @@ RUN --mount=type=cache,target=/root/.cache \
 # Copy source code
 COPY . .
 
-# Build Go binaries
+# Build Go binaries using just (upstream migrated from Make to Just)
 RUN --mount=type=cache,target=/root/.cache \
     --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    make build-go-no-submodules
+    JUST_UNSTABLE=1 just op-node op-batcher op-proposer op-challenger op-dispute-mon \
+    && JUST_UNSTABLE=1 just ./op-conductor/op-conductor
