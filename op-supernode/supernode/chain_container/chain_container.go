@@ -44,8 +44,16 @@ type ChainContainer interface {
 	OptimisticOutputAtTimestamp(ctx context.Context, ts uint64) (*eth.OutputResponse, error)
 	// RewindEngine rewinds the engine to the highest block with timestamp less than or equal to the given timestamp.
 	// invalidatedBlock is the block that triggered the rewind and is passed to reset callbacks.
+	// WARNING: this is a dangerous stateful operation and is intended to be called only
+	// by interop transition application. Other callers should not use it until the
+	// interface is refactored to make that ownership explicit.
+	// TODO(#19561): remove this footgun by moving reorg-triggering operations behind a
+	// smaller interop-owned interface.
 	RewindEngine(ctx context.Context, timestamp uint64, invalidatedBlock eth.BlockRef) error
 	RegisterVerifier(v activity.VerificationActivity)
+	// VerifierCurrentL1s returns the CurrentL1 from each registered verifier.
+	// This allows callers to determine the minimum L1 block that all verifiers have processed.
+	VerifierCurrentL1s() []eth.BlockID
 	// FetchReceipts fetches the receipts for a given block by hash.
 	// Returns block info and receipts, or an error if the block or receipts cannot be fetched.
 	FetchReceipts(ctx context.Context, blockHash eth.BlockID) (eth.BlockInfo, types.Receipts, error)
@@ -53,8 +61,20 @@ type ChainContainer interface {
 	BlockTime() uint64
 	// InvalidateBlock adds a block to the deny list and triggers a rewind if the chain
 	// currently uses that block at the specified height.
+	// WARNING: this is a dangerous stateful operation and is intended to be called only
+	// by interop transition application. Other callers should not use it until the
+	// interface is refactored to make that ownership explicit.
+	// TODO(#19561): remove this footgun by moving reorg-triggering operations behind a
+	// smaller interop-owned interface.
 	// Returns true if a rewind was triggered, false otherwise.
-	InvalidateBlock(ctx context.Context, height uint64, payloadHash common.Hash) (bool, error)
+	InvalidateBlock(ctx context.Context, height uint64, payloadHash common.Hash, decisionTimestamp uint64) (bool, error)
+	// PruneDeniedAtOrAfterTimestamp removes deny-list entries with DecisionTimestamp >= timestamp.
+	// Returns map of removed hashes by height.
+	PruneDeniedAtOrAfterTimestamp(timestamp uint64) (map[uint64][]common.Hash, error)
+	// PauseAndStopVN pauses the chain container restart loop and stops the virtual node.
+	// This is used to freeze a chain's VN before a multi-chain rewind begins, preventing
+	// the VN from issuing forkchoice updates that race with the rewind of a peer chain.
+	PauseAndStopVN(ctx context.Context) error
 	// IsDenied checks if a block hash is on the deny list at the given height.
 	IsDenied(height uint64, payloadHash common.Hash) (bool, error)
 	// SetResetCallback sets a callback that is invoked when the chain resets.
@@ -77,6 +97,7 @@ type simpleChainContainer struct {
 	denyList           *DenyList
 	pause              atomic.Bool
 	stop               atomic.Bool
+	resetting          atomic.Bool
 	stopped            chan struct{}
 	log                gethlog.Logger
 	chainID            eth.ChainID
@@ -158,6 +179,14 @@ func (c *simpleChainContainer) RegisterVerifier(v activity.VerificationActivity)
 	c.verifiers = append(c.verifiers, v)
 }
 
+func (c *simpleChainContainer) VerifierCurrentL1s() []eth.BlockID {
+	result := make([]eth.BlockID, len(c.verifiers))
+	for i, v := range c.verifiers {
+		result[i] = v.CurrentL1()
+	}
+	return result
+}
+
 // defaultVirtualNodeFactory is the default factory that creates a real VirtualNode
 func defaultVirtualNodeFactory(cfg *opnodecfg.Config, log gethlog.Logger, initOverload *rollupNode.InitializationOverrides, appVersion string, superAuthority rollup.SuperAuthority) virtual_node.VirtualNode {
 	initOverload.SuperAuthority = superAuthority
@@ -200,6 +229,13 @@ func (c *simpleChainContainer) Start(ctx context.Context) error {
 		// Pass in the chain container as a SuperAuthority
 		c.vn = c.virtualNodeFactory(c.vncfg, c.log, c.initOverload, c.appVersion, c)
 		if c.pause.Load() {
+			// Check for stop/cancellation even while paused, so teardown doesn't hang.
+			// Without this, a stuck pause (e.g. from RewindEngine exiting before Resume)
+			// causes this loop to spin forever, blocking wg.Wait() in Supernode.Stop().
+			if c.stop.Load() || ctx.Err() != nil {
+				c.log.Info("chain container stop requested while paused, stopping restart loop")
+				break
+			}
 			c.log.Info("chain container paused")
 			time.Sleep(1 * time.Second)
 			continue
@@ -211,14 +247,19 @@ func (c *simpleChainContainer) Start(ctx context.Context) error {
 		// start the virtual node
 		err := c.vn.Start(ctx)
 		if err != nil {
-			c.log.Warn("virtual node exited with error", "error", err)
+			c.log.Warn("virtual node exited with error", "vn_id", c.vn, "error", err)
+		} else {
+			c.log.Info("virtual node exited", "vn_id", c.vn)
 		}
 
 		// always stop the virtual node after it exits
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		if stopErr := c.vn.Stop(stopCtx); stopErr != nil {
 			c.log.Error("error stopping virtual node", "error", stopErr)
+		} else {
+			c.log.Info("virtual node stopped", "vn_id", c.vn)
 		}
+
 		cancel()
 		if ctx.Err() != nil {
 			c.log.Info("chain container context cancelled, stopping restart loop", "ctx_err", ctx.Err())
@@ -230,7 +271,6 @@ func (c *simpleChainContainer) Start(ctx context.Context) error {
 			c.log.Info("chain container stop requested, stopping restart loop")
 			break
 		}
-
 	}
 	c.log.Info("chain container exiting")
 	return nil
@@ -315,7 +355,7 @@ func (c *simpleChainContainer) LocalSafeBlockAtTimestamp(ctx context.Context, ts
 	}
 	head := ss.LocalSafeL2
 	if num > head.Number {
-		c.log.Warn("target block number exceeds local safe head", "targetBlockNumber", num, "head", head.Number)
+		c.log.Debug("target block number exceeds local safe head", "targetBlockNumber", num, "head", head.Number)
 		return eth.L2BlockRef{}, ethereum.NotFound
 	}
 
@@ -328,7 +368,7 @@ func (c *simpleChainContainer) SyncStatus(ctx context.Context) (*eth.SyncStatus,
 		if c.log != nil {
 			c.log.Warn("SyncStatus: virtual node not initialized")
 		}
-		return &eth.SyncStatus{}, nil
+		return nil, virtual_node.ErrVirtualNodeNotRunning
 	}
 	st, err := c.vn.SyncStatus(ctx)
 	if err != nil {
@@ -360,7 +400,15 @@ func (c *simpleChainContainer) safeDBAtL2(ctx context.Context, l2 eth.BlockID) (
 	}
 	currentL1 := status.CurrentL1
 	c.log.Debug("safeDBAtL2", "l2", l2, "currentL1", currentL1, "err", err)
-	return c.vn.L1AtSafeHead(ctx, l2)
+	l1, err := c.vn.L1AtSafeHead(ctx, l2)
+	if err != nil {
+		// Map L1AtSafeHeadNotFound to ethereum.NotFound so callers treat chain lag as "not ready"
+		if errors.Is(err, virtual_node.ErrL1AtSafeHeadNotFound) {
+			return eth.BlockID{}, fmt.Errorf("L1 at safe head not available for L2 %s: %w", l2, ethereum.NotFound)
+		}
+		return eth.BlockID{}, err
+	}
+	return l1, nil
 }
 
 // VerifiedAt returns the verified L2 and L1 blocks for the given L2 timestamp.
@@ -405,8 +453,9 @@ func (c *simpleChainContainer) OptimisticAt(ctx context.Context, ts uint64) (l2,
 		return eth.BlockID{}, eth.BlockID{}, err
 	}
 
-	// if there were Verification Activities, we could check if there was a pre-verified block which was added to the denylist
-	// but there are currently no verification activities, so we just return the l2 and l1 blocks
+	// VerifiedAt only constrains the result when registered verification
+	// activities report that the timestamp is not yet verified. Otherwise the
+	// current safe L2/L1 pair can be returned directly.
 	return l2Block.ID(), l1Block, nil
 }
 
@@ -473,7 +522,16 @@ func isCriticalRewindError(err error) bool {
 		errors.Is(err, engine_controller.ErrRewindOverFinalizedHead)
 }
 
+// WARNING: this should only be called by the interop activity.
+// Other callers risk triggering chain rewinds outside the interop WAL model.
+// TODO(#19561): remove this footgun by moving reorg-triggering operations behind a
+// smaller interop-owned interface.
 func (c *simpleChainContainer) RewindEngine(ctx context.Context, timestamp uint64, invalidatedBlock eth.BlockRef) error {
+	if !c.resetting.CompareAndSwap(false, true) {
+		return fmt.Errorf("reset already in progress")
+	}
+	defer c.resetting.Store(false)
+
 	if c.vn == nil {
 		return fmt.Errorf("virtual node not initialized")
 	}
@@ -486,6 +544,10 @@ func (c *simpleChainContainer) RewindEngine(ctx context.Context, timestamp uint6
 	if err != nil {
 		return err
 	}
+	// Always resume the container on return, even if we exit early due to context cancellation
+	// or an error mid-rewind. Without this, a cancelled ctx leaves pause=true permanently,
+	// causing the Start() loop to spin forever and block Supernode.Stop()'s wg.Wait().
+	defer c.Resume(context.Background()) //nolint:errcheck
 	c.log.Info("chain_container/RewindEngine: paused container")
 
 	// stop the vn
@@ -531,6 +593,20 @@ retryLoop:
 	c.log.Info("chain_container/RewindEngine: resumed container")
 
 	return nil
+}
+
+// PauseAndStopVN pauses the container restart loop and stops the running virtual node.
+// This must be called before a multi-chain rewind to prevent a peer chain's VN from
+// issuing forkchoice updates that race with the rewind operation.
+// RewindEngine's own Pause+Stop calls are idempotent when called after this.
+func (c *simpleChainContainer) PauseAndStopVN(ctx context.Context) error {
+	if err := c.Pause(ctx); err != nil {
+		return err
+	}
+	if c.vn == nil {
+		return nil
+	}
+	return c.vn.Stop(ctx)
 }
 
 // SetResetCallback sets a callback that is invoked when the chain resets.

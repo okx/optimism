@@ -137,7 +137,12 @@ contract L2Genesis is Script {
 
         dealEthToPrecompiles();
         setPredeployProxies(_input);
+        vm.stopPrank();
+
+        // Set L1 Block has its own pranking requirements which it handles internally
         setPredeployImplementations(_input);
+
+        vm.startPrank(deployer);
         setPreinstalls();
         if (_input.fundDevAccounts) {
             fundDevAccounts();
@@ -182,6 +187,10 @@ contract L2Genesis is Script {
         activateJovian();
 
         if (forkEquals(_fork, Fork.JOVIAN)) {
+            return;
+        }
+
+        if (forkEquals(_fork, Fork.KARST)) {
             return;
         }
 
@@ -237,6 +246,13 @@ contract L2Genesis is Script {
     ///      sets the deployed bytecode at their expected predeploy address.
     ///      LEGACY_ERC20_ETH and L1_MESSAGE_SENDER are deprecated and are not set.
     function setPredeployImplementations(Input memory _input) internal {
+        // Contracts with initializers now call
+        // _assertOnlyProxyAdminOrProxyAdminOwner(). Prank as the proxy admin owner so that those
+        // assertions pass for both proxy and implementation initialization calls.
+        vm.startPrank(_input.opChainProxyAdminOwner);
+        // Must be first: other contracts' initialize() calls assert _assertOnlyProxyAdminOrProxyAdminOwner(),
+        // which reads L2ProxyAdmin.owner(). The owner slot must be set before any initializer runs.
+        setL2ProxyAdmin(_input); // 18
         setLegacyMessagePasser(); // 0
         // 01: legacy, not used in OP-Stack
         setDeployerWhitelist(); // 2
@@ -250,10 +266,17 @@ contract L2Genesis is Script {
         setOptimismMintableERC20Factory(); // 12
         setL1BlockNumber(); // 13
         setL2ERC721Bridge(_input.l1ERC721BridgeProxy); // 14
+
+        // Stop pranking as the proxy admin owner.
+        vm.stopPrank();
+
+        // Set L1 Block has its own pranking requirements which it handles internally.
         setL1Block(_input.useCustomGasToken); // 15
+
+        // Resume pranking as the proxy admin owner.
+        vm.startPrank(_input.opChainProxyAdminOwner);
         setL2ToL1MessagePasser(_input.useCustomGasToken); // 16
         setOptimismMintableERC721Factory(_input); // 17
-        setL2ProxyAdmin(_input); // 18
         setBaseFeeVault(_input); // 19
         setL1FeeVault(_input); // 1A
         setOperatorFeeVault(_input); // 1B
@@ -275,23 +298,26 @@ contract L2Genesis is Script {
         if (_input.useL2CM) {
             setConditionalDeployer(); // 2C
         }
+        vm.stopPrank();
     }
 
     function setInteropPredeployProxies() internal { }
 
+    /// @notice This predeploy is following the safety invariant #2.
+    ///         Follows invariant #2 since the constructor transfers ownership to the input owner,
+    ///         and therefore requires setting the storage manually here.
     function setL2ProxyAdmin(Input memory _input) internal {
         // Note the L2ProxyAdmin implementation itself is behind a proxy that owns itself.
-        address impl = _setImplementationCode(Predeploys.PROXY_ADMIN);
+        _setImplementationCode(Predeploys.PROXY_ADMIN);
 
         bytes32 _ownerSlot = bytes32(0);
 
         // TODO(#19182): Remove this once the L2ProxyAdmin is initializable.
         // there is no initialize() function, so we just set the storage manually.
         vm.store(Predeploys.PROXY_ADMIN, _ownerSlot, bytes32(uint256(uint160(_input.opChainProxyAdminOwner))));
-        // update the proxy to not be uninitialized (although not standard initialize pattern)
-        vm.store(impl, _ownerSlot, bytes32(uint256(uint160(_input.opChainProxyAdminOwner))));
     }
 
+    /// @notice This predeploy is following the safety invariant #1.
     function setL2ToL1MessagePasser(bool _useCustomGasToken) internal {
         if (_useCustomGasToken) {
             string memory cname = "L2ToL1MessagePasserCGT";
@@ -333,7 +359,7 @@ contract L2Genesis is Script {
         IL2ERC721Bridge(Predeploys.L2_ERC721_BRIDGE).initialize({ _l1ERC721Bridge: payable(_l1ERC721BridgeProxy) });
     }
 
-    /// @notice This predeploy is following the safety invariant #2,
+    /// @notice This predeploy is following the safety invariant #1.
     function setSequencerFeeVault(Input memory _input) internal {
         _setFeeVault({
             _vaultAddr: Predeploys.SEQUENCER_FEE_WALLET,
@@ -356,25 +382,16 @@ contract L2Genesis is Script {
         });
     }
 
-    /// @notice This predeploy is following the safety invariant #2,
+    /// @notice This predeploy is following the safety invariant #1.
     function setOptimismMintableERC721Factory(Input memory _input) internal {
-        IOptimismMintableERC721Factory factory = IOptimismMintableERC721Factory(
-            DeployUtils.create1({
-                _name: "OptimismMintableERC721Factory",
-                _args: DeployUtils.encodeConstructor(
-                    abi.encodeCall(
-                        IOptimismMintableERC721Factory.__constructor__, (Predeploys.L2_ERC721_BRIDGE, _input.l1ChainID)
-                    )
-                )
-            })
-        );
+        address impl = _setImplementationCode(Predeploys.OPTIMISM_MINTABLE_ERC721_FACTORY);
 
-        address impl = Predeploys.predeployToCodeNamespace(Predeploys.OPTIMISM_MINTABLE_ERC721_FACTORY);
-        vm.etch(impl, address(factory).code);
+        IOptimismMintableERC721Factory(impl).initialize({ _bridge: address(0), _remoteChainID: 0 });
 
-        /// Reset so its not included state dump
-        vm.etch(address(factory), "");
-        vm.resetNonce(address(factory));
+        IOptimismMintableERC721Factory(Predeploys.OPTIMISM_MINTABLE_ERC721_FACTORY).initialize({
+            _bridge: Predeploys.L2_ERC721_BRIDGE,
+            _remoteChainID: _input.l1ChainID
+        });
     }
 
     /// @notice This predeploy is following the safety invariant #1.
@@ -421,7 +438,7 @@ contract L2Genesis is Script {
         _setImplementationCode(Predeploys.LEGACY_MESSAGE_PASSER);
     }
 
-    /// @notice This predeploy is following the safety invariant #2.
+    /// @notice This predeploy is following the safety invariant #1.
     function setBaseFeeVault(Input memory _input) internal {
         _setFeeVault({
             _vaultAddr: Predeploys.BASE_FEE_VAULT,
@@ -433,7 +450,7 @@ contract L2Genesis is Script {
         });
     }
 
-    /// @notice This predeploy is following the safety invariant #2.
+    /// @notice This predeploy is following the safety invariant #1.
     function setL1FeeVault(Input memory _input) internal {
         _setFeeVault({
             _vaultAddr: Predeploys.L1_FEE_VAULT,
@@ -445,7 +462,7 @@ contract L2Genesis is Script {
         });
     }
 
-    /// @notice This predeploy is following the safety invariant #2.
+    /// @notice This predeploy is following the safety invariant #1.
     function setOperatorFeeVault(Input memory _input) internal {
         _setFeeVault({
             _vaultAddr: Predeploys.OPERATOR_FEE_VAULT,
@@ -495,7 +512,7 @@ contract L2Genesis is Script {
     function setEAS() internal {
         string memory cname = Predeploys.getName(Predeploys.EAS);
         address impl = Predeploys.predeployToCodeNamespace(Predeploys.EAS);
-        bytes memory code = vm.getCode(string.concat(cname, ".sol:", cname));
+        bytes memory code = DeployUtils.getCode(cname);
 
         address eas;
         assembly {
@@ -699,11 +716,14 @@ contract L2Genesis is Script {
         string memory cname = Predeploys.getName(_addr);
         address impl = Predeploys.predeployToCodeNamespace(_addr);
         vm.etch(impl, vm.getDeployedCode(string.concat(cname, ".sol:", cname)));
+        // Set the EIP-1967 admin slot on the implementation so that ProxyAdminOwnedBase.proxyAdmin()
+        // can resolve the proxy admin when initialize() is called directly on the implementation.
+        EIP1967Helper.setAdmin(impl, Predeploys.PROXY_ADMIN);
         return impl;
     }
 
     /// @notice Helper function to set up a fee vault predeploy with revenue sharing support.
-    ///         This follows safety invariant #2 (initializable contracts).
+    ///         This follows safety invariant #1.
     /// @param _vaultAddr The predeploy address of the fee vault.
     /// @param _useRevenueShare Whether revenue sharing is enabled.
     /// @param _recipient The recipient address (ignored if revenue sharing is enabled).
