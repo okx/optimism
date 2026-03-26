@@ -151,10 +151,7 @@ PINATA_JWT=<your-jwt> \
   cargo run --release -p prover --bin request_proof -- \
     --attestation "$attest_doc" \   # Note: $attest_doc should be the base64-encoded Nitro attestation document
     --program-info program_info.json \
-    --output ./proof_result.jsocargo run --release -p prover --bin request_proof -- \
-    --attestation "$attest_doc" \   # Note: $attest_doc should be the base64-encoded Nitro attestation document
-    --program-info program_info.json \
-    --output ./proof_result.jsonn
+    --output ./proof_result.json
 ```
 
 ### Flags
