@@ -1,0 +1,129 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.15;
+
+import { Script, console2 } from "forge-std/Script.sol";
+import { Proxy } from "src/universal/Proxy.sol";
+import { DisputeGameFactory } from "src/dispute/DisputeGameFactory.sol";
+import { AnchorStateRegistry } from "src/dispute/AnchorStateRegistry.sol";
+import { IDisputeGameFactory } from "interfaces/dispute/IDisputeGameFactory.sol";
+import { IDisputeGame } from "interfaces/dispute/IDisputeGame.sol";
+import { IAnchorStateRegistry } from "interfaces/dispute/IAnchorStateRegistry.sol";
+import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
+import { ITeeProofVerifier } from "interfaces/dispute/ITeeProofVerifier.sol";
+import { IRiscZeroVerifier } from "interfaces/dispute/IRiscZeroVerifier.sol";
+import { TeeDisputeGame, TEE_DISPUTE_GAME_TYPE } from "src/dispute/tee/TeeDisputeGame.sol";
+import { TeeProofVerifier } from "src/dispute/tee/TeeProofVerifier.sol";
+import { MockSystemConfig } from "test/dispute/tee/mocks/MockSystemConfig.sol";
+import { Duration, GameType, Hash, Proposal } from "src/dispute/lib/Types.sol";
+
+/// @title DeployTeeFork
+/// @notice Deploys TEE dispute game stack on a forked mainnet, using the real
+///         RiscZeroVerifierRouter for ZK proof verification during enclave registration.
+///
+/// @dev Usage:
+///   anvil --fork-url $ETH_RPC_URL --block-time 1
+///
+///   PRIVATE_KEY=0xac09...ff80 \
+///   PROPOSER=0x7099...79C8 \
+///   CHALLENGER=0x3C44...93BC \
+///   RISC_ZERO_VERIFIER=0x8EaB2D97Dfce405A1692a21b3ff3A172d593D319 \
+///   RISC_ZERO_IMAGE_ID=0x<guest image id> \
+///   NITRO_ROOT_KEY=0x<96 bytes P384 root key hex> \
+///   forge script scripts/tee/DeployTeeFork.s.sol --rpc-url http://localhost:8545 --broadcast
+contract DeployTeeFork is Script {
+    uint256 internal constant DEFENDER_BOND = 0.1 ether;
+    uint256 internal constant CHALLENGER_BOND = 0.2 ether;
+    uint64 internal constant MAX_CHALLENGE_DURATION = 300;
+    uint64 internal constant MAX_PROVE_DURATION = 300;
+
+    GameType internal constant TEE_GAME_TYPE = GameType.wrap(TEE_DISPUTE_GAME_TYPE);
+
+    bytes32 internal constant ANCHOR_BLOCK_HASH = keccak256("genesis-block");
+    bytes32 internal constant ANCHOR_STATE_HASH = keccak256("genesis-state");
+    uint256 internal constant ANCHOR_L2_BLOCK = 0;
+
+    function run() external {
+        uint256 deployerKey = vm.envUint("PRIVATE_KEY");
+        address deployer = vm.addr(deployerKey);
+        address proposer_ = vm.envAddress("PROPOSER");
+        address challenger_ = vm.envAddress("CHALLENGER");
+
+        vm.startBroadcast(deployerKey);
+
+        TeeProofVerifier teeProofVerifier = _deployVerifier();
+        DisputeGameFactory factory = _deployFactory(deployer);
+        AnchorStateRegistry asr = _deployASR(deployer, factory);
+        TeeDisputeGame impl = _deployGame(factory, teeProofVerifier, asr, proposer_, challenger_);
+
+        vm.stopBroadcast();
+
+        console2.log("=== Deployed (fork mode) ===");
+        console2.log("TeeProofVerifier     :", address(teeProofVerifier));
+        console2.log("DisputeGameFactory   :", address(factory));
+        console2.log("AnchorStateRegistry  :", address(asr));
+        console2.log("TeeDisputeGame impl  :", address(impl));
+    }
+
+    function _deployVerifier() internal returns (TeeProofVerifier) {
+        IRiscZeroVerifier rv = IRiscZeroVerifier(vm.envAddress("RISC_ZERO_VERIFIER"));
+        bytes32 imageId = vm.envBytes32("RISC_ZERO_IMAGE_ID");
+        bytes memory rootKey = vm.envBytes("NITRO_ROOT_KEY");
+        console2.log("RiscZeroVerifier     :", address(rv));
+        console2.log("imageId              :", vm.toString(imageId));
+        return new TeeProofVerifier(rv, imageId, rootKey);
+    }
+
+    function _deployFactory(address deployer) internal returns (DisputeGameFactory) {
+        DisputeGameFactory factoryImpl = new DisputeGameFactory();
+        Proxy p = new Proxy(deployer);
+        p.upgradeToAndCall(address(factoryImpl), abi.encodeCall(factoryImpl.initialize, (deployer)));
+        return DisputeGameFactory(address(p));
+    }
+
+    function _deployASR(address deployer, DisputeGameFactory factory) internal returns (AnchorStateRegistry) {
+        MockSystemConfig sc = new MockSystemConfig(deployer);
+        AnchorStateRegistry asrImpl = new AnchorStateRegistry(0);
+        Proxy p = new Proxy(deployer);
+        p.upgradeToAndCall(
+            address(asrImpl),
+            abi.encodeCall(
+                asrImpl.initialize,
+                (
+                    ISystemConfig(address(sc)),
+                    IDisputeGameFactory(address(factory)),
+                    Proposal({
+                        root: Hash.wrap(keccak256(abi.encode(ANCHOR_BLOCK_HASH, ANCHOR_STATE_HASH))),
+                        l2SequenceNumber: ANCHOR_L2_BLOCK
+                    }),
+                    TEE_GAME_TYPE
+                )
+            )
+        );
+        return AnchorStateRegistry(address(p));
+    }
+
+    function _deployGame(
+        DisputeGameFactory factory,
+        TeeProofVerifier verifier,
+        AnchorStateRegistry asr,
+        address proposer_,
+        address challenger_
+    )
+        internal
+        returns (TeeDisputeGame)
+    {
+        TeeDisputeGame impl = new TeeDisputeGame(
+            Duration.wrap(MAX_CHALLENGE_DURATION),
+            Duration.wrap(MAX_PROVE_DURATION),
+            IDisputeGameFactory(address(factory)),
+            ITeeProofVerifier(address(verifier)),
+            CHALLENGER_BOND,
+            IAnchorStateRegistry(address(asr)),
+            proposer_,
+            challenger_
+        );
+        factory.setImplementation(TEE_GAME_TYPE, IDisputeGame(address(impl)), bytes(""));
+        factory.setInitBond(TEE_GAME_TYPE, DEFENDER_BOND);
+        return impl;
+    }
+}

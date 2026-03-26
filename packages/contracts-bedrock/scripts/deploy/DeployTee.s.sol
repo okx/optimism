@@ -7,8 +7,6 @@ import {IAnchorStateRegistry} from "interfaces/dispute/IAnchorStateRegistry.sol"
 import {Duration} from "src/dispute/lib/Types.sol";
 import {IRiscZeroVerifier} from "interfaces/dispute/IRiscZeroVerifier.sol";
 import {ITeeProofVerifier} from "interfaces/dispute/ITeeProofVerifier.sol";
-import {AccessManager} from "src/dispute/tee/AccessManager.sol";
-import {DisputeGameFactoryRouter} from "src/dispute/DisputeGameFactoryRouter.sol";
 import {TeeDisputeGame} from "src/dispute/tee/TeeDisputeGame.sol";
 import {TeeProofVerifier} from "src/dispute/tee/TeeProofVerifier.sol";
 
@@ -24,30 +22,13 @@ contract Deploy is Script {
         uint64 maxChallengeDuration;
         uint64 maxProveDuration;
         uint256 challengerBond;
-        uint256 fallbackTimeout;
-        bool deployRouter;
         address proofVerifierOwner;
-        address[] proposers;
-        address[] challengers;
-        uint256[] zoneIds;
-        address[] routerFactories;
-        address routerOwner;
+        address proposer;
+        address challenger;
     }
 
-    function run()
-        external
-        returns (
-            TeeProofVerifier teeProofVerifier,
-            AccessManager accessManager,
-            TeeDisputeGame teeDisputeGame,
-            DisputeGameFactoryRouter router
-        )
-    {
+    function run() external returns (TeeProofVerifier teeProofVerifier, TeeDisputeGame teeDisputeGame) {
         DeployConfig memory cfg = _readConfig();
-
-        if (cfg.deployRouter) {
-            require(cfg.zoneIds.length == cfg.routerFactories.length, "Deploy: router zone/factory length mismatch");
-        }
 
         vm.startBroadcast(cfg.deployerKey);
 
@@ -56,9 +37,6 @@ contract Deploy is Script {
             teeProofVerifier.transferOwnership(cfg.proofVerifierOwner);
         }
 
-        accessManager = new AccessManager(cfg.fallbackTimeout, cfg.disputeGameFactory);
-        _applyAllowlist(accessManager, cfg.proposers, cfg.challengers);
-
         teeDisputeGame = new TeeDisputeGame(
             Duration.wrap(cfg.maxChallengeDuration),
             Duration.wrap(cfg.maxProveDuration),
@@ -66,22 +44,15 @@ contract Deploy is Script {
             ITeeProofVerifier(address(teeProofVerifier)),
             cfg.challengerBond,
             cfg.anchorStateRegistry,
-            accessManager
+            cfg.proposer,
+            cfg.challenger
         );
-
-        if (cfg.deployRouter) {
-            router = _deployRouter(cfg.routerOwner, cfg.deployer, cfg.zoneIds, cfg.routerFactories);
-        }
 
         vm.stopBroadcast();
 
         console2.log("deployer", cfg.deployer);
         console2.log("teeProofVerifier", address(teeProofVerifier));
-        console2.log("accessManager", address(accessManager));
         console2.log("teeDisputeGame", address(teeDisputeGame));
-        if (cfg.deployRouter) {
-            console2.log("router", address(router));
-        }
     }
 
     function _readConfig() internal view returns (DeployConfig memory cfg) {
@@ -95,56 +66,8 @@ contract Deploy is Script {
         cfg.maxChallengeDuration = uint64(vm.envUint("MAX_CHALLENGE_DURATION"));
         cfg.maxProveDuration = uint64(vm.envUint("MAX_PROVE_DURATION"));
         cfg.challengerBond = vm.envUint("CHALLENGER_BOND");
-        cfg.fallbackTimeout = vm.envUint("FALLBACK_TIMEOUT");
-        cfg.deployRouter = vm.envOr("DEPLOY_ROUTER", false);
         cfg.proofVerifierOwner = vm.envOr("PROOF_VERIFIER_OWNER", cfg.deployer);
-        cfg.proposers = _envAddressArray("PROPOSERS");
-        cfg.challengers = _envAddressArray("CHALLENGERS");
-        cfg.zoneIds = _envUintArray("ROUTER_ZONE_IDS");
-        cfg.routerFactories = _envAddressArray("ROUTER_FACTORIES");
-        cfg.routerOwner = vm.envOr("ROUTER_OWNER", cfg.deployer);
-    }
-
-    function _applyAllowlist(
-        AccessManager accessManager,
-        address[] memory proposers,
-        address[] memory challengers
-    )
-        internal
-    {
-        for (uint256 i = 0; i < proposers.length; i++) {
-            accessManager.setProposer(proposers[i], true);
-        }
-        for (uint256 i = 0; i < challengers.length; i++) {
-            accessManager.setChallenger(challengers[i], true);
-        }
-    }
-
-    function _deployRouter(
-        address routerOwner,
-        address deployer,
-        uint256[] memory zoneIds,
-        address[] memory routerFactories
-    )
-        internal
-        returns (DisputeGameFactoryRouter router)
-    {
-        router = new DisputeGameFactoryRouter();
-        for (uint256 i = 0; i < zoneIds.length; i++) {
-            router.registerZone(zoneIds[i], routerFactories[i]);
-        }
-        if (routerOwner != deployer) {
-            router.transferOwnership(routerOwner);
-        }
-    }
-
-    function _envAddressArray(string memory name) internal view returns (address[] memory values) {
-        if (!vm.envExists(name)) return new address[](0);
-        return vm.envAddress(name, ",");
-    }
-
-    function _envUintArray(string memory name) internal view returns (uint256[] memory values) {
-        if (!vm.envExists(name)) return new uint256[](0);
-        return vm.envUint(name, ",");
+        cfg.proposer = vm.envAddress("PROPOSER");
+        cfg.challenger = vm.envAddress("CHALLENGER");
     }
 }
