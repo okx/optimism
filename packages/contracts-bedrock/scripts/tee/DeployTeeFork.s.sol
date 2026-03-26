@@ -38,9 +38,9 @@ contract DeployTeeFork is Script {
 
     GameType internal constant TEE_GAME_TYPE = GameType.wrap(TEE_DISPUTE_GAME_TYPE);
 
-    bytes32 internal constant ANCHOR_BLOCK_HASH = keccak256("genesis-block");
-    bytes32 internal constant ANCHOR_STATE_HASH = keccak256("genesis-state");
-    uint256 internal constant ANCHOR_L2_BLOCK = 0;
+    bytes32 internal constant DEFAULT_ANCHOR_BLOCK_HASH = keccak256("genesis-block");
+    bytes32 internal constant DEFAULT_ANCHOR_STATE_HASH = keccak256("genesis-state");
+    uint256 internal constant DEFAULT_ANCHOR_L2_BLOCK = 0;
 
     function run() external {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
@@ -50,18 +50,22 @@ contract DeployTeeFork is Script {
 
         vm.startBroadcast(deployerKey);
 
+        bytes32 anchorBlockHash = vm.envOr("ANCHOR_BLOCK_HASH", DEFAULT_ANCHOR_BLOCK_HASH);
+        bytes32 anchorStateHash = vm.envOr("ANCHOR_STATE_HASH", DEFAULT_ANCHOR_STATE_HASH);
+        uint256 anchorL2Block = vm.envOr("ANCHOR_L2_BLOCK", DEFAULT_ANCHOR_L2_BLOCK);
+
         TeeProofVerifier teeProofVerifier = _deployVerifier();
         DisputeGameFactory factory = _deployFactory(deployer);
-        AnchorStateRegistry asr = _deployASR(deployer, factory);
+        AnchorStateRegistry asr = _deployASR(deployer, factory, anchorBlockHash, anchorStateHash, anchorL2Block);
         TeeDisputeGame impl = _deployGame(factory, teeProofVerifier, asr, proposer_, challenger_);
 
         vm.stopBroadcast();
 
         console2.log("=== Deployed (fork mode) ===");
-        console2.log("TeeProofVerifier     :", address(teeProofVerifier));
-        console2.log("DisputeGameFactory   :", address(factory));
         console2.log("AnchorStateRegistry  :", address(asr));
         console2.log("TeeDisputeGame impl  :", address(impl));
+        console2.log("TeeProofVerifier     :", address(teeProofVerifier));
+        console2.log("DisputeGameFactory   :", address(factory));
     }
 
     function _deployVerifier() internal returns (TeeProofVerifier) {
@@ -80,7 +84,16 @@ contract DeployTeeFork is Script {
         return DisputeGameFactory(address(p));
     }
 
-    function _deployASR(address deployer, DisputeGameFactory factory) internal returns (AnchorStateRegistry) {
+    function _deployASR(
+        address deployer,
+        DisputeGameFactory factory,
+        bytes32 anchorBlockHash,
+        bytes32 anchorStateHash,
+        uint256 anchorL2Block
+    )
+        internal
+        returns (AnchorStateRegistry)
+    {
         MockSystemConfig sc = new MockSystemConfig(deployer);
         AnchorStateRegistry asrImpl = new AnchorStateRegistry(0);
         Proxy p = new Proxy(deployer);
@@ -92,8 +105,8 @@ contract DeployTeeFork is Script {
                     ISystemConfig(address(sc)),
                     IDisputeGameFactory(address(factory)),
                     Proposal({
-                        root: Hash.wrap(keccak256(abi.encode(ANCHOR_BLOCK_HASH, ANCHOR_STATE_HASH))),
-                        l2SequenceNumber: ANCHOR_L2_BLOCK
+                        root: Hash.wrap(keccak256(abi.encode(anchorBlockHash, anchorStateHash))),
+                        l2SequenceNumber: anchorL2Block
                     }),
                     TEE_GAME_TYPE
                 )

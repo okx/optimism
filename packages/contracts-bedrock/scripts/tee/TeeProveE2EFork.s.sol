@@ -62,11 +62,15 @@ contract TeeProveE2EFork is Script {
         endStateHash = vm.envOr("END_STATE_HASH", keccak256("end-state-100"));
         l2SeqNum = vm.envOr("L2_SEQUENCE_NUMBER", uint256(100));
 
-        bytes memory batchSig = vm.envBytes("BATCH_SIGNATURE");
 
         // ---- Step 1: Register enclave with real ZK proof ----
         console2.log("=== Step 1: Register Enclave (real ZK proof) ===");
-        _registerEnclave(ownerKey);
+        bytes memory registerCallData = vm.envOr("REGISTER_CALLDATA", bytes(""));
+        if (registerCallData.length > 0) {
+            _registerEnclaveWithCallData(ownerKey, registerCallData);
+        } else {
+            _registerEnclave(ownerKey);
+        }
 
         // ---- Step 2: Create game ----
         console2.log("");
@@ -81,7 +85,12 @@ contract TeeProveE2EFork is Script {
         // ---- Step 4: Prove with external signature ----
         console2.log("");
         console2.log("=== Step 4: Prove (external signature) ===");
-        _prove(proposerKey, batchSig);
+        bytes memory proofBytes = vm.envBytes("PROOF_BYTES");
+        if (proofBytes.length > 0) {
+            _proveWithCallData(proposerKey, proofBytes);
+        } else {
+            _prove(proposerKey, vm.envBytes("BATCH_SIGNATURE"));
+        }
 
         // ---- Step 5: Resolve ----
         console2.log("");
@@ -132,6 +141,22 @@ contract TeeProveE2EFork is Script {
     }
 
     // ----------------------------------------------------------------
+    //  Step 1 (alt): Register enclave with raw calldata
+    // ----------------------------------------------------------------
+
+    function _registerEnclaveWithCallData(uint256 ownerKey, bytes memory callData) internal {
+
+        console2.log("Registering with raw calldata...");
+        console2.log("  calldata length:", callData.length);
+
+        vm.broadcast(ownerKey);
+        (bool success,) = address(teeProofVerifier).call(callData);
+        require(success, "register call failed");
+
+        console2.log("Register call succeeded");
+    }
+
+    // ----------------------------------------------------------------
     //  Step 2: Create game
     // ----------------------------------------------------------------
 
@@ -179,6 +204,17 @@ contract TeeProveE2EFork is Script {
 
         vm.broadcast(proposerKey);
         game.prove(abi.encode(proofs));
+
+        console2.log("Proof submitted!");
+    }
+
+    // ----------------------------------------------------------------
+    //  Step 4 (alt): Prove with raw calldata
+    // ----------------------------------------------------------------
+
+    function _proveWithCallData(uint256 proposerKey, bytes memory proofBytes) internal {
+        vm.broadcast(proposerKey);
+        game.prove(proofBytes);
 
         console2.log("Proof submitted!");
     }
