@@ -72,6 +72,7 @@ impl<EngineClient_: EngineClient> SealTask<EngineClient_> {
         );
 
         let get_payload_version = EngineGetPayloadVersion::from_cfg(cfg, payload_timestamp);
+        let get_payload_start = Instant::now();
         let payload_envelope = engine
             .get_payload(get_payload_version, payload_id)
             .await
@@ -79,6 +80,11 @@ impl<EngineClient_: EngineClient> SealTask<EngineClient_> {
                 error!(target: "engine", "Payload fetch failed: {e}");
                 SealTaskError::GetPayloadFailed(e)
             })?;
+        info!(
+            target: "engine",
+            get_payload_duration = ?get_payload_start.elapsed(),
+            "get_payload ok"
+        );
 
         Ok(payload_envelope)
     }

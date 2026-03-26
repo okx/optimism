@@ -60,6 +60,17 @@ pub async fn find_starting_forkchoice<EngineClient_: EngineClient>(
                 break;
             }
             None => {
+                // If the current unsafe block IS the genesis block, there is no parent to walk
+                // back to — the genesis block's parentHash is a virtual pre-genesis block that
+                // does not exist in the EL database. Use genesis as the starting point.
+                if current_fc.un_safe.block_info.hash == cfg.genesis.l2.hash {
+                    info!(
+                        target: "sync_start",
+                        l2_unsafe = %current_fc.un_safe.block_info.number,
+                        "Unsafe block is genesis with non-canonical L1 origin, using genesis as starting point"
+                    );
+                    break;
+                }
                 let l2_parent_hash = current_fc.un_safe.block_info.parent_hash.into();
                 let l2_parent = engine_client
                     .get_l2_block(l2_parent_hash)
