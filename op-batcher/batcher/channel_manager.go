@@ -313,6 +313,24 @@ func (s *channelManager) getReadyChannel(l1Head eth.BlockID, pi pubInfo) (*chann
 	// No pending tx data, so we have to add new blocks to the channel
 	// If we have no saved blocks, we will not be able to create valid frames
 	if s.pendingBlocks() == 0 {
+		// Even without new blocks, check if an existing channel has timed out.
+		// Without this, the channel duration timeout is never re-evaluated once all
+		// pending blocks have been added, which can cause a deadlock when the
+		// sequencer stalls due to maxSafeLag: no new blocks → no timeout check →
+		// channel never closes → data never submitted → safe head stuck.
+		if s.currentChannel != nil && !s.currentChannel.IsFull() && !pi.ignoreMaxChannelDuration {
+			s.registerL1Block(l1Head)
+			if s.currentChannel.IsFull() {
+				s.log.Info("Channel timed out with no pending blocks, flushing",
+					"channel_id", s.currentChannel.ID(), "l1Head", l1Head)
+				if err := s.outputFrames(); err != nil {
+					return nil, err
+				}
+				if s.currentChannel.HasTxData() {
+					return s.currentChannel, nil
+				}
+			}
+		}
 		return nil, io.EOF
 	}
 
