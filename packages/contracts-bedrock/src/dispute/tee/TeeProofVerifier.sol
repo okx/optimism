@@ -37,13 +37,15 @@ contract TeeProofVerifier is Ownable {
     //                         State Vars                         //
     ////////////////////////////////////////////////////////////////
 
-    /// @notice RISC Zero Groth16 verifier (only called during registration)
-    IRiscZeroVerifier public riscZeroVerifier;
+    /// @notice RISC Zero Groth16 verifier (only called during registration, immutable after deployment)
+    IRiscZeroVerifier public immutable riscZeroVerifier;
 
-    /// @notice RISC Zero guest image ID (hash of the attestation verification guest ELF)
-    bytes32 public imageId;
+    /// @notice RISC Zero guest image ID (hash of the attestation verification guest ELF, immutable after deployment)
+    bytes32 public immutable imageId;
 
-    /// @notice Expected AWS Nitro root public key (96 bytes, P384 without 0x04 prefix)
+    /// @notice Expected AWS Nitro root public key (96 bytes, P384 without 0x04 prefix).
+    ///         Set in constructor and never changed. Cannot use `immutable` keyword because Solidity
+    ///         does not support immutable for dynamic `bytes` type.
     bytes public expectedRootKey;
 
     /// @notice Current enclave generation (starts at 1, increments on bulk revocation)
@@ -62,9 +64,6 @@ contract TeeProofVerifier is Ownable {
     event EnclaveRegistered(address indexed enclaveAddress, bytes32 indexed pcrHash, uint64 timestampMs);
     event EnclaveRevoked(address indexed enclaveAddress);
     event AllEnclavesRevoked(uint256 previousGeneration, uint256 newGeneration);
-    event RiscZeroVerifierUpdated(IRiscZeroVerifier indexed oldVerifier, IRiscZeroVerifier indexed newVerifier);
-    event ImageIdUpdated(bytes32 indexed oldImageId, bytes32 indexed newImageId);
-    event ExpectedRootKeyUpdated(bytes oldKey, bytes newKey);
 
     ////////////////////////////////////////////////////////////////
     //                         Errors                             //
@@ -189,27 +188,6 @@ contract TeeProofVerifier is Ownable {
         uint256 previousGeneration = enclaveGeneration;
         enclaveGeneration = previousGeneration + 1;
         emit AllEnclavesRevoked(previousGeneration, enclaveGeneration);
-    }
-
-    /// @notice Update the RISC Zero verifier contract
-    function setRiscZeroVerifier(IRiscZeroVerifier _verifier) external onlyOwner {
-        IRiscZeroVerifier oldVerifier = riscZeroVerifier;
-        riscZeroVerifier = _verifier;
-        emit RiscZeroVerifierUpdated(oldVerifier, _verifier);
-    }
-
-    /// @notice Update the RISC Zero guest image ID
-    function setImageId(bytes32 _imageId) external onlyOwner {
-        bytes32 oldImageId = imageId;
-        imageId = _imageId;
-        emit ImageIdUpdated(oldImageId, _imageId);
-    }
-
-    /// @notice Update the expected AWS Nitro root public key
-    function setExpectedRootKey(bytes memory _rootKey) external onlyOwner {
-        bytes memory oldKey = expectedRootKey;
-        expectedRootKey = _rootKey;
-        emit ExpectedRootKeyUpdated(oldKey, _rootKey);
     }
 
     ////////////////////////////////////////////////////////////////

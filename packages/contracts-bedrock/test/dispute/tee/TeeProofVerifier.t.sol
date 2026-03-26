@@ -3,7 +3,6 @@ pragma solidity ^0.8.15;
 
 import { Vm } from "forge-std/Vm.sol";
 import { TeeProofVerifier } from "src/dispute/tee/TeeProofVerifier.sol";
-import { IRiscZeroVerifier } from "interfaces/dispute/IRiscZeroVerifier.sol";
 import { MockRiscZeroVerifier } from "test/dispute/tee/mocks/MockRiscZeroVerifier.sol";
 import { TeeTestUtils } from "test/dispute/tee/helpers/TeeTestUtils.sol";
 
@@ -219,43 +218,18 @@ contract TeeProofVerifierTest is TeeTestUtils {
         verifier.verifyBatch(digest, signature);
     }
 
-    // ============ Setter Tests ============
+    // ============ Immutability Tests ============
 
-    function test_setRiscZeroVerifier_succeeds() public {
-        MockRiscZeroVerifier newVerifier = new MockRiscZeroVerifier();
-        verifier.setRiscZeroVerifier(newVerifier);
-        assertEq(address(verifier.riscZeroVerifier()), address(newVerifier));
+    function test_riscZeroVerifier_isImmutable() public view {
+        assertEq(address(verifier.riscZeroVerifier()), address(riscZeroVerifier));
     }
 
-    function test_setRiscZeroVerifier_revertNonOwner() public {
-        vm.prank(makeAddr("attacker"));
-        vm.expectRevert("Ownable: caller is not the owner");
-        verifier.setRiscZeroVerifier(IRiscZeroVerifier(address(1)));
+    function test_imageId_isImmutable() public view {
+        assertEq(verifier.imageId(), IMAGE_ID);
     }
 
-    function test_setImageId_succeeds() public {
-        bytes32 newImageId = keccak256("new-image");
-        verifier.setImageId(newImageId);
-        assertEq(verifier.imageId(), newImageId);
-    }
-
-    function test_setImageId_revertNonOwner() public {
-        vm.prank(makeAddr("attacker"));
-        vm.expectRevert("Ownable: caller is not the owner");
-        verifier.setImageId(keccak256("new-image"));
-    }
-
-    function test_setExpectedRootKey_succeeds() public {
-        bytes memory newKey = abi.encodePacked(bytes32(uint256(4)), bytes32(uint256(5)), bytes32(uint256(6)));
-        verifier.setExpectedRootKey(newKey);
-        assertEq(keccak256(verifier.expectedRootKey()), keccak256(newKey));
-    }
-
-    function test_setExpectedRootKey_revertNonOwner() public {
-        bytes memory newKey = abi.encodePacked(bytes32(uint256(4)), bytes32(uint256(5)), bytes32(uint256(6)));
-        vm.prank(makeAddr("attacker"));
-        vm.expectRevert("Ownable: caller is not the owner");
-        verifier.setExpectedRootKey(newKey);
+    function test_expectedRootKey_isSetInConstructor() public view {
+        assertEq(keccak256(verifier.expectedRootKey()), keccak256(expectedRootKey));
     }
 
     // ============ Ownership Tests ============
