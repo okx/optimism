@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	taskBasePath = "/task/"
+	taskBasePath = "/tee/task/"
 )
 
 // Task statuses returned by the TEE Prover.
@@ -55,12 +55,12 @@ type ProverResponse struct {
 	Data    json.RawMessage `json:"data"`
 }
 
-// CreateTaskData is the data returned from POST /v1/task/.
+// CreateTaskData is the data returned from POST /tee/task/.
 type CreateTaskData struct {
 	TaskID string `json:"taskId"`
 }
 
-// TaskResultData is the data returned from GET /v1/task/{taskId}.
+// TaskResultData is the data returned from GET /tee/task/{taskId}.
 type TaskResultData struct {
 	Status     string `json:"status"`
 	ProofBytes string `json:"proofBytes"`
