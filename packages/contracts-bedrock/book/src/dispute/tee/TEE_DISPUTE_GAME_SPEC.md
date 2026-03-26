@@ -1,103 +1,86 @@
-# TEE Dispute Game Specification
+# TEE Dispute Game 规格说明
 
-## 1. Overview
+## 1. 概述
 
-TeeDisputeGame is a dispute game contract for the OP Stack that replaces interactive bisection (FaultDisputeGame) and ZK proof verification (hypothetical OPSuccinctFaultDisputeGame) with **TEE (Trusted Execution Environment) ECDSA signature verification** for batch state transition proofs.
+TeeDisputeGame 是 OP Stack 的争议游戏合约，用 **TEE（可信执行环境）ECDSA 签名验证** 替代交互式二分法（FaultDisputeGame）和 ZK 证明验证（OPSuccinctFaultDisputeGame），实现批量状态转移证明。
 
-**Purpose:** Enable faster, cheaper dispute resolution by leveraging AWS Nitro Enclave attestations. A TEE executor runs the state transition inside an enclave, signs the result with a registered enclave key, and the on-chain contract verifies the ECDSA signature against the registered enclave set.
+**目标**：利用 AWS Nitro Enclave 远程证明，实现更快、更低成本的争议解决。TEE 执行器在 enclave 内运行状态转移，用注册的 enclave 密钥签署结果，链上合约验证 ECDSA 签名。
 
-**How it fits in the OP Stack:**
-- Uses the standard `DisputeGameFactory` for game creation (via Clone pattern)
-- Integrates with `AnchorStateRegistry` for anchor state management, finalization, and validity checks
-- Uses `BondDistributionMode` (NORMAL/REFUND) from the shared Types library
-- Implements `IDisputeGame` interface for compatibility with `OptimismPortal` and other OP infrastructure
-- Game type constant: `1960`
+**在 OP Stack 中的定位**：
+- 通过标准 `DisputeGameFactory` 创建游戏（Clone 模式）
+- 与 `AnchorStateRegistry` 集成，管理锚定状态、最终化和有效性检查
+- 使用共享 Types 库中的 `BondDistributionMode`（NORMAL/REFUND）
+- 实现 `IDisputeGame` 接口，兼容 OP Stack 标准争议游戏框架（TZ 不使用 OptimismPortal，见 Section 12）
+- 游戏类型常量：`1960`
 
 ---
 
-## 2. Architecture
+## 2. 架构
 
-### Contract Relationship Diagram
+### 合约关系图
 
 ```
                           +---------------------------+
                           |   DisputeGameFactory      |
-                          |  (creates Clone proxies)  |
+                          |  (创建 Clone 代理)         |
                           +-----+----------+----------+
                                 |          |
                        create() |          | gameAtIndex()
                                 v          v
                     +--------------------------+
                     |     TeeDisputeGame       |
-                    |   (Clone proxy instance) |
+                    |   (Clone 代理实例)         |
                     +----+-------+-------+-----+
                          |       |       |
               +----------+  +----+----+  +----------+
               v             v         v             v
     +----------------+ +---------+ +------------------+ +---------------+
     | PROPOSER /     | | Anchor  | | TeeProofVerifier | | IDisputeGame  |
-    | CHALLENGER     | | State   | | (enclave ECDSA   | | (interface)   |
-    | (immutable     | | Registry| |  verification)   | |               |
-    |  addresses)    | |         | +-------+----------+ +---------------+
-    +----------------+ +---------+         |
+    | CHALLENGER     | | State   | | (enclave ECDSA   | | (接口)         |
+    | (不可变地址)    | | Registry| |  签名验证)        | |               |
+    +----------------+ +---------+ +-------+----------+ +---------------+
                                            v
                                   +------------------+
                                   | IRiscZeroVerifier|
-                                  | (enclave         |
-                                  |  registration    |
-                                  |  only)           |
+                                  | (仅用于 enclave  |
+                                  |  注册时的 ZK 验证)|
                                   +------------------+
 ```
 
-### Immutables (set in constructor, shared across all clones)
+### 不可变量（constructor 设置，所有 Clone 共享）
 
-| Immutable               | Type                    | Description                                      |
-|--------------------------|-------------------------|--------------------------------------------------|
-| `GAME_TYPE`              | `GameType`              | Always `GameType.wrap(1960)`                     |
-| `MAX_CHALLENGE_DURATION` | `Duration`              | Window for challenger to post challenge           |
-| `MAX_PROVE_DURATION`     | `Duration`              | Window for prover to submit proof after challenge |
-| `DISPUTE_GAME_FACTORY`   | `IDisputeGameFactory`   | Factory that created this game                   |
-| `TEE_PROOF_VERIFIER`     | `ITeeProofVerifier`     | TEE signature verification contract              |
-| `CHALLENGER_BOND`        | `uint256`               | Fixed bond amount required to challenge           |
-| `ANCHOR_STATE_REGISTRY`  | `IAnchorStateRegistry`  | Anchor state management                          |
-| `PROPOSER`               | `address`               | Single allowed proposer address                  |
-| `CHALLENGER`             | `address`               | Single allowed challenger address                |
+| 不可变量                 | 类型                    | 说明                                      |
+|--------------------------|-------------------------|------------------------------------------|
+| `GAME_TYPE`              | `GameType`              | 固定为 `GameType.wrap(1960)`              |
+| `MAX_CHALLENGE_DURATION` | `Duration`              | 挑战者提交挑战的时间窗口                    |
+| `MAX_PROVE_DURATION`     | `Duration`              | 挑战后证明者提交证明的时间窗口              |
+| `DISPUTE_GAME_FACTORY`   | `IDisputeGameFactory`   | 创建此游戏的工厂合约                       |
+| `TEE_PROOF_VERIFIER`     | `ITeeProofVerifier`     | TEE 签名验证合约                           |
+| `CHALLENGER_BOND`        | `uint256`               | 挑战所需的固定保证金金额                    |
+| `ANCHOR_STATE_REGISTRY`  | `IAnchorStateRegistry`  | 锚定状态管理合约                           |
+| `PROPOSER`               | `address`               | 唯一允许的提议者地址                       |
+| `CHALLENGER`             | `address`               | 唯一允许的挑战者地址                       |
 
-### Clone (CWIA) Data Layout
+### rootClaim 格式
 
-| Offset | Size    | Field             | Description                                         |
-|--------|---------|-------------------|-----------------------------------------------------|
-| 0x00   | 20 bytes| `gameCreator`     | Address of the game creator                         |
-| 0x14   | 32 bytes| `rootClaim`       | The proposed output root claim                      |
-| 0x34   | 32 bytes| `l1Head`          | L1 block hash at game creation                      |
-| 0x54   | 32 bytes| `l2SequenceNumber`| Target L2 block number                              |
-| 0x74   | 4 bytes | `parentIndex`     | Index of parent game in factory (0xFFFFFFFF = root) |
-| 0x78   | 32 bytes| `blockHash`       | L2 block hash component of rootClaim                |
-| 0x98   | 32 bytes| `stateHash`       | L2 state hash component of rootClaim                |
+```
+rootClaim = keccak256(abi.encode(blockHash, stateHash))
+```
 
-Total extraData: 100 bytes (0x64) starting at offset 0x54. Expected calldata size: `0xBE` (190 bytes).
+blockHash 和 stateHash 通过 extraData 传入。这与 FaultDisputeGame 不同——FDG 的 rootClaim 直接是 output root hash。
 
-### State Variables
+### 关键设计说明
 
-| Variable                          | Type                          | Description                                  |
-|------------------------------------|-------------------------------|----------------------------------------------|
-| `createdAt`                        | `Timestamp`                   | Block timestamp of initialization            |
-| `resolvedAt`                       | `Timestamp`                   | Block timestamp of resolution                |
-| `status`                           | `GameStatus`                  | IN_PROGRESS / DEFENDER_WINS / CHALLENGER_WINS|
-| `proposer`                         | `address`                     | `tx.origin` of the initialize call           |
-| `initialized`                      | `bool`                        | Re-initialization guard                      |
-| `claimData`                        | `ClaimData`                   | Single claim (not an array like FDG)         |
-| `normalModeCredit[addr]`           | `mapping(address => uint256)` | Bonds distributed to winners                 |
-| `refundModeCredit[addr]`           | `mapping(address => uint256)` | Bonds refunded to original depositors        |
-| `startingOutputRoot`               | `Proposal`                    | Starting anchor (root hash + block number)   |
-| `wasRespectedGameTypeWhenCreated`  | `bool`                        | Was this game type respected at creation?    |
-| `bondDistributionMode`             | `BondDistributionMode`        | UNDECIDED / NORMAL / REFUND                  |
+- `wasRespectedGameTypeWhenCreated`：仅为兼容 `IDisputeGame` 接口保留，TZ 不使用 OptimismPortal，此字段无实际消费方（见 Section 12）
+- 每个游戏实例使用单个 `ClaimData` 结构体（非数组），区别于 FDG 的追加式 DAG
 
 ---
 
-## 3. Game Lifecycle
+## 3. 游戏生命周期
 
-### State Machine
+`DisputeGameFactory.create()` 通过 Clone 模式创建游戏实例后立即调用 `initialize()`，进入状态机。
+
+### 状态机
 
 ```
                               initialize()
@@ -109,7 +92,7 @@ Total extraData: 100 bytes (0x64) starting at offset 0x54. Expected calldata siz
                                   |
                +------------------+------------------+
                |                                     |
-          challenge()                         deadline expires
+          challenge()                         deadline 过期
                |                                     |
                v                                     v
         +-------------+                     resolve() -> DEFENDER_WINS
@@ -118,7 +101,7 @@ Total extraData: 100 bytes (0x64) starting at offset 0x54. Expected calldata siz
                |
     +----------+----------+
     |                     |
-  prove()           deadline expires
+  prove()           deadline 过期
     |                     |
     v                     v
 +---------------------------+    resolve() -> CHALLENGER_WINS
@@ -130,419 +113,397 @@ Total extraData: 100 bytes (0x64) starting at offset 0x54. Expected calldata siz
     resolve() -> DEFENDER_WINS
 ```
 
-If `prove()` is called while Unchallenged:
+Unchallenged 状态下提前 prove 的路径：
 
 ```
   Unchallenged --> prove() --> UnchallengedAndValidProofProvided --> resolve() --> DEFENDER_WINS
 ```
 
-### ProposalStatus Transitions
+**重要约束**：`prove()` 内部检查 `gameOver()`，如果 deadline 已过期，prove() 会 revert `GameOver()`。因此 Unchallenged 状态下 prove 只能在 challenge deadline 过期之前调用。
 
-| From                               | Action      | To                                    |
+### ProposalStatus 转移表
+
+| 起始状态                            | 动作         | 目标状态                               |
 |--------------------------------------|-------------|---------------------------------------|
 | `Unchallenged`                      | `challenge()`| `Challenged`                         |
 | `Unchallenged`                      | `prove()`   | `UnchallengedAndValidProofProvided`   |
 | `Challenged`                        | `prove()`   | `ChallengedAndValidProofProvided`     |
-| Any (on resolve)                    | `resolve()` | `Resolved`                           |
+| 任意非 Resolved                      | `resolve()` | `Resolved`                           |
 
-### GameStatus Transitions
+以上是全部合法转移路径，其他任何转移都不应发生。
 
-| Condition                                         | Result             |
-|----------------------------------------------------|--------------------|
-| Parent game resolved as CHALLENGER_WINS            | CHALLENGER_WINS    |
-| Unchallenged + deadline expired                    | DEFENDER_WINS      |
-| Challenged + deadline expired (no proof)           | CHALLENGER_WINS    |
-| UnchallengedAndValidProofProvided                  | DEFENDER_WINS      |
-| ChallengedAndValidProofProvided                    | DEFENDER_WINS      |
+### GameStatus 转移表
 
-### `gameOver()` Condition
+| 条件                                          | 结果             |
+|-----------------------------------------------|------------------|
+| 父游戏 resolve 为 CHALLENGER_WINS              | CHALLENGER_WINS  |
+| Unchallenged + deadline 过期                   | DEFENDER_WINS    |
+| Challenged + deadline 过期（无证明）            | CHALLENGER_WINS  |
+| UnchallengedAndValidProofProvided              | DEFENDER_WINS    |
+| ChallengedAndValidProofProvided                | DEFENDER_WINS    |
 
-```solidity
-gameOver_ = claimData.deadline.raw() < block.timestamp || claimData.prover != address(0);
-```
+### gameOver 条件
 
-The game is "over" (no more interactions) when the deadline passes OR a valid proof is submitted.
+当 deadline 过期（严格小于 `block.timestamp`）或有效证明已提交时，游戏"结束"——不再接受 challenge 或 prove。
 
 ---
 
-## 4. Initialization
+## 4. 挑战-证明模型
 
-`initialize()` is called by the `DisputeGameFactory` immediately after cloning.
+### 与 FaultDisputeGame 的关键差异
 
-### Validation Checks (in order)
-
-1. **Not already initialized** -- reverts `AlreadyInitialized`
-2. **Caller is the factory** -- reverts `IncorrectDisputeGameFactory`
-3. **tx.origin == PROPOSER** -- reverts `BadAuth`
-4. **Calldata size is exactly 0xBE (190 bytes)** -- reverts with selector `0x9824bdab` (BadExtraData)
-5. **rootClaim == keccak256(abi.encode(blockHash, stateHash))** -- reverts `RootClaimMismatch`
-6. **Parent game validation** (if parentIndex != type(uint32).max):
-   - Parent game type must match `GAME_TYPE`
-   - Parent must be respected, not blacklisted, not retired (via ASR)
-   - Parent must not have status CHALLENGER_WINS
-7. **l2SequenceNumber > startingOutputRoot.l2SequenceNumber** -- reverts `UnexpectedRootClaim`
-
-### Parent Game Resolution
-
-- If `parentIndex == type(uint32).max`: uses anchor state from `AnchorStateRegistry.anchors(GAME_TYPE)`
-- Otherwise: reads `rootClaim` and `l2SequenceNumber` from the parent TeeDisputeGame proxy
-
-### Initialization Side Effects
-
-- Sets `claimData` with deadline = `now + MAX_CHALLENGE_DURATION`
-- Records `proposer = tx.origin`
-- Credits `refundModeCredit[proposer] += msg.value` (the bond)
-- Sets `createdAt` and `wasRespectedGameTypeWhenCreated`
-
----
-
-## 5. Challenge-Prove Model
-
-### Single-Round vs Multi-Round
-
-| Aspect                    | TeeDisputeGame                              | FaultDisputeGame                                  |
-|----------------------------|----------------------------------------------|---------------------------------------------------|
-| Dispute model              | Single-round: challenge + prove              | Multi-round interactive bisection + step           |
-| Claim structure            | Single `ClaimData` struct                    | Append-only `ClaimData[]` array (DAG)             |
-| Challenge mechanism        | `challenge()` with fixed bond                | `move()` (attack/defend) with position-based bonds |
-| Proof                      | TEE ECDSA batch signatures                   | On-chain VM single instruction step                |
-| Resolution complexity      | O(1) - single resolve call                   | O(n) - bottom-up subgame resolution               |
-| Time model                 | Fixed deadlines (challenge window, prove window) | Chess clock with extensions                     |
+| 维度 | TeeDisputeGame | FaultDisputeGame |
+|------|---------------|------------------|
+| 证明机制 | TEE ECDSA 签名（单轮） | 交互式二分法 + VM step（多轮） |
+| 解决复杂度 | O(1) | O(n) |
+| 保证金托管 | 原生 ETH（直接持有） | DelayedWETH（7 天延迟 + 紧急恢复） |
+| 保证金模型 | 固定 CHALLENGER_BOND | 基于位置的 bond 曲线 |
+| 时间模型 | 固定 deadline | 棋钟 + 延长 |
+| 访问控制 | 白名单 proposer + challenger | 无权限（permissionless） |
+| 父子链 | 显式 parentIndex | 无（仅 ASR 锚定） |
+| Claim 结构 | 单个 ClaimData | 追加式 ClaimData[] DAG |
 
 ### challenge()
 
-- Requires: `Unchallenged` status, whitelisted challenger, game not over, exact bond amount
-- Effects: sets `counteredBy`, transitions to `Challenged`, resets deadline to `now + MAX_PROVE_DURATION`
-- Bond: credited to `refundModeCredit[challenger]`
+仅白名单 CHALLENGER 可调用。提交固定金额保证金（`CHALLENGER_BOND`），将游戏从 Unchallenged 转为 Challenged，并重置 deadline 为 prove 窗口。
 
 ### prove()
 
-- Can be called in both `Unchallenged` and `Challenged` states (early proving is by design — TEE is trusted)
-- Requires game status `IN_PROGRESS` (cannot prove after resolution)
-- Accepts ABI-encoded `BatchProof[]` array
-- Verifies chain of batch proofs (see Section 6)
-- Records `prover = msg.sender`
-- No bond required from prover
-- Only the proposer can call `prove()` (`if (msg.sender != proposer) revert BadAuth()`) — this prevents frontrunning attacks where a third party could steal prover credit by submitting observed proof data
-- Once proved, `gameOver()` returns true, which blocks further `challenge()` calls — this is intentional since a valid TEE proof confirms the claim is correct
+仅 proposer 可调用——防止第三方抢先提交观察到的证明数据窃取 prover 身份。
+
+**关键设计决策**：
+- **提前证明**：prove() 可在 Unchallenged 状态下调用（无需等待挑战），因为 TEE 被信任，有效证明即意味着 claim 正确
+- **证明即终局**：一旦证明成功，gameOver() 立即为 true，阻止后续 challenge()——这是有意设计，不是 bug
+- **无需保证金**：证明者不需要质押，激励及时响应挑战
 
 ---
 
-## 6. Batch Proof Verification
+## 5. TEE 证明安全模型
 
-### BatchProof Structure
+### 信任链
 
-```solidity
-struct BatchProof {
-    bytes32 startBlockHash;
-    bytes32 startStateHash;
-    bytes32 endBlockHash;
-    bytes32 endStateHash;
-    uint256 l2Block;
-    bytes signature;    // 65 bytes ECDSA (r + s + v)
-}
-```
-
-### Verification Steps
-
-For a `BatchProof[] proofs` array:
-
-1. **Start anchor**: `keccak256(abi.encode(proofs[0].startBlockHash, proofs[0].startStateHash))` must equal `startingOutputRoot.root`
-2. **Chain continuity** (for i > 0): `proofs[i].start{Block,State}Hash == proofs[i-1].end{Block,State}Hash`
-3. **Monotonic blocks**: `proofs[i].l2Block > prevBlock` (starting from `startingOutputRoot.l2SequenceNumber`)
-4. **TEE signature**: For each batch, compute `batchDigest = keccak256(abi.encode(startBlockHash, startStateHash, endBlockHash, endStateHash, l2Block))` and call `TEE_PROOF_VERIFIER.verifyBatch(batchDigest, signature)`
-5. **End anchor**: `keccak256(abi.encode(proofs[last].endBlockHash, proofs[last].endStateHash))` must equal `rootClaim()`
-6. **Final block**: `proofs[last].l2Block` must equal `l2SequenceNumber()`
-
-### batchDigest Computation
+TEE 证明本质上是 **Owner 控制的备案制**：
 
 ```
-batchDigest = keccak256(abi.encode(
-    startBlockHash,   // bytes32
-    startStateHash,   // bytes32
-    endBlockHash,     // bytes32
-    endStateHash,     // bytes32
-    l2Block           // uint256
-))
+Owner
+  └─ register() ──→ TeeProofVerifier 备案 enclave EOA
+                         └─ verifyBatch() ──→ 检查签名者是否已备案
+                                                  └─ TeeDisputeGame.prove() 接受
 ```
 
-### TeeProofVerifier.verifyBatch()
+**核心信任假设**：合约无条件信任 Owner 注册的 TEE EOA 签署的状态转移。ZK 证明（RISC Zero）仅用于注册环节验证 TEE attestation 的合法性，不参与运行时的 batch 验证。
 
-1. `ECDSA.tryRecover(digest, signature)` to recover signer
-2. Check `registeredEnclaves[recovered].registeredAt != 0`
-3. Return signer address
+**信任边界**：
+- Owner 有权注册恶意 enclave
+- 已注册 enclave 签署的任何 batch digest 都会被接受
+- 链上不验证状态转移的正确性，只验证"签名者是否在备案名单中"
 
-### Enclave Registration (TeeProofVerifier.register())
+### Enclave 生命周期
 
-- Owner-only function
-- Verifies RISC Zero ZK proof of AWS Nitro attestation
-- Parses journal: timestamp, PCR hash, root key, secp256k1 public key, user data
-- Validates root key matches AWS Nitro official root
-- Extracts Ethereum address from public key
-- Stores `EnclaveInfo{pcrHash, registeredAt}` mapping
+| 阶段 | 动作 | 控制方 |
+|------|------|--------|
+| 注册 | `register(seal, attestationData)` — ZK 证明验证 Nitro attestation 后备案 EOA | Owner |
+| 运行 | `verifyBatch(digest, signature)` — ecrecover + 检查备案状态 | 任何人（view） |
+| 单个撤销 | `revoke(address)` — 移除单个备案 | Owner |
+| 批量撤销 | `revokeAll()` — 递增 generation，O(1) 撤销所有备案 | Owner |
+
+### 批量证明验证概述
+
+`prove()` 接受 `BatchProof[]` 数组，验证从 `startingOutputRoot` 到 `rootClaim` 的完整状态转移链：
+
+1. 首个 batch 的起点必须等于锚定状态
+2. 相邻 batch 首尾相连（链式连续性）
+3. L2 区块号严格单调递增
+4. 每个 batch 的 EIP-712 签名由已备案 enclave 签署
+5. 末尾 batch 的终点必须等于 rootClaim，区块号等于 l2SequenceNumber
+
+### EIP-712 签名方案
+
+batchDigest 使用 EIP-712 typed data hash，domainSeparator 包含 `block.chainid` + `TEE_PROOF_VERIFIER` 地址，提供跨链和跨部署的 replay 保护。`verifyingContract` 使用 `TEE_PROOF_VERIFIER` 而非游戏实例地址，因为 verifier 是签名验证端点且每条链部署唯一。
 
 ---
 
-## 7. Bond Economics
+## 6. 保证金经济学
 
-### Bond Flow
+### 保证金流向
 
-| Actor     | When              | Amount              | Credited To               |
-|-----------|-------------------|----------------------|---------------------------|
-| Proposer  | `initialize()`    | `msg.value` (any)    | `refundModeCredit[proposer]` |
-| Challenger| `challenge()`     | `CHALLENGER_BOND`    | `refundModeCredit[challenger]` |
+| 角色       | 时机               | 金额                | 计入                              |
+|-----------|-------------------|---------------------|----------------------------------|
+| Proposer  | `initialize()`    | `msg.value`（任意，无最低限额）  | `refundModeCredit[proposer]`     |
+| Challenger| `challenge()`     | `CHALLENGER_BOND`   | `refundModeCredit[challenger]`   |
 
-### Bond Distribution on resolve()
+### resolve() 时的保证金分配
 
-| ProposalStatus                       | Winner           | Distribution                                                                                     |
-|---------------------------------------|------------------|--------------------------------------------------------------------------------------------------|
-| Unchallenged (deadline expired)      | Proposer (DEFENDER_WINS) | `normalModeCredit[proposer] = balance`                                                   |
-| Challenged (deadline expired, no proof) | Challenger (CHALLENGER_WINS) | `normalModeCredit[challenger] = balance`                                          |
-| UnchallengedAndValidProofProvided    | Proposer (DEFENDER_WINS) | `normalModeCredit[proposer] = balance`                                                   |
-| ChallengedAndValidProofProvided      | Proposer (DEFENDER_WINS) | `normalModeCredit[proposer] = balance` (proposer gets all bonds since only proposer can prove) |
-| Parent game CHALLENGER_WINS (child challenged) | Challenger (CHALLENGER_WINS) | `normalModeCredit[challenger] = balance`                                |
-| Parent game CHALLENGER_WINS (child unchallenged) | Proposer refunded (CHALLENGER_WINS) | `normalModeCredit[proposer] = balance`                           |
+| ProposalStatus                               | 赢家             | 分配方式                                              |
+|-----------------------------------------------|------------------|------------------------------------------------------|
+| Unchallenged（deadline 过期）                  | Proposer (DEFENDER_WINS) | `normalModeCredit[proposer] = balance`         |
+| Challenged（deadline 过期，无证明）             | Challenger (CHALLENGER_WINS) | `normalModeCredit[challenger] = balance`   |
+| UnchallengedAndValidProofProvided             | Proposer (DEFENDER_WINS) | `normalModeCredit[proposer] = balance`         |
+| ChallengedAndValidProofProvided               | Proposer (DEFENDER_WINS) | `normalModeCredit[proposer] = balance`（proposer 获得全部保证金，因为只有 proposer 能 prove）|
+| 父游戏 CHALLENGER_WINS（子游戏已被挑战）        | Challenger (CHALLENGER_WINS) | `normalModeCredit[challenger] = balance`   |
+| 父游戏 CHALLENGER_WINS（子游戏未被挑战）        | Proposer 退款 (CHALLENGER_WINS) | `normalModeCredit[proposer] = balance` |
 
-### closeGame() and BondDistributionMode
+### closeGame() 和 BondDistributionMode
 
-Before credits can be claimed, `closeGame()` determines the distribution mode:
+领取保证金前，`closeGame()` 根据 ASR 状态决定分配模式（幂等，只执行一次）：
 
-1. Check `ANCHOR_STATE_REGISTRY.isGameFinalized()` (resolved + finality delay elapsed)
-2. Try to set this game as the new anchor state
-3. Check `ANCHOR_STATE_REGISTRY.isGameProper()` (registered, not blacklisted, not retired, not paused)
-4. If proper: `NORMAL` mode (winners get bonds). If not: `REFUND` mode (everyone gets their deposit back)
+- **NORMAL 模式**：ASR 判定游戏为 proper（已注册、未黑名单、未退休、未暂停）→ 赢家获得全部保证金
+- **REFUND 模式**：ASR 判定游戏非 proper → 各方退还原始存入金额（安全兜底）
 
-### claimCredit()
+暂停期间 closeGame() 会 revert，防止游戏在临时暂停时被永久推入 REFUND 模式。
 
-1. Calls `closeGame()` (idempotent)
-2. Reads credit based on `bondDistributionMode`
-3. Zeroes both credit mappings
-4. Transfers ETH via low-level `call`
+**与 FaultDisputeGame 的关键区别**：FDG 使用 `DelayedWETH`（deposit/unlock/withdraw 模式）托管保证金，owner 有 `hold()` 紧急恢复函数。TeeDisputeGame 直接在合约中持有 ETH（`address(this).balance`），finality delay 由 `ASR.isGameFinalized()` 强制。
 
-**Key difference from FaultDisputeGame:** FDG uses `DelayedWETH` (deposit/unlock/withdraw pattern) for bond custody. TeeDisputeGame holds ETH directly in the contract (`address(this).balance`).
+**设计理由**：TZ 的 Proposer 和 Challenger 均为特权白名单地址（非 permissionless），不需要 DelayedWETH 的额外延迟和紧急恢复机制。直接持有 ETH 更简单，ASR 的 finality delay + REFUND 模式已提供足够的安全兜底。
 
 ---
 
-## 8. Parent-Child Chaining
+## 7. 父子链式关联
 
-### How Games Reference Parents
+### 设计概述
 
-- `parentIndex` is a `uint32` stored in CWIA calldata at offset `0x74`
-- `type(uint32).max` (0xFFFFFFFF) means "no parent" (uses anchor state from ASR)
-- Any other value is an index into `DisputeGameFactory.gameAtIndex()`
+游戏通过 `parentIndex` 引用父游戏（`0xFFFFFFFF` 表示无父游戏，使用 ASR 锚定状态）。子游戏的 `startingOutputRoot` 继承自父游戏的 `rootClaim`。
 
-### Parent Validation (in initialize())
+### 跨类型隔离
 
-```
-parentIndex != type(uint32).max:
-  1. parentGameType must == GAME_TYPE (cross-type isolation)
-  2. Parent must be respected (ASR.isGameRespected)
-  3. Parent must not be blacklisted (ASR.isGameBlacklisted)
-  4. Parent must not be retired (ASR.isGameRetired)
-  5. Parent must not be CHALLENGER_WINS
+父游戏的 GameType 必须与当前游戏一致。TEE 游戏只能链接到其他 TEE 游戏，防止被攻破的 FaultDisputeGame 被用作 TEE 链的起点。
 
-  startingOutputRoot = {
-    l2SequenceNumber: parent.l2SequenceNumber(),
-    root: Hash.wrap(parent.rootClaim().raw())
-  }
-```
+### 父游戏失效级联
 
-### Cross-Chain Isolation
-
-The `GameType` check (`parentGameType == GAME_TYPE`) ensures TEE games can only chain to other TEE games. This prevents a compromised FaultDisputeGame from being used as a starting point for a TEE chain.
-
-### resolve() Parent Dependency
-
-- If parent exists and is still `IN_PROGRESS`: `resolve()` reverts with `ParentGameNotResolved`
-- If parent resolved as `CHALLENGER_WINS`: child automatically resolves as `CHALLENGER_WINS`. If the child was challenged, the challenger gets all bonds. If the child was never challenged, the proposer's bond is refunded.
-- If parent resolved as `DEFENDER_WINS` (or no parent): normal resolution logic applies
+- 父游戏未 resolve 时，子游戏不能 resolve（阻塞等待）
+- 父游戏 resolve 为 CHALLENGER_WINS → 子游戏自动 CHALLENGER_WINS
+  - 子游戏已被挑战：challenger 获得全部保证金
+  - 子游戏未被挑战：proposer 保证金被退还（不惩罚无辜 proposer）
+- 父游戏 resolve 为 DEFENDER_WINS（或无父游戏）→ 正常解决逻辑
 
 ---
 
-## 9. AnchorStateRegistry Integration
+## 8. 访问控制
 
-### Functions Used by TeeDisputeGame
+### 角色总览
 
-| ASR Function                | Where Used              | Purpose                                        |
-|------------------------------|-------------------------|-------------------------------------------------|
-| `anchors(GAME_TYPE)`         | `initialize()`          | Get starting anchor when no parent              |
-| `respectedGameType()`        | `initialize()`          | Check if this game type is respected at creation|
-| `isGameRespected(proxy)`     | `initialize()`          | Validate parent game                           |
-| `isGameBlacklisted(proxy)`   | `initialize()`          | Validate parent game                           |
-| `isGameRetired(proxy)`       | `initialize()`          | Validate parent game                           |
-| `isGameFinalized(this)`      | `closeGame()`           | Check resolution + finality delay              |
-| `setAnchorState(this)`       | `closeGame()`           | Try to update anchor game                      |
-| `isGameProper(this)`         | `closeGame()`           | Determine NORMAL vs REFUND mode                |
+| 角色 | 合约 | 能力 | 说明 |
+|------|------|------|------|
+| PROPOSER | TeeDisputeGame（immutable） | 创建游戏（tx.origin）、调用 prove() | 单地址，不可变 |
+| CHALLENGER | TeeDisputeGame（immutable） | 调用 challenge() | 单地址，不可变 |
+| Owner | TeeProofVerifier（Ownable） | 注册/撤销 enclave | 信任根，详见 Section 5 |
+| Guardian | ASR（来自 SystemConfig） | pause/blacklist/retire 游戏 | 间接影响 bond 分配，详见 Section 10 |
 
-### Anchor State Update Flow
-
-```
-claimCredit() -> closeGame() -> ASR.setAnchorState(this) [try/catch]
-                             -> ASR.isGameProper(this)
-                             -> set bondDistributionMode
-```
-
-`setAnchorState` will succeed only if:
-- Game claim is valid (proper + respected + finalized + DEFENDER_WINS)
-- Game's `l2SequenceNumber` > current anchor's block number
-
-### rootClaim Format
-
-```
-rootClaim = keccak256(abi.encode(blockHash, stateHash))
-```
-
-This differs from FaultDisputeGame where rootClaim is an output root hash directly. The ASR stores this combined hash as the anchor root.
+**设计说明**：
+- Proposer 使用 `tx.origin` 检查（与 PermissionedDisputeGame 一致），Challenger 使用 `msg.sender` 检查
+- 两个地址均在 constructor 设置，所有 Clone 实例共享，更改需部署新 implementation
+- TeeProofVerifier 的 Owner 可注册任意 Enclave，只要是 AWS Enclave 就可以注册，是整个系统的信任根
 
 ---
 
-## 10. Access Control
+## 9. 全系统不变量
 
-### Inline Immutable Pattern
+以下不变量必须在所有状态下成立。审计和测试应围绕证伪这些性质展开。
 
-TeeDisputeGame uses simple immutable addresses for access control, matching PermissionedDisputeGame's pattern:
+### 资金安全
 
-| Role        | Storage                       | Check                                      |
-|-------------|-------------------------------|---------------------------------------------|
-| Proposer    | `address internal immutable PROPOSER` | `initialize()`: `if (tx.origin != PROPOSER) revert BadAuth();` |
-| Challenger  | `address internal immutable CHALLENGER` | `challenge()`: `if (msg.sender != CHALLENGER) revert BadAuth();` |
+**INV-1**: 合约持有的 ETH ≥ sum(normalModeCredit) + sum(refundModeCredit)
+— 任何时刻，合约余额不低于所有未领取 credit 之和
 
-Both addresses are set in the constructor and shared across all Clone instances. No external contract calls are needed for access control checks.
+**INV-2**: claimCredit() 转出的 ETH 总量 ≤ initialize() 和 challenge() 收到的 ETH 总量
+— 合约不会凭空多发 ETH
 
-### TeeProofVerifier Roles
+**INV-3**: REFUND 模式下，每个参与者领取的金额 == 其原始存入金额
+— refundModeCredit 精确等于存入时的 msg.value
 
-| Role     | Function                | Description                                        |
-|----------|-------------------------|----------------------------------------------------|
-| Owner    | `register(seal, journal)` | Register enclave after ZK proof verification     |
-| Owner    | `revoke(enclaveAddress)` | Remove enclave registration                       |
-| Owner    | `transferOwnership()`    | Transfer ownership                                |
-| Anyone   | `verifyBatch()`          | Verify batch signature (view, no state change)    |
+### 状态机完整性
 
-### Comparison: TeeDisputeGame vs PermissionedDisputeGame Access Control
+**INV-4**: ProposalStatus 转移只有以下合法路径：
+- Unchallenged → Challenged（仅 challenge()）
+- Unchallenged → UnchallengedAndValidProofProvided（仅 prove()）
+- Challenged → ChallengedAndValidProofProvided（仅 prove()）
+- 任意非 Resolved → Resolved（仅 resolve()）
 
-| Aspect                    | TeeDisputeGame                              | PermissionedDisputeGame                    |
-|----------------------------|----------------------------------------------|---------------------------------------------|
-| Proposer check             | `tx.origin != PROPOSER` (single address)     | `tx.origin == PROPOSER` (single address)   |
-| Challenger check           | `msg.sender != CHALLENGER` (single address)  | `msg.sender == PROPOSER \|\| msg.sender == CHALLENGER` |
-| Multiple proposers?        | No (single immutable address)                | No (single immutable address)              |
-| Permissionless fallback?   | No                                           | No                                         |
-| Role management            | Immutable constructor params                 | Immutable constructor params               |
+其他任何转移都不应发生。
 
----
+**INV-5**: GameStatus 一旦从 IN_PROGRESS 变为 DEFENDER_WINS 或 CHALLENGER_WINS，不可逆转
+— status 只能被 resolve() 修改一次
 
-## 11. Comparison with Existing Contracts
+**INV-6**: resolve() 之后，claimData.prover / claimData.counteredBy 不可再变更
 
-### Feature Comparison Table
+### 访问控制
 
-| Feature                       | TeeDisputeGame                        | FaultDisputeGame                       | PermissionedDisputeGame                |
-|--------------------------------|----------------------------------------|-----------------------------------------|-----------------------------------------|
-| **Proof mechanism**            | TEE ECDSA batch signatures            | Interactive bisection + VM step         | Interactive bisection + VM step (gated) |
-| **Dispute rounds**             | 1 (challenge + prove)                 | Many (bisection tree)                   | Many (bisection tree, permissioned)     |
-| **Claims**                     | Single ClaimData struct               | Append-only ClaimData[] array           | Append-only ClaimData[] array           |
-| **Resolution**                 | O(1), single resolve()               | O(n), bottom-up resolveClaim()          | O(n), bottom-up resolveClaim()          |
-| **Bond custody**               | Native ETH in contract                | DelayedWETH                             | DelayedWETH                             |
-| **Bond model**                 | Fixed challenger bond                 | Position-dependent bond curve           | Position-dependent bond curve           |
-| **Time model**                 | Fixed deadlines (challenge, prove)    | Chess clock with extensions             | Chess clock with extensions             |
-| **Access control**             | Single proposer + challenger addresses | Permissionless                          | Single proposer + challenger addresses  |
-| **Parent chaining**            | Explicit parentIndex in extraData     | N/A (uses ASR anchor only)             | N/A (uses ASR anchor only)             |
-| **L2 block challenge**         | N/A (blockHash in extraData)          | `challengeRootL2Block()` + RLP proof   | `challengeRootL2Block()` + RLP proof   |
-| **ASR anchor source**          | `anchors(GAME_TYPE)` (legacy path)    | `getAnchorRoot()` (unified path)       | `getAnchorRoot()` (unified path)       |
-| **Clone pattern**              | Solady Clone                          | Solady Clone                            | Solady Clone (inherits FDG)            |
-| **Game type**                  | 1960                                  | Configurable                            | Configurable                           |
-| **Pause handling**             | Via ASR.isGameProper (closeGame)       | ASR.paused() blocks closeGame           | ASR.paused() blocks closeGame          |
-| **l2SequenceNumber source**    | CWIA extraData                        | CWIA extraData (= l2BlockNumber)       | CWIA extraData (= l2BlockNumber)       |
+**INV-7**: 只有 PROPOSER（tx.origin）能通过 Factory 创建游戏
+
+**INV-8**: 只有 CHALLENGER（msg.sender）能调用 challenge()
+
+**INV-9**: 只有 proposer（msg.sender，即 initialize 时记录的地址）能调用 prove()
+
+### 证明完整性
+
+**INV-10**: prove() 成功 ⟹ 存在从 startingOutputRoot 到 rootClaim 的完整、连续、单调递增的 batch proof 链，且每个 batch 由当前 generation 的注册 enclave 签名
+
+**INV-11**: 已 resolve 为 DEFENDER_WINS 的游戏必须满足以下之一：
+- (a) 未被挑战且 challenge deadline 已过
+- (b) 提供了有效 TEE 证明（prover != address(0)）
+
+### Bond 分配
+
+**INV-12**: NORMAL 模式下，恰好一个地址的 normalModeCredit == address(this).balance（resolve 时刻），其余为 0
+
+**INV-13**: bondDistributionMode 一旦从 UNDECIDED 变为 NORMAL 或 REFUND，不可再变更
 
 ---
 
-## 12. Security Considerations
+## 10. 外部依赖与信任假设
 
-### Trust Model
+### 10.1 DisputeGameFactory
 
-1. **TEE enclave integrity**: The system trusts that registered TEE enclaves correctly execute state transitions. If an enclave is compromised, it could sign invalid state transitions.
+**信任级别**：高度信任
 
-2. **TeeProofVerifier owner**: The owner can register arbitrary addresses as enclaves (the ZK proof verification is a trust gate, but the owner controls registration). A compromised owner could register a non-enclave address.
+**假设**：
+- Factory 忠实地调用 initialize()，不会注入恶意 calldata
+- Factory 的 gameAtIndex() 返回正确的游戏记录
+- Factory 是可升级合约（由 L1 admin 控制），如果被恶意升级：
+  - 可伪造 parentIndex 对应的游戏记录
+  - 可创建任意 rootClaim 的游戏实例
 
-3. **Proposer/Challenger immutability**: The PROPOSER and CHALLENGER addresses are immutable constructor params. Changing them requires deploying a new implementation contract.
+**风险缓解**：Factory 的升级由 L1 multisig + timelock 控制
 
-4. **Single challenge model**: Unlike FaultDisputeGame's multi-round bisection, only ONE challenger can challenge a proposal. If the challenger fails to follow through with a proof, the proposal is accepted. There is no mechanism for a second challenger.
+### 10.2 AnchorStateRegistry (ASR)
 
-5. **`tx.origin` usage**: `initialize()` checks `tx.origin != PROPOSER`. Using `tx.origin` means the proposer's EOA is checked regardless of intermediate contracts, which is consistent with PermissionedDisputeGame but has known risks (e.g., meta-transaction relayers would inherit the tx.origin of the outer caller).
+**信任级别**：高度信任
 
-### Potential Risks
+**间接依赖链**：ASR 并非独立合约，其关键能力来自 SystemConfig / SuperchainConfig：
 
-1. **Parent chain invalidation cascade**: If a parent game is resolved as CHALLENGER_WINS after child games are created, all children automatically resolve as CHALLENGER_WINS. If the child was challenged, the challenger gets all bonds. If the child was never challenged, the proposer's bond is refunded (not burned to address(0)).
+```
+ASR.paused()              → SystemConfig.paused() → SuperchainConfig.paused()
+ASR._assertOnlyGuardian() → SystemConfig.guardian()
+ASR.initialize()          → ProxyAdminOwnedBase（需要 ProxyAdmin 授权）
+ASR 升级                   → ProxyAdmin.upgrade()
+```
 
-2. **No replay protection on prove()**: The same proof bytes can be submitted to different game instances if they happen to cover the same state range. This is not a vulnerability (the proof is still valid), but it means provers don't need unique proofs per game.
+**假设**：
+- ASR 的 guardian（来自 SystemConfig）可以 pause / unpause / blacklist / retire 游戏
+- ASR pause 期间，closeGame() 会 revert（`TeeDisputeGame.sol:431`），意味着所有进行中游戏的 bond 领取被暂停
+- ASR 的 isGameProper() 判定直接决定 NORMAL vs REFUND 模式
+- 如果 ASR guardian 被恶意控制：
+  - 可通过 blacklist 强制所有游戏进入 REFUND 模式
+  - 可通过 pause 永久冻结所有 bond（但不能直接盗取）
 
-3. **resolve() when parent not resolved**: If the parent game's status is IN_PROGRESS, `resolve()` reverts with `ParentGameNotResolved`. This blocks resolution until the parent resolves, which could delay credit claims.
+**风险缓解**：guardian 由 multisig 控制；REFUND 模式是安全兜底
 
-4. **Bond held as native ETH**: Unlike FaultDisputeGame which uses DelayedWETH for withdrawal delays, TeeDisputeGame holds ETH directly. The finality delay is enforced by `ASR.isGameFinalized()` instead.
+#### ⏳ 待决策：TZ 的 SystemConfig / SuperchainConfig 部署方案
 
-5. **Enclave registration root key comparison**: `TeeProofVerifier.register()` compares root keys via `keccak256(rootKey) != keccak256(expectedRootKey)`, which is correct but uses dynamic memory allocation for the hash. The `expectedRootKey` is stored as `bytes` (storage-heavy) rather than a `bytes32` hash.
+TZ 自身不使用 SystemConfig 和 SuperchainConfig，但 ASR 依赖它们。两个候选方案：
+
+| 维度 | 方案 A：统一管理（复用 XL） | 方案 B：最小化 Stub |
+|------|-----------------------------------|-------------------|
+| **方案描述** | TZ 的 ASR `systemConfig` 指向 XL 已部署的 SystemConfig | TZ 部署仅实现 `paused()` + `guardian()` 的轻量合约 |
+| **部署成本** | 零额外合约 | 需部署 + 测试一个 stub 合约 |
+| **运维成本** | 零（XL 团队统一运维） | 低（功能极简，但需关注上游兼容性） |
+| **操作独立性** | ✗ — XL pause = TZ pause；XL guardian 控制 TZ 游戏 | ✓ — TZ 有独立的 pause 开关和 guardian |
+| **安全隔离** | ✗ — XL guardian 被攻破时 TZ 同时受影响 | ✓ — TZ 和 XL 完全隔离 |
+| **风险耦合** | 高 — XL 因自身原因 pause 时，TZ bond 领取也被冻结 | 无 |
+| **上游兼容性** | ✓ — 使用标准 SystemConfig，上游升级无影响 | ⚠️ — 上游 ASR 若调用更多 SystemConfig 函数，stub 可能不兼容 |
+| **适用前提** | TZ 和 XL 同一团队运营 | TZ 需要独立控制权，但不想 fork ASR |
+
+### 10.3 IRiscZeroVerifier
+
+**信任级别**：信任其正确性
+
+**假设**：
+- verify(seal, imageId, journalDigest) 正确验证 RISC Zero Groth16 证明
+- 如果 verifier 有 bug：可注册非法 enclave 地址 → 伪造状态转移
+
+**风险缓解**：
+- `riscZeroVerifier` 为 immutable，部署后不可替换。如需更换 verifier 需部署新的 TeeProofVerifier 合约
+- `imageId` 为 immutable，部署后不可更改。如需更换 guest image 需部署新合约
+
+### 10.4 AWS Nitro Root Key
+
+**信任级别**：信任 AWS 硬件安全
+
+**假设**：
+- expectedRootKey 是 AWS Nitro 的官方 P384 公钥
+- AWS 可能轮换 root key（历史上未发生，但理论上可能）
+
+**生命周期管理**：
+- `expectedRootKey` 在构造器中设置，部署后不可更改（无 setter 函数）
+- 如果 AWS 轮换 root key：需部署新的 TeeProofVerifier → 部署新的 TeeDisputeGame implementation 指向新 verifier
+- 此设计牺牲了运行时灵活性，换取了更小的 Owner 攻击面（Owner 无法在运行时替换 verifier/imageId/rootKey）
+
+### 10.5 TEE Enclave 硬件
+
+**信任级别**：信任 enclave 在未被攻破时正确执行
+
+**假设**：
+- 注册的 enclave 忠实执行状态转移并签名
+- 如果 enclave 被攻破（旁路攻击、供应链攻击等）：
+  - 可签署任意虚假状态转移
+  - 需要 Owner 通过 revoke() 或 revokeAll() 撤销
+  - 在撤销前，已签名的虚假 proof 可能已被提交
 
 ---
 
-## 13. Optimization Suggestions
+## 11. 应急机制与升级路径
 
-### 1. Use `getAnchorRoot()` instead of `anchors()`
+### 11.1 Enclave 撤销机制
 
-In `initialize()`, when `parentIndex == type(uint32).max`:
+**单个撤销**：
+- `TeeProofVerifier.revoke(address)` — Owner 移除单个 enclave
 
-```solidity
-// Current (uses legacy function):
-(startingOutputRoot.root, startingOutputRoot.l2SequenceNumber) =
-    IAnchorStateRegistry(ANCHOR_STATE_REGISTRY).anchors(GAME_TYPE);
+**批量撤销（Generation 机制）**：
+- `TeeProofVerifier.revokeAll()` — Owner 递增 enclaveGeneration
+- 效果：所有当前 generation 的 enclave 立即失效（O(1)）
+- ⚠️ 已提交的 proof 不受影响 — prove() 在调用时验证签名，如果 enclave 在 prove() 调用之前被撤销，该 proof 将失败
+- ⚠️ 已 resolve 的游戏不受影响 — 即使事后发现 enclave 被攻破，已完成的游戏状态不可逆转。应通过 ASR blacklist 处理
 
-// Suggested (uses current function):
-(startingOutputRoot.root, startingOutputRoot.l2SequenceNumber) =
-    ANCHOR_STATE_REGISTRY.getAnchorRoot();
-```
+### 11.2 ASR Pause 对进行中游戏的影响
 
-The `anchors()` function is explicitly marked `@custom:legacy` in AnchorStateRegistry and ignores the `GameType` parameter entirely. Using `getAnchorRoot()` is more correct and future-proof.
+| 游戏阶段 | Pause 影响 |
+|----------|-----------|
+| Unchallenged（等待挑战） | challenge() 不受影响（无 pause 检查）|
+| Challenged（等待证明） | prove() 不受影响（无 pause 检查）|
+| 等待 resolve | resolve() 不受影响（无 pause 检查）|
+| 已 resolve，等待 closeGame | closeGame() 被阻塞 → bond 无法领取 |
+| 已 close，等待 claimCredit | claimCredit() 不受影响（close 是幂等的）|
 
-### 2. Add pause check in closeGame()
+**关键结论**：pause 只影响 bond 领取，不影响游戏逻辑本身。长时间 pause 不会导致资金丢失，但会延迟资金释放。
 
-FaultDisputeGame's `closeGame()` explicitly checks `ANCHOR_STATE_REGISTRY.paused()` and reverts with `GamePaused()` to prevent games from entering REFUND mode during temporary pauses. TeeDisputeGame relies on `isGameProper()` returning false during pauses (which sends games to REFUND mode), but this means paused games permanently enter REFUND mode rather than waiting. Consider adding:
+### 11.3 升级路径
 
-```solidity
-if (ANCHOR_STATE_REGISTRY.paused()) revert GamePaused();
-```
+**TeeDisputeGame**：
+- Clone proxy 模式，implementation 不可升级
+- 如需修复漏洞：部署新 implementation → Factory 注册新 gameType → ASR retire 旧 gameType
+- 已创建的旧游戏继续运行，但无法作为新游戏的 parent（因为 parentGameType != 新 GAME_TYPE）
 
-### 3. Add resolvedAt check in closeGame()
+**TeeProofVerifier**：
+- 非 proxy，不可升级
+- riscZeroVerifier / imageId / expectedRootKey 均为不可变参数，部署后无法更改
+- Owner 仅保留 enclave 注册/撤销权限
+- 如需更换 verifier / imageId / rootKey：部署新的 TeeProofVerifier → 部署新的 TeeDisputeGame implementation 指向新 verifier
 
-FaultDisputeGame's `closeGame()` explicitly checks `resolvedAt.raw() != 0` before proceeding. TeeDisputeGame relies on `ASR.isGameFinalized()` to check this, but adding an explicit local check would be defensive:
+### 11.4 应急 SOP（建议）
 
-```solidity
-if (resolvedAt.raw() == 0) revert GameNotResolved();
-```
+如果发现 TEE enclave 被攻破：
+1. Owner 调用 `revokeAll()` 撤销所有 enclave
+2. Guardian 通过 ASR blacklist 被攻破 enclave 签名的游戏
+3. 排查受影响游戏，blacklist 后这些游戏进入 REFUND 模式
+4. 重新注册可信 enclave
+5. 新游戏从 anchor state 继续
 
-### 4. Store expectedRootKey as bytes32 hash
+---
 
-In TeeProofVerifier, storing `expectedRootKey` as `bytes` uses ~3 storage slots (96 bytes). Instead, store the keccak256 hash:
+## 12. 超出范围的威胁
 
-```solidity
-bytes32 public immutable expectedRootKeyHash;
-// In register(): if (keccak256(rootKey) != expectedRootKeyHash) revert InvalidRootKey();
-```
+以下威胁被认为超出本合约系统的防御范围：
 
-### 5. Consider allowing multiple challengers
+1. **TEE 硬件级攻击**：旁路攻击、电压故障注入等物理攻击。缓解依赖 AWS Nitro 硬件安全保证。
 
-The current model allows only one challenger per game. If the first challenger colludes with the proposer (challenges but never provides proof), the game resolves in the challenger's favor, not a third party's. While the bond economics discourage this, allowing multiple challengers or a challenge-replacement mechanism would be more robust.
+2. **L1 Reorg**：深度 L1 重组可能导致已 resolve 的游戏状态回滚。这是 L1 共识层风险，非合约层可防御。
 
-### 6. Use EIP-712 typed data for batchDigest
+3. **Owner / Guardian 密钥泄露**：如果 Owner multisig 被完全攻破，攻击者可注册恶意 enclave（但无法替换 verifier、imageId 或 rootKey，因为这些是不可变参数）。缓解依赖密钥管理实践和 multisig/timelock 配置。
 
-The current `batchDigest` is a plain `keccak256(abi.encode(...))`. Using EIP-712 structured data would:
-- Prevent cross-contract replay if another contract uses the same digest scheme
-- Provide better wallet UX for TEE key management
+4. **L1 Gas Price 攻击**：攻击者通过操纵 L1 gas price 阻止 challenger/prover 在 deadline 内提交交易。缓解依赖合理设置 MAX_CHALLENGE_DURATION 和 MAX_PROVE_DURATION。
 
-### 7. Add explicit receive()/fallback()
+5. **跨链 MEV**：利用 L1/L2 之间的信息不对称进行的套利。不在合约层面防御。
 
-The contract accepts ETH via `initialize()` and `challenge()` (both `payable`), but has no `receive()` function. If ETH is accidentally sent directly, it will be lost. Consider adding a `receive()` that reverts.
+6. **DisputeGameFactory 升级攻击**：Factory 由 L1 governance 控制，恶意升级可绕过所有游戏安全假设。依赖治理安全。
 
-### 8. Consider reentrancy guard on claimCredit()
-
-`claimCredit()` makes a low-level `call` to `_recipient` before the function completes. While credits are zeroed before the call, a reentrancy guard would be a defense-in-depth measure consistent with best practices.
-
-### 9. Align resolve() checks with FaultDisputeGame
-
-FaultDisputeGame uses `GameNotInProgress` error for the "already resolved" check. TeeDisputeGame uses `ClaimAlreadyResolved`. Consider using the same error for consistency, or renaming to avoid confusion (since `ClaimAlreadyResolved` is also used in FDG's `resolveClaim` with a different semantic meaning).
+7. **OptimismPortal 提款证明**：TZ 不使用 OptimismPortal 进行 L1↔L2 提款。TZ 的 dispute game 仅用于将 state root 和 TEE proof 公布在 L1 上，跨链桥和提款机制不依赖游戏结果。因此 OptimismPortal 相关的安全假设（`wasRespectedGameTypeWhenCreated`、withdrawal finality 等）不在 TZ 的审计范围内。
