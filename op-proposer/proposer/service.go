@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ethereum-optimism/optimism/op-proposer/contracts"
 	"github.com/ethereum-optimism/optimism/op-proposer/metrics"
 	"github.com/ethereum-optimism/optimism/op-proposer/proposer/rpc"
 	"github.com/ethereum-optimism/optimism/op-proposer/proposer/source"
@@ -97,7 +98,6 @@ func (ps *ProposerService) initFromCLIConfig(ctx context.Context, version string
 	ps.NetworkTimeout = cfg.TxMgrConfig.NetworkTimeout
 	ps.AllowNonFinalized = cfg.AllowNonFinalized
 	ps.WaitNodeSync = cfg.WaitNodeSync
-	// X Layer: Genesis height may not be zero
 	ps.GenesisHeight = cfg.GenesisHeight
 
 	ps.initDGF(cfg)
@@ -128,6 +128,11 @@ func (ps *ProposerService) initFromCLIConfig(ctx context.Context, version string
 }
 
 func (ps *ProposerService) initRPCClients(ctx context.Context, cfg *CLIConfig) error {
+	// For xlayer: TeeRollup has no L1 derivation; CurrentL1 is always zero — waitNodeSync would block forever.
+	if cfg.DisputeGameType == contracts.TEEGameType && cfg.WaitNodeSync {
+		return fmt.Errorf("--wait-node-sync is not supported with TeeRollup game type (1960)")
+	}
+
 	l1Client, err := dial.DialEthClientWithTimeout(ctx, dial.DefaultDialTimeout, ps.Log, cfg.L1EthRpc)
 	if err != nil {
 		return fmt.Errorf("failed to dial L1 RPC: %w", err)
@@ -170,6 +175,14 @@ func (ps *ProposerService) initRPCClients(ctx context.Context, cfg *CLIConfig) e
 			clients = append(clients, cl)
 		}
 		ps.ProposalSource = source.NewSuperNodeProposalSource(ps.Log, clients...)
+	}
+	// For xlayer: initialize TeeRollup proposal source
+	if cfg.TeeRollupRpc != "" {
+		teeRollupClient, err := source.NewTeeRollupHTTPClient(cfg.TeeRollupRpc)
+		if err != nil {
+			return fmt.Errorf("failed to create TeeRollup HTTP client: %w", err)
+		}
+		ps.ProposalSource = source.NewTeeRollupProposalSource(ps.Log, teeRollupClient)
 	}
 	if ps.ProposalSource == nil {
 		return ErrMissingSource
@@ -263,6 +276,14 @@ func (ps *ProposerService) initDriver() error {
 		return err
 	}
 	ps.driver = driver
+
+	// For xlayer: wire TEE-specific parent index resolver only for TEE game type
+	if ps.ProposerConfig.DisputeGameType == contracts.TEEGameType {
+		if err := initTeeSource(ps, driver); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/urfave/cli/v2"
 
+	"github.com/ethereum-optimism/optimism/op-proposer/contracts"
 	"github.com/ethereum-optimism/optimism/op-proposer/flags"
 	oplog "github.com/ethereum-optimism/optimism/op-service/log"
 	opmetrics "github.com/ethereum-optimism/optimism/op-service/metrics"
@@ -20,6 +21,7 @@ var (
 	ErrMissingSupervisorRpc = errors.New("missing supervisor rpc or supernode rpc")
 	ErrMissingSource        = errors.New("missing proposal source rpc (rollup, supervisor, or supernode)")
 	ErrConflictingSource    = errors.New("must specify exactly one of rollup rpc, supervisor rpc, or supernode rpc")
+	ErrMissingTeeRollupRpc  = errors.New("tee-rollup-rpc is required for TeeRollup game type (1960)") // For xlayer
 
 	// preInteropGameTypes are  game types that enforce having a rollup rpc.
 	// It is ok if this list isn't complete, unknown game types will allow either rollup or supervisor
@@ -83,7 +85,9 @@ type CLIConfig struct {
 	// Whether to wait for the sequencer to sync to a recent block at startup.
 	WaitNodeSync bool
 
-	// X Layer: Genesis height may not be zero
+	// For xlayer: TeeRollup RPC base URL for game type 1960.
+	TeeRollupRpc string
+	// For xlayer: genesis height (may be non-zero on XLayer).
 	GenesisHeight uint64
 }
 
@@ -121,6 +125,9 @@ func (c *CLIConfig) Check() error {
 	if len(c.SuperNodeRpcs) != 0 {
 		sourceCount++
 	}
+	if c.TeeRollupRpc != "" {
+		sourceCount++
+	}
 	if sourceCount > 1 {
 		return ErrConflictingSource
 	}
@@ -131,6 +138,10 @@ func (c *CLIConfig) Check() error {
 	// Require supervisor or supernode RPC for post interop game types
 	if c.DGFAddress != "" && slices.Contains(postInteropGameTypes, c.DisputeGameType) && len(c.SupervisorRpcs) == 0 && len(c.SuperNodeRpcs) == 0 {
 		return ErrMissingSupervisorRpc
+	}
+	// For xlayer: TeeRollup game type requires TeeRollupRpc
+	if c.DisputeGameType == contracts.TEEGameType && c.TeeRollupRpc == "" {
+		return ErrMissingTeeRollupRpc
 	}
 	// For unknown game types, allow any source, but require at least one.
 	if sourceCount == 0 {
@@ -158,6 +169,7 @@ func NewConfig(ctx *cli.Context) *CLIConfig {
 		DisputeGameType:              uint32(ctx.Uint(flags.DisputeGameTypeFlag.Name)),
 		ActiveSequencerCheckDuration: ctx.Duration(flags.ActiveSequencerCheckDurationFlag.Name),
 		WaitNodeSync:                 ctx.Bool(flags.WaitNodeSyncFlag.Name),
-		GenesisHeight:                ctx.Uint64(flags.GenesisHeight.Name), // X Layer: Genesis height may not be zero
+		TeeRollupRpc:                 ctx.String(flags.TeeRollupRpcFlag.Name), // For xlayer
+		GenesisHeight:                ctx.Uint64(flags.GenesisHeight.Name),    // For xlayer
 	}
 }

@@ -38,6 +38,7 @@ type DisputeGameFactory struct {
 	contract       *batching.BoundContract
 	gameABI        *abi.ABI
 	networkTimeout time.Duration
+	teeCache       gameIndexCache // For xlayer
 }
 
 func NewDisputeGameFactory(addr common.Address, caller *batching.MultiCaller, networkTimeout time.Duration) *DisputeGameFactory {
@@ -133,16 +134,32 @@ func (f *DisputeGameFactory) gameAtIndex(ctx context.Context, idx uint64) (gameM
 	timestamp := result.GetUint64(1)
 	address := result.GetAddress(2)
 
-	gameContract := batching.NewBoundContract(f.gameABI, address)
-	cCtx, cancel = context.WithTimeout(ctx, f.networkTimeout)
-	defer cancel()
-	result, err = f.caller.SingleCall(cCtx, rpcblock.Latest, gameContract.Call(methodClaim, big.NewInt(0)))
-	if err != nil {
-		return gameMetadata{}, fmt.Errorf("failed to load root claim of game %v: %w", idx, err)
+	var claimant common.Address
+	var claim common.Hash
+	if gameType == 0 || gameType == 1 {
+		gameContract := batching.NewBoundContract(f.gameABI, address)
+		cCtx, cancel = context.WithTimeout(ctx, f.networkTimeout)
+		defer cancel()
+		result, err = f.caller.SingleCall(cCtx, rpcblock.Latest, gameContract.Call(methodClaim, big.NewInt(0)))
+		if err != nil {
+			return gameMetadata{}, fmt.Errorf("failed to load root claim of game %v: %w", idx, err)
+		}
+		// We don't need most of the claim data, only the claim and the claimant which is the game proposer
+		claimant = result.GetAddress(2)
+		claim = result.GetHash(4)
+	} else if gameType == TEEGameType { // For xlayer: uses different claimData() ABI with no args
+		// For xlayer: use snapshot ABI loaded from compiled artifact instead of inline JSON
+		newGameContract := batching.NewBoundContract(teeDisputeGameSnapshotABI, address)
+		cCtx, cancel = context.WithTimeout(ctx, f.networkTimeout)
+		defer cancel()
+		result, err = f.caller.SingleCall(cCtx, rpcblock.Latest, newGameContract.Call(methodClaim))
+		if err != nil {
+			return gameMetadata{}, fmt.Errorf("failed to load root claim of game %v: %w", idx, err)
+		}
+		claimant = result.GetAddress(2)
+		claim = result.GetHash(3)
 	}
-	// We don't need most of the claim data, only the claim and the claimant which is the game proposer
-	claimant := result.GetAddress(2)
-	claim := result.GetHash(4)
+	// Other game types are not handled, claimant and claim remain zero values
 
 	return gameMetadata{
 		GameType:  gameType,

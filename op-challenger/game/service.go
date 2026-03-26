@@ -11,6 +11,7 @@ import (
 	challengerClient "github.com/ethereum-optimism/optimism/op-challenger/game/client"
 	"github.com/ethereum-optimism/optimism/op-challenger/game/keccak"
 	"github.com/ethereum-optimism/optimism/op-challenger/game/keccak/fetcher"
+	"github.com/ethereum-optimism/optimism/op-challenger/game/tee" // For XLayer
 	"github.com/ethereum-optimism/optimism/op-challenger/game/zk"
 	"github.com/ethereum-optimism/optimism/op-challenger/sender"
 	"github.com/ethereum-optimism/optimism/op-service/sources"
@@ -229,6 +230,11 @@ func (s *Service) registerGameTypes(ctx context.Context, cfg *config.Config) err
 	if err != nil {
 		return err
 	}
+	// For XLayer
+	err = tee.RegisterGameTypes(ctx, s.l1Clock, s.logger, s.metrics, cfg, gameTypeRegistry, s.txSender, s.clientProvider, s.factoryContract)
+	if err != nil {
+		return err
+	}
 	s.registry = gameTypeRegistry
 	s.oracles = oracles
 	return nil
@@ -249,7 +255,8 @@ func (s *Service) initLargePreimages() error {
 }
 
 func (s *Service) initMonitor(cfg *config.Config) {
-	s.monitor = newGameMonitor(s.logger, s.l1Clock, s.factoryContract, s.sched, s.preimages, cfg.GameWindow, s.claimer, cfg.GameAllowlist, s.l1RPC, cfg.MinUpdateInterval)
+	source := newFilteredGameSource(s.factoryContract, cfg.GameTypes) // For XLayer: filter games by enabled types on shared factory
+	s.monitor = newGameMonitor(s.logger, s.l1Clock, source, s.sched, s.preimages, cfg.GameWindow, s.claimer, cfg.GameAllowlist, s.l1RPC, cfg.MinUpdateInterval)
 }
 
 func (s *Service) Start(ctx context.Context) error {

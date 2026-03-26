@@ -88,6 +88,11 @@ type Config struct {
 	CannonKonaAbsolutePreState        string   // File to load the absolute pre-state for CannonKona traces from
 	CannonKonaAbsolutePreStateBaseURL *url.URL // Base URL to retrieve absolute pre-states for CannonKona traces from
 
+	// For XLayer: TEE Dispute Game config
+	TeeProverRpc         string        // TEE Prover HTTP service URL
+	TeeProvePollInterval time.Duration // Polling interval for TEE Prover task status
+	TeeProveTimeout      time.Duration // Total timeout for a single game's prove attempt (including retries)
+
 	MaxPendingTx uint64 // Maximum number of pending transactions (0 == no limit)
 
 	TxMgrConfig   txmgr.CLIConfig
@@ -225,10 +230,10 @@ func (c Config) Check() error {
 	if c.L1RPCKind == "" {
 		return ErrMissingL1RPCKind
 	}
-	if c.L1Beacon == "" {
+	if c.L1Beacon == "" && !c.onlyTeeGameType() { // For XLayer: TEE game type does not require L1 beacon
 		return ErrMissingL1Beacon
 	}
-	if len(c.L2Rpcs) == 0 {
+	if len(c.L2Rpcs) == 0 && !c.onlyTeeGameType() { // For XLayer: TEE game type does not require L2 RPC
 		return ErrMissingL2Rpc
 	}
 	if c.GameFactoryAddress == (common.Address{}) {
@@ -292,6 +297,9 @@ func (c Config) Check() error {
 		if c.RollupRpc == "" {
 			return ErrMissingRollupRpc
 		}
+	}
+	if err := c.CheckXLayer(); err != nil { // For XLayer
+		return err
 	}
 	if err := c.TxMgrConfig.Check(); err != nil {
 		return err
