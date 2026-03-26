@@ -11,8 +11,10 @@ import {
     ClaimAlreadyChallenged,
     InvalidParentGame,
     ParentGameNotResolved,
+    GameOver,
     GameNotOver
 } from "src/dispute/tee/lib/Errors.sol";
+import { ClaimAlreadyResolved } from "src/dispute/lib/Errors.sol";
 import { BondDistributionMode, Duration, GameType, Claim, Hash, GameStatus } from "src/dispute/lib/Types.sol";
 import { MockAnchorStateRegistry } from "test/dispute/tee/mocks/MockAnchorStateRegistry.sol";
 import { MockDisputeGameFactory } from "test/dispute/tee/mocks/MockDisputeGameFactory.sol";
@@ -669,6 +671,293 @@ contract TeeDisputeGameTest is TeeTestUtils {
 
         vm.expectRevert(GameNotOver.selector);
         game.resolve();
+    }
+
+    ////////////////////////////////////////////////////////////////
+    //     Audit: Boundary & Invariant Tests                      //
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice INV-6: prove() should revert after resolve (claimData immutable)
+    function test_prove_revertAfterResolve() public {
+        bytes32 endBlockHash = keccak256("end-block");
+        bytes32 endStateHash = keccak256("end-state");
+        (TeeDisputeGame game,,) =
+            _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, endBlockHash, endStateHash);
+
+        // Wait for challenge deadline to expire, then resolve
+        vm.warp(block.timestamp + MAX_CHALLENGE_DURATION + 1);
+        game.resolve();
+
+        // prove after resolve should revert
+        teeProofVerifier.setRegistered(executor, true);
+        TeeDisputeGame.BatchProof[] memory proofs = new TeeDisputeGame.BatchProof[](1);
+        proofs[0] = buildBatchProof(
+            BatchInput({
+                startBlockHash: ANCHOR_BLOCK_HASH,
+                startStateHash: ANCHOR_STATE_HASH,
+                endBlockHash: endBlockHash,
+                endStateHash: endStateHash,
+                l2Block: game.l2SequenceNumber()
+            }),
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
+        );
+
+        vm.prank(proposer);
+        vm.expectRevert(ClaimAlreadyResolved.selector);
+        game.prove(abi.encode(proofs));
+    }
+
+    /// @notice INV-6: challenge() should revert after resolve (claimData immutable)
+    function test_challenge_revertAfterResolve() public {
+        (TeeDisputeGame game,,) =
+            _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
+
+        vm.warp(block.timestamp + MAX_CHALLENGE_DURATION + 1);
+        game.resolve();
+
+        vm.prank(challenger);
+        vm.expectRevert(ClaimAlreadyChallenged.selector);
+        game.challenge{ value: CHALLENGER_BOND }();
+    }
+
+    /// @notice Double prove: second prove() should revert with GameOver
+    function test_prove_revertWhenAlreadyProved() public {
+        bytes32 endBlockHash = keccak256("end-block");
+        bytes32 endStateHash = keccak256("end-state");
+        (TeeDisputeGame game,,) =
+            _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, endBlockHash, endStateHash);
+
+        teeProofVerifier.setRegistered(executor, true);
+        TeeDisputeGame.BatchProof[] memory proofs = new TeeDisputeGame.BatchProof[](1);
+        proofs[0] = buildBatchProof(
+            BatchInput({
+                startBlockHash: ANCHOR_BLOCK_HASH,
+                startStateHash: ANCHOR_STATE_HASH,
+                endBlockHash: endBlockHash,
+                endStateHash: endStateHash,
+                l2Block: game.l2SequenceNumber()
+            }),
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
+        );
+
+        vm.prank(proposer);
+        game.prove(abi.encode(proofs));
+
+        // Second prove should revert (gameOver = true because prover != address(0))
+        vm.prank(proposer);
+        vm.expectRevert(GameOver.selector);
+        game.prove(abi.encode(proofs));
+    }
+
+    /// @notice challenge should revert after prove (gameOver blocks further challenges)
+    function test_challenge_revertAfterProve() public {
+        bytes32 endBlockHash = keccak256("end-block");
+        bytes32 endStateHash = keccak256("end-state");
+        (TeeDisputeGame game,,) =
+            _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, endBlockHash, endStateHash);
+
+        teeProofVerifier.setRegistered(executor, true);
+        TeeDisputeGame.BatchProof[] memory proofs = new TeeDisputeGame.BatchProof[](1);
+        proofs[0] = buildBatchProof(
+            BatchInput({
+                startBlockHash: ANCHOR_BLOCK_HASH,
+                startStateHash: ANCHOR_STATE_HASH,
+                endBlockHash: endBlockHash,
+                endStateHash: endStateHash,
+                l2Block: game.l2SequenceNumber()
+            }),
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
+        );
+
+        vm.prank(proposer);
+        game.prove(abi.encode(proofs));
+
+        // After prove, status is UnchallengedAndValidProofProvided.
+        // challenge() checks status != Unchallenged first → revert ClaimAlreadyChallenged
+        vm.prank(challenger);
+        vm.expectRevert(ClaimAlreadyChallenged.selector);
+        game.challenge{ value: CHALLENGER_BOND }();
+    }
+
+    /// @notice challenge should revert after deadline expires
+    function test_challenge_revertAfterDeadline() public {
+        (TeeDisputeGame game,,) =
+            _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
+
+        vm.warp(block.timestamp + MAX_CHALLENGE_DURATION + 1);
+
+        vm.prank(challenger);
+        vm.expectRevert(GameOver.selector);
+        game.challenge{ value: CHALLENGER_BOND }();
+    }
+
+    /// @notice Double resolve should revert
+    function test_resolve_revertWhenAlreadyResolved() public {
+        (TeeDisputeGame game,,) =
+            _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
+
+        vm.warp(block.timestamp + MAX_CHALLENGE_DURATION + 1);
+        game.resolve();
+
+        vm.expectRevert(ClaimAlreadyResolved.selector);
+        game.resolve();
+    }
+
+    /// @notice INV-6: claimData.prover and claimData.counteredBy cannot change after resolve
+    function test_invariant6_claimDataImmutableAfterResolve() public {
+        bytes32 endBlockHash = keccak256("end-block");
+        bytes32 endStateHash = keccak256("end-state");
+        (TeeDisputeGame game,,) =
+            _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, endBlockHash, endStateHash);
+
+        // Challenge
+        vm.prank(challenger);
+        game.challenge{ value: CHALLENGER_BOND }();
+
+        // Prove
+        teeProofVerifier.setRegistered(executor, true);
+        TeeDisputeGame.BatchProof[] memory proofs = new TeeDisputeGame.BatchProof[](1);
+        proofs[0] = buildBatchProof(
+            BatchInput({
+                startBlockHash: ANCHOR_BLOCK_HASH,
+                startStateHash: ANCHOR_STATE_HASH,
+                endBlockHash: endBlockHash,
+                endStateHash: endStateHash,
+                l2Block: game.l2SequenceNumber()
+            }),
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
+        );
+        vm.prank(proposer);
+        game.prove(abi.encode(proofs));
+
+        // resolve
+        game.resolve();
+
+        // Snapshot claimData after resolve
+        (, address counteredBy, address prover,, TeeDisputeGame.ProposalStatus postStatus,) = game.claimData();
+        assertEq(counteredBy, challenger);
+        assertEq(prover, proposer);
+        assertEq(uint8(postStatus), uint8(TeeDisputeGame.ProposalStatus.Resolved));
+
+        // Confirm prove / challenge cannot modify claimData
+        vm.prank(proposer);
+        vm.expectRevert(ClaimAlreadyResolved.selector);
+        game.prove(abi.encode(proofs));
+
+        vm.prank(challenger);
+        vm.expectRevert(ClaimAlreadyChallenged.selector);
+        game.challenge{ value: CHALLENGER_BOND }();
+
+        // claimData remains unchanged
+        (, address counteredBy2, address prover2,, TeeDisputeGame.ProposalStatus postStatus2,) = game.claimData();
+        assertEq(counteredBy2, challenger);
+        assertEq(prover2, proposer);
+        assertEq(uint8(postStatus2), uint8(TeeDisputeGame.ProposalStatus.Resolved));
+    }
+
+    /// @notice INV-1: contract balance >= active mode credit sum after resolve
+    /// @dev Both normalModeCredit and refundModeCredit coexist in storage, but claimCredit
+    ///      only reads one mode. Correct invariant: balance >= max(sum(normal), sum(refund)).
+    function test_invariant1_balanceCoversCredits_defenderWins() public {
+        bytes32 endBlockHash = keccak256("end-block");
+        bytes32 endStateHash = keccak256("end-state");
+        (TeeDisputeGame game,,) =
+            _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, endBlockHash, endStateHash);
+
+        vm.prank(challenger);
+        game.challenge{ value: CHALLENGER_BOND }();
+
+        teeProofVerifier.setRegistered(executor, true);
+        TeeDisputeGame.BatchProof[] memory proofs = new TeeDisputeGame.BatchProof[](1);
+        proofs[0] = buildBatchProof(
+            BatchInput({
+                startBlockHash: ANCHOR_BLOCK_HASH,
+                startStateHash: ANCHOR_STATE_HASH,
+                endBlockHash: endBlockHash,
+                endStateHash: endStateHash,
+                l2Block: game.l2SequenceNumber()
+            }),
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
+        );
+        vm.prank(proposer);
+        game.prove(abi.encode(proofs));
+        game.resolve();
+
+        // INV-1: balance ≥ max(sum(normalModeCredit), sum(refundModeCredit))
+        uint256 totalNormal = game.normalModeCredit(proposer) + game.normalModeCredit(challenger);
+        uint256 totalRefund = game.refundModeCredit(proposer) + game.refundModeCredit(challenger);
+        assertGe(address(game).balance, totalNormal, "INV-1: balance < sum(normalModeCredit)");
+        assertGe(address(game).balance, totalRefund, "INV-1: balance < sum(refundModeCredit)");
+
+        // INV-12: In NORMAL mode, exactly one address has normalModeCredit (proposer wins)
+        assertGt(game.normalModeCredit(proposer), 0);
+        assertEq(game.normalModeCredit(challenger), 0);
+    }
+
+    /// @notice INV-1 + INV-12: balance covers credit when CHALLENGER_WINS
+    function test_invariant1_balanceCoversCredits_challengerWins() public {
+        (TeeDisputeGame game,,) =
+            _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
+
+        vm.prank(challenger);
+        game.challenge{ value: CHALLENGER_BOND }();
+
+        vm.warp(block.timestamp + MAX_PROVE_DURATION + 1);
+        game.resolve();
+
+        // INV-1: balance ≥ max(sum(normalModeCredit), sum(refundModeCredit))
+        uint256 totalNormal = game.normalModeCredit(proposer) + game.normalModeCredit(challenger);
+        uint256 totalRefund = game.refundModeCredit(proposer) + game.refundModeCredit(challenger);
+        assertGe(address(game).balance, totalNormal, "INV-1: balance < sum(normalModeCredit)");
+        assertGe(address(game).balance, totalRefund, "INV-1: balance < sum(refundModeCredit)");
+
+        // INV-12: when challenger wins, only challenger has credit
+        assertEq(game.normalModeCredit(proposer), 0);
+        assertGt(game.normalModeCredit(challenger), 0);
+    }
+
+    /// @notice INV-5: GameStatus is irreversible — status unchanged after resolve
+    function test_invariant5_gameStatusIrreversible() public {
+        (TeeDisputeGame game,,) =
+            _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
+
+        vm.warp(block.timestamp + MAX_CHALLENGE_DURATION + 1);
+        game.resolve();
+
+        GameStatus statusAfterResolve = game.status();
+        assertEq(uint8(statusAfterResolve), uint8(GameStatus.DEFENDER_WINS));
+
+        // Second resolve should revert
+        vm.expectRevert(ClaimAlreadyResolved.selector);
+        game.resolve();
+
+        // Status unchanged
+        assertEq(uint8(game.status()), uint8(statusAfterResolve));
+    }
+
+    /// @notice INV-13: bondDistributionMode is irreversible once set
+    function test_invariant13_bondDistributionModeIrreversible() public {
+        (TeeDisputeGame game,,) =
+            _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
+
+        vm.warp(block.timestamp + MAX_CHALLENGE_DURATION + 1);
+        game.resolve();
+
+        // Set ASR flags so closeGame can execute
+        anchorStateRegistry.setGameFlags(game, true, true, false, false, true, true, false);
+        game.closeGame();
+
+        BondDistributionMode modeAfterClose = game.bondDistributionMode();
+        assertEq(uint8(modeAfterClose), uint8(BondDistributionMode.NORMAL));
+
+        // closeGame is idempotent, mode unchanged
+        game.closeGame();
+        assertEq(uint8(game.bondDistributionMode()), uint8(modeAfterClose));
     }
 
     function _createGame(
