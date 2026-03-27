@@ -83,7 +83,7 @@ var (
 	TeeRollupRpcFlag = &cli.StringFlag{
 		Name:    "tee-rollup-rpc",
 		Usage:   "TeeRollup RPC service base URL (required when --game-type=1960)",
-		EnvVars: []string{"OP_PROPOSER_TEE_ROLLUP_RPC"},
+		EnvVars: []string{"TEE_ROLLUP_RPC"},
 	}
 	// For xlayer: genesis height
 	GenesisHeight = &cli.Uint64Flag{
