@@ -520,7 +520,12 @@ func (s *Driver) followUpstream() {
 		s.log.Warn("Follow Upstream: Failed to fetch status", "err", err)
 		return
 	}
-	s.log.Info("Follow Upstream", "eSafe", status.SafeL2, "eFinalized", status.FinalizedL2, "eCurrentL1", status.CurrentL1)
+	s.log.Info("Follow Upstream", "eSafe", status.SafeL2, "eLocalSafe", status.LocalSafeL2, "eFinalized", status.FinalizedL2, "eCurrentL1", status.CurrentL1)
+	if status.SafeL2.Number > status.LocalSafeL2.Number {
+		s.log.Warn("Follow Upstream: Invalid external state, safe is ahead of local safe",
+			"safe", status.SafeL2.Number, "localSafe", status.LocalSafeL2.Number)
+		return
+	}
 	if status.FinalizedL2.Number > status.SafeL2.Number {
 		s.log.Warn("Follow Upstream: Invalid external state, finalized is ahead of safe", "safe", status.SafeL2.Number, "finalized", status.FinalizedL2.Number)
 		return
@@ -547,8 +552,21 @@ func (s *Driver) followUpstream() {
 			s.emitter.Emit(s.driverCtx, derive.DeriverL1StatusEvent{Origin: status.CurrentL1})
 		}
 	} else {
-		// L1 origin verification: validate external safe/finalized/CurrentL1 against local L1.
-		// This block preserves the original upstream logic; PR #19330 will add LocalSafeL2 verification here.
+		// L1 origin verification: validate external local-safe/safe/finalized/CurrentL1 against local L1.
+		eLocalSafeL1Origin, err := s.upstreamFollowSource.L1BlockRefByNumber(s.driverCtx, status.LocalSafeL2.L1Origin.Number)
+		if err != nil {
+			s.log.Warn("Follow Upstream: Failed to look up L1 origin of external local safe head", "err", err)
+			return
+		}
+		if eLocalSafeL1Origin.Hash != status.LocalSafeL2.L1Origin.Hash {
+			s.log.Warn(
+				"Follow Upstream: Invalid external local safe: L1 origin of external local safe head mismatch",
+				"actual", eLocalSafeL1Origin,
+				"expected", status.LocalSafeL2.L1Origin,
+			)
+			return
+		}
+
 		eSafeL1Origin, err := s.upstreamFollowSource.L1BlockRefByNumber(s.driverCtx, status.SafeL2.L1Origin.Number)
 		if err != nil {
 			s.log.Warn("Follow Upstream: Failed to look up L1 origin of external safe head", "err", err)
@@ -599,7 +617,7 @@ func (s *Driver) followUpstream() {
 		}
 	}
 
-	s.SyncDeriver.Engine.FollowSource(status.SafeL2, status.FinalizedL2)
+	s.SyncDeriver.Engine.FollowSource(status.SafeL2, status.LocalSafeL2, status.FinalizedL2)
 
 	// XLayer: periodically fetch P2PSequencerAddress from upstream when skip-l1-check is enabled.
 	// Throttled to runtimeConfigFetchInterval (default 10 min) to match upstream L1 reload behavior.

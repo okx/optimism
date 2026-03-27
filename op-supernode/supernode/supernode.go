@@ -18,6 +18,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-supernode/supernode/activity"
 	"github.com/ethereum-optimism/optimism/op-supernode/supernode/activity/heartbeat"
 	"github.com/ethereum-optimism/optimism/op-supernode/supernode/activity/interop"
+	supernodeactivity "github.com/ethereum-optimism/optimism/op-supernode/supernode/activity/supernode"
 	"github.com/ethereum-optimism/optimism/op-supernode/supernode/activity/superroot"
 	cc "github.com/ethereum-optimism/optimism/op-supernode/supernode/chain_container"
 	"github.com/ethereum-optimism/optimism/op-supernode/supernode/resources"
@@ -28,19 +29,20 @@ import (
 )
 
 type Supernode struct {
-	log          gethlog.Logger
-	version      string
-	requestStop  context.CancelCauseFunc
-	stopped      bool
-	cfg          *config.CLIConfig
-	chains       map[eth.ChainID]cc.ChainContainer
-	activities   []activity.Activity
-	rootRPC      *oprpc.Handler
-	wg           sync.WaitGroup
-	l1Client     *sources.L1Client
-	beaconClient *sources.L1BeaconClient
-	httpServer   *httputil.HTTPServer
-	rpcRouter    *resources.Router
+	log             gethlog.Logger
+	version         string
+	requestStop     context.CancelCauseFunc
+	stopped         bool
+	cfg             *config.CLIConfig
+	chains          map[eth.ChainID]cc.ChainContainer
+	activities      []activity.Activity
+	rootRPC         *oprpc.Handler
+	wg              sync.WaitGroup
+	lifecycleCancel context.CancelFunc // canceled in Stop() to unblock goroutines from Start()
+	l1Client        *sources.L1Client
+	beaconClient    *sources.L1BeaconClient
+	httpServer      *httputil.HTTPServer
+	rpcRouter       *resources.Router
 	// Metrics router/server for per-chain metrics
 	metrics      *resources.MetricsService
 	metricsFanIn *resources.MetricsFanIn
@@ -88,14 +90,15 @@ func New(ctx context.Context, log gethlog.Logger, version string, requestStop co
 	// Initialize fixed activities
 	s.activities = []activity.Activity{
 		heartbeat.New(log.New("activity", "heartbeat"), 10*time.Second),
+		supernodeactivity.New(log.New("activity", "supernode"), s.chains),
 		superroot.New(log.New("activity", "superroot"), s.chains),
 	}
 
-	log.Info("initializing interop activity? %v", cfg.RawCtx.IsSet(interop.InteropActivationTimestampFlag.Name))
+	log.Info("initializing interop activity? %v", cfg.InteropActivationTimestamp != nil)
 	// Initialize interop activity if the activation timestamp is set (non-nil)
 	// If it's nil, don't start interop. If it's non-nil (including 0), do start it.
 	if cfg.InteropActivationTimestamp != nil {
-		interopActivity := interop.New(log.New("activity", "interop"), *cfg.InteropActivationTimestamp, s.chains, cfg.DataDir)
+		interopActivity := interop.New(log.New("activity", "interop"), *cfg.InteropActivationTimestamp, s.chains, cfg.DataDir, s.l1Client)
 		s.activities = append(s.activities, interopActivity)
 		for _, chain := range s.chains {
 			chain.RegisterVerifier(interopActivity)
@@ -121,6 +124,15 @@ func New(ctx context.Context, log gethlog.Logger, version string, requestStop co
 
 func (s *Supernode) Start(ctx context.Context) error {
 	s.log.Info("supernode starting", "version", s.version)
+
+	// Create a lifecycle context that is canceled in Stop(). This ensures that
+	// goroutines spawned below will exit even if Stop() wins the race and runs
+	// before the goroutine has been scheduled. Without this, an activity's
+	// Start(ctx) could block forever if its Stop() was already called (and
+	// found cancel == nil) before Start() had a chance to initialize.
+	var lifecycleCtx context.Context
+	lifecycleCtx, s.lifecycleCancel = context.WithCancel(ctx)
+
 	if s.httpServer != nil {
 		s.wg.Add(1)
 		go func() {
@@ -142,8 +154,7 @@ func (s *Supernode) Start(ctx context.Context) error {
 	// Start metrics service
 	if s.metrics != nil {
 		s.wg.Add(1)
-		s.metrics.Start(func(err error) {
-			defer s.wg.Done()
+		s.metrics.Start(s.wg.Done, func(err error) {
 			if s.requestStop != nil {
 				s.requestStop(err)
 			}
@@ -160,8 +171,18 @@ func (s *Supernode) Start(ctx context.Context) error {
 			s.wg.Add(1)
 			go func(run activity.RunnableActivity) {
 				defer s.wg.Done()
-				if err := run.Start(ctx); err != nil {
-					s.log.Error("error starting runnable activity", "error", err)
+				err := run.Start(lifecycleCtx)
+				activityName := a.Name()
+				switch err {
+				case nil:
+					s.log.Error("activity quit unexpectedly", "name", activityName)
+				case context.Canceled:
+					// This is the happy path, normal / clean shutdown
+					s.log.Info("activity closing due to cancelled context", "name", activityName)
+				case context.DeadlineExceeded:
+					s.log.Warn("activity quit due to deadline exceeded", "name", activityName)
+				default:
+					s.log.Error("error starting runnable activity", "name", activityName, "error", err)
 				}
 			}(run)
 		}
@@ -170,19 +191,26 @@ func (s *Supernode) Start(ctx context.Context) error {
 		s.wg.Add(1)
 		go func(chainID eth.ChainID, chain cc.ChainContainer) {
 			defer s.wg.Done()
-			if err := chain.Start(ctx); err != nil {
+			if err := chain.Start(lifecycleCtx); err != nil {
 				s.log.Error("error starting chain", "chain_id", chainID.String(), "error", err)
 			}
 		}(chainID, chain)
 	}
-	<-ctx.Done()
-	s.log.Info("supernode received stop signal")
-	return ctx.Err()
+	return nil
 }
 
 func (s *Supernode) Stop(ctx context.Context) error {
 	s.log.Info("supernode stopping")
 	s.stopped = true
+
+	// Cancel the lifecycle context before anything else. This guarantees that
+	// activity and chain goroutines will observe a canceled context even if
+	// they haven't been scheduled yet when the individual Stop() calls below
+	// execute. The individual Stop() calls are still made for orderly cleanup,
+	// but the lifecycle cancellation is the backstop that prevents hangs.
+	if s.lifecycleCancel != nil {
+		s.lifecycleCancel()
+	}
 
 	// Stop RPC server first, then close router resources
 	if s.httpServer != nil {
@@ -190,6 +218,8 @@ func (s *Supernode) Stop(ctx context.Context) error {
 		defer cancel()
 		if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
 			s.log.Error("error shutting down rpc server", "error", err)
+		} else {
+			s.log.Info("rpc server stopped")
 		}
 	}
 	if s.metrics != nil {
@@ -197,19 +227,26 @@ func (s *Supernode) Stop(ctx context.Context) error {
 		defer cancel()
 		if err := s.metrics.Stop(shutdownCtx); err != nil {
 			s.log.Error("error shutting down metrics server", "error", err)
+		} else {
+			s.log.Info("metrics server stopped")
 		}
 	}
 	if s.rpcRouter != nil {
 		if err := s.rpcRouter.Close(); err != nil {
 			s.log.Error("error closing rpc router", "error", err)
+		} else {
+			s.log.Info("rpc router closed")
 		}
 	}
 
 	// Stop runnable activities
 	for _, a := range s.activities {
+		activityName := a.Name()
 		if run, ok := a.(activity.RunnableActivity); ok {
 			if err := run.Stop(ctx); err != nil {
-				s.log.Error("error stopping runnable activity", "error", err)
+				s.log.Error("error stopping runnable activity", "name", activityName, "error", err)
+			} else {
+				s.log.Info("runnable activity stopped", "name", activityName)
 			}
 		}
 	}
@@ -217,14 +254,19 @@ func (s *Supernode) Stop(ctx context.Context) error {
 	for chainID, chain := range s.chains {
 		if err := chain.Stop(ctx); err != nil {
 			s.log.Error("error stopping chain container", "chain_id", chainID.String(), "error", err)
+		} else {
+			s.log.Info("chain container stopped", "chain_id", chainID.String())
 		}
 	}
 
+	s.log.Info("all chain containers stopped, waiting for goroutines to finish")
 	s.wg.Wait()
+	s.log.Info("goroutines finished, closing l1 client")
 
 	if s.l1Client != nil {
 		s.l1Client.Close()
 	}
+	s.log.Info("l1 client closed, supernode stopped")
 
 	return nil
 }

@@ -5,7 +5,6 @@ pragma solidity 0.8.15;
 import { CommonTest } from "test/setup/CommonTest.sol";
 import { StandardConstants } from "scripts/deploy/StandardConstants.sol";
 import { DisputeGames } from "../setup/DisputeGames.sol";
-
 // Libraries
 import { GameType, Hash } from "src/dispute/lib/LibUDT.sol";
 import { GameTypes, Duration, Claim } from "src/dispute/lib/Types.sol";
@@ -34,7 +33,7 @@ import { IERC721Bridge } from "interfaces/universal/IERC721Bridge.sol";
 import { IOptimismPortal2 } from "interfaces/L1/IOptimismPortal2.sol";
 import { IPreimageOracle } from "interfaces/cannon/IPreimageOracle.sol";
 import { IL1StandardBridge } from "interfaces/L1/IL1StandardBridge.sol";
-import { IProxyAdminOwnedBase } from "interfaces/L1/IProxyAdminOwnedBase.sol";
+import { IProxyAdminOwnedBase } from "interfaces/universal/IProxyAdminOwnedBase.sol";
 import { IStandardBridge } from "interfaces/universal/IStandardBridge.sol";
 import { IOPContractsManagerStandardValidator } from "interfaces/L1/IOPContractsManagerStandardValidator.sol";
 import { IFaultDisputeGame } from "interfaces/dispute/IFaultDisputeGame.sol";
@@ -188,6 +187,17 @@ abstract contract OPContractsManagerStandardValidator_TestInit is CommonTest {
                 abi.encodeCall(IProxyAdmin.getProxyImplementation, (address(l1OptimismMintableERC20Factory))),
                 abi.encode(standardValidator.optimismMintableERC20FactoryImpl())
             );
+
+            // Mock getProxyImplementation for DelayedWETH and ETHLockbox proxies when running
+            // with an unoptimized Foundry profile. See Setup.mockUnoptimizedProxyImplementations.
+            mockUnoptimizedProxyImplementations(
+                dgf,
+                proxyAdmin,
+                address(ethLockbox),
+                standardValidator.delayedWETHImpl(),
+                standardValidator.ethLockboxImpl()
+            );
+
             DisputeGames.mockGameImplChallenger(
                 disputeGameFactory, GameTypes.PERMISSIONED_CANNON, standardValidator.challenger()
             );

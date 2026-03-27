@@ -15,6 +15,7 @@ type FollowClient struct {
 
 type FollowStatus struct {
 	SafeL2      eth.L2BlockRef
+	LocalSafeL2 eth.L2BlockRef
 	FinalizedL2 eth.L2BlockRef
 	CurrentL1   eth.L1BlockRef
 
@@ -39,6 +40,7 @@ func (s *FollowClient) GetFollowStatus(ctx context.Context) (*FollowStatus, erro
 	return &FollowStatus{
 		FinalizedL2: status.FinalizedL2,
 		SafeL2:      status.SafeL2,
+		LocalSafeL2: status.LocalSafeL2,
 		CurrentL1:   status.CurrentL1,
 		HeadL1:      status.HeadL1,
 		SafeL1:      status.SafeL1,

@@ -125,17 +125,21 @@ type EngineController struct {
 	// Derived from L1, and known to be a completed span-batch,
 	// but not cross-verified yet.
 	localSafeHead eth.L2BlockRef
-	// Deprecated: Derived from L1 and cross-verified to have cross-safe dependencies.
-	// FOR USE BY SUPERVISOR ONLY:
-	deprecatedSafeHead eth.L2BlockRef
-
-	// Derived from finalized L1 data,
-	// and cross-verified to only have finalized dependencies.
-	finalizedHead eth.L2BlockRef
+	// Derived from finalized L1 data, but not necessarily
+	// verified by the superAuthority.
+	// Only to be used as a FinalizedHead when there is no superAuthority
+	localFinalizedHead eth.L2BlockRef
 	// The unsafe head to roll back to,
 	// after the pendingSafeHead fails to become safe.
 	// This is changing in the Holocene fork.
 	backupUnsafeHead eth.L2BlockRef
+
+	// Deprecated: Derived from L1 and cross-verified to have cross-safe dependencies.
+	// FOR USE BY SUPERVISOR ONLY:
+	deprecatedSafeHead eth.L2BlockRef
+	// Deprecated: Derived from finalized L1 data,
+	// Only to be used when there is no superAuthority
+	deprecatedFinalizedHead eth.L2BlockRef
 
 	needFCUCall bool
 	// Safe head debouncing: buffer safe head updates until other updates occur
@@ -195,6 +199,9 @@ func NewEngineController(ctx context.Context, engine ExecEngine, log log.Logger,
 	}
 }
 
+// SafeL2Head returns the safe L2 head.
+// If the super authority is enabled, it returns the fully verified L2 head
+// else it returns the local safe L2 head.
 func (e *EngineController) SafeL2Head() eth.L2BlockRef {
 	if e.superAuthority != nil {
 		fvshid, useLocalSafe := e.superAuthority.FullyVerifiedL2Head()
@@ -205,8 +212,13 @@ func (e *EngineController) SafeL2Head() eth.L2BlockRef {
 		}
 		// SuperAuthority provided a cross-verified safe head
 		if (fvshid == eth.BlockID{}) {
-			// Empty BlockID with useLocalSafe=false means no safe head yet
-			return eth.L2BlockRef{}
+			// Fallback to genesis block (safe by consensus) if possible
+			br, err := e.engine.L2BlockRefByNumber(e.ctx, 0)
+			if err != nil {
+				e.log.Warn("cannot get genesis block from engine")
+				return eth.L2BlockRef{}
+			}
+			return br
 		}
 		if fvshid.Number > e.localSafeHead.Number {
 			e.log.Debug("super authority fully verified l2 head is ahead of local safe head, using local safe head as SafeL2Head")
@@ -217,10 +229,43 @@ func (e *EngineController) SafeL2Head() eth.L2BlockRef {
 			panic("superAuthority supplied an identifier for the safe head which is not known to the engine")
 		}
 		return br
-	} else if e.supervisorEnabled {
+	} else if e.supervisorEnabled || e.syncCfg.FollowSourceEnabled() {
 		return e.deprecatedSafeHead
 	} else {
 		return e.localSafeHead
+	}
+}
+
+func (e *EngineController) FinalizedHead() eth.L2BlockRef {
+	if e.superAuthority != nil {
+		f, useLocalFinalized := e.superAuthority.FinalizedL2Head()
+		if useLocalFinalized {
+			// No verifiers registered, fall back to local finalized
+			e.log.Debug("super authority has no verifiers, using local finalized head")
+			return e.localFinalizedHead
+		}
+		if (f == eth.BlockID{}) {
+			// Fallback to genesis block (final by consensus) if possible
+			br, err := e.engine.L2BlockRefByNumber(e.ctx, 0)
+			if err != nil {
+				e.log.Warn("cannot get genesis block from engine")
+				return eth.L2BlockRef{}
+			}
+			return br
+		}
+		if f.Number > e.localSafeHead.Number {
+			e.log.Debug("super authority finalized l2 head is ahead of local safe head, using local safe head as FinalizedHead")
+			return e.localSafeHead
+		}
+		br, err := e.engine.L2BlockRefByHash(e.ctx, f.Hash)
+		if err != nil {
+			panic("superAuthority supplied an identifier for the finalized head which is not known to the engine")
+		}
+		return br
+	} else if e.supervisorEnabled || e.syncCfg.FollowSourceEnabled() {
+		return e.deprecatedFinalizedHead
+	} else {
+		return e.localFinalizedHead
 	}
 }
 
@@ -233,7 +278,7 @@ func (e *EngineController) PendingSafeL2Head() eth.L2BlockRef {
 }
 
 func (e *EngineController) Finalized() eth.L2BlockRef {
-	return e.finalizedHead
+	return e.FinalizedHead()
 }
 
 func (e *EngineController) BackupUnsafeL2Head() eth.L2BlockRef {
@@ -251,7 +296,7 @@ func (e *EngineController) requestForkchoiceUpdate(ctx context.Context) {
 	e.emitter.Emit(ctx, ForkchoiceUpdateEvent{
 		UnsafeL2Head:    e.unsafeHead,
 		SafeL2Head:      e.SafeL2Head(),
-		FinalizedL2Head: e.finalizedHead,
+		FinalizedL2Head: e.FinalizedHead(),
 	})
 }
 
@@ -270,7 +315,8 @@ func (e *EngineController) isEngineInitialELSyncing() bool {
 // SetFinalizedHead implements LocalEngineControl.
 func (e *EngineController) SetFinalizedHead(r eth.L2BlockRef) {
 	e.metrics.RecordL2Ref("l2_finalized", r)
-	e.finalizedHead = r
+	e.localFinalizedHead = r
+	e.deprecatedFinalizedHead = r
 	e.needFCUCall = true
 	e.needSafeHeadUpdate = false
 }
@@ -341,7 +387,7 @@ func (e *EngineController) onSafeUpdate(ctx context.Context, crossSafe, localSaf
 // First, the pre-state is registered.
 // A callback is returned to then log the changes to the pre-state, if any.
 func (e *EngineController) logSyncProgressMaybe() func() {
-	prevFinalized := e.finalizedHead
+	prevFinalized := e.FinalizedHead()
 	prevSafe := e.SafeL2Head()
 	prevPendingSafe := e.pendingSafeHead
 	prevUnsafe := e.unsafeHead
@@ -352,7 +398,7 @@ func (e *EngineController) logSyncProgressMaybe() func() {
 			return
 		}
 		var reason string
-		if prevFinalized != e.finalizedHead {
+		if prevFinalized != e.FinalizedHead() {
 			reason = "finalized block"
 		} else if prevSafe != e.SafeL2Head() {
 			if prevSafe == prevUnsafe {
@@ -370,7 +416,7 @@ func (e *EngineController) logSyncProgressMaybe() func() {
 		if reason != "" {
 			e.log.Info("Sync progress",
 				"reason", reason,
-				"l2_finalized", e.finalizedHead,
+				"l2_finalized", e.FinalizedHead(),
 				"l2_safe", e.SafeL2Head(),
 				"l2_pending_safe", e.pendingSafeHead,
 				"l2_unsafe", e.unsafeHead,
@@ -429,7 +475,7 @@ func (e *EngineController) initializeUnknowns(ctx context.Context) error {
 		e.log.Info("Loaded initial local-unsafe block ref", "local_unsafe", ref)
 	}
 	var finalizedRef eth.L2BlockRef
-	if e.finalizedHead == (eth.L2BlockRef{}) {
+	if e.FinalizedHead() == (eth.L2BlockRef{}) {
 		var err error
 		finalizedRef, err = e.engine.L2BlockRefByLabel(ctx, eth.Finalized)
 		if err != nil {
@@ -474,15 +520,15 @@ func (e *EngineController) tryUpdateEngineInternal(ctx context.Context) error {
 	if err := e.initializeUnknowns(ctx); err != nil {
 		return derive.NewTemporaryError(fmt.Errorf("cannot update engine until engine forkchoice is initialized: %w", err))
 	}
-	if e.unsafeHead.Number < e.finalizedHead.Number {
-		err := fmt.Errorf("invalid forkchoice state, unsafe head %s is behind finalized head %s", e.unsafeHead, e.finalizedHead)
+	if e.unsafeHead.Number < e.FinalizedHead().Number {
+		err := fmt.Errorf("invalid forkchoice state, unsafe head %s is behind finalized head %s", e.unsafeHead, e.FinalizedHead())
 		e.emitter.Emit(ctx, rollup.CriticalErrorEvent{Err: err}) // make the node exit, things are very wrong.
 		return err
 	}
 	fc := eth.ForkchoiceState{
 		HeadBlockHash:      e.unsafeHead.Hash,
 		SafeBlockHash:      e.SafeL2Head().Hash,
-		FinalizedBlockHash: e.finalizedHead.Hash,
+		FinalizedBlockHash: e.FinalizedHead().Hash,
 	}
 	logFn := e.logSyncProgressMaybe()
 	defer logFn()
@@ -578,7 +624,7 @@ func (e *EngineController) insertUnsafePayload(ctx context.Context, envelope *et
 	fc := eth.ForkchoiceState{
 		HeadBlockHash:      envelope.ExecutionPayload.BlockHash,
 		SafeBlockHash:      e.SafeL2Head().Hash,
-		FinalizedBlockHash: e.finalizedHead.Hash,
+		FinalizedBlockHash: e.FinalizedHead().Hash,
 	}
 	if e.syncStatus == syncStatusFinishedELButNotFinalized {
 		fc.SafeBlockHash = envelope.ExecutionPayload.BlockHash
@@ -693,7 +739,7 @@ func (e *EngineController) tryBackupUnsafeReorg(ctx context.Context) (bool, erro
 	fc := eth.ForkchoiceState{
 		HeadBlockHash:      e.backupUnsafeHead.Hash,
 		SafeBlockHash:      e.SafeL2Head().Hash,
-		FinalizedBlockHash: e.finalizedHead.Hash,
+		FinalizedBlockHash: e.FinalizedHead().Hash,
 	}
 	logFn := e.logSyncProgressMaybe()
 	defer logFn()
@@ -741,7 +787,7 @@ func (e *EngineController) TryUpdateEngine(ctx context.Context) {
 
 func (e *EngineController) localSafeIsFullySafe(timestamp uint64) bool {
 	// pre-interop (or if supervisor disabled) everything that is local-safe is also immediately cross-safe.
-	return !e.rollupCfg.IsInterop(timestamp) || !e.supervisorEnabled
+	return !e.rollupCfg.IsInterop(timestamp) || (!e.supervisorEnabled && !e.syncCfg.FollowSourceEnabled())
 }
 
 func (e *EngineController) OnEvent(ctx context.Context, ev event.Event) bool {
@@ -872,8 +918,8 @@ func (e *EngineController) PromoteFinalized(ctx context.Context, ref eth.L2Block
 	e.promoteFinalized(ctx, ref)
 }
 func (e *EngineController) promoteFinalized(ctx context.Context, ref eth.L2BlockRef) {
-	if ref.Number < e.finalizedHead.Number {
-		e.log.Error("Cannot rewind finality,", "ref", ref, "finalized", e.finalizedHead)
+	if ref.Number < e.FinalizedHead().Number {
+		e.log.Error("Cannot rewind finality,", "ref", ref, "finalized", e.FinalizedHead())
 		return
 	}
 	if ref.Number > e.SafeL2Head().Number {
@@ -935,7 +981,7 @@ func (e *EngineController) forceReset(ctx context.Context, localUnsafe, crossUns
 		e.emitter.Emit(ctx, ForkchoiceUpdateInitEvent{
 			UnsafeL2Head:    e.unsafeHead,
 			SafeL2Head:      e.SafeL2Head(),
-			FinalizedL2Head: e.finalizedHead,
+			FinalizedL2Head: e.FinalizedHead(),
 		})
 	} else {
 		// Time to apply the changes to the underlying engine
@@ -947,7 +993,7 @@ func (e *EngineController) forceReset(ctx context.Context, localUnsafe, crossUns
 		CrossUnsafe: e.crossUnsafeHead,
 		LocalSafe:   e.localSafeHead,
 		CrossSafe:   e.SafeL2Head(),
-		Finalized:   e.finalizedHead,
+		Finalized:   e.FinalizedHead(),
 	}
 	// We do not emit the original event values, since those might not be set (optional attributes).
 	e.emitter.Emit(ctx, v)
@@ -1162,7 +1208,7 @@ func (e *EngineController) startPayload(ctx context.Context, fc eth.ForkchoiceSt
 	}
 }
 
-func (e *EngineController) FollowSource(eSafeBlockRef, eFinalizedRef eth.L2BlockRef) {
+func (e *EngineController) FollowSource(eSafeBlockRef, eLocalSafeRef, eFinalizedRef eth.L2BlockRef) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -1170,11 +1216,16 @@ func (e *EngineController) FollowSource(eSafeBlockRef, eFinalizedRef eth.L2Block
 		// Assume the sanity of external safe and finalized are checked
 		if updateUnsafe {
 			// May interrupt ongoing EL Sync to update the target, or trigger EL Sync
-			e.tryUpdateUnsafe(e.ctx, eSafeBlockRef)
+			e.tryUpdateUnsafe(e.ctx, eLocalSafeRef)
 		}
-		e.tryUpdateLocalSafe(e.ctx, eSafeBlockRef, true, eth.L1BlockRef{})
+		e.tryUpdateLocalSafe(e.ctx, eLocalSafeRef, true, eth.L1BlockRef{})
+		// Inject external cross-safe. Must happen before promoteFinalized
+		// (which rejects finalized > SafeL2Head).
+		if eSafeBlockRef.Number > e.deprecatedSafeHead.Number {
+			e.PromoteSafe(e.ctx, eSafeBlockRef, eth.L1BlockRef{})
+		}
 		// Directly update the Engine Controller state, bypassing finalizer
-		if e.finalizedHead.Number <= eFinalizedRef.Number {
+		if e.FinalizedHead().Number <= eFinalizedRef.Number {
 			e.promoteFinalized(e.ctx, eFinalizedRef)
 		}
 	}
@@ -1183,19 +1234,20 @@ func (e *EngineController) FollowSource(eSafeBlockRef, eFinalizedRef eth.L2Block
 		"currentUnsafe", e.unsafeHead,
 		"currentSafe", e.SafeL2Head(),
 		"externalSafe", eSafeBlockRef,
+		"externalLocalSafe", eLocalSafeRef,
 		"externalFinalized", eFinalizedRef,
 	)
 
 	logger.Info("Follow Source: Process external refs")
 
-	if e.unsafeHead.Number < eSafeBlockRef.Number {
+	if e.unsafeHead.Number < eLocalSafeRef.Number {
 		// EL Sync target may be updated
-		logger.Debug("Follow Source: EL Sync: External safe ahead of current unsafe")
+		logger.Debug("Follow Source: EL Sync: External local safe ahead of current unsafe")
 		followExternalRefs(true)
 		return
 	}
 
-	fetchedSafe, err := e.engine.L2BlockRefByNumber(e.ctx, eSafeBlockRef.Number)
+	fetchedSafe, err := e.engine.L2BlockRefByNumber(e.ctx, eLocalSafeRef.Number)
 	if errors.Is(err, ethereum.NotFound) {
 		// We queried a block before the EngineController unsafe head number,
 		// but it is not found. This indicates the underlying EL is still syncing.
@@ -1207,18 +1259,18 @@ func (e *EngineController) FollowSource(eSafeBlockRef, eFinalizedRef eth.L2Block
 		return
 	}
 	if err != nil {
-		logger.Debug("Follow Source: Failed to fetch external safe from local EL", "err", err)
+		logger.Debug("Follow Source: Failed to fetch external local safe from local EL", "err", err)
 		return
 	}
 
-	if fetchedSafe == eSafeBlockRef {
-		// External safe is found locally and matches.
+	if fetchedSafe == eLocalSafeRef {
+		// External local safe is found locally and matches.
 		logger.Debug("Follow Source: Consolidation")
 		followExternalRefs(false)
 		return
 	}
 
-	// External safe is found locally but they differ so trigger reorg.
+	// External local safe is found locally but they differ so trigger reorg.
 	// Reorging may trigger EL Sync, or updating the EL Sync target.
 	logger.Warn("Follow Source: Reorg. May Trigger EL sync")
 	followExternalRefs(true)
