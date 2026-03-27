@@ -69,6 +69,22 @@ rootClaim = keccak256(abi.encode(blockHash, stateHash))
 
 blockHash 和 stateHash 通过 extraData 传入。这与 FaultDisputeGame 不同——FDG 的 rootClaim 直接是 output root hash。
 
+### Clone 不可变参数布局（CWIA）
+
+Factory 通过 `create()` 创建 Clone 时，将以下字段追加到 proxy bytecode 末尾（Clone With Immutable Args 模式）。所有字段在创建后不可变。
+
+| 偏移量 | 字段 | 类型 | 大小 | 说明 |
+|--------|------|------|------|------|
+| `0x00` | `gameCreator` | `address` | 20 bytes | 调用 Factory.create() 的地址 |
+| `0x14` | `rootClaim` | `Claim` (bytes32) | 32 bytes | 提议的状态声明 |
+| `0x34` | `l1Head` | `Hash` (bytes32) | 32 bytes | 创建时的 L1 区块哈希 |
+| `0x54` | `l2SequenceNumber` | `uint256` | 32 bytes | 声明对应的 L2 区块号 |
+| `0x74` | `parentIndex` | `uint32` | 4 bytes | 父游戏在 Factory 中的索引（`0xFFFFFFFF` = 无父游戏） |
+| `0x78` | `blockHash` | `bytes32` | 32 bytes | L2 区块哈希（用于构造 rootClaim） |
+| `0x98` | `stateHash` | `bytes32` | 32 bytes | L2 状态哈希（用于构造 rootClaim） |
+
+`extraData()` 返回偏移量 `0x54` 起的 100 bytes，即 `l2SequenceNumber + parentIndex + blockHash + stateHash`。
+
 ### 关键设计说明
 
 - `wasRespectedGameTypeWhenCreated`：仅为兼容 `IDisputeGame` 接口保留，TZ 不使用 OptimismPortal，此字段无实际消费方（见 Section 12）
@@ -165,16 +181,64 @@ Unchallenged 状态下提前 prove 的路径：
 
 ### challenge()
 
-仅白名单 CHALLENGER 可调用。提交固定金额保证金（`CHALLENGER_BOND`），将游戏从 Unchallenged 转为 Challenged，并重置 deadline 为 prove 窗口。
+仅白名单 CHALLENGER 可调用。提交固定金额保证金，将游戏从 Unchallenged 转为 Challenged，并重置 deadline 为 prove 窗口。
+
+**前置条件**（任一不满足则 revert）：
+
+| 检查 | revert | 说明 |
+|------|--------|------|
+| `claimData.status == Unchallenged` | `ClaimAlreadyChallenged` | 每个游戏最多一次挑战 |
+| `msg.sender == CHALLENGER` | `BadAuth` | 白名单访问控制 |
+| `gameOver() == false` | `GameOver` | deadline 未过期且无有效证明 |
+| `msg.value == CHALLENGER_BOND` | `IncorrectBondAmount` | 保证金金额精确匹配 |
+
+**后置条件**：
+- `claimData.counteredBy = msg.sender`
+- `claimData.status = Challenged`
+- `claimData.deadline = block.timestamp + MAX_PROVE_DURATION`（重置为 prove 窗口）
+- `refundModeCredit[msg.sender] += msg.value`
 
 ### prove()
 
 仅 proposer 可调用——防止第三方抢先提交观察到的证明数据窃取 prover 身份。
 
+**前置条件**（任一不满足则 revert）：
+
+| 检查 | revert | 说明 |
+|------|--------|------|
+| `msg.sender == proposer` | `BadAuth` | 只有创建游戏的 proposer 能证明 |
+| `status == IN_PROGRESS` | `ClaimAlreadyResolved` | 游戏未被 resolve |
+| `gameOver() == false` | `GameOver` | deadline 未过期且无有效证明 |
+| `proofs.length > 0` | `EmptyBatchProofs` | 至少一个 batch |
+| batch chain 验证通过 | 各专用 error | 见 Section 5 批量证明验证概述 |
+
+**后置条件**：
+- `claimData.prover = msg.sender`
+- 状态转移：`Unchallenged → UnchallengedAndValidProofProvided` 或 `Challenged → ChallengedAndValidProofProvided`
+- `gameOver()` 立即返回 true（证明即终局）
+
 **关键设计决策**：
 - **提前证明**：prove() 可在 Unchallenged 状态下调用（无需等待挑战），因为 TEE 被信任，有效证明即意味着 claim 正确
 - **证明即终局**：一旦证明成功，gameOver() 立即为 true，阻止后续 challenge()——这是有意设计，不是 bug
 - **无需保证金**：证明者不需要质押，激励及时响应挑战
+
+### resolve()
+
+任何人可调用。根据当前状态和父游戏结果确定最终胜负，分配 normalModeCredit。
+
+**前置条件**（任一不满足则 revert）：
+
+| 检查 | revert | 说明 |
+|------|--------|------|
+| `status == IN_PROGRESS` | `ClaimAlreadyResolved` | 只能 resolve 一次 |
+| `parentGameStatus != IN_PROGRESS` | `ParentGameNotResolved` | 父游戏必须先 resolve |
+| `gameOver() == true`（当父游戏非 CHALLENGER_WINS 时） | `GameNotOver` | deadline 已过或有效证明已提交 |
+
+**后置条件**：
+- `status` 设为 `DEFENDER_WINS` 或 `CHALLENGER_WINS`（不可逆）
+- `claimData.status = Resolved`
+- `resolvedAt = block.timestamp`
+- 恰好一个地址的 `normalModeCredit` 被设为 `address(this).balance`（见 Section 6 保证金分配表）
 
 ---
 
@@ -243,18 +307,36 @@ batchDigest 使用 EIP-712 typed data hash，domainSeparator 包含 `block.chain
 | 父游戏 CHALLENGER_WINS（子游戏已被挑战）        | Challenger (CHALLENGER_WINS) | `normalModeCredit[challenger] = balance`   |
 | 父游戏 CHALLENGER_WINS（子游戏未被挑战）        | Proposer 退款 (CHALLENGER_WINS) | `normalModeCredit[proposer] = balance` |
 
-### closeGame() 和 BondDistributionMode
+### closeGame()
 
-领取保证金前，`closeGame()` 根据 ASR 状态决定分配模式（幂等，只执行一次）：
+领取保证金前必须先 close 游戏。`closeGame()` 根据 ASR 状态决定分配模式。幂等——已决定模式后直接返回。
 
-- **NORMAL 模式**：ASR 判定游戏为 proper（已注册、未黑名单、未退休、未暂停）→ 赢家获得全部保证金
-- **REFUND 模式**：ASR 判定游戏非 proper → 各方退还原始存入金额（安全兜底）
+**前置条件**（任一不满足则 revert）：
 
-暂停期间 closeGame() 会 revert，防止游戏在临时暂停时被永久推入 REFUND 模式。
+| 检查 | revert | 说明 |
+|------|--------|------|
+| `bondDistributionMode == UNDECIDED` | —（幂等返回） | 已决定模式则跳过 |
+| `ANCHOR_STATE_REGISTRY.paused() == false` | `GamePaused` | 暂停期间不决定模式，防止临时暂停永久推入 REFUND |
+| `ANCHOR_STATE_REGISTRY.isGameFinalized(this) == true` | `GameNotFinalized` | finality delay 必须已过 |
 
-**与 FaultDisputeGame 的关键区别**：FDG 使用 `DelayedWETH`（deposit/unlock/withdraw 模式）托管保证金，owner 有 `hold()` 紧急恢复函数。TeeDisputeGame 直接在合约中持有 ETH（`address(this).balance`），finality delay 由 `ASR.isGameFinalized()` 强制。
+**执行逻辑**：
+1. 尝试调用 `ANCHOR_STATE_REGISTRY.setAnchorState(this)`（try/catch，失败不阻塞）——如果游戏是有效的最新状态，推进 anchor state
+2. 调用 `ANCHOR_STATE_REGISTRY.isGameProper(this)` 判定分配模式：
+   - **NORMAL 模式**：游戏为 proper（已注册、未黑名单、未退休、未暂停）→ 赢家获得全部保证金
+   - **REFUND 模式**：游戏非 proper → 各方退还原始存入金额（安全兜底）
+3. `bondDistributionMode` 一旦从 UNDECIDED 变为 NORMAL 或 REFUND，不可再变更
 
-**设计理由**：TZ 的 Proposer 和 Challenger 均为特权白名单地址（非 permissionless），不需要 DelayedWETH 的额外延迟和紧急恢复机制。直接持有 ETH 更简单，ASR 的 finality delay + REFUND 模式已提供足够的安全兜底。
+### claimCredit()
+
+任何人可代为领取指定地址的保证金。
+
+**执行逻辑**：
+1. 调用 `closeGame()`（如已 close 则幂等返回）
+2. 根据 `bondDistributionMode` 读取对应 credit：REFUND 模式读 `refundModeCredit`，NORMAL 模式读 `normalModeCredit`
+3. 将两个 credit mapping 归零（防重入）
+4. 通过 `call{value}` 转账原生 ETH 给 recipient
+
+**与 FaultDisputeGame 的关键区别**：FDG 使用 `DelayedWETH`（deposit → unlock → withdraw 两阶段），owner 有 `hold()` 紧急恢复函数。TeeDisputeGame 直接从合约余额一步转账原生 ETH。TZ 的 Proposer 和 Challenger 均为特权白名单地址（非 permissionless），不需要 DelayedWETH 的额外延迟和紧急恢复机制。ASR 的 finality delay + REFUND 模式已提供足够的安全兜底。
 
 ---
 
@@ -264,17 +346,46 @@ batchDigest 使用 EIP-712 typed data hash，domainSeparator 包含 `block.chain
 
 游戏通过 `parentIndex` 引用父游戏（`0xFFFFFFFF` 表示无父游戏，使用 ASR 锚定状态）。子游戏的 `startingOutputRoot` 继承自父游戏的 `rootClaim`。
 
-### 跨类型隔离
+### 创建时父游戏验证（initialize）
 
-父游戏的 GameType 必须与当前游戏一致。TEE 游戏只能链接到其他 TEE 游戏，防止被攻破的 FaultDisputeGame 被用作 TEE 链的起点。
+当 `parentIndex != type(uint32).max` 时，`initialize()` 对父游戏执行以下前置检查（任一失败则 revert `InvalidParentGame`）：
 
-### 父游戏失效级联
+| # | 检查项 | 说明 |
+|---|--------|------|
+| 1 | GameType 一致 | 父游戏的 GameType 必须等于当前游戏的 `GAME_TYPE`。TEE 游戏只能链接到其他 TEE 游戏，防止被攻破的其他类型游戏被用作 TEE 链的起点 |
+| 2 | ASR respected | `ANCHOR_STATE_REGISTRY.isGameRespected(parent)` 必须为 true |
+| 3 | 未被 blacklist | `ANCHOR_STATE_REGISTRY.isGameBlacklisted(parent)` 必须为 false |
+| 4 | 未被 retire | `ANCHOR_STATE_REGISTRY.isGameRetired(parent)` 必须为 false |
+| 5 | 未被挑战者赢 | `parent.status() != GameStatus.CHALLENGER_WINS` |
 
-- 父游戏未 resolve 时，子游戏不能 resolve（阻塞等待）
+当 `parentIndex == type(uint32).max` 时，`startingOutputRoot` 直接从 `ANCHOR_STATE_REGISTRY.getAnchorRoot()` 获取。
+
+### L2 区块号排序
+
+无论是否有父游戏，`initialize()` 都强制要求：
+
+```
+l2SequenceNumber > startingOutputRoot.l2SequenceNumber
+```
+
+- 有父游戏时：`startingOutputRoot.l2SequenceNumber` 来自父游戏
+- 无父游戏时：来自 ASR anchor state
+
+这确保游戏链中 L2 区块号严格单调递增，防止重复或回退的状态声明。
+
+### resolve 时父游戏验证
+
+- 父游戏未 resolve 时，子游戏不能 resolve（revert `ParentGameNotResolved`，阻塞等待）
 - 父游戏 resolve 为 CHALLENGER_WINS → 子游戏自动 CHALLENGER_WINS
   - 子游戏已被挑战：challenger 获得全部保证金
   - 子游戏未被挑战：proposer 保证金被退还（不惩罚无辜 proposer）
 - 父游戏 resolve 为 DEFENDER_WINS（或无父游戏）→ 正常解决逻辑
+
+### Guardian 对子游戏的 blacklist 责任
+
+创建时的父游戏验证（Section 7.2）只能拦截创建瞬间已知的无效父游戏。如果父游戏在子游戏创建**之后**才被 blacklist 或 retire，子游戏不会自动失效。
+
+Guardian **必须**逐个 blacklist/retire 受影响的子游戏，使其在 `closeGame()` 时进入 REFUND 模式。
 
 ---
 
