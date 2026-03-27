@@ -310,36 +310,28 @@ func (s *channelManager) getReadyChannel(l1Head eth.BlockID, pi pubInfo) (*chann
 		return firstWithTxData, nil
 	}
 
-	// No pending tx data, so we have to add new blocks to the channel
-	// If we have no saved blocks, we will not be able to create valid frames
-	if s.pendingBlocks() == 0 {
-		// Even without new blocks, check if an existing channel has timed out.
-		// Without this, the channel duration timeout is never re-evaluated once all
-		// pending blocks have been added, which can cause a deadlock when the
-		// sequencer stalls due to maxSafeLag: no new blocks → no timeout check →
-		// channel never closes → data never submitted → safe head stuck.
-		if s.currentChannel != nil && !s.currentChannel.IsFull() && !pi.ignoreMaxChannelDuration {
-			s.registerL1Block(l1Head)
-			if s.currentChannel.IsFull() {
-				s.log.Info("Channel timed out with no pending blocks, flushing",
-					"channel_id", s.currentChannel.ID(), "l1Head", l1Head)
-				if err := s.outputFrames(); err != nil {
-					return nil, err
-				}
-				if s.currentChannel.HasTxData() {
-					return s.currentChannel, nil
-				}
-			}
+	// If there are pending blocks, add them to a channel.
+	toBeAddedBlocks := s.pendingBlocks() > 0
+	if toBeAddedBlocks {
+		if err := s.ensureChannelWithSpace(l1Head); err != nil {
+			return nil, err
 		}
+		if err := s.processBlocks(); err != nil {
+			return nil, err
+		}
+	}
+
+	// Nothing to flush if there's no open channel.
+	if s.currentChannel == nil {
 		return nil, io.EOF
 	}
 
-	if err := s.ensureChannelWithSpace(l1Head); err != nil {
-		return nil, err
-	}
-
-	if err := s.processBlocks(); err != nil {
-		return nil, err
+	// If no blocks were added this call and the channel is already full, its
+	// frames were already produced by a prior call (and drained by the earlier
+	// HasTxData check above). Skip re-running outputFrames on an already-closed
+	// channel-out, which would error.
+	if !toBeAddedBlocks && s.currentChannel.IsFull() {
+		return nil, io.EOF
 	}
 
 	if !pi.ignoreMaxChannelDuration {
