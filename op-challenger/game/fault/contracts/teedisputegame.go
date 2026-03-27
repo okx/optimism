@@ -44,7 +44,7 @@ type TeeDisputeGameContract interface {
 
 	GetChallengerMetadata(ctx context.Context, block rpcblock.Block) (ChallengerMetadata, error)
 	GetProveParams(ctx context.Context, factory *DisputeGameFactoryContract) (TeeProveParams, error)
-	ProveTx(ctx context.Context, proofBytes []byte) (txmgr.TxCandidate, error)
+	ProveTx(ctx context.Context, proofBytes []byte, from common.Address) (txmgr.TxCandidate, error)
 	GetProposer(ctx context.Context) (common.Address, error)
 
 	// Bond-related (BondContract interface)
@@ -261,9 +261,11 @@ func (g *TeeDisputeGameContractLatest) GetProveParams(ctx context.Context, facto
 }
 
 // ProveTx constructs the prove(bytes) transaction.
-func (g *TeeDisputeGameContractLatest) ProveTx(ctx context.Context, proofBytes []byte) (txmgr.TxCandidate, error) {
+// The from address is required for eth_call simulation because the contract checks msg.sender == proposer.
+func (g *TeeDisputeGameContractLatest) ProveTx(ctx context.Context, proofBytes []byte, from common.Address) (txmgr.TxCandidate, error) {
 	defer g.metrics.StartContractRequest("ProveTx")()
 	call := g.contract.Call(methodProve, proofBytes)
+	call.From = from
 	_, err := g.multiCaller.SingleCall(ctx, rpcblock.Latest, call)
 	if err != nil {
 		return txmgr.TxCandidate{}, fmt.Errorf("%w: %w", ErrSimulationFailed, err)

@@ -321,7 +321,7 @@ func (s *stubContract) GetProveParams(_ context.Context, _ *contracts.DisputeGam
 	return s.proveParams, nil
 }
 
-func (s *stubContract) ProveTx(_ context.Context, _ []byte) (txmgr.TxCandidate, error) {
+func (s *stubContract) ProveTx(_ context.Context, _ []byte, _ common.Address) (txmgr.TxCandidate, error) {
 	return txmgr.TxCandidate{
 		TxData: []byte(proveData),
 	}, nil
@@ -336,6 +336,10 @@ func (s *stubContract) ResolveTx() (txmgr.TxCandidate, error) {
 type stubTxSender struct {
 	sentData []string
 	sendErr  error
+}
+
+func (s *stubTxSender) From() common.Address {
+	return common.Address{0xaa}
 }
 
 func (s *stubTxSender) SendAndWaitSimple(_ string, candidates ...txmgr.TxCandidate) error {

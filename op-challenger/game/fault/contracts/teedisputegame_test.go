@@ -156,7 +156,7 @@ func TestTeeProveTx(t *testing.T) {
 	proofBytes := []byte{0xde, 0xad, 0xbe, 0xef}
 	// prove() returns uint8 ProposalStatus
 	stubRpc.SetResponse(teeGameAddr, methodProve, rpcblock.Latest, []interface{}{proofBytes}, []interface{}{uint8(ProposalStatusChallengedAndValidProofProvided)})
-	tx, err := game.ProveTx(context.Background(), proofBytes)
+	tx, err := game.ProveTx(context.Background(), proofBytes, common.Address{0xaa})
 	require.NoError(t, err)
 	stubRpc.VerifyTxCandidate(tx)
 }

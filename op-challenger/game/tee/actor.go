@@ -30,6 +30,7 @@ type ClockReader interface {
 
 // TxSender sends transactions.
 type TxSender interface {
+	From() common.Address
 	SendAndWaitSimple(txPurpose string, txs ...txmgr.TxCandidate) error
 }
 
@@ -43,7 +44,7 @@ type ProvableContract interface {
 	Addr() common.Address
 	GetChallengerMetadata(ctx context.Context, block rpcblock.Block) (contracts.ChallengerMetadata, error)
 	GetProveParams(ctx context.Context, factory *contracts.DisputeGameFactoryContract) (contracts.TeeProveParams, error)
-	ProveTx(ctx context.Context, proofBytes []byte) (txmgr.TxCandidate, error)
+	ProveTx(ctx context.Context, proofBytes []byte, from common.Address) (txmgr.TxCandidate, error)
 	ResolveTx() (txmgr.TxCandidate, error)
 }
 
@@ -128,7 +129,7 @@ func (a *Actor) Act(ctx context.Context) error {
 			}
 		} else {
 			a.logger.Info("Background TEE prove finished, submitting proof", "game", a.contract.Addr())
-			tx, err := a.contract.ProveTx(ctx, result.proofBytes)
+			tx, err := a.contract.ProveTx(ctx, result.proofBytes, a.txSender.From())
 			if err != nil {
 				return fmt.Errorf("failed to create prove tx: %w", err)
 			}
