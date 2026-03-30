@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
+	lru "github.com/hashicorp/golang-lru/v2"
 
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 )
@@ -29,9 +29,9 @@ type TeeRollupBlockInfo struct {
 
 // internal JSON parsing types (pointer fields to distinguish JSON null)
 type teeRollupRawResponse struct {
-	Code    int              `json:"code"`
-	Message string           `json:"message"`
-	Data    *teeRollupData   `json:"data"`
+	Code    int            `json:"code"`
+	Message string         `json:"message"`
+	Data    *teeRollupData `json:"data"`
 }
 
 type teeRollupData struct {
@@ -70,9 +70,9 @@ func NewTeeRollupHTTPClient(baseURL string) (*TeeRollupHTTPClient, error) {
 }
 
 // ConfirmedBlockInfo fetches the latest confirmed block info from TeeRollup RPC.
-// GET /v1/chain/confirmed_block_info
+// GET /chain/confirmed_block_info
 func (c *TeeRollupHTTPClient) ConfirmedBlockInfo(ctx context.Context) (TeeRollupBlockInfo, error) {
-	url := c.baseURL + "/v1/chain/confirmed_block_info"
+	url := c.baseURL + "/chain/confirmed_block_info"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return TeeRollupBlockInfo{}, fmt.Errorf("tee-rollup: failed to create request: %w", err)
