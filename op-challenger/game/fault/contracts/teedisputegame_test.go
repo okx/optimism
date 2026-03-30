@@ -250,6 +250,7 @@ func TestTeeGetProveParams(t *testing.T) {
 		expectedEndBlockHash := common.Hash{0x11}
 		expectedEndStateHash := common.Hash{0x22}
 		expectedStartBlockNum := uint64(100)
+		expectedVerifier := common.Address{0xee, 0xff}
 		parentIndex := uint32(5)
 		stubRpc.SetResponse(teeGameAddr, methodL2SequenceNumber, rpcblock.Latest, nil, []interface{}{new(big.Int).SetUint64(expectedEndBlockNum)})
 		stubRpc.SetResponse(teeGameAddr, methodBlockHash, rpcblock.Latest, nil, []interface{}{expectedEndBlockHash})
@@ -258,6 +259,7 @@ func TestTeeGetProveParams(t *testing.T) {
 		stubRpc.SetResponse(teeGameAddr, methodClaimData, rpcblock.Latest, nil, []interface{}{
 			parentIndex, common.Address{}, common.Address{}, common.Hash{}, uint8(0), uint64(0),
 		})
+		stubRpc.SetResponse(teeGameAddr, methodTeeProofVerifier, rpcblock.Latest, nil, []interface{}{expectedVerifier})
 
 		// Factory returns parent game address
 		stubRpc.SetResponse(factoryAddr, methodGameAtIndex, rpcblock.Latest,
@@ -274,12 +276,13 @@ func TestTeeGetProveParams(t *testing.T) {
 		params, err := game.GetProveParams(context.Background(), factory)
 		require.NoError(t, err)
 		require.Equal(t, TeeProveParams{
-			StartBlockHash: expectedStartBlockHash,
-			StartStateHash: expectedStartStateHash,
-			EndBlockHash:   expectedEndBlockHash,
-			EndStateHash:   expectedEndStateHash,
-			StartBlockNum:  expectedStartBlockNum,
-			EndBlockNum:    expectedEndBlockNum,
+			StartBlockHash:   expectedStartBlockHash,
+			StartStateHash:   expectedStartStateHash,
+			EndBlockHash:     expectedEndBlockHash,
+			EndStateHash:     expectedEndStateHash,
+			StartBlockNum:    expectedStartBlockNum,
+			EndBlockNum:      expectedEndBlockNum,
+			TeeProofVerifier: expectedVerifier,
 		}, params)
 	})
 
@@ -299,6 +302,7 @@ func TestTeeGetProveParams(t *testing.T) {
 		stubRpc.SetResponse(teeGameAddr, methodClaimData, rpcblock.Latest, nil, []interface{}{
 			uint32(math.MaxUint32), common.Address{}, common.Address{}, common.Hash{}, uint8(0), uint64(0),
 		})
+		stubRpc.SetResponse(teeGameAddr, methodTeeProofVerifier, rpcblock.Latest, nil, []interface{}{common.Address{0xee}})
 
 		_, err := game.GetProveParams(context.Background(), factory)
 		require.ErrorIs(t, err, ErrAnchorGameUnprovable)

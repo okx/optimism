@@ -31,6 +31,12 @@ func RegisterGameTypes(
 		return nil
 	}
 
+	// Query L1 chain ID once at startup for EIP-712 domain hints in prove requests.
+	l1ChainID, err := clients.L1Client().ChainID(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get L1 chain ID: %w", err)
+	}
+
 	proverClient := NewProverClient(cfg.TeeProverRpc, cfg.TeeProvePollInterval, logger)
 	proveTimeout := cfg.TeeProveTimeout
 
@@ -47,7 +53,7 @@ func RegisterGameTypes(
 			&client.NoopSyncStatusValidator{},
 			nil,
 			clients.L1Client(),
-			ActorCreator(ctx, l1Clock, proverClient, proveTimeout, contract, txSender, factoryContract),
+			ActorCreator(ctx, l1Clock, l1ChainID.Uint64(), proverClient, proveTimeout, contract, txSender, factoryContract),
 		)
 	})
 

@@ -240,6 +240,7 @@ func setupTeeActorTest(t *testing.T) (*Actor, *teeTestStubs) {
 	actor := &Actor{
 		logger:             logger,
 		l1Clock:            l1Clock,
+		l1ChainID:          1,
 		contract:           contract,
 		proverClient:       dummyProver,
 		txSender:           txSender,

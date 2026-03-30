@@ -18,10 +18,11 @@ import (
 )
 
 var (
-	methodProve     = "prove"
-	methodProposer  = "proposer"
-	methodBlockHash = "blockHash"
-	methodStateHash = "stateHash"
+	methodProve            = "prove"
+	methodProposer         = "proposer"
+	methodBlockHash        = "blockHash"
+	methodStateHash        = "stateHash"
+	methodTeeProofVerifier = "teeProofVerifier"
 
 	// ErrAnchorGameUnprovable is returned when a game uses anchor state (parentIndex=MaxUint32)
 	// and cannot be proved because individual start hashes are not recoverable from the combined anchor root.
@@ -30,12 +31,13 @@ var (
 
 // TeeProveParams contains the parameters needed to request a TEE proof.
 type TeeProveParams struct {
-	StartBlockHash common.Hash
-	StartStateHash common.Hash
-	EndBlockHash   common.Hash
-	EndStateHash   common.Hash
-	StartBlockNum  uint64
-	EndBlockNum    uint64
+	StartBlockHash     common.Hash
+	StartStateHash     common.Hash
+	EndBlockHash       common.Hash
+	EndStateHash       common.Hash
+	StartBlockNum      uint64
+	EndBlockNum        uint64
+	TeeProofVerifier   common.Address // address of the TeeProofVerifier contract
 }
 
 // TeeDisputeGameContract defines the interface for interacting with TeeDisputeGame.
@@ -206,12 +208,13 @@ func (g *TeeDisputeGameContractLatest) GetProveParams(ctx context.Context, facto
 		g.contract.Call(methodStateHash),
 		g.contract.Call(methodStartingBlockNumber),
 		g.contract.Call(methodClaimData),
+		g.contract.Call(methodTeeProofVerifier),
 	)
 	if err != nil {
 		return TeeProveParams{}, fmt.Errorf("failed to retrieve prove params: %w", err)
 	}
-	if len(results) != 5 {
-		return TeeProveParams{}, fmt.Errorf("expected 5 results but got %v", len(results))
+	if len(results) != 6 {
+		return TeeProveParams{}, fmt.Errorf("expected 6 results but got %v", len(results))
 	}
 
 	endBlockNum := getBlockNumber(results[0], 0)
@@ -219,12 +222,14 @@ func (g *TeeDisputeGameContractLatest) GetProveParams(ctx context.Context, facto
 	endStateHash := results[2].GetHash(0)
 	startBlockNum := getBlockNumber(results[3], 0)
 	data := g.decodeClaimData(results[4])
+	teeProofVerifier := results[5].GetAddress(0)
 
 	params := TeeProveParams{
-		EndBlockHash:  endBlockHash,
-		EndStateHash:  endStateHash,
-		StartBlockNum: startBlockNum,
-		EndBlockNum:   endBlockNum,
+		EndBlockHash:     endBlockHash,
+		EndStateHash:     endStateHash,
+		StartBlockNum:    startBlockNum,
+		EndBlockNum:      endBlockNum,
+		TeeProofVerifier: teeProofVerifier,
 	}
 
 	// Read start-side data from parent game

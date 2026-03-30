@@ -61,6 +61,7 @@ type proveResult struct {
 type Actor struct {
 	logger        log.Logger
 	l1Clock       ClockReader
+	l1ChainID     uint64
 	contract      ProvableContract
 	proverClient  *ProverClient
 	txSender           TxSender
@@ -77,6 +78,7 @@ type Actor struct {
 func ActorCreator(
 	serviceCtx context.Context,
 	l1Clock ClockReader,
+	l1ChainID uint64,
 	proverClient *ProverClient,
 	proveTimeout time.Duration,
 	contract ProvableContract,
@@ -87,6 +89,7 @@ func ActorCreator(
 		return &Actor{
 			logger:             logger,
 			l1Clock:            l1Clock,
+			l1ChainID:          l1ChainID,
 			contract:           contract,
 			proverClient:       proverClient,
 			txSender:           txSender,
@@ -185,13 +188,17 @@ func (a *Actor) tryStartProve(ctx context.Context, metadata contracts.Challenger
 		return fmt.Errorf("failed to get prove params: %w", err)
 	}
 
+	chainID := a.l1ChainID
+	verifier := params.TeeProofVerifier
 	req := ProveRequest{
-		StartBlkHeight:    params.StartBlockNum,
-		EndBlkHeight:      params.EndBlockNum,
-		StartBlkHash:      params.StartBlockHash,
-		EndBlkHash:        params.EndBlockHash,
-		StartBlkStateHash: params.StartStateHash,
-		EndBlkStateHash:   params.EndStateHash,
+		StartBlkHeight:       params.StartBlockNum,
+		EndBlkHeight:         params.EndBlockNum,
+		StartBlkHash:         params.StartBlockHash,
+		EndBlkHash:           params.EndBlockHash,
+		StartBlkStateHash:    params.StartStateHash,
+		EndBlkStateHash:      params.EndStateHash,
+		ChainID:              &chainID,
+		TeeProofVerifierAddr: &verifier,
 	}
 
 	a.logger.Info("Starting background TEE prove",

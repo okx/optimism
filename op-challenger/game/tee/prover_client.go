@@ -46,6 +46,11 @@ type ProveRequest struct {
 	EndBlkHash        common.Hash `json:"endBlkHash"`
 	StartBlkStateHash common.Hash `json:"startBlkStateHash"`
 	EndBlkStateHash   common.Hash `json:"endBlkStateHash"`
+
+	// Optional EIP-712 domain hints for the TEE prover.
+	// If omitted, the prover uses its own system-configured defaults.
+	ChainID              *uint64         `json:"chainId,omitempty"`
+	TeeProofVerifierAddr *common.Address `json:"teeProofVerifierAddr,omitempty"`
 }
 
 // ProverResponse is the generic response envelope from the TEE Prover.
