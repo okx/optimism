@@ -264,7 +264,7 @@ async fn main() {
             "journal_hex": journal_hex,
             "image_id_hex": image_id_hex,
             "request_id": format!("{:x}", request_id),
-            "register_calldata": format!("0x{}", register_calldata_hex),
+            "register_calldata": format!("{}", register_calldata_hex),
             "journal_parsed": {
                 "timestamp_ms": timestamp_ms,
                 "pcr0_hash": pcr0_hash_hex,
