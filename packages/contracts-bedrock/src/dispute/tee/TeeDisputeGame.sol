@@ -124,9 +124,9 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     //                         Immutables                         //
     ////////////////////////////////////////////////////////////////
 
+    GameType internal constant GAME_TYPE = GameType.wrap(TEE_DISPUTE_GAME_TYPE);
     Duration internal immutable MAX_CHALLENGE_DURATION;
     Duration internal immutable MAX_PROVE_DURATION;
-    GameType internal immutable GAME_TYPE;
     IDisputeGameFactory internal immutable DISPUTE_GAME_FACTORY;
     ITeeProofVerifier internal immutable TEE_PROOF_VERIFIER;
     uint256 internal immutable CHALLENGER_BOND;
@@ -170,7 +170,6 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         address _proposer,
         address _challenger
     ) {
-        GAME_TYPE = GameType.wrap(TEE_DISPUTE_GAME_TYPE);
         MAX_CHALLENGE_DURATION = _maxChallengeDuration;
         MAX_PROVE_DURATION = _maxProveDuration;
         DISPUTE_GAME_FACTORY = _disputeGameFactory;
@@ -468,7 +467,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     //                    IDisputeGame Impl                       //
     ////////////////////////////////////////////////////////////////
 
-    function gameType() public view returns (GameType gameType_) {
+    function gameType() public pure returns (GameType gameType_) {
         gameType_ = GAME_TYPE;
     }
 
@@ -516,7 +515,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         extraData_ = _getArgBytes(0x54, 0x64);
     }
 
-    function gameData() external view returns (GameType gameType_, Claim rootClaim_, bytes memory extraData_) {
+    function gameData() external pure returns (GameType gameType_, Claim rootClaim_, bytes memory extraData_) {
         gameType_ = gameType();
         rootClaim_ = rootClaim();
         extraData_ = extraData();
