@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -259,4 +260,40 @@ func TestProposalAtSequenceNum_HeightMismatch(t *testing.T) {
 	src := NewTeeRollupProposalSource(logger, cl)
 	_, err := src.ProposalAtSequenceNum(context.Background(), 100)
 	require.ErrorContains(t, err, "all clients failed")
+}
+
+func TestProposalAtSequenceNum_ParentIdxFn_GuardBlocks(t *testing.T) {
+	// seqNum == parentL2SeqNum → error, guard triggers
+	client := &mockTeeRollupClient{info: TeeRollupBlockInfo{Height: 100, BlockHash: common.Hash{1}, AppHash: common.Hash{2}}}
+	src := NewTeeRollupProposalSource(testlog.Logger(t, log.LevelError), client)
+	src.SetParentIdxFn(func(ctx context.Context) (uint32, uint64, bool, error) {
+		return 5, 100, true, nil // parentL2SeqNum == seqNum == 100
+	})
+	_, err := src.ProposalAtSequenceNum(context.Background(), 100)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "skipping duplicate proposal")
+}
+
+func TestProposalAtSequenceNum_ParentIdxFn_GuardPasses(t *testing.T) {
+	// seqNum > parentL2SeqNum → success, parentIdx used
+	client := &mockTeeRollupClient{info: TeeRollupBlockInfo{Height: 100, BlockHash: common.Hash{1}, AppHash: common.Hash{2}}}
+	src := NewTeeRollupProposalSource(testlog.Logger(t, log.LevelError), client)
+	src.SetParentIdxFn(func(ctx context.Context) (uint32, uint64, bool, error) {
+		return 7, 99, true, nil // parentL2SeqNum=99 < seqNum=100
+	})
+	proposal, err := src.ProposalAtSequenceNum(context.Background(), 100)
+	require.NoError(t, err)
+	require.Equal(t, uint32(7), proposal.TeeRollupData.ParentIdx)
+}
+
+func TestProposalAtSequenceNum_ParentIdxFn_Error(t *testing.T) {
+	// parentIdxFn returns error → falls back to anchor sentinel (MaxUint32)
+	client := &mockTeeRollupClient{info: TeeRollupBlockInfo{Height: 100, BlockHash: common.Hash{1}, AppHash: common.Hash{2}}}
+	src := NewTeeRollupProposalSource(testlog.Logger(t, log.LevelError), client)
+	src.SetParentIdxFn(func(ctx context.Context) (uint32, uint64, bool, error) {
+		return 0, 0, false, fmt.Errorf("rpc error")
+	})
+	proposal, err := src.ProposalAtSequenceNum(context.Background(), 100)
+	require.NoError(t, err)
+	require.Equal(t, uint32(math.MaxUint32), proposal.TeeRollupData.ParentIdx)
 }

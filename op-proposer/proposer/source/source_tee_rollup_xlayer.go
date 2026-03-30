@@ -138,7 +138,7 @@ func (c *TeeRollupHTTPClient) Close() {}
 type TeeRollupProposalSource struct {
 	log         log.Logger
 	clients     []TeeRollupClient
-	parentIdxFn func(ctx context.Context) (uint32, bool, error) // resolves parent DGF game index
+	parentIdxFn func(ctx context.Context) (uint32, uint64, bool, error) // resolves parent DGF game index and its L2 seq num
 }
 
 // NewTeeRollupProposalSource creates a new TeeRollupProposalSource.
@@ -155,7 +155,7 @@ func NewTeeRollupProposalSource(log log.Logger, clients ...TeeRollupClient) *Tee
 // SetParentIdxFn injects the callback that resolves the parent DGF game index.
 // MUST be called before Start() to satisfy Go's happens-before guarantee.
 // If nil (default), ProposalAtSequenceNum always uses math.MaxUint32 (anchor state sentinel).
-func (s *TeeRollupProposalSource) SetParentIdxFn(fn func(ctx context.Context) (uint32, bool, error)) {
+func (s *TeeRollupProposalSource) SetParentIdxFn(fn func(ctx context.Context) (uint32, uint64, bool, error)) {
 	s.parentIdxFn = fn
 }
 
@@ -216,9 +216,14 @@ func (s *TeeRollupProposalSource) ProposalAtSequenceNum(ctx context.Context, seq
 		// resolve parentIdx dynamically; fall back to MaxUint32 (anchor sentinel) on error
 		parentIdx := uint32(math.MaxUint32)
 		if s.parentIdxFn != nil {
-			if idx, found, err := s.parentIdxFn(ctx); err != nil {
+			if idx, parentL2SeqNum, found, err := s.parentIdxFn(ctx); err != nil {
 				s.log.Warn("tee-rollup: failed to resolve parent game index, using anchor sentinel", "err", err)
 			} else if found {
+				// Guard: seqNum must be strictly greater than the parent game's L2 seq num.
+				// The contract (TeeDisputeGame.initialize) enforces this; skip early to avoid on-chain revert.
+				if seqNum <= parentL2SeqNum {
+					return Proposal{}, fmt.Errorf("tee-rollup: seqNum %d <= parent game L2 seqNum %d, skipping duplicate proposal", seqNum, parentL2SeqNum)
+				}
 				parentIdx = idx
 			}
 		}

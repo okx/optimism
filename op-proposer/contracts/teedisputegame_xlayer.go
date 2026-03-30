@@ -149,25 +149,25 @@ func (f *DisputeGameFactory) isValidParentGame(ctx context.Context, asrAddr comm
 //   - IN_PROGRESS + other proposer: skipped (cannot control resolution)
 //
 // Uses an in-memory cache for immutable fields (GameType, Address, Proposer) to avoid redundant RPCs.
-// Returns (idx, true, nil) if found, (0, false, nil) if not found within maxScan, or (0, false, err) on error.
-func (f *DisputeGameFactory) FindLastGameIndex(ctx context.Context, gameType uint32, proposer common.Address, maxScan uint64) (uint64, bool, error) {
+// Returns (idx, parentL2SeqNum, true, nil) if found, (0, 0, false, nil) if not found within maxScan, or (0, 0, false, err) on error.
+func (f *DisputeGameFactory) FindLastGameIndex(ctx context.Context, gameType uint32, proposer common.Address, maxScan uint64) (uint64, uint64, bool, error) {
 	gameCount, err := f.gameCount(ctx)
 	if err != nil {
-		return 0, false, fmt.Errorf("tee-rollup: failed to get game count: %w", err)
+		return 0, 0, false, fmt.Errorf("tee-rollup: failed to get game count: %w", err)
 	}
 	if gameCount == 0 {
-		return 0, false, nil
+		return 0, 0, false, nil
 	}
 	// For xlayer: hoist ASR address lookup before the loop — it is immutable per game type
 	// and caching avoids a redundant RPC on every iteration.
 	asrAddr, err := f.asrAddrFromImpl(ctx, gameType)
 	if err != nil {
-		return 0, false, fmt.Errorf("tee-rollup: failed to get ASR addr for game type %d: %w", gameType, err)
+		return 0, 0, false, fmt.Errorf("tee-rollup: failed to get ASR addr for game type %d: %w", gameType, err)
 	}
 	scanned := uint64(0)
 	for idx := gameCount - 1; ; idx-- {
 		if scanned >= maxScan {
-			return 0, false, nil
+			return 0, 0, false, nil
 		}
 		scanned++
 
@@ -176,7 +176,7 @@ func (f *DisputeGameFactory) FindLastGameIndex(ctx context.Context, gameType uin
 		if !cached {
 			game, err := f.gameAtIndex(ctx, idx)
 			if err != nil {
-				return 0, false, fmt.Errorf("tee-rollup: failed to get game at index %d: %w", idx, err)
+				return 0, 0, false, fmt.Errorf("tee-rollup: failed to get game at index %d: %w", idx, err)
 			}
 			entry = cachedGameEntry{GameType: game.GameType, Address: game.Address}
 			f.teeCache.set(idx, entry)
@@ -200,7 +200,7 @@ func (f *DisputeGameFactory) FindLastGameIndex(ctx context.Context, gameType uin
 			result, callErr := f.caller.SingleCall(cCtx, rpcblock.Latest, gameContract.Call("status"))
 			cancel()
 			if callErr != nil {
-				return 0, false, fmt.Errorf("tee-rollup: failed to get status at index %d: %w", idx, callErr)
+				return 0, 0, false, fmt.Errorf("tee-rollup: failed to get status at index %d: %w", idx, callErr)
 			}
 			status = result.GetUint8(0)
 			gameProposer = entry.Proposer
@@ -209,7 +209,7 @@ func (f *DisputeGameFactory) FindLastGameIndex(ctx context.Context, gameType uin
 			var fetchErr error
 			status, gameProposer, fetchErr = f.gameStatusAndProposerAt(ctx, entry.Address)
 			if fetchErr != nil {
-				return 0, false, fmt.Errorf("tee-rollup: failed to get status/proposer at index %d: %w", idx, fetchErr)
+				return 0, 0, false, fmt.Errorf("tee-rollup: failed to get status/proposer at index %d: %w", idx, fetchErr)
 			}
 			// cache proposer (immutable — set once in initialize())
 			entry.Proposer = gameProposer
@@ -226,7 +226,7 @@ func (f *DisputeGameFactory) FindLastGameIndex(ctx context.Context, gameType uin
 		}
 		valid, err := f.isValidParentGame(ctx, asrAddr, entry.Address)
 		if err != nil {
-			return 0, false, fmt.Errorf("tee-rollup: failed to validate parent game at index %d: %w", idx, err)
+			return 0, 0, false, fmt.Errorf("tee-rollup: failed to validate parent game at index %d: %w", idx, err)
 		}
 		if !valid {
 			// game is retired/blacklisted/not-respected — skip
@@ -238,12 +238,20 @@ func (f *DisputeGameFactory) FindLastGameIndex(ctx context.Context, gameType uin
 
 		// DEFENDER_WINS — accept immediately
 		if status == GameStatusDefenderWins {
-			return idx, true, nil
+			l2SeqNum, err := f.gameL2SeqNum(ctx, entry.Address)
+			if err != nil {
+				return 0, 0, false, fmt.Errorf("tee-rollup: failed to get l2SequenceNumber at index %d: %w", idx, err)
+			}
+			return idx, l2SeqNum, true, nil
 		}
 
 		// IN_PROGRESS — only accept if self-proposed
 		if gameProposer == proposer {
-			return idx, true, nil
+			l2SeqNum, err := f.gameL2SeqNum(ctx, entry.Address)
+			if err != nil {
+				return 0, 0, false, fmt.Errorf("tee-rollup: failed to get l2SequenceNumber at index %d: %w", idx, err)
+			}
+			return idx, l2SeqNum, true, nil
 		}
 		// IN_PROGRESS by another proposer — skip
 
@@ -251,5 +259,21 @@ func (f *DisputeGameFactory) FindLastGameIndex(ctx context.Context, gameType uin
 			break
 		}
 	}
-	return 0, false, nil
+	return 0, 0, false, nil
+}
+
+// gameL2SeqNum fetches the l2SequenceNumber from a TeeDisputeGame proxy.
+func (f *DisputeGameFactory) gameL2SeqNum(ctx context.Context, proxyAddr common.Address) (uint64, error) {
+	cCtx, cancel := context.WithTimeout(ctx, f.networkTimeout)
+	defer cancel()
+	gameContract := batching.NewBoundContract(teeDisputeGameSnapshotABI, proxyAddr)
+	result, err := f.caller.SingleCall(cCtx, rpcblock.Latest, gameContract.Call("l2SequenceNumber"))
+	if err != nil {
+		return 0, fmt.Errorf("tee-rollup: failed to get l2SequenceNumber of game %v: %w", proxyAddr, err)
+	}
+	n := result.GetBigInt(0)
+	if !n.IsUint64() {
+		return 0, fmt.Errorf("tee-rollup: l2SequenceNumber %s overflows uint64 for game %v", n, proxyAddr)
+	}
+	return n.Uint64(), nil
 }

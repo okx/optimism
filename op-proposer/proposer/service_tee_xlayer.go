@@ -26,18 +26,18 @@ func initTeeSource(ps *ProposerService, driver *L2OutputSubmitter) error {
 	}
 	proposer := driver.Txmgr.From()
 	gameType := uint32(ps.ProposerConfig.DisputeGameType)
-	teeSource.SetParentIdxFn(func(ctx context.Context) (uint32, bool, error) {
-		idx, found, err := dgfCaller.FindLastGameIndex(ctx, gameType, proposer, contracts.TeeParentScanLimit)
+	teeSource.SetParentIdxFn(func(ctx context.Context) (uint32, uint64, bool, error) {
+		idx, parentL2SeqNum, found, err := dgfCaller.FindLastGameIndex(ctx, gameType, proposer, contracts.TeeParentScanLimit)
 		if err != nil {
-			return 0, false, err
+			return 0, 0, false, err
 		}
 		if !found {
-			return 0, false, nil
+			return 0, 0, false, nil
 		}
 		if idx > math.MaxUint32 {
-			return 0, false, fmt.Errorf("tee-rollup: game index %d exceeds uint32 range", idx)
+			return 0, 0, false, fmt.Errorf("tee-rollup: game index %d exceeds uint32 range", idx)
 		}
-		return uint32(idx), true, nil
+		return uint32(idx), parentL2SeqNum, true, nil
 	})
 	return nil
 }

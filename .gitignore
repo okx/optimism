@@ -81,3 +81,7 @@ test-pp-op/mainnet.env
 test-pp-op/fakemainnet.env
 
 .tool-versions
+.claude
+.omc
+*alloy*/target/
+op-reth/target/
