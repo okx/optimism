@@ -109,7 +109,6 @@ contract DevnetAddTeeGame is Script {
         cfg.deployerKey = vm.envUint("PRIVATE_KEY");
         cfg.deployer = vm.addr(cfg.deployerKey);
         cfg.existingDgf = vm.envAddress("EXISTING_DGF");
-        cfg.anchorStateRegistry = vm.envAddress("EXISTING_ASR");
         cfg.systemConfig = vm.envAddress("SYSTEM_CONFIG_ADDRESS");
         cfg.disputeGameFinalityDelaySeconds = vm.envUint("DISPUTE_GAME_FINALITY_DELAY_SECONDS");
         cfg.maxChallengeDuration = uint64(vm.envUint("MAX_CHALLENGE_DURATION"));
@@ -129,9 +128,7 @@ contract DevnetAddTeeGame is Script {
         ProxyAdmin(payable(proxyAdmin)).upgrade(payable(address(asrProxy)), address(asrImpl));
 
         // Copy starting anchor root from existing ASR (game type 0 = CannonFaultDisputeGame)
-        (Hash root, uint256 l2SequenceNumber) =
-            IAnchorStateRegistry(cfg.anchorStateRegistry).anchors(GameType.wrap(0));
-        Proposal memory startingAnchorRoot = Proposal({root: root, l2SequenceNumber: l2SequenceNumber});
+        Proposal memory startingAnchorRoot = Proposal({root: Hash.wrap(bytes32(0)), l2SequenceNumber: 0});
 
         // Initialize pointing at the EXISTING DGF with respectedGameType=1960 from the start,
         // avoiding a partial-failure window where the ASR exists but has game type 0.
