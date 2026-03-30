@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.15;
 
-import {Test} from "forge-std/Test.sol";
-import {Vm} from "forge-std/Vm.sol";
-import {Claim} from "src/dispute/lib/Types.sol";
-import {TeeDisputeGame} from "src/dispute/tee/TeeDisputeGame.sol";
+import { Test } from "forge-std/Test.sol";
+import { Vm } from "forge-std/Vm.sol";
+import { Claim } from "src/dispute/lib/Types.sol";
+import { TeeDisputeGame } from "src/dispute/tee/TeeDisputeGame.sol";
 
 abstract contract TeeTestUtils is Test {
     uint256 internal constant DEFAULT_PROPOSER_KEY = 0xA11CE;
@@ -37,9 +37,19 @@ abstract contract TeeTestUtils is Test {
         return Claim.wrap(keccak256(abi.encode(blockHash_, stateHash_)));
     }
 
-    function computeBatchDigest(BatchInput memory batch) internal pure returns (bytes32) {
+    bytes32 private constant BATCH_PROOF_TYPEHASH = keccak256(
+        "BatchProof(bytes32 startBlockHash,bytes32 startStateHash,bytes32 endBlockHash,bytes32 endStateHash,uint256 l2Block)"
+    );
+
+    bytes32 private constant DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    bytes32 private constant DOMAIN_NAME_HASH = keccak256("TeeDisputeGame");
+    bytes32 private constant DOMAIN_VERSION_HASH = keccak256("1");
+
+    function computeBatchStructHash(BatchInput memory batch) internal pure returns (bytes32) {
         return keccak256(
             abi.encode(
+                BATCH_PROOF_TYPEHASH,
                 batch.startBlockHash,
                 batch.startStateHash,
                 batch.endBlockHash,
@@ -49,12 +59,24 @@ abstract contract TeeTestUtils is Test {
         );
     }
 
+    function computeDomainSeparator(address verifier) internal view returns (bytes32) {
+        return keccak256(abi.encode(DOMAIN_TYPEHASH, DOMAIN_NAME_HASH, DOMAIN_VERSION_HASH, block.chainid, verifier));
+    }
+
+    function computeEIP712Digest(BatchInput memory batch, bytes32 domainSeparator) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked("\x19\x01", domainSeparator, computeBatchStructHash(batch)));
+    }
+
     function signDigest(uint256 privateKey, bytes32 digest) internal pure returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
         return abi.encodePacked(r, s, v);
     }
 
-    function buildBatchProof(BatchInput memory batch, uint256 privateKey)
+    function buildBatchProof(
+        BatchInput memory batch,
+        uint256 privateKey,
+        bytes32 domainSeparator
+    )
         internal
         returns (TeeDisputeGame.BatchProof memory)
     {
@@ -64,11 +86,14 @@ abstract contract TeeTestUtils is Test {
             endBlockHash: batch.endBlockHash,
             endStateHash: batch.endStateHash,
             l2Block: batch.l2Block,
-            signature: signDigest(privateKey, computeBatchDigest(batch))
+            signature: signDigest(privateKey, computeEIP712Digest(batch, domainSeparator))
         });
     }
 
-    function buildBatchProofWithSignature(BatchInput memory batch, bytes memory signature)
+    function buildBatchProofWithSignature(
+        BatchInput memory batch,
+        bytes memory signature
+    )
         internal
         pure
         returns (TeeDisputeGame.BatchProof memory)

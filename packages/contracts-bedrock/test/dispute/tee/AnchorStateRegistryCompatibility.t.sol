@@ -7,8 +7,7 @@ import {IDisputeGameFactory} from "interfaces/dispute/IDisputeGameFactory.sol";
 import {IAnchorStateRegistry} from "interfaces/dispute/IAnchorStateRegistry.sol";
 import {ISystemConfig} from "interfaces/L1/ISystemConfig.sol";
 import {ITeeProofVerifier} from "interfaces/dispute/ITeeProofVerifier.sol";
-import {TeeDisputeGame} from "src/dispute/tee/TeeDisputeGame.sol";
-import {AccessManager, TEE_DISPUTE_GAME_TYPE} from "src/dispute/tee/AccessManager.sol";
+import {TeeDisputeGame, TEE_DISPUTE_GAME_TYPE} from "src/dispute/tee/TeeDisputeGame.sol";
 import {Claim, Duration, GameType, Hash, Proposal} from "src/dispute/lib/Types.sol";
 import {MockDisputeGameFactory} from "test/dispute/tee/mocks/MockDisputeGameFactory.sol";
 import {MockSystemConfig} from "test/dispute/tee/mocks/MockSystemConfig.sol";
@@ -28,7 +27,6 @@ contract AnchorStateRegistryCompatibilityTest is TeeTestUtils {
     MockDisputeGameFactory internal factory;
     MockSystemConfig internal systemConfig;
     MockTeeProofVerifier internal teeProofVerifier;
-    AccessManager internal accessManager;
     TeeDisputeGame internal implementation;
     IAnchorStateRegistry internal anchorStateRegistry;
 
@@ -67,10 +65,6 @@ contract AnchorStateRegistryCompatibilityTest is TeeTestUtils {
         );
         anchorStateRegistry = IAnchorStateRegistry(address(anchorStateRegistryProxy));
 
-        accessManager = new AccessManager(MAX_CHALLENGE_DURATION, IDisputeGameFactory(address(factory)));
-        accessManager.setProposer(proposer, true);
-        accessManager.setChallenger(challenger, true);
-
         implementation = new TeeDisputeGame(
             Duration.wrap(MAX_CHALLENGE_DURATION),
             Duration.wrap(MAX_PROVE_DURATION),
@@ -78,7 +72,8 @@ contract AnchorStateRegistryCompatibilityTest is TeeTestUtils {
             ITeeProofVerifier(address(teeProofVerifier)),
             CHALLENGER_BOND,
             anchorStateRegistry,
-            accessManager
+            proposer,
+            challenger
         );
 
         factory.setImplementation(GameType.wrap(TEE_DISPUTE_GAME_TYPE), implementation);
@@ -103,9 +98,11 @@ contract AnchorStateRegistryCompatibilityTest is TeeTestUtils {
                 endStateHash: keccak256("end-state"),
                 l2Block: game.l2SequenceNumber()
             }),
-            DEFAULT_EXECUTOR_KEY
+            DEFAULT_EXECUTOR_KEY,
+            game.domainSeparator()
         );
 
+        vm.prank(proposer);
         game.prove(abi.encode(proofs));
         game.resolve();
 

@@ -9,7 +9,6 @@ import {GameType, Duration, Hash, Proposal} from "src/dispute/lib/Types.sol";
 import {AnchorStateRegistry} from "src/dispute/AnchorStateRegistry.sol";
 import {IRiscZeroVerifier} from "interfaces/dispute/IRiscZeroVerifier.sol";
 import {ITeeProofVerifier} from "interfaces/dispute/ITeeProofVerifier.sol";
-import {AccessManager} from "src/dispute/tee/AccessManager.sol";
 import {TeeDisputeGame} from "src/dispute/tee/TeeDisputeGame.sol";
 import {TeeProofVerifier} from "src/dispute/tee/TeeProofVerifier.sol";
 import {MockRiscZeroVerifier} from "test/dispute/tee/mocks/MockRiscZeroVerifier.sol";
@@ -35,11 +34,11 @@ import {ProxyAdmin} from "src/universal/ProxyAdmin.sol";
 ///   MAX_CHALLENGE_DURATION               seconds
 ///   MAX_PROVE_DURATION                   seconds
 ///   CHALLENGER_BOND                      wei
-///   FALLBACK_TIMEOUT                     seconds
 ///   INIT_BOND                            wei (informational — not set here)
 ///
 /// Optional:
 ///   PROPOSER_ADDRESS          address to whitelist as proposer (defaults to deployer)
+///   CHALLENGER_ADDRESS        address to whitelist as challenger (defaults to address(0) = permissionless)
 ///
 /// Optional (mock mode):
 ///   USE_MOCK_VERIFIER         if "true", deploy MockTeeProofVerifier instead of
@@ -58,8 +57,8 @@ contract DevnetAddTeeGame is Script {
         uint64 maxChallengeDuration;
         uint64 maxProveDuration;
         uint256 challengerBond;
-        uint256 fallbackTimeout;
         address proposer;
+        address challenger;
         bool useMockVerifier;
     }
 
@@ -96,7 +95,7 @@ contract DevnetAddTeeGame is Script {
         //    This lets isGameProper() recognise games created by the existing factory.
         address tzAsr = _deployAsr(cfg, teeProxyAdmin);
 
-        // 4. AccessManager + TeeDisputeGame impl (no proxy — it's the impl)
+        // 4. TeeDisputeGame impl (no proxy — it's the impl)
         address teeDisputeGame = _deployTeeStack(cfg, verifier, tzAsr);
 
         vm.stopBroadcast();
@@ -116,8 +115,8 @@ contract DevnetAddTeeGame is Script {
         cfg.maxChallengeDuration = uint64(vm.envUint("MAX_CHALLENGE_DURATION"));
         cfg.maxProveDuration = uint64(vm.envUint("MAX_PROVE_DURATION"));
         cfg.challengerBond = vm.envUint("CHALLENGER_BOND");
-        cfg.fallbackTimeout = vm.envUint("FALLBACK_TIMEOUT");
         cfg.proposer = vm.envOr("PROPOSER_ADDRESS", cfg.deployer);
+        cfg.challenger = vm.envOr("CHALLENGER_ADDRESS", address(0));
         cfg.useMockVerifier = vm.envOr("USE_MOCK_VERIFIER", false);
     }
 
@@ -150,10 +149,6 @@ contract DevnetAddTeeGame is Script {
         internal
         returns (address teeDisputeGame)
     {
-        AccessManager accessManager = new AccessManager(cfg.fallbackTimeout, IDisputeGameFactory(cfg.existingDgf));
-        accessManager.setProposer(cfg.proposer, true);
-        accessManager.setChallenger(address(0), true); // permissionless challenge on devnet
-
         teeDisputeGame = address(
             new TeeDisputeGame(
                 Duration.wrap(cfg.maxChallengeDuration),
@@ -162,7 +157,8 @@ contract DevnetAddTeeGame is Script {
                 ITeeProofVerifier(verifier),
                 cfg.challengerBond,
                 IAnchorStateRegistry(tzAsr),
-                accessManager
+                cfg.proposer,
+                cfg.challenger
             )
         );
     }
