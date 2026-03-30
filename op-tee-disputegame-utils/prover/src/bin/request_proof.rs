@@ -233,6 +233,11 @@ async fn main() {
     joff += 1;
     let enclave_pubkey = journal[joff..joff + enclave_pubkey_len].to_vec();
     let enclave_pubkey_hex = hex::encode(&enclave_pubkey);
+    let enclave_addr = {
+        let coords = &enclave_pubkey[1..65];
+        let hash = alloy::primitives::keccak256(coords);
+        alloy::primitives::Address::from_slice(&hash[12..])
+    };
     joff += enclave_pubkey_len;
     let user_data_len = u16::from_be_bytes(journal[joff..joff + 2].try_into().unwrap()) as usize;
     joff += 2;
@@ -270,6 +275,7 @@ async fn main() {
                 "pcr0_hash": pcr0_hash_hex,
                 "root_pubkey": root_pubkey_hex,
                 "enclave_pubkey": enclave_pubkey_hex,
+                "enclave_addr": format!("{}", enclave_addr),
                 "user_data": user_data_hex,
             },
         });
