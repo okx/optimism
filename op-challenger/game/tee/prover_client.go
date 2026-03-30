@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	taskBasePath = "/tee/task/"
+	taskBasePath = "/tee/task"
 )
 
 // Task statuses returned by the TEE Prover.
@@ -142,7 +142,7 @@ func (c *ProverClient) Prove(ctx context.Context, req ProveRequest) (string, err
 
 // GetTaskResult queries the status of a prove task.
 func (c *ProverClient) GetTaskResult(ctx context.Context, taskID string) (*TaskResultData, error) {
-	url := c.baseURL + taskBasePath + taskID
+	url := c.baseURL + taskBasePath + "/" + taskID
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task request: %w", err)
