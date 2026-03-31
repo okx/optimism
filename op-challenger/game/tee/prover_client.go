@@ -98,6 +98,14 @@ func (c *ProverClient) Prove(ctx context.Context, req ProveRequest) (string, err
 	}
 
 	url := c.baseURL + taskBasePath
+	var chainID uint64
+	var verifierAddr common.Address
+	if req.ChainID != nil {
+		chainID = *req.ChainID
+	}
+	if req.TeeProofVerifierAddr != nil {
+		verifierAddr = *req.TeeProofVerifierAddr
+	}
 	c.logger.Info("Sending TEE prove request",
 		"url", url,
 		"startBlock", req.StartBlkHeight,
@@ -106,8 +114,8 @@ func (c *ProverClient) Prove(ctx context.Context, req ProveRequest) (string, err
 		"endBlkHash", req.EndBlkHash,
 		"startStateHash", req.StartBlkStateHash,
 		"endStateHash", req.EndBlkStateHash,
-		"chainId", req.ChainID,
-		"teeProofVerifierAddr", req.TeeProofVerifierAddr,
+		"chainId", chainID,
+		"teeProofVerifierAddr", verifierAddr,
 	)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -169,6 +177,8 @@ func (c *ProverClient) GetTaskResult(ctx context.Context, taskID string) (*TaskR
 	if err != nil {
 		return nil, fmt.Errorf("failed to read task response: %w", err)
 	}
+
+	c.logger.Info("TEE prove task response", "taskID", taskID, "status", resp.StatusCode, "body", string(respBody))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("task request failed with status %d: %s", resp.StatusCode, string(respBody))
