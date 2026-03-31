@@ -98,6 +98,17 @@ func (c *ProverClient) Prove(ctx context.Context, req ProveRequest) (string, err
 	}
 
 	url := c.baseURL + taskBasePath
+	c.logger.Info("Sending TEE prove request",
+		"url", url,
+		"startBlock", req.StartBlkHeight,
+		"endBlock", req.EndBlkHeight,
+		"startBlkHash", req.StartBlkHash,
+		"endBlkHash", req.EndBlkHash,
+		"startStateHash", req.StartBlkStateHash,
+		"endStateHash", req.EndBlkStateHash,
+		"chainId", req.ChainID,
+		"teeProofVerifierAddr", req.TeeProofVerifierAddr,
+	)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("failed to create prove request: %w", err)
