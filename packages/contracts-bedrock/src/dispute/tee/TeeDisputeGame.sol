@@ -283,6 +283,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     function prove(bytes calldata proofBytes) external returns (ProposalStatus) {
         if (msg.sender != proposer) revert BadAuth();
         if (status != GameStatus.IN_PROGRESS) revert ClaimAlreadyResolved();
+        if (_getParentGameStatus() == GameStatus.CHALLENGER_WINS) revert InvalidParentGame();
         if (gameOver()) revert GameOver();
 
         BatchProof[] memory proofs = abi.decode(proofBytes, (BatchProof[]));

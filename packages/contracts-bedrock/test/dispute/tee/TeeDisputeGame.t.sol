@@ -479,6 +479,61 @@ contract TeeDisputeGameTest is TeeTestUtils {
         game.prove(abi.encode(proofs));
     }
 
+    /// @notice prove() should revert when parent game resolved as CHALLENGER_WINS
+    function test_prove_revertWhenParentChallengerWins() public {
+        // Create parent game (IN_PROGRESS initially)
+        bytes32 parentBlockHash = keccak256("parent-block");
+        bytes32 parentStateHash = keccak256("parent-state");
+        MockStatusDisputeGame parent = new MockStatusDisputeGame(
+            proposer,
+            GameType.wrap(TEE_DISPUTE_GAME_TYPE),
+            computeRootClaim(parentBlockHash, parentStateHash),
+            ANCHOR_L2_BLOCK + 3,
+            bytes("parent"),
+            GameStatus.IN_PROGRESS,
+            uint64(block.timestamp),
+            0,
+            true,
+            IAnchorStateRegistry(address(anchorStateRegistry))
+        );
+        factory.pushGame(
+            GameType.wrap(TEE_DISPUTE_GAME_TYPE),
+            uint64(block.timestamp),
+            IDisputeGame(address(parent)),
+            parent.rootClaim(),
+            bytes("parent")
+        );
+        anchorStateRegistry.setGameFlags(IDisputeGame(address(parent)), true, true, false, false, false, true, false);
+
+        // Create child game referencing parent
+        bytes32 childBlockHash = keccak256("child-block");
+        bytes32 childStateHash = keccak256("child-state");
+        (TeeDisputeGame child,,) = _createGame(proposer, ANCHOR_L2_BLOCK + 7, 0, childBlockHash, childStateHash);
+
+        // Parent resolves as CHALLENGER_WINS
+        parent.setStatus(GameStatus.CHALLENGER_WINS);
+
+        // Build valid batch proof for child
+        teeProofVerifier.setRegistered(executor, true);
+        TeeDisputeGame.BatchProof[] memory proofs = new TeeDisputeGame.BatchProof[](1);
+        proofs[0] = buildBatchProof(
+            BatchInput({
+                startBlockHash: parentBlockHash,
+                startStateHash: parentStateHash,
+                endBlockHash: childBlockHash,
+                endStateHash: childStateHash,
+                l2Block: child.l2SequenceNumber()
+            }),
+            DEFAULT_EXECUTOR_KEY,
+            child.domainSeparator()
+        );
+
+        // prove() should revert because parent is CHALLENGER_WINS
+        vm.prank(proposer);
+        vm.expectRevert(InvalidParentGame.selector);
+        child.prove(abi.encode(proofs));
+    }
+
     function test_resolve_revertWhenParentInProgress() public {
         MockStatusDisputeGame parent = new MockStatusDisputeGame(
             proposer,
