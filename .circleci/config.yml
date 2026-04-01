@@ -2712,7 +2712,7 @@ workflows:
             - go-tests-short
             - sanitize-op-program
           context:
-            - circleci-repo-readonly-authenticated-github-tokens
+            - circleci-repo-readonly-authenticated-github-token
       - docker-build:
           name: <<matrix.docker_name>>-docker-build
           docker_tags: <<pipeline.git.revision>>,<<pipeline.git.branch>>
@@ -3142,6 +3142,8 @@ workflows:
             - contracts-bedrock-build
             - cannon-prestate-quick
       - op-acceptance-tests-flake-shake-report:
+          context:
+            - circleci-repo-readonly-authenticated-github-token
           requires:
             - op-acceptance-tests-flake-shake
       - op-acceptance-tests-flake-shake-promote:

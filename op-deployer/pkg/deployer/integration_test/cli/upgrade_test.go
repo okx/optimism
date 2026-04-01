@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ethereum-optimism/optimism/op-chain-ops/opcmregistry"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/broadcaster"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/standard"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/upgrade/v2_0_0"
@@ -63,7 +62,7 @@ func TestCLIUpgrade(t *testing.T) {
 		},
 		{
 			contractTag: standard.ContractsV600Tag,
-			version:     "v6.0.0-rc.2",
+			version:     "v6.0.0",
 			forkBlock:   10101510, // one block past the opcm deployment block
 		},
 	}
@@ -82,13 +81,9 @@ func TestCLIUpgrade(t *testing.T) {
 			opcm, err := standard.OPCMImplAddressFor(11155111, tc.contractTag)
 			require.NoError(t, err)
 
-			versionStr := strings.TrimPrefix(tc.version, "v") // Remove "v" prefix for parsing
-			version, err := opcmregistry.ParseSemver(versionStr)
-			require.NoError(t, err, "failed to parse version %s", versionStr)
-
-			v6Semver := opcmregistry.Semver{Major: 6, Minor: 0, Patch: 0}
+			isV6OrAbove := strings.HasPrefix(tc.version, "v6.")
 			var configData []byte
-			if version.Compare(v6Semver) >= 0 {
+			if isV6OrAbove {
 				// v6.0.0+ uses a different input structure
 				testConfig := v6_0_0.UpgradeOPChainInput{
 					Prank: l1ProxyAdminOwner,
@@ -151,7 +146,7 @@ func TestCLIUpgrade(t *testing.T) {
 			// v6.0.0+ uses a different function signature: upgrade((address,bytes32,bytes32)[])
 			// Older versions use: upgrade((address,address,bytes32)[])
 			var expectedSelector string
-			if version.Compare(v6Semver) >= 0 {
+			if isV6OrAbove {
 				expectedSelector = "cbeda5a7" // upgrade((address,bytes32,bytes32)[])
 			} else {
 				expectedSelector = "ff2dd5a1" // upgrade((address,address,bytes32)[])
