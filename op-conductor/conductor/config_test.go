@@ -57,28 +57,26 @@ func TestConfigCheck_HTTPBodyLimit(t *testing.T) {
 			expectError: false,
 		},
 		{
+			name:        "valid: 4MB",
+			bodyLimitMB: 4,
+			expectError: false,
+		},
+		{
+			name:        "valid: 1MB",
+			bodyLimitMB: 1,
+			expectError: false,
+		},
+		{
 			name:          "invalid: 0MB",
 			bodyLimitMB:   0,
 			expectError:   true,
-			errorContains: "HTTP body limit must be at least 5MB, got 0MB",
-		},
-		{
-			name:          "invalid: 4MB (below minimum)",
-			bodyLimitMB:   4,
-			expectError:   true,
-			errorContains: "HTTP body limit must be at least 5MB, got 4MB",
-		},
-		{
-			name:          "invalid: 1MB (too small)",
-			bodyLimitMB:   1,
-			expectError:   true,
-			errorContains: "HTTP body limit must be at least 5MB, got 1MB",
+			errorContains: "HTTP body limit must be greater than 0, got 0MB",
 		},
 		{
 			name:          "invalid: -1MB (negative)",
 			bodyLimitMB:   -1,
 			expectError:   true,
-			errorContains: "HTTP body limit must be at least 5MB, got -1MB",
+			errorContains: "HTTP body limit must be greater than 0, got -1MB",
 		},
 	}
 
