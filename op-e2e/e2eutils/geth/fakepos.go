@@ -101,6 +101,7 @@ func (f *FakePoS) Start() error {
 	}
 	f.sub = event.NewSubscription(func(quit <-chan struct{}) error {
 		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		go func() {
 			<-quit
 			cancel()
