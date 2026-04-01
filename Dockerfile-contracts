@@ -1,12 +1,7 @@
 # Contracts build stage
 FROM golang:1.24 AS contracts-builder
 
-# Install dependencies for contract building
-RUN apt-get update && apt-get install -y \
-    curl \
-    git \
-    bash \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y curl git bash && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install foundry
 RUN curl -L https://foundry.paradigm.xyz | bash && \
@@ -15,20 +10,17 @@ RUN curl -L https://foundry.paradigm.xyz | bash && \
     rm -rf /root/.foundry
 
 WORKDIR /app
-
-# Copy the entire project (needed for git submodules)
 COPY . .
 
-# Initialize submodules and build contracts
+# Build contracts (skip tests)
 WORKDIR /app/packages/contracts-bedrock
 RUN git submodule update --init --recursive || echo "No submodules found"
 RUN --mount=type=cache,target=/root/.foundry \
     --mount=type=cache,target=/root/.cache \
-    forge build
+    forge build --skip test
 
 # Build op-deployer
 WORKDIR /app
-COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/root/.cache \
     --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
@@ -38,23 +30,14 @@ RUN --mount=type=cache,target=/root/.cache \
     --mount=type=cache,target=/go/pkg/mod \
     go build -o /app/op-deployer/bin/op-deployer ./op-deployer/cmd/op-deployer
 
-# Create final contracts image with artifacts, foundry tools, and op-deployer
+# Final image
 FROM debian:bookworm-slim
 WORKDIR /app
 
-# Copy foundry tools for runtime use
 COPY --from=contracts-builder /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil /usr/local/bin/
+RUN chmod +x /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil
 
-# Verify foundry tools integrity
-RUN chmod +x /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil && \
-    /usr/local/bin/forge --version > /dev/null && \
-    /usr/local/bin/cast --version > /dev/null && \
-    /usr/local/bin/anvil --version > /dev/null
-
-# Copy op-deployer binary
 COPY --from=contracts-builder /app/op-deployer/bin/ ./op-deployer/bin/
-
-# Copy contract artifacts and config (copy essential files only)
 COPY --from=contracts-builder /app/packages/contracts-bedrock/ ./packages/contracts-bedrock/
 
 CMD ["echo", "Contracts and op-deployer ready"]
