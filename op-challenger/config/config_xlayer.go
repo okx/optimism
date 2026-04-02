@@ -50,6 +50,20 @@ func (c Config) onlyTeeGameType() bool {
 	return len(c.GameTypes) > 0
 }
 
+// GetL1RPCMaxBatchSize returns the effective batch size, defaulting to 20 (same as op-node).
+// When rate limiting is enabled, batch size is capped to int(RateLimit) so that
+// a single batch never exceeds the limiter's burst.
+func (c Config) GetL1RPCMaxBatchSize() int {
+	batchSize := c.L1RPCMaxBatchSize
+	if batchSize <= 0 {
+		batchSize = 20
+	}
+	if c.L1RPCRateLimit > 0 && batchSize > int(c.L1RPCRateLimit) {
+		batchSize = int(c.L1RPCRateLimit)
+	}
+	return batchSize
+}
+
 // CheckXLayer runs all XLayer-specific config validations.
 // Called from the main Check() method via _xlayer integration.
 func (c Config) CheckXLayer() error {

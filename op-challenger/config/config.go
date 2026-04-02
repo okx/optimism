@@ -93,6 +93,10 @@ type Config struct {
 	TeeProvePollInterval time.Duration // Polling interval for TEE Prover task status
 	TeeProveTimeout      time.Duration // Total timeout for a single game's prove attempt (including retries)
 
+	// For XLayer: L1 RPC rate limiting (same pattern as op-node --l1.rpc-rate-limit / --l1.rpc-max-batch-size)
+	L1RPCRateLimit   float64 // L1 RPC requests per second (0 = disabled)
+	L1RPCMaxBatchSize int    // Max RPC calls per batch request, also used as burst for rate limiter
+
 	MaxPendingTx uint64 // Maximum number of pending transactions (0 == no limit)
 
 	TxMgrConfig   txmgr.CLIConfig

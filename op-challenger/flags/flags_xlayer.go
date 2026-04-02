@@ -24,8 +24,20 @@ var (
 		EnvVars: prefixEnvVars("TEE_PROVE_TIMEOUT"),
 		Value:   config.DefaultTeeProveTimeout,
 	}
+	L1RPCRateLimitFlag = &cli.Float64Flag{
+		Name:    "l1-rpc-rate-limit",
+		Usage:   "Self-imposed global rate-limit on L1 RPC requests, specified in requests / second. Disabled if set to 0.",
+		EnvVars: prefixEnvVars("L1_RPC_RATE_LIMIT"),
+		Value:   0,
+	}
+	L1RPCMaxBatchSizeFlag = &cli.IntFlag{
+		Name:    "l1-rpc-max-batch-size",
+		Usage:   "Maximum number of RPC requests to bundle in a single batch. Also used as burst size for rate limiter.",
+		EnvVars: prefixEnvVars("L1_RPC_MAX_BATCH_SIZE"),
+		Value:   20,
+	}
 
-	teeFlags = []cli.Flag{TeeProverRpcFlag, TeeProvePollIntervalFlag, TeeProveTimeoutFlag}
+	teeFlags = []cli.Flag{TeeProverRpcFlag, TeeProvePollIntervalFlag, TeeProveTimeoutFlag, L1RPCRateLimitFlag, L1RPCMaxBatchSizeFlag}
 )
 
 // onlyTeeGameTypes returns true if all enabled game types are TEE (which doesn't require L2 RPC).

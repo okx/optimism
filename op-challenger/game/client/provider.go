@@ -36,7 +36,7 @@ func NewProvider(ctx context.Context, logger log.Logger, cfg *config.Config, l1C
 		logger:   logger,
 		cfg:      cfg,
 		l1Client: l1Client,
-		caller:   batching.NewMultiCaller(rpcClient, batching.DefaultBatchSize),
+		caller:   batching.NewMultiCaller(rpcClient, cfg.GetL1RPCMaxBatchSize()), // For XLayer: configurable batch size
 	}
 }
 

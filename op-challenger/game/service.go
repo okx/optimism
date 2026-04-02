@@ -147,7 +147,13 @@ func (s *Service) initL1Clients(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("failed to dial L1: %w", err)
 	}
 
-	l1RPC := client.NewBaseRPCClient(l1EthClient.Client(), client.WithCallTimeout(30*time.Second), client.WithBatchCallTimeout(60*time.Second))
+	rpcOpts := []client.RPCOption{client.WithCallTimeout(30 * time.Second), client.WithBatchCallTimeout(60 * time.Second)} // For XLayer
+	if cfg.L1RPCRateLimit > 0 {                                                                                           // For XLayer
+		batchSize := cfg.GetL1RPCMaxBatchSize()                                                                           // For XLayer
+		s.logger.Info("L1 RPC rate limiting enabled", "rateLimit", cfg.L1RPCRateLimit, "batchSize", batchSize)             // For XLayer
+		rpcOpts = append(rpcOpts, client.WithRateLimit(cfg.L1RPCRateLimit, batchSize))                                     // For XLayer
+	}                                                                                                                      // For XLayer
+	l1RPC := client.NewBaseRPCClient(l1EthClient.Client(), rpcOpts...)
 	pollClient, err := client.NewRPCWithClient(ctx, s.logger, cfg.L1EthRpc, l1RPC, cfg.PollInterval)
 	if err != nil {
 		return fmt.Errorf("failed to create RPC client: %w", err)
@@ -204,7 +210,7 @@ func (s *Service) initMetricsServer(cfg *opmetrics.CLIConfig) error {
 
 func (s *Service) initFactoryContract(ctx context.Context, cfg *config.Config) error {
 	factoryContract, err := contracts.NewDisputeGameFactoryContract(ctx, s.metrics, cfg.GameFactoryAddress,
-		batching.NewMultiCaller(s.l1RPC, batching.DefaultBatchSize))
+		batching.NewMultiCaller(s.l1RPC, cfg.GetL1RPCMaxBatchSize()))
 	if err != nil {
 		return fmt.Errorf("failed to create factory contract: %w", err)
 	}

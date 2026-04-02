@@ -671,5 +671,7 @@ func NewConfigFromCLI(ctx *cli.Context, logger log.Logger) (*config.Config, erro
 		TeeProverRpc:                      ctx.String(TeeProverRpcFlag.Name),          // For XLayer
 		TeeProvePollInterval:              ctx.Duration(TeeProvePollIntervalFlag.Name), // For XLayer
 		TeeProveTimeout:                   ctx.Duration(TeeProveTimeoutFlag.Name),      // For XLayer
+		L1RPCRateLimit:                    ctx.Float64(L1RPCRateLimitFlag.Name),        // For XLayer
+		L1RPCMaxBatchSize:                 ctx.Int(L1RPCMaxBatchSizeFlag.Name),         // For XLayer
 	}, nil
 }
