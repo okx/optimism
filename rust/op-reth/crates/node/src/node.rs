@@ -572,8 +572,12 @@ where
         );
         let miner_ext = OpMinerExtApi::new(da_config, gas_limit_config);
 
-        let sequencer_client = if let Some(url) = sequencer_url {
-            Some(SequencerClient::new_with_headers(url, sequencer_headers).await?)
+        let sequencer_client = if let Some(url) = sequencer_url.filter(|u| !u.is_empty()) {
+            let config = reth_optimism_rpc::SequencerClientConfig {
+                headers: sequencer_headers,
+                ..Default::default()
+            };
+            Some(SequencerClient::new_with_config(url, config).await?)
         } else {
             None
         };

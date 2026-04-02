@@ -579,7 +579,7 @@ where
             RpcConverter::new(OpReceiptConverter::new(ctx.components.provider().clone()))
                 .with_mapper(OpTxInfoMapper::new(ctx.components.provider().clone()));
 
-        let sequencer_client = if let Some(url) = sequencer_url {
+        let sequencer_client = if let Some(url) = sequencer_url.filter(|u| !u.is_empty()) {
             let config = SequencerClientConfig {
                 headers: sequencer_headers,
                 dial_timeout: sequencer_dial_timeout,
