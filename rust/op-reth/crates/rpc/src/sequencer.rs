@@ -568,4 +568,78 @@ mod tests {
         let err: RpcError<TransportErrorKind> = RpcError::UnsupportedFeature("batch");
         assert!(!SequencerClient::should_failover(&err));
     }
+
+    #[test]
+    fn test_should_failover_transport_error() {
+        // backend_gone() returns RpcError::Transport(TransportErrorKind::BackendGone)
+        let err = TransportErrorKind::backend_gone();
+        assert!(SequencerClient::should_failover(&err));
+    }
+
+    #[test]
+    fn test_should_failover_local_usage_error() {
+        let err: RpcError<TransportErrorKind> =
+            RpcError::LocalUsageError(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "local error",
+            )));
+        assert!(!SequencerClient::should_failover(&err));
+    }
+
+    #[tokio::test]
+    async fn test_mixed_http_ws_endpoints_rejected() {
+        let result =
+            SequencerClient::new("http://localhost:8545,ws://localhost:8546").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_trailing_commas_ignored() {
+        let client = SequencerClient::new(",http://localhost:8545,,http://localhost:8546,")
+            .await
+            .unwrap();
+        assert_eq!(client.endpoint_count(), 2);
+        assert_eq!(client.endpoints()[0], "http://localhost:8545");
+        assert_eq!(client.endpoints()[1], "http://localhost:8546");
+    }
+
+    #[tokio::test]
+    async fn test_with_http_client_constructor() {
+        let http_client = alloy_reqwest::Client::builder()
+            .use_rustls_tls()
+            .build()
+            .unwrap();
+        let client =
+            SequencerClient::with_http_client("http://localhost:8545", http_client).unwrap();
+        assert_eq!(client.endpoint_count(), 1);
+        assert_eq!(client.endpoint(), "http://localhost:8545");
+    }
+
+    #[tokio::test]
+    async fn test_new_with_headers_delegates_to_config() {
+        let client = SequencerClient::new_with_headers(
+            "http://localhost:8545,http://localhost:8546",
+            vec!["Authorization=Bearer token".to_string()],
+        )
+        .await
+        .unwrap();
+        assert_eq!(client.endpoint_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_config_with_timeouts() {
+        let config = SequencerClientConfig {
+            headers: vec![],
+            dial_timeout: Some(Duration::from_secs(3)),
+            request_timeout: Some(Duration::from_secs(5)),
+        };
+        let client = SequencerClient::new_with_config(
+            "http://localhost:8545,http://localhost:8546",
+            config,
+        )
+        .await
+        .unwrap();
+        assert_eq!(client.endpoint_count(), 2);
+    }
+
 }
