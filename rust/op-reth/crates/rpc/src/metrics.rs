@@ -2,7 +2,7 @@
 
 use alloy_primitives::map::HashMap;
 use core::time::Duration;
-use metrics::{Counter, Histogram};
+use metrics::{Counter, Gauge, Histogram};
 use reth_metrics::Metrics;
 use std::time::Instant;
 use strum::{EnumCount, EnumIter, IntoEnumIterator};
@@ -13,6 +13,16 @@ use strum::{EnumCount, EnumIter, IntoEnumIterator};
 pub struct SequencerMetrics {
     /// How long it takes to forward a transaction to the sequencer
     pub(crate) sequencer_forward_latency: Histogram,
+    /// Total number of RPC calls to sequencer endpoints
+    pub(crate) total_calls: Counter,
+    /// Total successful sequencer RPC calls
+    pub(crate) successes: Counter,
+    /// Total failed sequencer RPC calls (after exhausting all endpoints)
+    pub(crate) failures: Counter,
+    /// Total number of failover events (switched to different endpoint)
+    pub(crate) failovers: Counter,
+    /// Index of the currently preferred sequencer endpoint
+    pub(crate) preferred_endpoint: Gauge,
 }
 
 impl SequencerMetrics {

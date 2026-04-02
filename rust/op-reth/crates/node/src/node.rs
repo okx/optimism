@@ -62,7 +62,7 @@ use reth_transaction_pool::{
 };
 use reth_trie_common::KeccakKeyHasher;
 use serde::de::DeserializeOwned;
-use std::{marker::PhantomData, sync::Arc};
+use std::{marker::PhantomData, sync::Arc, time::Duration};
 use url::Url;
 
 /// Marker trait for Optimism node types with standard engine, chain spec, and primitives.
@@ -185,6 +185,8 @@ impl OpNode {
         OpAddOnsBuilder::default()
             .with_sequencer(self.args.sequencer.clone())
             .with_sequencer_headers(self.args.sequencer_headers.clone())
+            .with_sequencer_dial_timeout(self.args.sequencer_dial_timeout)
+            .with_sequencer_request_timeout(self.args.sequencer_request_timeout)
             .with_da_config(self.da_config.clone())
             .with_gas_limit_config(self.gas_limit_config.clone())
             .with_enable_tx_conditional(self.args.enable_tx_conditional)
@@ -680,6 +682,10 @@ pub struct OpAddOnsBuilder<NetworkT, RpcMiddleware = Identity> {
     sequencer_url: Option<String>,
     /// Headers to use for the sequencer client requests.
     sequencer_headers: Vec<String>,
+    /// Timeout for establishing a connection to the sequencer endpoint.
+    sequencer_dial_timeout: Duration,
+    /// Timeout for individual RPC requests to the sequencer endpoint.
+    sequencer_request_timeout: Duration,
     /// RPC endpoint for historical data.
     historical_rpc: Option<String>,
     /// Data availability configuration for the OP builder.
@@ -707,6 +713,8 @@ impl<NetworkT> Default for OpAddOnsBuilder<NetworkT> {
         Self {
             sequencer_url: None,
             sequencer_headers: Vec::new(),
+            sequencer_dial_timeout: Duration::from_secs(5),
+            sequencer_request_timeout: Duration::from_secs(10),
             historical_rpc: None,
             da_config: None,
             gas_limit_config: None,
@@ -731,6 +739,18 @@ impl<NetworkT, RpcMiddleware> OpAddOnsBuilder<NetworkT, RpcMiddleware> {
     /// With headers to use for the sequencer client requests.
     pub fn with_sequencer_headers(mut self, sequencer_headers: Vec<String>) -> Self {
         self.sequencer_headers = sequencer_headers;
+        self
+    }
+
+    /// With a dial timeout for the sequencer client.
+    pub const fn with_sequencer_dial_timeout(mut self, timeout: Duration) -> Self {
+        self.sequencer_dial_timeout = timeout;
+        self
+    }
+
+    /// With a request timeout for the sequencer client.
+    pub const fn with_sequencer_request_timeout(mut self, timeout: Duration) -> Self {
+        self.sequencer_request_timeout = timeout;
         self
     }
 
@@ -777,6 +797,8 @@ impl<NetworkT, RpcMiddleware> OpAddOnsBuilder<NetworkT, RpcMiddleware> {
         let Self {
             sequencer_url,
             sequencer_headers,
+            sequencer_dial_timeout,
+            sequencer_request_timeout,
             historical_rpc,
             da_config,
             gas_limit_config,
@@ -791,6 +813,8 @@ impl<NetworkT, RpcMiddleware> OpAddOnsBuilder<NetworkT, RpcMiddleware> {
         OpAddOnsBuilder {
             sequencer_url,
             sequencer_headers,
+            sequencer_dial_timeout,
+            sequencer_request_timeout,
             historical_rpc,
             da_config,
             gas_limit_config,
@@ -832,6 +856,8 @@ impl<NetworkT, RpcMiddleware> OpAddOnsBuilder<NetworkT, RpcMiddleware> {
         let Self {
             sequencer_url,
             sequencer_headers,
+            sequencer_dial_timeout,
+            sequencer_request_timeout,
             da_config,
             gas_limit_config,
             enable_tx_conditional,
@@ -849,6 +875,8 @@ impl<NetworkT, RpcMiddleware> OpAddOnsBuilder<NetworkT, RpcMiddleware> {
                 OpEthApiBuilder::default()
                     .with_sequencer(sequencer_url.clone())
                     .with_sequencer_headers(sequencer_headers.clone())
+                    .with_sequencer_dial_timeout(sequencer_dial_timeout)
+                    .with_sequencer_request_timeout(sequencer_request_timeout)
                     .with_min_suggested_priority_fee(min_suggested_priority_fee)
                     .with_flashblocks(flashblocks_url)
                     .with_flashblock_consensus(flashblock_consensus),

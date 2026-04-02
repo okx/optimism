@@ -153,6 +153,9 @@ pub enum SequencerClientError {
     /// Wrapper around an [`RpcError<TransportErrorKind>`].
     #[error(transparent)]
     HttpError(#[from] RpcError<TransportErrorKind>),
+    /// All configured sequencer endpoints failed.
+    #[error("all sequencer endpoints failed")]
+    AllEndpointsFailed,
 }
 
 impl From<SequencerClientError> for jsonrpsee_types::error::ErrorObject<'static> {

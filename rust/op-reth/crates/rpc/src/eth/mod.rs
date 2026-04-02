@@ -12,6 +12,7 @@ mod pending_block;
 use crate::{
     OpEthApiError, SequencerClient,
     eth::{receipt::OpReceiptConverter, transaction::OpTxInfoMapper},
+    sequencer::SequencerClientConfig,
 };
 use alloy_eips::BlockNumHash;
 use alloy_primitives::U256;
@@ -444,6 +445,10 @@ pub struct OpEthApiBuilder<NetworkT = Optimism> {
     sequencer_url: Option<String>,
     /// Headers to use for the sequencer client requests.
     sequencer_headers: Vec<String>,
+    /// Timeout for establishing a connection to the sequencer endpoint.
+    sequencer_dial_timeout: Option<Duration>,
+    /// Timeout for individual RPC requests to the sequencer endpoint.
+    sequencer_request_timeout: Option<Duration>,
     /// Minimum suggested priority fee (tip)
     min_suggested_priority_fee: u64,
     /// A URL pointing to a secure websocket connection (wss) that streams out [flashblocks].
@@ -465,6 +470,8 @@ impl<NetworkT> Default for OpEthApiBuilder<NetworkT> {
         Self {
             sequencer_url: None,
             sequencer_headers: Vec::new(),
+            sequencer_dial_timeout: None,
+            sequencer_request_timeout: None,
             min_suggested_priority_fee: 1_000_000,
             flashblocks_url: None,
             flashblock_consensus: false,
@@ -479,6 +486,8 @@ impl<NetworkT> OpEthApiBuilder<NetworkT> {
         Self {
             sequencer_url: None,
             sequencer_headers: Vec::new(),
+            sequencer_dial_timeout: None,
+            sequencer_request_timeout: None,
             min_suggested_priority_fee: 1_000_000,
             flashblocks_url: None,
             flashblock_consensus: false,
@@ -495,6 +504,18 @@ impl<NetworkT> OpEthApiBuilder<NetworkT> {
     /// With headers to use for the sequencer client requests.
     pub fn with_sequencer_headers(mut self, sequencer_headers: Vec<String>) -> Self {
         self.sequencer_headers = sequencer_headers;
+        self
+    }
+
+    /// With a dial timeout for the sequencer client.
+    pub fn with_sequencer_dial_timeout(mut self, timeout: Duration) -> Self {
+        self.sequencer_dial_timeout = Some(timeout);
+        self
+    }
+
+    /// With a request timeout for the sequencer client.
+    pub fn with_sequencer_request_timeout(mut self, timeout: Duration) -> Self {
+        self.sequencer_request_timeout = Some(timeout);
         self
     }
 
@@ -547,6 +568,8 @@ where
         let Self {
             sequencer_url,
             sequencer_headers,
+            sequencer_dial_timeout,
+            sequencer_request_timeout,
             min_suggested_priority_fee,
             flashblocks_url,
             flashblock_consensus,
@@ -557,8 +580,13 @@ where
                 .with_mapper(OpTxInfoMapper::new(ctx.components.provider().clone()));
 
         let sequencer_client = if let Some(url) = sequencer_url {
+            let config = SequencerClientConfig {
+                headers: sequencer_headers,
+                dial_timeout: sequencer_dial_timeout,
+                request_timeout: sequencer_request_timeout,
+            };
             Some(
-                SequencerClient::new_with_headers(&url, sequencer_headers)
+                SequencerClient::new_with_config(&url, config)
                     .await
                     .wrap_err_with(|| format!("Failed to init sequencer client with: {url}"))?,
             )

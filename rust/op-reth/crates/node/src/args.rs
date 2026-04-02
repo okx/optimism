@@ -11,9 +11,27 @@ use url::Url;
 #[derive(Debug, Clone, PartialEq, Eq, clap::Args)]
 #[command(next_help_heading = "Rollup")]
 pub struct RollupArgs {
-    /// Endpoint for the sequencer mempool (can be both HTTP and WS)
+    /// Endpoint(s) for the sequencer mempool (can be both HTTP and WS).
     #[arg(long = "rollup.sequencer", visible_aliases = ["rollup.sequencer-http", "rollup.sequencer-ws"])]
     pub sequencer: Option<String>,
+
+    /// Timeout for establishing a connection to the sequencer endpoint.
+    #[arg(
+        long = "rollup.sequencer-dial-timeout",
+        default_value = "5s",
+        value_parser = humantime::parse_duration,
+        requires = "sequencer"
+    )]
+    pub sequencer_dial_timeout: Duration,
+
+    /// Timeout for individual RPC requests to the sequencer endpoint.
+    #[arg(
+        long = "rollup.sequencer-request-timeout",
+        default_value = "10s",
+        value_parser = humantime::parse_duration,
+        requires = "sequencer"
+    )]
+    pub sequencer_request_timeout: Duration,
 
     /// Disable transaction pool gossip
     #[arg(long = "rollup.disable-tx-pool-gossip")]
@@ -145,6 +163,8 @@ impl Default for RollupArgs {
     fn default() -> Self {
         Self {
             sequencer: None,
+            sequencer_dial_timeout: Duration::from_secs(5),
+            sequencer_request_timeout: Duration::from_secs(10),
             disable_txpool_gossip: false,
             compute_pending_block: false,
             discovery_v4: false,
@@ -250,5 +270,38 @@ mod tests {
         ])
         .args;
         assert_eq!(args, expected_args);
+    }
+
+    #[test]
+    fn test_parse_sequencer_timeout_args() {
+        let expected_args = RollupArgs {
+            sequencer: Some("http://host:port".into()),
+            sequencer_dial_timeout: Duration::from_secs(3),
+            sequencer_request_timeout: Duration::from_secs(15),
+            ..Default::default()
+        };
+        let args = CommandParser::<RollupArgs>::parse_from([
+            "reth",
+            "--rollup.sequencer-http",
+            "http://host:port",
+            "--rollup.sequencer-dial-timeout",
+            "3s",
+            "--rollup.sequencer-request-timeout",
+            "15s",
+        ])
+        .args;
+        assert_eq!(args, expected_args);
+    }
+
+    #[test]
+    fn test_parse_sequencer_timeout_defaults() {
+        let args = CommandParser::<RollupArgs>::parse_from([
+            "reth",
+            "--rollup.sequencer-http",
+            "http://host:port",
+        ])
+        .args;
+        assert_eq!(args.sequencer_dial_timeout, Duration::from_secs(5));
+        assert_eq!(args.sequencer_request_timeout, Duration::from_secs(10));
     }
 }
