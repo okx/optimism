@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/broadcaster"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/standard"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/upgrade/v2_0_0"
+	v6_0_0 "github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/upgrade/v6_0_0"
 	"github.com/ethereum-optimism/optimism/op-service/testlog"
 	"github.com/ethereum-optimism/optimism/op-service/testutils/devnet"
 	"github.com/ethereum/go-ethereum/common"
@@ -61,8 +62,8 @@ func TestCLIUpgrade(t *testing.T) {
 		},
 		{
 			contractTag: standard.ContractsV600Tag,
-			version:     "v6.0.0-rc.1",
-			forkBlock:   9699895, // one block past the opcm deployment block
+			version:     "v6.0.0",
+			forkBlock:   10101510, // one block past the opcm deployment block
 		},
 	}
 
@@ -80,23 +81,41 @@ func TestCLIUpgrade(t *testing.T) {
 			opcm, err := standard.OPCMImplAddressFor(11155111, tc.contractTag)
 			require.NoError(t, err)
 
-			testConfig := v2_0_0.UpgradeOPChainInput{
-				Prank: l1ProxyAdminOwner,
-				Opcm:  opcm,
-				EncodedChainConfigs: []v2_0_0.OPChainConfig{
-					{
-						SystemConfigProxy: systemConfigProxy,
-						ProxyAdmin:        proxyAdminImpl,
-						AbsolutePrestate:  common.HexToHash("0x0abc"),
+			isV6OrAbove := strings.HasPrefix(tc.version, "v6.")
+			var configData []byte
+			if isV6OrAbove {
+				// v6.0.0+ uses a different input structure
+				testConfig := v6_0_0.UpgradeOPChainInput{
+					Prank: l1ProxyAdminOwner,
+					Opcm:  opcm,
+					EncodedChainConfigs: []v6_0_0.OPChainConfig{
+						{
+							SystemConfigProxy:  systemConfigProxy,
+							CannonPrestate:     common.HexToHash("0x0abc"),
+							CannonKonaPrestate: common.HexToHash("0x0def"),
+						},
 					},
-				},
+				}
+				configData, err = json.MarshalIndent(testConfig, "", "  ")
+			} else {
+				// Older versions use v2_0_0 structure
+				testConfig := v2_0_0.UpgradeOPChainInput{
+					Prank: l1ProxyAdminOwner,
+					Opcm:  opcm,
+					EncodedChainConfigs: []v2_0_0.OPChainConfig{
+						{
+							SystemConfigProxy: systemConfigProxy,
+							ProxyAdmin:        proxyAdminImpl,
+							AbsolutePrestate:  common.HexToHash("0x0abc"),
+						},
+					},
+				}
+				configData, err = json.MarshalIndent(testConfig, "", "  ")
 			}
+			require.NoError(t, err)
 
 			configFile := filepath.Join(workDir, "upgrade_config_"+tc.version+".json")
 			outputFile := filepath.Join(workDir, "upgrade_output_"+tc.version+".json")
-
-			configData, err := json.MarshalIndent(testConfig, "", "  ")
-			require.NoError(t, err)
 			require.NoError(t, os.WriteFile(configFile, configData, 0o644))
 
 			// Run full cli command to write calldata to outfile
@@ -127,7 +146,7 @@ func TestCLIUpgrade(t *testing.T) {
 			// v6.0.0+ uses a different function signature: upgrade((address,bytes32,bytes32)[])
 			// Older versions use: upgrade((address,address,bytes32)[])
 			var expectedSelector string
-			if tc.version == "v6.0.0-rc.1" {
+			if isV6OrAbove {
 				expectedSelector = "cbeda5a7" // upgrade((address,bytes32,bytes32)[])
 			} else {
 				expectedSelector = "ff2dd5a1" // upgrade((address,address,bytes32)[])
