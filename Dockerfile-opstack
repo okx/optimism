@@ -19,5 +19,5 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache \
     --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    JUST_UNSTABLE=1 just op-node op-batcher op-proposer op-challenger op-dispute-mon \
+    JUST_UNSTABLE=1 just op-node op-batcher op-proposer op-challenger op-dispute-mon cannon \
     && JUST_UNSTABLE=1 just ./op-conductor/op-conductor
