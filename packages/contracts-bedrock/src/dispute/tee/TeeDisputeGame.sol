@@ -219,6 +219,11 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
             });
 
             if (proxy.status() == GameStatus.CHALLENGER_WINS) revert InvalidParentGame();
+
+            // Parent's l2SequenceNumber must be strictly above the anchor state,
+            // preventing games from chaining off stale starting points.
+            (, uint256 anchorL2SeqNum) = ANCHOR_STATE_REGISTRY.getAnchorRoot();
+            if (startingOutputRoot.l2SequenceNumber <= anchorL2SeqNum) revert InvalidParentGame();
         } else {
             (startingOutputRoot.root, startingOutputRoot.l2SequenceNumber) = ANCHOR_STATE_REGISTRY.getAnchorRoot();
         }

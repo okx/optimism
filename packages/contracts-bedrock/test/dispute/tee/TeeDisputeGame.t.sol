@@ -174,6 +174,36 @@ contract TeeDisputeGameTest is TeeTestUtils {
         _createGame(proposer, ANCHOR_L2_BLOCK + 7, 0, keccak256("child-block"), keccak256("child-state"));
     }
 
+    /// @notice initialize() should revert when parent's l2SequenceNumber <= anchor state
+    function test_initialize_revertWhenParentBelowAnchor() public {
+        // Anchor is at block 10. Create a parent at block 8 (below anchor).
+        MockStatusDisputeGame staleParent = new MockStatusDisputeGame(
+            proposer,
+            GameType.wrap(TEE_DISPUTE_GAME_TYPE),
+            computeRootClaim(keccak256("stale-block"), keccak256("stale-state")),
+            ANCHOR_L2_BLOCK - 2, // l2SequenceNumber = 8, anchor = 10
+            bytes("stale"),
+            GameStatus.IN_PROGRESS,
+            uint64(block.timestamp),
+            0,
+            true,
+            IAnchorStateRegistry(address(anchorStateRegistry))
+        );
+        factory.pushGame(
+            GameType.wrap(TEE_DISPUTE_GAME_TYPE),
+            uint64(block.timestamp),
+            IDisputeGame(address(staleParent)),
+            staleParent.rootClaim(),
+            bytes("stale")
+        );
+        anchorStateRegistry.setGameFlags(
+            IDisputeGame(address(staleParent)), true, true, false, false, false, true, false
+        );
+
+        vm.expectRevert(InvalidParentGame.selector);
+        _createGame(proposer, ANCHOR_L2_BLOCK + 5, 0, keccak256("child-block"), keccak256("child-state"));
+    }
+
     function test_challenge_updatesState() public {
         (TeeDisputeGame game,,) =
             _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, keccak256("end-block"), keccak256("end-state"));
