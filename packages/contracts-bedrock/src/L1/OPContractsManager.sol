@@ -1215,20 +1215,25 @@ contract OPContractsManagerDeployer is OPContractsManagerBase {
         returns (IResourceMetering.ResourceConfig memory resourceConfig_, ISystemConfig.Addresses memory opChainAddrs_)
     {
         resourceConfig_ = Constants.DEFAULT_RESOURCE_CONFIG();
-
-        opChainAddrs_ = ISystemConfig.Addresses({
-            l1CrossDomainMessenger: address(_output.l1CrossDomainMessengerProxy),
-            l1ERC721Bridge: address(_output.l1ERC721BridgeProxy),
-            l1StandardBridge: address(_output.l1StandardBridgeProxy),
-            optimismPortal: address(_output.optimismPortalProxy),
-            optimismMintableERC20Factory: address(_output.optimismMintableERC20FactoryProxy)
-        });
-
+        opChainAddrs_ = _buildAddresses(_output);
         assertValidContractAddress(opChainAddrs_.l1CrossDomainMessenger);
         assertValidContractAddress(opChainAddrs_.l1ERC721Bridge);
         assertValidContractAddress(opChainAddrs_.l1StandardBridge);
         assertValidContractAddress(opChainAddrs_.optimismPortal);
         assertValidContractAddress(opChainAddrs_.optimismMintableERC20Factory);
+    }
+
+    function _buildAddresses(OPContractsManager.DeployOutput memory _o)
+        internal pure returns (ISystemConfig.Addresses memory)
+    {
+        return ISystemConfig.Addresses({
+            l1CrossDomainMessenger: address(_o.l1CrossDomainMessengerProxy),
+            l1ERC721Bridge: address(_o.l1ERC721BridgeProxy),
+            l1StandardBridge: address(_o.l1StandardBridgeProxy),
+            optimismPortal: address(_o.optimismPortalProxy),
+            optimismMintableERC20Factory: address(_o.optimismMintableERC20FactoryProxy),
+            delayedWETH: address(0)
+        });
     }
 
     // -------- Utilities --------
