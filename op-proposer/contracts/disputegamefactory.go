@@ -22,7 +22,8 @@ const (
 	methodCreateGame  = "create"
 	methodVersion     = "version"
 
-	methodClaim = "claimData"
+	methodClaim       = "claimData"
+	methodTEEProposer = "proposer" // For xlayer: TEE game stores the actual game creator (tx.origin) in public proposer var
 )
 
 type gameMetadata struct {
@@ -156,8 +157,15 @@ func (f *DisputeGameFactory) gameAtIndex(ctx context.Context, idx uint64) (gameM
 		if err != nil {
 			return gameMetadata{}, fmt.Errorf("failed to load root claim of game %v: %w", idx, err)
 		}
-		claimant = result.GetAddress(2)
+		// For xlayer: TEE game has a dedicated proposer storage var; claimData index 2 is prover, not proposer
 		claim = result.GetHash(3)
+		cCtx, cancel = context.WithTimeout(ctx, f.networkTimeout)
+		defer cancel()
+		proposerResult, err := f.caller.SingleCall(cCtx, rpcblock.Latest, newGameContract.Call(methodTEEProposer))
+		if err != nil {
+			return gameMetadata{}, fmt.Errorf("failed to load proposer of TEE game %v: %w", idx, err)
+		}
+		claimant = proposerResult.GetAddress(0)
 	}
 	// Other game types are not handled, claimant and claim remain zero values
 
