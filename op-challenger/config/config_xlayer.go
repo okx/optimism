@@ -8,14 +8,15 @@ import (
 )
 
 var (
-	ErrMissingTeeProverRpc          = errors.New("missing TEE prover rpc url")
-	ErrInvalidTeeProvePollInterval  = errors.New("TEE prove poll interval must be greater than 0")
-	ErrInvalidTeeProveTimeout       = errors.New("TEE prove timeout must be greater than 0")
+	ErrMissingTeeProverRpc         = errors.New("missing TEE prover rpc url")
+	ErrInvalidTeeProvePollInterval = errors.New("TEE prove poll interval must be greater than 0")
+	ErrInvalidTeeProveTimeout      = errors.New("TEE prove timeout must be greater than 0")
 )
 
 const (
 	DefaultTeeProvePollInterval = 30 * time.Second
 	DefaultTeeProveTimeout      = 1 * time.Hour
+	DefaultTeeProverHTTPTimeout = 5 * time.Minute
 )
 
 // xlayerConfigCheckers holds additional config validation functions registered by XLayer extensions.

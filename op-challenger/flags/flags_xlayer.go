@@ -24,6 +24,12 @@ var (
 		EnvVars: prefixEnvVars("TEE_PROVE_TIMEOUT"),
 		Value:   config.DefaultTeeProveTimeout,
 	}
+	TeeProverHTTPTimeoutFlag = &cli.DurationFlag{
+		Name:    "tee-prover-http-timeout",
+		Usage:   "HTTP request timeout for TEE Prover API calls. Increase for long-running proofs in production.",
+		EnvVars: prefixEnvVars("TEE_PROVER_HTTP_TIMEOUT"),
+		Value:   config.DefaultTeeProverHTTPTimeout,
+	}
 	L1RPCRateLimitFlag = &cli.Float64Flag{
 		Name:    "l1-rpc-rate-limit",
 		Usage:   "Self-imposed global rate-limit on L1 RPC requests, specified in requests / second. Disabled if set to 0.",
@@ -37,7 +43,7 @@ var (
 		Value:   20,
 	}
 
-	teeFlags = []cli.Flag{TeeProverRpcFlag, TeeProvePollIntervalFlag, TeeProveTimeoutFlag, L1RPCRateLimitFlag, L1RPCMaxBatchSizeFlag}
+	teeFlags = []cli.Flag{TeeProverRpcFlag, TeeProvePollIntervalFlag, TeeProveTimeoutFlag, TeeProverHTTPTimeoutFlag, L1RPCRateLimitFlag, L1RPCMaxBatchSizeFlag}
 )
 
 // onlyTeeGameTypes returns true if all enabled game types are TEE (which doesn't require L2 RPC).

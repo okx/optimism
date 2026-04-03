@@ -37,7 +37,7 @@ func RegisterGameTypes(
 		return fmt.Errorf("failed to get L1 chain ID: %w", err)
 	}
 
-	proverClient := NewProverClient(cfg.TeeProverRpc, cfg.TeeProvePollInterval, logger)
+	proverClient := NewProverClient(cfg.TeeProverRpc, cfg.TeeProvePollInterval, cfg.TeeProverHTTPTimeout, logger)
 	proveTimeout := cfg.TeeProveTimeout
 
 	registry.RegisterGameType(gameTypes.TeeGameType, func(game gameTypes.GameMetadata, dir string) (scheduler.GamePlayer, error) {

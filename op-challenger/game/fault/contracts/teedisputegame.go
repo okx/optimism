@@ -31,13 +31,13 @@ var (
 
 // TeeProveParams contains the parameters needed to request a TEE proof.
 type TeeProveParams struct {
-	StartBlockHash     common.Hash
-	StartStateHash     common.Hash
-	EndBlockHash       common.Hash
-	EndStateHash       common.Hash
-	StartBlockNum      uint64
-	EndBlockNum        uint64
-	TeeProofVerifier   common.Address // address of the TeeProofVerifier contract
+	StartBlockHash   common.Hash
+	StartStateHash   common.Hash
+	EndBlockHash     common.Hash
+	EndStateHash     common.Hash
+	StartBlockNum    uint64
+	EndBlockNum      uint64
+	TeeProofVerifier common.Address // address of the TeeProofVerifier contract
 }
 
 // TeeDisputeGameContract defines the interface for interacting with TeeDisputeGame.

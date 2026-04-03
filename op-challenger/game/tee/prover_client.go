@@ -28,11 +28,11 @@ const (
 
 // TEE Prover error codes.
 const (
-	codeOK             = 0
-	codeInvalidSig     = 10000 // Invalid signature — retryable
-	codeInvalidParams  = 10001 // Invalid parameters — NOT retryable
-	codeTaskNotFound   = 10004 // Task not found — triggers re-POST
-	codeInternalError  = 20001 // Internal error — retryable
+	codeOK            = 0
+	codeInvalidSig    = 10000 // Invalid signature — retryable
+	codeInvalidParams = 10001 // Invalid parameters — NOT retryable
+	codeTaskNotFound  = 10004 // Task not found — triggers re-POST
+	codeInternalError = 20001 // Internal error — retryable
 )
 
 // errNonRetryable is returned when the TEE Prover returns an error that should not be retried.
@@ -81,9 +81,9 @@ type ProverClient struct {
 }
 
 // NewProverClient creates a new TEE Prover HTTP client.
-func NewProverClient(baseURL string, pollInterval time.Duration, logger log.Logger) *ProverClient {
+func NewProverClient(baseURL string, pollInterval time.Duration, httpTimeout time.Duration, logger log.Logger) *ProverClient {
 	return &ProverClient{
-		httpClient:   &http.Client{Timeout: 30 * time.Second},
+		httpClient:   &http.Client{Timeout: httpTimeout},
 		baseURL:      strings.TrimRight(baseURL, "/"),
 		pollInterval: pollInterval,
 		logger:       logger,
@@ -251,14 +251,11 @@ func (c *ProverClient) ProveAndWait(ctx context.Context, req ProveRequest) ([]by
 
 // pollTask polls a task until it finishes, fails, or the context is cancelled.
 func (c *ProverClient) pollTask(ctx context.Context, taskID string) ([]byte, error) {
-	ticker := time.NewTicker(c.pollInterval)
-	defer ticker.Stop()
-
 	for {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-ticker.C:
+		case <-time.After(c.pollInterval):
 			result, err := c.GetTaskResult(ctx, taskID)
 			if err != nil {
 				// HTTP error or task not found → return to outer retry loop

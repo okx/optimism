@@ -59,19 +59,19 @@ type proveResult struct {
 // that calls ProveAndWait (which retries and polls at the user-configured interval). Act()
 // checks for results via a non-blocking channel read.
 type Actor struct {
-	logger        log.Logger
-	l1Clock       ClockReader
-	l1ChainID     uint64
-	contract      ProvableContract
-	proverClient  *ProverClient
+	logger             log.Logger
+	l1Clock            ClockReader
+	l1ChainID          uint64
+	contract           ProvableContract
+	proverClient       *ProverClient
 	txSender           TxSender
 	gameStatusProvider GameStatusProvider
 	factory            *contracts.DisputeGameFactoryContract
-	proveTimeout  time.Duration    // total timeout for prove attempts including retries
-	serviceCtx    context.Context  // service-level ctx, outlives individual Act() calls
-	proveResultCh chan proveResult // buffered(1), receives result from background goroutine
-	proveInFlight bool             // whether a background prove goroutine is running
-	proveGivenUp  bool             // true after prove timeout or non-retryable error — no more retries
+	proveTimeout       time.Duration    // total timeout for prove attempts including retries
+	serviceCtx         context.Context  // service-level ctx, outlives individual Act() calls
+	proveResultCh      chan proveResult // buffered(1), receives result from background goroutine
+	proveInFlight      bool             // whether a background prove goroutine is running
+	proveGivenUp       bool             // true after prove timeout or non-retryable error — no more retries
 }
 
 // ActorCreator returns a generic.ActorCreator that creates TEE Actors.

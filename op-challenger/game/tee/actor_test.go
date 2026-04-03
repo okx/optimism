@@ -236,7 +236,7 @@ func setupTeeActorTest(t *testing.T) (*Actor, *teeTestStubs) {
 
 	// Provide a dummy ProverClient so goroutines don't panic on nil.
 	// Tests that check prove results use the proveResultCh channel directly.
-	dummyProver := NewProverClient("http://127.0.0.1:1", 10*time.Millisecond, logger)
+	dummyProver := NewProverClient("http://127.0.0.1:1", 10*time.Millisecond, 30*time.Second, logger)
 	actor := &Actor{
 		logger:             logger,
 		l1Clock:            l1Clock,

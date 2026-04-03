@@ -41,7 +41,7 @@ func TestProveSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewProverClient(server.URL, time.Second, testlog.Logger(t, log.LvlInfo))
+	client := NewProverClient(server.URL, time.Second, 30*time.Second, testlog.Logger(t, log.LvlInfo))
 	taskID, err := client.Prove(context.Background(), ProveRequest{
 		StartBlkStateHash: common.Hash{0x01},
 		EndBlkStateHash:   common.Hash{0x02},
@@ -61,7 +61,7 @@ func TestProveServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewProverClient(server.URL, time.Second, testlog.Logger(t, log.LvlInfo))
+	client := NewProverClient(server.URL, time.Second, 30*time.Second, testlog.Logger(t, log.LvlInfo))
 	_, err := client.Prove(context.Background(), ProveRequest{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "500")
@@ -73,7 +73,7 @@ func TestProveBadResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewProverClient(server.URL, time.Second, testlog.Logger(t, log.LvlInfo))
+	client := NewProverClient(server.URL, time.Second, 30*time.Second, testlog.Logger(t, log.LvlInfo))
 	_, err := client.Prove(context.Background(), ProveRequest{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unmarshal")
@@ -86,7 +86,7 @@ func TestProveNonRetryableError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewProverClient(server.URL, time.Second, testlog.Logger(t, log.LvlInfo))
+	client := NewProverClient(server.URL, time.Second, 30*time.Second, testlog.Logger(t, log.LvlInfo))
 	_, err := client.Prove(context.Background(), ProveRequest{})
 	require.Error(t, err)
 	require.ErrorIs(t, err, errNonRetryable)
@@ -99,7 +99,7 @@ func TestProveRetryableErrorCode(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewProverClient(server.URL, time.Second, testlog.Logger(t, log.LvlInfo))
+	client := NewProverClient(server.URL, time.Second, 30*time.Second, testlog.Logger(t, log.LvlInfo))
 	_, err := client.Prove(context.Background(), ProveRequest{})
 	require.Error(t, err)
 	require.NotErrorIs(t, err, errNonRetryable, "internal error should be retryable")
@@ -119,7 +119,7 @@ func TestGetTaskFinished(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewProverClient(server.URL, time.Second, testlog.Logger(t, log.LvlInfo))
+	client := NewProverClient(server.URL, time.Second, 30*time.Second, testlog.Logger(t, log.LvlInfo))
 	result, err := client.GetTaskResult(context.Background(), "task-123")
 	require.NoError(t, err)
 	require.Equal(t, TaskStatusFinished, result.Status)
@@ -134,7 +134,7 @@ func TestGetTaskRunning(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewProverClient(server.URL, time.Second, testlog.Logger(t, log.LvlInfo))
+	client := NewProverClient(server.URL, time.Second, 30*time.Second, testlog.Logger(t, log.LvlInfo))
 	result, err := client.GetTaskResult(context.Background(), "task-456")
 	require.NoError(t, err)
 	require.Equal(t, TaskStatusRunning, result.Status)
@@ -148,7 +148,7 @@ func TestGetTaskNotFound(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewProverClient(server.URL, time.Second, testlog.Logger(t, log.LvlInfo))
+	client := NewProverClient(server.URL, time.Second, 30*time.Second, testlog.Logger(t, log.LvlInfo))
 	_, err := client.GetTaskResult(context.Background(), "task-789")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not found")
@@ -161,7 +161,7 @@ func TestGetTaskServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewProverClient(server.URL, time.Second, testlog.Logger(t, log.LvlInfo))
+	client := NewProverClient(server.URL, time.Second, 30*time.Second, testlog.Logger(t, log.LvlInfo))
 	_, err := client.GetTaskResult(context.Background(), "task-000")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "502")
@@ -193,7 +193,7 @@ func TestProveAndWaitSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewProverClient(server.URL, 10*time.Millisecond, testlog.Logger(t, log.LvlInfo))
+	client := NewProverClient(server.URL, 10*time.Millisecond, 30*time.Second, testlog.Logger(t, log.LvlInfo))
 	proof, err := client.ProveAndWait(context.Background(), ProveRequest{})
 	require.NoError(t, err)
 	require.Equal(t, expectedProof, proof)
@@ -236,7 +236,7 @@ func TestProveAndWaitRetryAfterFailed(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewProverClient(server.URL, 10*time.Millisecond, testlog.Logger(t, log.LvlInfo))
+	client := NewProverClient(server.URL, 10*time.Millisecond, 30*time.Second, testlog.Logger(t, log.LvlInfo))
 	proof, err := client.ProveAndWait(context.Background(), ProveRequest{})
 	require.NoError(t, err)
 	require.Equal(t, expectedProof, proof)
@@ -251,7 +251,7 @@ func TestProveAndWaitNonRetryableError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewProverClient(server.URL, 10*time.Millisecond, testlog.Logger(t, log.LvlInfo))
+	client := NewProverClient(server.URL, 10*time.Millisecond, 30*time.Second, testlog.Logger(t, log.LvlInfo))
 	_, err := client.ProveAndWait(context.Background(), ProveRequest{})
 	require.Error(t, err)
 	require.ErrorIs(t, err, errNonRetryable)
@@ -284,7 +284,7 @@ func TestProveAndWaitRetryAfterPostError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewProverClient(server.URL, 10*time.Millisecond, testlog.Logger(t, log.LvlInfo))
+	client := NewProverClient(server.URL, 10*time.Millisecond, 30*time.Second, testlog.Logger(t, log.LvlInfo))
 	proof, err := client.ProveAndWait(context.Background(), ProveRequest{})
 	require.NoError(t, err)
 	require.Equal(t, expectedProof, proof)
@@ -309,7 +309,7 @@ func TestProveAndWaitContextCancel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	client := NewProverClient(server.URL, 10*time.Millisecond, testlog.Logger(t, log.LvlInfo))
+	client := NewProverClient(server.URL, 10*time.Millisecond, 30*time.Second, testlog.Logger(t, log.LvlInfo))
 	_, err := client.ProveAndWait(ctx, ProveRequest{})
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
