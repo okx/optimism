@@ -112,7 +112,7 @@ impl<EngineClient_: EngineClient> SealTask<EngineClient_> {
                 }
             }
         };
-        info!(
+        debug!(
             target: "engine",
             get_payload_duration = ?get_payload_start.elapsed(),
             "get_payload ok"

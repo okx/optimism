@@ -143,7 +143,7 @@ impl<EngineClient_: EngineClient> EngineTaskExt for SynchronizeTask<EngineClient
         state.sync_state = new_sync_state;
 
         let fcu_duration = fcu_time_start.elapsed();
-        info!(
+        debug!(
             target: "engine",
             fcu_duration = ?fcu_duration,
             "FCU ok"
