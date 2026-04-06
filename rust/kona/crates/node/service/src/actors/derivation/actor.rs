@@ -279,13 +279,6 @@ where
             .await
             .map_err(|e| DerivationError::Sender(Box::new(e)))?;
 
-        // Yield to the Tokio scheduler after each Consolidate submission.
-        // Without this, the derivation tight loop enqueues bursts of Consolidate
-        // tasks that block the sequencer's Build (FCU+attrs) in the engine queue.
-        // Yielding gives the sequencer actor a chance to run between submissions,
-        // reducing queue burst depth and FCU tail latency.
-        tokio::task::yield_now().await;
-
         Ok(())
     }
 }
