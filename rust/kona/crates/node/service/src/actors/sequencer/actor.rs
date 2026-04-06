@@ -177,6 +177,7 @@ where
     pub(super) async fn build_unsealed_payload(
         &mut self,
     ) -> Result<Option<UnsealedPayloadHandle>, SequencerActorError> {
+        let build_total_start = Instant::now(); // T0: sequencer decides to build
         let unsafe_head = self.engine_client.get_unsafe_head().await?;
 
         let Some(l1_origin) = self.get_next_payload_l1_origin(unsafe_head).await? else {
@@ -209,8 +210,9 @@ where
             self.engine_client.start_build_block(attributes_with_parent.clone()).await?;
 
         let build_elapsed = build_request_start.elapsed();
+        let total_elapsed = build_total_start.elapsed();
         update_block_build_duration_metrics(build_elapsed);
-        info!(sequencer_build_wait = ?build_elapsed, "build request completed");
+        info!(sequencer_build_wait = ?build_elapsed, sequencer_total_wait = ?total_elapsed, "build request completed");
 
         Ok(Some(UnsealedPayloadHandle { payload_id, attributes_with_parent }))
     }
