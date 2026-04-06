@@ -208,7 +208,9 @@ where
         let payload_id =
             self.engine_client.start_build_block(attributes_with_parent.clone()).await?;
 
-        update_block_build_duration_metrics(build_request_start.elapsed());
+        let build_elapsed = build_request_start.elapsed();
+        update_block_build_duration_metrics(build_elapsed);
+        info!(sequencer_build_wait = ?build_elapsed, "build request completed");
 
         Ok(Some(UnsealedPayloadHandle { payload_id, attributes_with_parent }))
     }
