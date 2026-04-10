@@ -34,6 +34,12 @@ const (
 
 	// FaultDisputeGame.claimCredit(address _recipient)
 	MethodSigClaimCredit = "0x60e27464"
+
+	// DisputeGame.prove(bytes _proof)
+	MethodSigProve = "0x375bfa5d"
+
+	// DisputeGame.challenge()
+	MethodSigChallenge = "0xd2ef7398"
 )
 
 // OperateType represents the operation type for XLayer remote signer
@@ -63,6 +69,12 @@ const (
 
 	// OperateTypeChallengerClaimCredit represents challenger claimCredit operation type
 	OperateTypeChallengerClaimCredit OperateType = 23
+
+	// OperateTypeProve represents TEE challenger prove(bytes) operation type
+	OperateTypeProve OperateType = 27
+
+	// OperateTypeChallenge represents TEE challenger challenge() operation type
+	OperateTypeChallenge OperateType = 28
 )
 
 // ComponentRole represents the role/type of blockchain component
@@ -228,7 +240,7 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 		if err != nil {
 			return nil, fmt.Errorf("failed to build proposer other info: %w", err)
 		}
-		operateType = OperateTypeProposer
+		operateType = c.getProposerOperateType(tx)
 
 	case ComponentRoleChallenger:
 		otherInfo, err = c.buildChallengerOtherInfo(tx)
@@ -493,7 +505,8 @@ func (c *XLayerRemoteClient) detectComponentType(tx *types.Transaction) Componen
 
 func (c *XLayerRemoteClient) detectProposerMethod(methodSig []byte) ComponentRole {
 	methodSigHex := hexutil.Encode(methodSig)
-	if methodSigHex == MethodSigDGFCreate {
+	switch methodSigHex {
+	case MethodSigDGFCreate, MethodSigProve:
 		return ComponentRoleProposer
 	}
 	return ComponentRoleUnknown
@@ -502,7 +515,7 @@ func (c *XLayerRemoteClient) detectProposerMethod(methodSig []byte) ComponentRol
 func (c *XLayerRemoteClient) detectChallengerMethod(methodSig []byte) ComponentRole {
 	methodSigHex := hexutil.Encode(methodSig)
 	switch methodSigHex {
-	case MethodSigResolveClaim, MethodSigResolve, MethodSigClaimCredit:
+	case MethodSigResolveClaim, MethodSigResolve, MethodSigClaimCredit, MethodSigChallenge:
 		return ComponentRoleChallenger
 	}
 	return ComponentRoleUnknown
@@ -887,6 +900,11 @@ func (c *XLayerRemoteClient) sortedMarshal(v interface{}) ([]byte, error) {
 
 // buildProposerOtherInfo builds Proposer's OtherInfo by unpacking ABI-encoded business parameters
 func (c *XLayerRemoteClient) buildProposerOtherInfo(tx *types.Transaction) (string, error) {
+	// Route TEE prove() to its own builder
+	if len(tx.Data()) >= 4 && hexutil.Encode(tx.Data()[:4]) == MethodSigProve {
+		return c.buildProposerTeeProveOtherInfo(tx, c.buildBaseOtherInfo(tx))
+	}
+
 	// Base transaction parameters
 	baseInfo := c.buildBaseOtherInfo(tx)
 
@@ -934,6 +952,36 @@ func (c *XLayerRemoteClient) buildProposerOtherInfo(tx *types.Transaction) (stri
 	}
 
 	return string(data), nil
+}
+
+// buildProposerTeeProveOtherInfo builds OtherInfo for TEE prove(bytes) method
+func (c *XLayerRemoteClient) buildProposerTeeProveOtherInfo(tx *types.Transaction, baseInfo XLayerOtherInfo) (string, error) {
+	// prove(bytes _proof): ABI-encoded as selector(4) + offset(32) + length(32) + data(padded)
+	// Extract only the actual bytes content, excluding ABI offset/length headers and padding.
+	var proofBytes *string
+	if len(tx.Data()) > 4+64 { // 4 selector + 32 offset + 32 length
+		lengthBig := new(big.Int).SetBytes(tx.Data()[36:68]) // length field at bytes[36:68]
+		length := int(lengthBig.Int64())
+		if len(tx.Data()) >= 68+length {
+			raw := tx.Data()[68 : 68+length]
+			s := hexutil.Encode(raw)
+			proofBytes = &s
+		}
+	}
+
+	enhancedInfo := struct {
+		XLayerOtherInfo
+		OperateType int     `json:"operateType"`
+		ProofBytes  *string `json:"proofBytes,omitempty"`
+		UseEIP1559  int     `json:"useEIP1559"`
+	}{
+		XLayerOtherInfo: baseInfo,
+		OperateType:     int(OperateTypeProve),
+		ProofBytes:      proofBytes,
+		UseEIP1559:      1,
+	}
+
+	return c.marshalOtherInfo(enhancedInfo)
 }
 
 // buildBatcherOtherInfo builds Batcher's OtherInfo
@@ -1034,6 +1082,8 @@ func (c *XLayerRemoteClient) buildChallengerOtherInfo(tx *types.Transaction) (st
 		return c.buildChallengerResolveOtherInfo(tx, baseInfo)
 	case MethodSigClaimCredit: // claimCredit
 		return c.buildChallengerClaimCreditOtherInfo(tx, baseInfo)
+	case MethodSigChallenge: // challenge
+		return c.buildChallengerTeeChallengOtherInfo(tx, baseInfo)
 	default:
 		// Unknown method, return base info with method signature
 		c.logger.Warn("Unknown challenger method signature", "signature", methodSigHex)
@@ -1120,6 +1170,22 @@ func (c *XLayerRemoteClient) buildChallengerClaimCreditOtherInfo(tx *types.Trans
 	return c.marshalOtherInfo(enhancedInfo)
 }
 
+// buildChallengerTeeChallengOtherInfo builds OtherInfo for TEE challenge() method
+func (c *XLayerRemoteClient) buildChallengerTeeChallengOtherInfo(tx *types.Transaction, baseInfo XLayerOtherInfo) (string, error) {
+	// challenge() - no parameters, but is payable (carries challengerBond as value)
+	enhancedInfo := struct {
+		XLayerOtherInfo
+		OperateType int `json:"operateType"`
+		UseEIP1559  int `json:"useEIP1559"`
+	}{
+		XLayerOtherInfo: baseInfo,
+		OperateType:     int(OperateTypeChallenge),
+		UseEIP1559:      1,
+	}
+
+	return c.marshalOtherInfo(enhancedInfo)
+}
+
 // buildBaseOtherInfo builds base OtherInfo parameters
 func (c *XLayerRemoteClient) buildBaseOtherInfo(tx *types.Transaction) XLayerOtherInfo {
 	otherInfo := XLayerOtherInfo{
@@ -1166,6 +1232,17 @@ func (c *XLayerRemoteClient) getBatcherOperateType(tx *types.Transaction) Operat
 	}
 }
 
+// getProposerOperateType returns the operate type for Proposer transactions based on method signature
+func (c *XLayerRemoteClient) getProposerOperateType(tx *types.Transaction) OperateType {
+	if len(tx.Data()) >= 4 {
+		switch hexutil.Encode(tx.Data()[:4]) {
+		case MethodSigProve:
+			return OperateTypeProve
+		}
+	}
+	return OperateTypeProposer
+}
+
 // getChallengerOperateType returns the operate type for Challenger transactions based on method signature
 func (c *XLayerRemoteClient) getChallengerOperateType(tx *types.Transaction) OperateType {
 	methodSigHex := hexutil.Encode(tx.Data()[:4])
@@ -1176,6 +1253,8 @@ func (c *XLayerRemoteClient) getChallengerOperateType(tx *types.Transaction) Ope
 		return OperateTypeChallengerResolve
 	case MethodSigClaimCredit:
 		return OperateTypeChallengerClaimCredit
+	case MethodSigChallenge:
+		return OperateTypeChallenge
 	default:
 		c.logger.Warn("Unknown challenger method, using default operateType", "signature", methodSigHex)
 		return OperateTypeChallengerResolveClaim
