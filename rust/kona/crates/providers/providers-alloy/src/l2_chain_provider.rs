@@ -21,7 +21,13 @@ use kona_protocol::{BatchValidationProvider, L2BlockInfo, to_system_config};
 use lru::LruCache;
 use op_alloy_consensus::OpBlock;
 use op_alloy_network::Optimism;
-use std::{num::NonZeroUsize, sync::Arc};
+use std::{
+    num::NonZeroUsize,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 use tower::ServiceBuilder;
 
 /// The [`AlloyL2ChainProvider`] is a concrete implementation of the [`L2ChainProvider`] trait,
@@ -52,6 +58,16 @@ pub struct AlloyL2ChainProvider {
     ///   3. invalidate_system_config_cache() can be called by DerivationActor on L1
     ///      config-change events to force a fresh fetch.
     last_system_config: Option<SystemConfig>,
+    /// Shared invalidation flag written by L1WatcherActor, read here.
+    ///
+    /// L1WatcherActor sets this to `true` when it observes a SystemConfig-changing log on L1
+    /// (GasLimit, Batcher, GasConfig, Eip1559, OperatorFee). The next call to
+    /// `system_config_by_number` atomically clears the flag and evicts the cache, forcing a
+    /// fresh `eth_getBlockByNumber` on that block build only.
+    ///
+    /// Defaults to a private `Arc` (never written) when built via `new` / `new_with_trust`.
+    /// Use `new_with_invalidation` for the sequencer's provider instance.
+    system_config_invalidated: Arc<AtomicBool>,
 }
 
 impl AlloyL2ChainProvider {
@@ -84,6 +100,34 @@ impl AlloyL2ChainProvider {
             rollup_config,
             block_by_number_cache: LruCache::new(NonZeroUsize::new(cache_size).unwrap()),
             last_system_config: None,
+            system_config_invalidated: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Creates a new [`AlloyL2ChainProvider`] wired to a shared invalidation flag.
+    ///
+    /// Use this constructor for the **sequencer's** provider instance. Pass the same `Arc` to
+    /// [`L1WatcherActor`] so it can signal SystemConfig changes on L1.
+    ///
+    /// The derivation pipeline's provider instance does not need the flag; build it with
+    /// `new_with_trust` as usual.
+    ///
+    /// ## Panics
+    /// - Panics if `cache_size` is zero.
+    pub fn new_with_invalidation(
+        inner: RootProvider<Optimism>,
+        rollup_config: Arc<RollupConfig>,
+        cache_size: usize,
+        trust_rpc: bool,
+        invalidated: Arc<AtomicBool>,
+    ) -> Self {
+        Self {
+            inner,
+            trust_rpc,
+            rollup_config,
+            block_by_number_cache: LruCache::new(NonZeroUsize::new(cache_size).unwrap()),
+            last_system_config: None,
+            system_config_invalidated: invalidated,
         }
     }
 
@@ -298,6 +342,15 @@ impl L2ChainProvider for AlloyL2ChainProvider {
         // SystemConfig is derived from the L2 genesis block's extra fields and updated only
         // when an L1 admin transaction fires (extremely rare). Caching the last value is
         // safe; call invalidate_system_config_cache() to force a refresh on config changes.
+
+        // If L1WatcherActor signalled a SystemConfig change on L1, evict the cache so the
+        // very next block build fetches the updated gasLimit / batcherAddr / etc.
+        // swap(false) atomically clears the flag — prevents double-eviction across concurrent
+        // callers even though system_config_by_number is &mut (single-caller in practice).
+        if self.system_config_invalidated.swap(false, Ordering::Relaxed) {
+            self.last_system_config = None;
+        }
+
         if let Some(ref cfg) = self.last_system_config {
             return Ok(cfg.clone());
         }
