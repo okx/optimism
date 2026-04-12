@@ -5,6 +5,7 @@ use crate::{
     PipelineError, PipelineErrorKind, PipelineResult,
 };
 use alloc::{boxed::Box, fmt::Debug, string::ToString, sync::Arc, vec, vec::Vec};
+use std::time::Instant;
 use alloy_consensus::{Eip658Value, Receipt};
 use alloy_eips::{BlockNumHash, eip2718::Encodable2718};
 use alloy_primitives::{Address, B256, Bytes};
@@ -70,11 +71,23 @@ where
         let l1_header;
         let deposit_transactions: Vec<Bytes>;
 
+        // ── attr_prep C1: system_config_by_number ────────────────────────
+        // Alias: attr_prep / step C1. Opt-2 caches this → 0ms after first block.
+        // Was: per-block eth_getBlockByNumber RPC to EL (reth). Now: in-memory cache hit.
+        let t_c1 = Instant::now();
         let mut sys_config = self
             .config_fetcher
             .system_config_by_number(l2_parent.block_info.number, self.rollup_cfg.clone())
             .await
             .map_err(Into::into)?;
+        let c1_ms = t_c1.elapsed().as_millis();
+
+        // ── attr_prep C2 + C3: header_by_hash + receipts_by_hash ─────────
+        // C2: L1 header fetch (LRU-cached by epoch hash — 0ms for 11/12 blocks).
+        // C3: L1 receipts fetch (only on epoch change — 1/12 blocks, cold = slow L1 geth RPC).
+        let epoch_change = l2_parent.l1_origin.number != epoch.number;
+        let mut c2_ms = 0u128;
+        let mut c3_ms = 0u128;
 
         // If the L1 origin changed in this block, then we are in the first block of the epoch.
         // In this case we need to fetch all transaction receipts from the L1 origin block so
@@ -87,14 +100,19 @@ where
                 ));
             }
 
+            let t_c2 = Instant::now();
             let header =
                 self.receipts_fetcher.header_by_hash(epoch.hash).await.map_err(Into::into)?;
+            c2_ms = t_c2.elapsed().as_millis();
+            // c3_ms stays 0 — receipts_by_hash not called on same-epoch blocks
             l1_header = header;
             deposit_transactions = vec![];
             l2_parent.seq_num + 1
         } else {
+            let t_c2 = Instant::now();
             let header =
                 self.receipts_fetcher.header_by_hash(epoch.hash).await.map_err(Into::into)?;
+            c2_ms = t_c2.elapsed().as_millis();
             if l2_parent.l1_origin.hash != header.parent_hash {
                 return Err(PipelineErrorKind::Reset(
                     BuilderError::BlockMismatchEpochReset(
@@ -105,8 +123,10 @@ where
                     .into(),
                 ));
             }
+            let t_c3 = Instant::now();
             let receipts =
                 self.receipts_fetcher.receipts_by_hash(epoch.hash).await.map_err(Into::into)?;
+            c3_ms = t_c3.elapsed().as_millis();
             let deposits =
                 derive_deposits(epoch.hash, &receipts, self.rollup_cfg.deposit_contract_address)
                     .await
@@ -174,7 +194,9 @@ where
             upgrade_transactions.append(&mut Hardforks::INTEROP.txs().collect());
         }
 
-        // Build and encode the L1 info transaction for the current payload.
+        // ── attr_prep C4: L1BlockInfoTx build + encode (pure computation) ──
+        // No RPC. Constructs the L1 info deposit transaction from the fetched header.
+        let t_c4 = Instant::now();
         let (_, l1_info_tx_envelope) = L1BlockInfoTx::try_new_with_deposit_tx(
             &self.rollup_cfg,
             &self.l1_cfg,
@@ -188,6 +210,7 @@ where
         })?;
         let mut encoded_l1_info_tx = Vec::with_capacity(l1_info_tx_envelope.length());
         l1_info_tx_envelope.encode_2718(&mut encoded_l1_info_tx);
+        let c4_ms = t_c4.elapsed().as_millis();
 
         let mut txs =
             Vec::with_capacity(1 + deposit_transactions.len() + upgrade_transactions.len());
@@ -201,6 +224,20 @@ where
             .rollup_cfg
             .is_ecotone_active(next_l2_time)
             .then(|| l1_header.parent_beacon_block_root.unwrap_or_default());
+
+        // ── attr_prep C1–C4 timing summary (interval: T0→T1 / attr_prep / step C) ──
+        // Aliases: C1=sys_config(Opt-2 target), C2=header_by_hash, C3=receipts(epoch-change only), C4=compute
+        // Cross-ref: "build request completed" log in actor.rs shows step_c total (= C1+C2+C3+C4)
+        info!(
+            target: "attributes",
+            // step aliases from kona-optimisation-proposal.md
+            attr_step_c1_sys_config_ms   = c1_ms,    // Opt-2 target — should be 0ms after cache warm
+            attr_step_c2_header_rpc_ms   = c2_ms,    // L1 geth header_by_hash (LRU cached, 0ms for 11/12)
+            attr_step_c3_receipts_rpc_ms = c3_ms,    // L1 geth receipts_by_hash (0ms unless epoch_change)
+            attr_step_c4_l1info_tx_ms    = c4_ms,    // pure computation — should always be ~0ms
+            epoch_change                 = epoch_change,
+            "prepare_payload_attributes timing"       // grep this to get step-C breakdown
+        );
 
         Ok(OpPayloadAttributes {
             payload_attributes: PayloadAttributes {
