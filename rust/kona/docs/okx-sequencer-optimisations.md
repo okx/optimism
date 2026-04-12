@@ -96,6 +96,21 @@ to the existing live RPC path — no correctness change.
 takes 2-5ms, not 20-100ms. Opt-1 would save at most 2-5ms on 8% of blocks = <0.5ms
 amortised. That is below benchmark noise and cannot be demonstrated in numbers.
 
+Think of L2 blocks like a bus that leaves every second. Before the bus departs, the
+sequencer must prepare a "passenger manifest" (payload attributes — `attr_prep`). At an
+L1 epoch boundary, that manifest requires a receipt from the L1 node listing any deposits.
+Opt-1 fetches that receipt in advance — like ordering the passenger list 12 seconds early —
+so when the bus is ready, the list is already there and the sequencer pays zero wait time.
+
+On devnet, the L1 is on the same machine so the receipt fetch already takes only 2-5ms —
+the pre-fetch saves almost nothing. On production mainnet with a remote L1 node the latency
+is 50-200ms, and the math changes completely:
+
+| Environment | Receipt fetch latency | Blocks affected | Amortised saving |
+|---|---|---|---|
+| Devnet (local geth) | 2-5ms | ~8% (1 in 12) | ~0.16ms — below noise |
+| Production mainnet (remote L1) | 50-200ms | ~8% | ~4-16ms — clearly visible |
+
 **When to ship:** When benchmarking against a remote L1 node (production mainnet, public
 RPC endpoint). At 50-200ms L1 receipt latency, Opt-1 saves ~20-100ms on every epoch
 boundary block — clearly visible in attr_prep p99 and p50 distributions.
