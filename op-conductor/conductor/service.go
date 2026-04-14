@@ -877,7 +877,8 @@ func (oc *OpConductor) transferLeaderRoundRobin() error {
 	}
 
 	if len(allVoters) <= 1 {
-		return errors.New("no other voters available for leader transfer")
+		oc.log.Warn("no other voters available for leader transfer, skipping")
+		return nil
 	}
 
 	// Sort all voters by ServerID to ensure consistent ordering across all nodes.
@@ -936,7 +937,10 @@ func (oc *OpConductor) transferLeaderRoundRobin() error {
 		)
 	}
 
-	return errors.New("failed to transfer leadership to any voter")
+	// All round-robin attempts failed, fall back to Raft's default leader transfer
+	// which selects the candidate with the most up-to-date log.
+	oc.log.Warn("round-robin transfer failed for all voters, falling back to default leader transfer")
+	return oc.cons.TransferLeader()
 }
 
 func (oc *OpConductor) stopSequencer() error {
