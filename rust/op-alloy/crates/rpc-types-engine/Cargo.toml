@@ -24,6 +24,7 @@ alloy-eips.workspace = true
 alloy-rpc-types-engine.workspace = true
 alloy-rlp.workspace = true
 alloy-consensus.workspace = true
+alloy-eip7928.workspace = true
 
 # Encoding
 snap = { workspace = true, optional = true }
@@ -63,6 +64,7 @@ std = [
 	"alloy-eips/std",
 	"alloy-rlp/std",
 	"alloy-serde?/std",
+	"alloy-eip7928/std",
 	"derive_more/std",
 	"serde?/std",
 	"sha2/std",
@@ -75,7 +77,8 @@ serde = [
 	"op-alloy-consensus/serde",
 	"alloy-consensus/serde",
 	"alloy-eips/serde",
-	"alloy-primitives/serde"
+	"alloy-primitives/serde",
+	"alloy-eip7928/serde"
 ]
 k256 = ["op-alloy-consensus/k256"]
 arbitrary = [
