@@ -1,124 +1,134 @@
-# XLayer Node — Local Devnet
+# Devnet Guide
 
-Run a complete XLayer L2 devnet locally (L1 geth + beacon + xlayer-node + op-batcher) in a single command.
+Run xlayer-node locally: L1 (Docker) + xlayer-node (native binary) + op-batcher (Docker).
 
 ---
 
-## Quick Start
+## Prerequisites
+
+Install once:
+
+| Tool | Install |
+|------|---------|
+| Rust 1.91+ | `curl https://sh.rustup.rs -sSf \| sh && rustup install 1.91` |
+| Foundry (cast) | `curl -L https://foundry.paradigm.xyz \| bash && foundryup` |
+| Docker Desktop | https://docs.docker.com/get-docker/ |
+| jq | `brew install jq` (macOS) / `apt install jq` (Linux) |
+
+---
+
+## First Run (fresh clone)
 
 ```bash
-# 1. Clone (if not done)
-git clone <repo-url> && cd xlayer
+cd rust/xlayer
 
-# 2. Install prerequisites (one-time)
-#   Rust:    curl https://sh.rustup.rs -sSf | sh
-#   Foundry: curl -L https://foundry.paradigm.xyz | bash && foundryup
-#   Docker:  https://docs.docker.com/get-docker/
-#   jq:      brew install jq
-
-# 3. Make scripts executable (one-time after clone)
+# Make scripts executable
 chmod +x scripts/devnet/*.sh scripts/devnet/internal/*.sh scripts/devnet/maintenance/*.sh
 
-# 4. Start everything
+# Build + start everything (~5 min build, ~1 min L1 bootstrap)
 ./scripts/devnet/0-all.sh
 ```
 
-The script handles the rest: creates `.env`, generates a JWT secret, builds `xlayer-node`, starts L1 (geth + beacon), starts `xlayer-node`, starts `op-batcher`.
+`0-all.sh` does everything automatically:
+1. Checks prerequisites (cargo, cast, docker, jq, curl, openssl)
+2. Creates `config/devnet/.env` from `.env.example`
+3. Generates `config/devnet/jwt.txt`
+4. Builds `xlayer-node` binary (`cargo build --release`)
+5. Starts L1 (Docker: geth + Prysm beacon + validator)
+6. Starts xlayer-node (native binary, background)
+7. Starts op-batcher (Docker)
 
-**Subsequent runs** (binary already built):
+### First run will fail with `ResetForkchoiceError` — this is expected
+
+The committed `genesis.json` references L1 block hashes from a previous deployment.
+Your fresh L1 has different block hashes. Fix:
+
 ```bash
-./scripts/devnet/0-all.sh --no-build
+# Deploy OP contracts on your fresh L1 and regenerate genesis.json + rollup.json
+./scripts/devnet/maintenance/redeploy-op-contracts.sh
+
+# Start the node (L1 is already running)
+./scripts/devnet/start-all.sh --no-build
 ```
+
+This takes ~3 minutes. After it completes, the node starts producing blocks.
+
+**You only need to do this once.** L1 data is preserved across stop/restart.
 
 ---
 
-## Verify It Works
+## Verify
 
 ```bash
-# Live health dashboard (all components)
-./scripts/devnet/health-check.sh
+# Blocks advancing? (run twice, number must increase)
+cast bn --rpc-url http://localhost:8123
 
-# Single health snapshot
+# Full smoke test: send TX, track through unsafe → safe → finalized
+./scripts/devnet/test-tx.sh
+
+# Live health dashboard
 ./scripts/devnet/health-check.sh --once
-
-# Send a test transaction and confirm unsafe → safe → finalized
-./scripts/devnet/test-tx.sh --verbose
-```
-
-Healthy output looks like:
-```
-L1 (Ethereum)
-  l1-geth:       ✅ running  block 450
-  l1-beacon:     ✅ running  slot 455  dist=0
-  l1-validator:  ✅ running
-
-xlayer-node (L2)
-  process:       ✅ running  pid 12345
-  unsafe head:   12345  (1.0s/block)
-  safe head:     12340  (lag: 5 blocks)
-  finalized:     12335  (lag: 10 blocks)
-
-op-batcher
-  container:     ✅ running
-  admin RPC:     ok
 ```
 
 ---
 
-## Stop / Restart
+## Stop / Resume
 
 ```bash
-# Stop everything (data preserved)
+# Stop everything (all data preserved)
 ./scripts/devnet/stop-all.sh
 
-# Restart from stopped state (no rebuild)
+# Resume (no rebuild, no re-init — picks up where it left off)
 ./scripts/devnet/start-all.sh --no-build
+```
 
-# Rebuild + restart xlayer-node only (L1 never touched)
-./scripts/devnet/restart-node.sh
+---
 
-# Reset L2 chain data (wipe + restart fresh — L1 unchanged)
+## Reset L2 (fresh chain, same L1)
+
+```bash
+./scripts/devnet/stop-all.sh
 ./scripts/devnet/maintenance/reset-l2.sh
 ./scripts/devnet/start-all.sh --no-build
 ```
+
+This wipes `/tmp/xlayer-data` and logs. L1 is untouched.
 
 ---
 
 ## Logs
 
 ```bash
-tail -f logs/xlayer-node.log                          # live node output
-grep -i "error\|warn\|panic" logs/xlayer-node.log     # filter problems
-docker compose -f docker/docker-compose.devnet.yml logs op-batcher --tail 50
+tail -f logs/xlayer-node.log                        # node output
+grep "engine_bridge" logs/xlayer-node.log | tail -5  # engine bridge calls
+docker logs op-batcher --tail 30                     # batcher
 ```
 
 ---
 
-## Ports
+## Troubleshooting
 
-| Service       | Port  | Purpose                     |
-|---------------|-------|-----------------------------|
-| L1 geth       | 8545  | L1 JSON-RPC                 |
-| L1 beacon     | 3500  | L1 beacon API               |
-| xlayer-node   | 8123  | L2 JSON-RPC (ETH API)       |
-| xlayer-node   | 9545  | L2 rollup RPC               |
-| xlayer-node   | 8552  | Engine API (JWT-auth)       |
-| op-batcher    | 8548  | Batcher admin RPC           |
-| metrics       | 9001  | Prometheus metrics          |
-
----
-
-## Common Issues
-
-| Symptom | Fix |
-|---------|-----|
-| `Missing required tools: cast` | `curl -L https://foundry.paradigm.xyz \| bash && foundryup` |
-| `Timeout waiting for xlayer-node L2 RPC` | `tail -50 logs/xlayer-node.log` to see why |
-| Port already in use (8123, 8552) | `lsof -ti:8123 \| xargs kill` |
-| TX stuck at UNSAFE (never SAFE) | `docker compose -f docker/docker-compose.devnet.yml logs op-batcher --tail 30` |
-| L1 stalls after restart | `internal/start-l1.sh` auto-detects and fixes geth/beacon head desync |
-| Everything broken | `./scripts/devnet/maintenance/reset-l2.sh && ./scripts/devnet/start-all.sh` |
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `ResetForkchoiceError("Block not found: 0x...")` | genesis.json references L1 blocks that don't exist on your L1 | `./scripts/devnet/maintenance/redeploy-op-contracts.sh` then `start-all.sh --no-build` |
+| `Timeout waiting for xlayer-node L2 RPC` | Node crashed on startup | `tail -50 logs/xlayer-node.log` — look for the error |
+| Port already in use (8123 / 8545) | Previous run didn't stop cleanly | `./scripts/devnet/stop-all.sh` or `lsof -ti:8123 \| xargs kill` |
+| TX stuck at UNSAFE (never reaches SAFE) | op-batcher not running or crashed | `docker logs op-batcher --tail 30` |
+| L1 stalls after restart | geth/beacon head desync | `start-l1.sh` auto-detects and fixes this — just run `start-all.sh` |
+| Docker network conflict | Stale network from previous run | `docker network rm xlayer-devnet` then retry |
+| Stale container conflict | Leftover containers | `docker rm -f $(docker ps -aq --filter name=l1-)` then retry |
+| Everything broken | Unknown state | `stop-all.sh` → `maintenance/reset-l2.sh` → `start-all.sh --no-build` |
 
 ---
 
-For full details, see [`scripts/devnet/README.md`](scripts/devnet/README.md).
+## Scripts Reference
+
+| Script | Purpose |
+|--------|---------|
+| `0-all.sh` | First-run entry point — checks deps, creates config, builds, starts everything |
+| `start-all.sh [--no-build]` | Start from stopped state (assumes config exists) |
+| `stop-all.sh` | Stop all components (data preserved) |
+| `test-tx.sh` | Smoke test — send TX, track unsafe → safe → finalized |
+| `health-check.sh [--once]` | Live dashboard or single snapshot |
+| `maintenance/reset-l2.sh` | Wipe L2 chain data + logs (L1 untouched) |
+| `maintenance/redeploy-op-contracts.sh` | Deploy OP contracts on fresh L1, regenerate genesis |
