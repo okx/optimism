@@ -2,6 +2,16 @@
 
 > Single source of truth. Replaces `HOW-TO-RUN-LOAD-TEST.md` in both repos.
 
+<!-- ─── SET THESE TO YOUR LOCAL CHECKOUT PATHS ─── -->
+<!-- XLAYER_NODE_ROOT: path to the xlayer-node repo (this repo's rust/xlayer/ directory) -->
+<!-- XLAYER_TOOLKIT_ROOT: path to the xlayer-toolkit repo checkout -->
+<!--
+   All commands below use these two placeholders:
+     <XLAYER_NODE_ROOT>     — e.g. /home/you/repos/okx-optimism/rust/xlayer
+     <XLAYER_TOOLKIT_ROOT>  — e.g. /home/you/repos/xlayer-toolkit
+   Find-and-replace them with your actual paths before running any commands.
+-->
+
 ---
 
 ## Before You Start — Branch Checklist
@@ -15,12 +25,12 @@
 
 ```bash
 # xlayer-node repo — must be on master
-cd /Users/lakshmikanth/Documents/projects/xlayer-node-components/working/xlayer
+cd <XLAYER_NODE_ROOT>
 git branch --show-current        # should print: master
 git status                       # should be clean
 
 # xlayer-toolkit repo — must be on feature/latency-metrics for toolkit comparison
-cd /Users/lakshmikanth/Documents/xlayer/xlayer-toolkit
+cd <XLAYER_TOOLKIT_ROOT>
 git branch --show-current        # should print: feature/latency-metrics
 git checkout feature/latency-metrics   # if not already on it
 git status                       # should be clean
@@ -35,7 +45,7 @@ different setup and will not produce comparable results.
 **If you only run the xlayer-node benchmark** (no toolkit comparison), the xlayer-toolkit
 branch does not matter — you just need to stop its containers:
 ```bash
-cd /Users/lakshmikanth/Documents/xlayer/xlayer-toolkit/devnet
+cd <XLAYER_TOOLKIT_ROOT>/devnet
 docker compose down --remove-orphans
 ```
 
@@ -43,7 +53,7 @@ docker compose down --remove-orphans
 
 If `target/release/xlayer-node` does not exist yet, build it first (takes ~5 min):
 ```bash
-cd /Users/lakshmikanth/Documents/projects/xlayer-node-components/working/xlayer
+cd <XLAYER_NODE_ROOT>
 cargo build --release -p xlayer-node
 ```
 After the binary exists, always use `--no-build` with `start-all.sh` to skip rebuild.
@@ -126,11 +136,11 @@ Report saved to: `load-test-YYYYMMDD_HHMMSS.txt` in the xlayer-node repo root.
 
 ```bash
 # 1. Stop xlayer-toolkit's stack (including its L1)
-cd /Users/lakshmikanth/Documents/xlayer/xlayer-toolkit/devnet
+cd <XLAYER_TOOLKIT_ROOT>/devnet
 docker compose down --remove-orphans    # stops toolkit L1 + app, volumes preserved
 
 # 2. Reset xlayer-node L2 data (L1 data untouched — different directory)
-cd /Users/lakshmikanth/Documents/projects/xlayer-node-components/working/xlayer
+cd <XLAYER_NODE_ROOT>
 ./scripts/devnet/maintenance/reset-l2.sh
 
 # 3. Start xlayer-node's L1 + node + batcher (skip rebuild — binary already built)
@@ -158,12 +168,12 @@ Report saved to: `devnet/load-test-YYYYMMDD_HHMMSS.txt` in the xlayer-toolkit re
 
 ```bash
 # 1. Stop xlayer-node (stop-all.sh leaves L1 running — stop it explicitly too)
-cd /Users/lakshmikanth/Documents/projects/xlayer-node-components/working/xlayer
+cd <XLAYER_NODE_ROOT>
 ./scripts/devnet/stop-all.sh           # stops node + batcher
 docker compose -f docker/docker-compose.devnet.yml stop l1-geth l1-beacon-chain l1-validator
 
 # 2. Ensure xlayer-toolkit is on the right branch
-cd /Users/lakshmikanth/Documents/xlayer/xlayer-toolkit
+cd <XLAYER_TOOLKIT_ROOT>
 git checkout feature/latency-metrics
 
 # 3. Start xlayer-toolkit's stack (its own L1 starts automatically)
@@ -196,10 +206,10 @@ Run this sequence to produce a directly comparable pair of reports.
 
 ```bash
 # ── Step 1: xlayer-node run ────────────────────────────────────────────────────
-cd /Users/lakshmikanth/Documents/xlayer/xlayer-toolkit/devnet
+cd <XLAYER_TOOLKIT_ROOT>/devnet
 docker compose down --remove-orphans
 
-cd /Users/lakshmikanth/Documents/projects/xlayer-node-components/working/xlayer
+cd <XLAYER_NODE_ROOT>
 ./scripts/devnet/maintenance/reset-l2.sh
 ./scripts/devnet/start-all.sh --no-build
 # wait for blocks + ENGINE BRIDGE lines in log, then:
@@ -210,7 +220,7 @@ cd /Users/lakshmikanth/Documents/projects/xlayer-node-components/working/xlayer
 ./scripts/devnet/stop-all.sh
 docker compose -f docker/docker-compose.devnet.yml stop l1-geth l1-beacon-chain l1-validator
 
-cd /Users/lakshmikanth/Documents/xlayer/xlayer-toolkit
+cd <XLAYER_TOOLKIT_ROOT>
 git checkout feature/latency-metrics
 cd devnet
 docker compose down --remove-orphans
@@ -262,7 +272,7 @@ finds nothing.
 
 **Fix** (takes ~5 min):
 ```bash
-cd /Users/lakshmikanth/Documents/projects/xlayer-node-components/working/xlayer
+cd <XLAYER_NODE_ROOT>
 
 # 1. Make sure L1 is running (it starts fresh from block 1 after a wipe)
 cast bn --rpc-url http://localhost:8545    # should return a number
@@ -296,14 +306,14 @@ Batcher fell behind during the test. Reset L2 and rerun:
 lsof -i :8123 -i :8552    # see what's holding it
 
 # If xlayer-toolkit containers:
-cd /Users/lakshmikanth/Documents/xlayer/xlayer-toolkit/devnet
+cd <XLAYER_TOOLKIT_ROOT>/devnet
 docker compose down --remove-orphans
 
 # If stray xlayer-node binary:
 pkill -f xlayer-node
 
 # If stray op-batcher:
-cd /Users/lakshmikanth/Documents/projects/xlayer-node-components/working/xlayer
+cd <XLAYER_NODE_ROOT>
 docker compose -f docker/docker-compose.devnet.yml stop op-batcher
 ```
 
@@ -394,7 +404,7 @@ docker compose -f docker/docker-compose.devnet.yml down -v   # the -v flag wipes
 ## File Map
 
 ```
-project root: /Users/lakshmikanth/Documents/projects/xlayer-node-components/working/xlayer/
+project root: <XLAYER_NODE_ROOT>/
 
 scripts/devnet/
   start-all.sh                  start L1 (if needed) + node + batcher
