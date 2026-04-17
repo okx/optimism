@@ -233,7 +233,8 @@ func setupConductor(
 			SafeInterval:   30,
 		},
 		RollupCfg:      rollupCfg,
-		RPCEnableProxy: true,
+		RPCEnableProxy:  true,
+		HTTPBodyLimitMB: 5,
 		LogConfig: oplog.CLIConfig{
 			Level: log.LevelDebug,
 			Color: false,
