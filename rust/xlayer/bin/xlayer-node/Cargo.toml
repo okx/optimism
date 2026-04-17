@@ -1,0 +1,53 @@
+[package]
+name = "xlayer-node"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "xlayer-node"
+path = "src/main.rs"
+
+[dependencies]
+# in-process engine bridge (this workspace)
+engine-bridge = { path = "../../crates/engine-bridge" }
+
+# kona
+kona-node-service = { path = "../../../kona/crates/node/service" }
+kona-genesis      = { path = "../../../kona/crates/protocol/genesis" }
+kona-engine       = { path = "../../../kona/crates/node/engine" }
+kona-disc         = { path = "../../../kona/crates/node/disc" }
+kona-gossip       = { path = "../../../kona/crates/node/gossip" }
+kona-rpc          = { path = "../../../kona/crates/node/rpc" }
+
+# rollup-boost — only needed for ExecutionMode used in RollupBoostServerArgs
+rollup-boost = "0.7.13"
+
+# reth
+reth-cli-util      = { path = "../../../../../okx-reth/crates/cli/util" }
+reth-optimism-cli  = { path = "../../../../../okx-reth/crates/optimism/cli" }
+reth-optimism-node = { path = "../../../../../okx-reth/crates/optimism/node" }
+
+# alloy
+alloy-genesis          = { version = "1.7.3" }
+alloy-provider         = { version = "1.6.3", features = ["reqwest"] }
+alloy-primitives       = { version = "1.1.0" }
+alloy-rpc-types-engine = { version = "1.6.3" }
+op-alloy-network       = { version = "0.23.1", path = "../../../op-alloy/crates/network" }
+
+# p2p — for LocalNode + Multiaddr construction
+k256   = { version = "0.13", features = ["ecdsa"] }
+rand   = "0.8"
+libp2p = { version = "0.54", features = ["tcp", "gossipsub"] }
+
+# config + serialization
+serde      = { version = "1", features = ["derive"] }
+toml       = "0.8"
+serde_json = "1"
+url        = { version = "2", features = ["serde"] }
+
+# runtime + cli + logging
+tokio   = { version = "1", features = ["full"] }
+clap    = { version = "4", features = ["derive"] }
+tracing = "0.1"
+eyre    = "0.6"

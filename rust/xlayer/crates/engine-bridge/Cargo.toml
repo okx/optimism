@@ -1,0 +1,35 @@
+  [package]
+  name = "engine-bridge"
+  version = "0.1.0"
+  edition.workspace = true
+  license.workspace = true
+
+  [dependencies]                                                                                                                                      
+  # kona — EngineClient trait
+  kona-engine = { path = "../../../kona/crates/node/engine" }
+  kona-genesis = { path = "../../../kona/crates/protocol/genesis" }
+  thiserror = "1"
+
+  # reth — handles (external repo, sibling of okx-optimism)
+  reth-engine-primitives = { path = "../../../../../okx-reth/crates/engine/primitives" }
+  reth-payload-builder   = { path = "../../../../../okx-reth/crates/payload/builder" }
+  reth-optimism-node     = { path = "../../../../../okx-reth/crates/optimism/node" }
+  reth-payload-primitives = { path = "../../../../../okx-reth/crates/payload/primitives" }
+
+  # alloy — providers + transport
+  alloy-provider  = { version = "1.6.3", features = ["reqwest"] }
+  alloy-network   = { version = "1.6.3" }
+  alloy-transport = { version = "1.6.3" }
+  alloy-primitives = { version = "1.1.0" }
+  alloy-eips = { version = "1.6.3" }
+  alloy-rpc-types-engine = { version = "1.6.3" }
+  alloy-rpc-types-eth = { version = "1.6.3" }
+  op-alloy-network = { version = "0.23.1", path = "../../../op-alloy/crates/network" }
+  op-alloy-rpc-types-engine = { version = "0.23.1", path = "../../../op-alloy/crates/rpc-types-engine" }
+  op-alloy-rpc-types = { version = "0.23.1", path = "../../../op-alloy/crates/rpc-types" }
+  kona-protocol = { path = "../../../kona/crates/protocol/protocol" }
+
+  # async
+  tokio       = { version = "1", features = ["full"] }
+  async-trait = "0.1"
+  tracing     = "0.1"

@@ -1,0 +1,22 @@
+target/
+target
+/target
+.idea
+
+# Runtime logs — never commit
+logs/*.log
+logs/reth/
+logs/kona/
+
+# Secrets — never commit
+config/devnet/.env
+config/devnet/jwt.txt
+
+# Chain config — committed (stable until L1 is wiped + contracts redeployed)
+# If you wipe L1 and redeploy contracts, run setup.sh to regenerate these,
+# then commit the updated files.
+
+.DS_Store
+*.log
+*.tmp
+logs/
