@@ -131,8 +131,8 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     ITeeProofVerifier internal immutable TEE_PROOF_VERIFIER;
     uint256 internal immutable CHALLENGER_BOND;
     IAnchorStateRegistry internal immutable ANCHOR_STATE_REGISTRY;
-    address internal immutable PROPOSER;
-    address internal immutable CHALLENGER;
+    address public immutable PROPOSER;
+    address public immutable CHALLENGER;
 
     ////////////////////////////////////////////////////////////////
     //                         State Vars                         //
@@ -144,8 +144,6 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     Timestamp public createdAt;
     Timestamp public resolvedAt;
     GameStatus public status;
-    /// @notice The proposer EOA captured during initialization, aligned with OP permissioned games.
-    address public proposer;
     bool internal initialized;
     ClaimData public claimData;
 
@@ -242,8 +240,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         });
 
         initialized = true;
-        proposer = tx.origin;
-        refundModeCredit[proposer] += msg.value;
+        refundModeCredit[PROPOSER] += msg.value;
         createdAt = Timestamp.wrap(uint64(block.timestamp));
         wasRespectedGameTypeWhenCreated =
             GameType.unwrap(ANCHOR_STATE_REGISTRY.respectedGameType()) == GameType.unwrap(GAME_TYPE);
@@ -286,7 +283,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     ///      6. Each batch's EIP-712 typed digest + TEE signature is valid (via TEE_PROOF_VERIFIER)
     /// @param proofBytes ABI-encoded BatchProof[] array
     function prove(bytes calldata proofBytes) external returns (ProposalStatus) {
-        if (msg.sender != proposer) revert BadAuth();
+        if (msg.sender != PROPOSER) revert BadAuth();
         if (status != GameStatus.IN_PROGRESS) revert ClaimAlreadyResolved();
         if (_getParentGameStatus() == GameStatus.CHALLENGER_WINS) revert InvalidParentGame();
         if (gameOver()) revert GameOver();
@@ -375,23 +372,23 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
             // If the child was challenged, the challenger gets the bonds.
             // If the child was never challenged (counteredBy == address(0)),
             // refund the proposer — they should not lose their bond due to parent invalidation.
-            address recipient = claimData.counteredBy != address(0) ? claimData.counteredBy : proposer;
+            address recipient = claimData.counteredBy != address(0) ? claimData.counteredBy : PROPOSER;
             normalModeCredit[recipient] = address(this).balance;
         } else {
             if (!gameOver()) revert GameNotOver();
 
             if (claimData.status == ProposalStatus.Unchallenged) {
                 status = GameStatus.DEFENDER_WINS;
-                normalModeCredit[proposer] = address(this).balance;
+                normalModeCredit[PROPOSER] = address(this).balance;
             } else if (claimData.status == ProposalStatus.Challenged) {
                 status = GameStatus.CHALLENGER_WINS;
                 normalModeCredit[claimData.counteredBy] = address(this).balance;
             } else if (claimData.status == ProposalStatus.UnchallengedAndValidProofProvided) {
                 status = GameStatus.DEFENDER_WINS;
-                normalModeCredit[proposer] = address(this).balance;
+                normalModeCredit[PROPOSER] = address(this).balance;
             } else if (claimData.status == ProposalStatus.ChallengedAndValidProofProvided) {
                 status = GameStatus.DEFENDER_WINS;
-                normalModeCredit[proposer] = address(this).balance;
+                normalModeCredit[PROPOSER] = address(this).balance;
             } else {
                 revert InvalidProposalStatus();
             }
@@ -563,13 +560,6 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         return ANCHOR_STATE_REGISTRY;
     }
 
-    function proposer_() external view returns (address) {
-        return PROPOSER;
-    }
-
-    function challenger_() external view returns (address) {
-        return CHALLENGER;
-    }
 
     ////////////////////////////////////////////////////////////////
     //                    Internal Functions                      //
