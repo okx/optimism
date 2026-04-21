@@ -21,7 +21,6 @@ import {
     GameNotFinalized,
     GamePaused,
     IncorrectBondAmount,
-    InvalidBondDistributionMode,
     NoCreditToClaim,
     UnexpectedRootClaim
 } from "src/dispute/lib/Errors.sol";
@@ -409,10 +408,8 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         uint256 recipientCredit;
         if (bondDistributionMode == BondDistributionMode.REFUND) {
             recipientCredit = refundModeCredit[_recipient];
-        } else if (bondDistributionMode == BondDistributionMode.NORMAL) {
-            recipientCredit = normalModeCredit[_recipient];
         } else {
-            revert InvalidBondDistributionMode();
+            recipientCredit = normalModeCredit[_recipient];
         }
 
         if (recipientCredit == 0) revert NoCreditToClaim();
@@ -430,8 +427,6 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         if (bondDistributionMode == BondDistributionMode.REFUND || bondDistributionMode == BondDistributionMode.NORMAL)
         {
             return;
-        } else if (bondDistributionMode != BondDistributionMode.UNDECIDED) {
-            revert InvalidBondDistributionMode();
         }
 
         if (ANCHOR_STATE_REGISTRY.paused()) revert GamePaused();
