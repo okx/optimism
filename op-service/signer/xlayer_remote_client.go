@@ -973,12 +973,10 @@ func (c *XLayerRemoteClient) buildProposerTeeProveOtherInfo(tx *types.Transactio
 		XLayerOtherInfo
 		OperateType int     `json:"operateType"`
 		ProofBytes  *string `json:"proofBytes,omitempty"`
-		UseEIP1559  int     `json:"useEIP1559"`
 	}{
 		XLayerOtherInfo: baseInfo,
 		OperateType:     int(OperateTypeProve),
 		ProofBytes:      proofBytes,
-		UseEIP1559:      1,
 	}
 
 	return c.marshalOtherInfo(enhancedInfo)
