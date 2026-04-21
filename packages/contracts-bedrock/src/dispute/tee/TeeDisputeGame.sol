@@ -254,6 +254,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         if (claimData.status != ProposalStatus.Unchallenged) revert ClaimAlreadyChallenged();
         if (msg.sender != CHALLENGER) revert BadAuth();
         if (gameOver()) revert GameOver();
+        if (_getParentGameStatus() == GameStatus.CHALLENGER_WINS) revert InvalidParentGame();
         if (msg.value != CHALLENGER_BOND) revert IncorrectBondAmount();
 
         claimData.counteredBy = msg.sender;
