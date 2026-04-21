@@ -71,6 +71,7 @@ contract TeeProofVerifier is Ownable {
 
     error InvalidProof();
     error InvalidPublicKey();
+    error InvalidUserData();
     error EnclaveAlreadyRegistered();
     error EnclaveNotRegistered();
     error InvalidSignature();
@@ -117,7 +118,12 @@ contract TeeProofVerifier is Ownable {
             revert EnclaveAlreadyRegistered();
         }
 
-        // 4. Reconstruct journal digest (rootKey baked in from chain state)
+        // 4. Validate userData length fits in uint16 before journal reconstruction
+        if (attestationData.userData.length > type(uint16).max) {
+            revert InvalidUserData();
+        }
+
+        // 5. Reconstruct journal digest (rootKey baked in from chain state)
         bytes32 journalDigest = sha256(
             abi.encodePacked(
                 attestationData.timestampMs,
@@ -130,13 +136,13 @@ contract TeeProofVerifier is Ownable {
             )
         );
 
-        // 5. Verify ZK proof
+        // 6. Verify ZK proof
         try riscZeroVerifier.verify(seal, imageId, journalDigest) { }
         catch {
             revert InvalidProof();
         }
 
-        // 6. Store registration
+        // 7. Store registration
         enclaveRegisteredGeneration[enclaveAddress] = enclaveGeneration;
         enclavePcrHash[enclaveAddress] = attestationData.pcrHash;
 
