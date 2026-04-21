@@ -99,6 +99,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     event Challenged(address indexed challenger);
     event Proved(address indexed prover);
     event GameClosed(BondDistributionMode bondDistributionMode);
+    event CreditClaimed(address indexed recipient, uint256 amount, BondDistributionMode mode);
 
     error EmptyBatchProofs();
     error StartHashMismatch(bytes32 expectedCombined, bytes32 actualCombined);
@@ -420,6 +421,8 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
 
         (bool success,) = _recipient.call{ value: recipientCredit }(hex"");
         if (!success) revert BondTransferFailed();
+
+        emit CreditClaimed(_recipient, recipientCredit, bondDistributionMode);
     }
 
     function closeGame() public {
