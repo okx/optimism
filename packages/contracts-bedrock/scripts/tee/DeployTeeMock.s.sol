@@ -24,8 +24,8 @@ import { Duration, GameType, Hash, Proposal } from "src/dispute/lib/Types.sol";
 ///   anvil --block-time 1
 ///
 ///   PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
-///   PROPOSER=0x70997970C51812dc3A010C7d01b50e0d17dc79C8 \
-///   CHALLENGER=0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC \
+///   PROPOSERS=0x70997970C51812dc3A010C7d01b50e0d17dc79C8 \
+///   CHALLENGERS=0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC \
 ///   forge script scripts/tee/DeployTeeMock.s.sol --rpc-url http://localhost:8545 --broadcast
 contract DeployTeeMock is Script {
     uint256 internal constant DEFENDER_BOND = 0.1 ether;
@@ -42,8 +42,8 @@ contract DeployTeeMock is Script {
     function run() external {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerKey);
-        address proposer_ = vm.envAddress("PROPOSER");
-        address challenger_ = vm.envAddress("CHALLENGER");
+        address[] memory proposers_ = vm.envAddress("PROPOSERS", ",");
+        address[] memory challengers_ = vm.envAddress("CHALLENGERS", ",");
 
         vm.startBroadcast(deployerKey);
 
@@ -54,6 +54,8 @@ contract DeployTeeMock is Script {
         bytes32 imageId = keccak256("mock-image-id");
         bytes memory rootKey = abi.encodePacked(bytes32(uint256(1)), bytes32(uint256(2)), bytes32(uint256(3)));
         TeeProofVerifier teeProofVerifier = new TeeProofVerifier(mockRiscZero, imageId, rootKey);
+        for (uint256 i = 0; i < proposers_.length; i++) teeProofVerifier.addProposer(proposers_[i]);
+        for (uint256 i = 0; i < challengers_.length; i++) teeProofVerifier.addChallenger(challengers_[i]);
 
         // 3. DisputeGameFactory (via Proxy)
         DisputeGameFactory factory = _deployFactory(deployer);
@@ -62,8 +64,7 @@ contract DeployTeeMock is Script {
         AnchorStateRegistry anchorStateRegistry = _deployAnchorStateRegistry(deployer, factory);
 
         // 5. TeeDisputeGame implementation + register in factory
-        TeeDisputeGame teeDisputeGame =
-            _deployAndRegisterGame(factory, teeProofVerifier, anchorStateRegistry, proposer_, challenger_);
+        TeeDisputeGame teeDisputeGame = _deployAndRegisterGame(factory, teeProofVerifier, anchorStateRegistry);
 
         vm.stopBroadcast();
 
@@ -75,8 +76,6 @@ contract DeployTeeMock is Script {
         console2.log("TeeDisputeGame impl  :", address(teeDisputeGame));
         console2.log("");
         console2.log("=== Config ===");
-        console2.log("PROPOSER             :", proposer_);
-        console2.log("CHALLENGER           :", challenger_);
         console2.log("DEFENDER_BOND        :", DEFENDER_BOND);
         console2.log("CHALLENGER_BOND      :", CHALLENGER_BOND);
         console2.log("TEE_GAME_TYPE        :", TEE_DISPUTE_GAME_TYPE);
@@ -121,9 +120,7 @@ contract DeployTeeMock is Script {
     function _deployAndRegisterGame(
         DisputeGameFactory factory,
         TeeProofVerifier teeProofVerifier,
-        AnchorStateRegistry anchorStateRegistry,
-        address proposer_,
-        address challenger_
+        AnchorStateRegistry anchorStateRegistry
     )
         internal
         returns (TeeDisputeGame)
@@ -134,9 +131,7 @@ contract DeployTeeMock is Script {
             IDisputeGameFactory(address(factory)),
             ITeeProofVerifier(address(teeProofVerifier)),
             CHALLENGER_BOND,
-            IAnchorStateRegistry(address(anchorStateRegistry)),
-            proposer_,
-            challenger_
+            IAnchorStateRegistry(address(anchorStateRegistry))
         );
 
         factory.setImplementation(TEE_GAME_TYPE, IDisputeGame(address(teeDisputeGame)), bytes(""));

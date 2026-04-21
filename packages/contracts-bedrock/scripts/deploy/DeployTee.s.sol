@@ -23,8 +23,8 @@ contract Deploy is Script {
         uint64 maxProveDuration;
         uint256 challengerBond;
         address proofVerifierOwner;
-        address proposer;
-        address challenger;
+        address[] proposers;
+        address[] challengers;
     }
 
     function run() external returns (TeeProofVerifier teeProofVerifier, TeeDisputeGame teeDisputeGame) {
@@ -33,6 +33,14 @@ contract Deploy is Script {
         vm.startBroadcast(cfg.deployerKey);
 
         teeProofVerifier = new TeeProofVerifier(cfg.riscZeroVerifier, cfg.imageId, cfg.nitroRootKey);
+
+        for (uint256 i = 0; i < cfg.proposers.length; i++) {
+            teeProofVerifier.addProposer(cfg.proposers[i]);
+        }
+        for (uint256 i = 0; i < cfg.challengers.length; i++) {
+            teeProofVerifier.addChallenger(cfg.challengers[i]);
+        }
+
         if (cfg.proofVerifierOwner != cfg.deployer) {
             teeProofVerifier.transferOwnership(cfg.proofVerifierOwner);
         }
@@ -43,9 +51,7 @@ contract Deploy is Script {
             cfg.disputeGameFactory,
             ITeeProofVerifier(address(teeProofVerifier)),
             cfg.challengerBond,
-            cfg.anchorStateRegistry,
-            cfg.proposer,
-            cfg.challenger
+            cfg.anchorStateRegistry
         );
 
         vm.stopBroadcast();
@@ -67,7 +73,7 @@ contract Deploy is Script {
         cfg.maxProveDuration = uint64(vm.envUint("MAX_PROVE_DURATION"));
         cfg.challengerBond = vm.envUint("CHALLENGER_BOND");
         cfg.proofVerifierOwner = vm.envOr("PROOF_VERIFIER_OWNER", cfg.deployer);
-        cfg.proposer = vm.envAddress("PROPOSER");
-        cfg.challenger = vm.envAddress("CHALLENGER");
+        cfg.proposers = vm.envAddress("PROPOSERS", ",");
+        cfg.challengers = vm.envAddress("CHALLENGERS", ",");
     }
 }

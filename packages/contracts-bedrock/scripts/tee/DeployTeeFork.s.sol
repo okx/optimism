@@ -24,8 +24,8 @@ import { Duration, GameType, Hash, Proposal } from "src/dispute/lib/Types.sol";
 ///   anvil --fork-url $ETH_RPC_URL --block-time 1
 ///
 ///   PRIVATE_KEY=0xac09...ff80 \
-///   PROPOSER=0x7099...79C8 \
-///   CHALLENGER=0x3C44...93BC \
+///   PROPOSERS=0x7099...79C8 \
+///   CHALLENGERS=0x3C44...93BC \
 ///   RISC_ZERO_VERIFIER=0x8EaB2D97Dfce405A1692a21b3ff3A172d593D319 \
 ///   RISC_ZERO_IMAGE_ID=0x<guest image id> \
 ///   NITRO_ROOT_KEY=0x<96 bytes P384 root key hex> \
@@ -45,15 +45,17 @@ contract DeployTeeFork is Script {
     function run() external {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerKey);
-        address proposer_ = vm.envAddress("PROPOSER");
-        address challenger_ = vm.envAddress("CHALLENGER");
+        address[] memory proposers_ = vm.envAddress("PROPOSERS", ",");
+        address[] memory challengers_ = vm.envAddress("CHALLENGERS", ",");
 
         vm.startBroadcast(deployerKey);
 
         TeeProofVerifier teeProofVerifier = _deployVerifier();
+        for (uint256 i = 0; i < proposers_.length; i++) teeProofVerifier.addProposer(proposers_[i]);
+        for (uint256 i = 0; i < challengers_.length; i++) teeProofVerifier.addChallenger(challengers_[i]);
         DisputeGameFactory factory = _deployFactory(deployer);
         AnchorStateRegistry asr = _deployASR(deployer, factory);
-        TeeDisputeGame impl = _deployGame(factory, teeProofVerifier, asr, proposer_, challenger_);
+        TeeDisputeGame impl = _deployGame(factory, teeProofVerifier, asr);
 
         vm.stopBroadcast();
 
@@ -105,9 +107,7 @@ contract DeployTeeFork is Script {
     function _deployGame(
         DisputeGameFactory factory,
         TeeProofVerifier verifier,
-        AnchorStateRegistry asr,
-        address proposer_,
-        address challenger_
+        AnchorStateRegistry asr
     )
         internal
         returns (TeeDisputeGame)
@@ -118,9 +118,7 @@ contract DeployTeeFork is Script {
             IDisputeGameFactory(address(factory)),
             ITeeProofVerifier(address(verifier)),
             CHALLENGER_BOND,
-            IAnchorStateRegistry(address(asr)),
-            proposer_,
-            challenger_
+            IAnchorStateRegistry(address(asr))
         );
         factory.setImplementation(TEE_GAME_TYPE, IDisputeGame(address(impl)), bytes(""));
         factory.setInitBond(TEE_GAME_TYPE, DEFENDER_BOND);

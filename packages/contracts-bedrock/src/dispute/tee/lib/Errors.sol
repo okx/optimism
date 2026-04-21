@@ -8,9 +8,6 @@ pragma solidity ^0.8.15;
 /// @notice Thrown when the claim has already been challenged.
 error ClaimAlreadyChallenged();
 
-/// @notice Thrown when the game type of the parent game does not match the current game.
-error UnexpectedGameType();
-
 /// @notice Thrown when the parent game is invalid.
 error InvalidParentGame();
 
@@ -28,6 +25,3 @@ error InvalidProposalStatus();
 
 /// @notice Thrown when the game is initialized by an incorrect factory.
 error IncorrectDisputeGameFactory();
-
-/// @notice Thrown when prove() is called but the claim has not been challenged.
-error ClaimNotChallenged();

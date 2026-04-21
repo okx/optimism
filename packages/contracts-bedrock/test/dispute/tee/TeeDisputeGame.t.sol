@@ -80,7 +80,7 @@ contract TeeDisputeGameTest is TeeTestUtils {
         (Hash startingRoot, uint256 startingBlockNumber) = game.startingOutputRoot();
         assertEq(startingRoot.raw(), computeRootClaim(ANCHOR_BLOCK_HASH, ANCHOR_STATE_HASH).raw());
         assertEq(startingBlockNumber, ANCHOR_L2_BLOCK);
-        assertEq(game.proposer(), proposer);
+        assertEq(game.PROPOSER(), proposer);
         assertEq(game.refundModeCredit(proposer), DEFENDER_BOND);
         assertTrue(game.wasRespectedGameTypeWhenCreated());
     }

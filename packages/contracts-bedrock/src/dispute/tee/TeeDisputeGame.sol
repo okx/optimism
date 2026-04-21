@@ -21,7 +21,6 @@ import {
     GameNotFinalized,
     GamePaused,
     IncorrectBondAmount,
-    InvalidBondDistributionMode,
     NoCreditToClaim,
     UnexpectedRootClaim
 } from "src/dispute/lib/Errors.sol";
@@ -97,8 +96,9 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     ////////////////////////////////////////////////////////////////
 
     event Challenged(address indexed challenger);
-    event Proved(address indexed prover);
+    event Proved(address indexed prover, address[] signers);
     event GameClosed(BondDistributionMode bondDistributionMode);
+    event CreditClaimed(address indexed recipient, uint256 amount, BondDistributionMode mode);
 
     error EmptyBatchProofs();
     error StartHashMismatch(bytes32 expectedCombined, bytes32 actualCombined);
@@ -115,7 +115,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     bytes32 private constant DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
     bytes32 private constant DOMAIN_NAME_HASH = keccak256("TeeDisputeGame");
-    bytes32 private constant DOMAIN_VERSION_HASH = keccak256("1");
+    bytes32 private constant DOMAIN_VERSION_HASH = keccak256(bytes(version));
     bytes32 private constant BATCH_PROOF_TYPEHASH = keccak256(
         "BatchProof(bytes32 startBlockHash,bytes32 startStateHash,bytes32 endBlockHash,bytes32 endStateHash,uint256 l2Block)"
     );
@@ -131,8 +131,6 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     ITeeProofVerifier internal immutable TEE_PROOF_VERIFIER;
     uint256 internal immutable CHALLENGER_BOND;
     IAnchorStateRegistry internal immutable ANCHOR_STATE_REGISTRY;
-    address internal immutable PROPOSER;
-    address internal immutable CHALLENGER;
 
     ////////////////////////////////////////////////////////////////
     //                         State Vars                         //
@@ -144,7 +142,6 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     Timestamp public createdAt;
     Timestamp public resolvedAt;
     GameStatus public status;
-    /// @notice The proposer EOA captured during initialization, aligned with OP permissioned games.
     address public proposer;
     bool internal initialized;
     ClaimData public claimData;
@@ -166,9 +163,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         IDisputeGameFactory _disputeGameFactory,
         ITeeProofVerifier _teeProofVerifier,
         uint256 _challengerBond,
-        IAnchorStateRegistry _anchorStateRegistry,
-        address _proposer,
-        address _challenger
+        IAnchorStateRegistry _anchorStateRegistry
     ) {
         MAX_CHALLENGE_DURATION = _maxChallengeDuration;
         MAX_PROVE_DURATION = _maxProveDuration;
@@ -176,8 +171,6 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         TEE_PROOF_VERIFIER = _teeProofVerifier;
         CHALLENGER_BOND = _challengerBond;
         ANCHOR_STATE_REGISTRY = _anchorStateRegistry;
-        PROPOSER = _proposer;
-        CHALLENGER = _challenger;
     }
 
     ////////////////////////////////////////////////////////////////
@@ -187,7 +180,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     function initialize() external payable virtual {
         if (initialized) revert AlreadyInitialized();
         if (address(DISPUTE_GAME_FACTORY) != msg.sender) revert IncorrectDisputeGameFactory();
-        if (tx.origin != PROPOSER) revert BadAuth();
+        if (!TEE_PROOF_VERIFIER.allowedProposers(tx.origin)) revert BadAuth();
 
         assembly {
             if iszero(eq(calldatasize(), 0xBE)) {
@@ -255,8 +248,9 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
 
     function challenge() external payable returns (ProposalStatus) {
         if (claimData.status != ProposalStatus.Unchallenged) revert ClaimAlreadyChallenged();
-        if (msg.sender != CHALLENGER) revert BadAuth();
+        if (!TEE_PROOF_VERIFIER.allowedChallengers(msg.sender)) revert BadAuth();
         if (gameOver()) revert GameOver();
+        if (_getParentGameStatus() == GameStatus.CHALLENGER_WINS) revert InvalidParentGame();
         if (msg.value != CHALLENGER_BOND) revert IncorrectBondAmount();
 
         claimData.counteredBy = msg.sender;
@@ -304,6 +298,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         }
 
         uint256 prevBlock = startingOutputRoot.l2SequenceNumber;
+        address[] memory signers = new address[](proofs.length);
 
         for (uint256 i = 0; i < proofs.length; i++) {
             // Chain continuity: each batch starts where the previous ended
@@ -333,7 +328,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
                 )
             );
             bytes32 batchDigest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
-            TEE_PROOF_VERIFIER.verifyBatch(batchDigest, proofs[i].signature);
+            signers[i] = TEE_PROOF_VERIFIER.verifyBatch(batchDigest, proofs[i].signature);
 
             prevBlock = proofs[i].l2Block;
         }
@@ -360,7 +355,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
             claimData.status = ProposalStatus.ChallengedAndValidProofProvided;
         }
 
-        emit Proved(claimData.prover);
+        emit Proved(claimData.prover, signers);
         return claimData.status;
     }
 
@@ -410,10 +405,8 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         uint256 recipientCredit;
         if (bondDistributionMode == BondDistributionMode.REFUND) {
             recipientCredit = refundModeCredit[_recipient];
-        } else if (bondDistributionMode == BondDistributionMode.NORMAL) {
-            recipientCredit = normalModeCredit[_recipient];
         } else {
-            revert InvalidBondDistributionMode();
+            recipientCredit = normalModeCredit[_recipient];
         }
 
         if (recipientCredit == 0) revert NoCreditToClaim();
@@ -423,14 +416,14 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
 
         (bool success,) = _recipient.call{ value: recipientCredit }(hex"");
         if (!success) revert BondTransferFailed();
+
+        emit CreditClaimed(_recipient, recipientCredit, bondDistributionMode);
     }
 
     function closeGame() public {
         if (bondDistributionMode == BondDistributionMode.REFUND || bondDistributionMode == BondDistributionMode.NORMAL)
         {
             return;
-        } else if (bondDistributionMode != BondDistributionMode.UNDECIDED) {
-            revert InvalidBondDistributionMode();
         }
 
         if (ANCHOR_STATE_REGISTRY.paused()) revert GamePaused();
@@ -563,13 +556,6 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         return ANCHOR_STATE_REGISTRY;
     }
 
-    function proposer_() external view returns (address) {
-        return PROPOSER;
-    }
-
-    function challenger_() external view returns (address) {
-        return CHALLENGER;
-    }
 
     ////////////////////////////////////////////////////////////////
     //                    Internal Functions                      //
