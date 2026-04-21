@@ -115,7 +115,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     bytes32 private constant DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
     bytes32 private constant DOMAIN_NAME_HASH = keccak256("TeeDisputeGame");
-    bytes32 private constant DOMAIN_VERSION_HASH = keccak256("1");
+    bytes32 private constant DOMAIN_VERSION_HASH = keccak256(bytes(version));
     bytes32 private constant BATCH_PROOF_TYPEHASH = keccak256(
         "BatchProof(bytes32 startBlockHash,bytes32 startStateHash,bytes32 endBlockHash,bytes32 endStateHash,uint256 l2Block)"
     );
