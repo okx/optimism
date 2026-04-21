@@ -101,8 +101,11 @@ contract TeeProofVerifier is Ownable {
     /// @param seal The RISC Zero proof seal (Groth16)
     /// @param attestationData Attestation fields from the guest program
     function register(bytes calldata seal, AttestationData calldata attestationData) external onlyOwner {
-        // 1. Validate public key length
+        // 1. Validate public key length and uncompressed point prefix
         if (attestationData.publicKey.length != 65) {
+            revert InvalidPublicKey();
+        }
+        if (attestationData.publicKey[0] != 0x04) {
             revert InvalidPublicKey();
         }
 
