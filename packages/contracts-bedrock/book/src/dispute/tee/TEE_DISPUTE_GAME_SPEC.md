@@ -395,14 +395,15 @@ Guardian **必须**逐个 blacklist/retire 受影响的子游戏，使其在 `cl
 
 | 角色 | 合约 | 能力 | 说明 |
 |------|------|------|------|
-| PROPOSER | TeeDisputeGame（immutable） | 创建游戏（tx.origin）、调用 prove() | 单地址，不可变 |
-| CHALLENGER | TeeDisputeGame（immutable） | 调用 challenge() | 单地址，不可变 |
-| Owner | TeeProofVerifier（Ownable） | 注册/撤销 enclave | 信任根，详见 Section 5 |
+| Proposer | TeeProofVerifier（whitelist） | 创建游戏（tx.origin）、调用 prove() | 白名单，Owner 可动态增删 |
+| Challenger | TeeProofVerifier（whitelist） | 调用 challenge() | 白名单，Owner 可动态增删 |
+| Owner | TeeProofVerifier（Ownable） | 注册/撤销 enclave；管理 Proposer/Challenger 白名单 | 信任根，详见 Section 5 |
 | Guardian | ASR（来自 SystemConfig） | pause/blacklist/retire 游戏 | 间接影响 bond 分配，详见 Section 10 |
 
 **设计说明**：
 - Proposer 使用 `tx.origin` 检查（与 PermissionedDisputeGame 一致），Challenger 使用 `msg.sender` 检查
-- 两个地址均在 constructor 设置，所有 Clone 实例共享，更改需部署新 implementation
+- 白名单存储于 `TeeProofVerifier.allowedProposers` / `allowedProposers`，由 Owner 通过 `addProposer` / `removeProposer` / `addChallenger` / `removeChallenger` 管理，无需重新部署即可调整准入地址
+- `prove()` 限制为创建本局游戏的 proposer（`msg.sender == proposer`，实例级绑定），防止其他白名单地址抢证
 - TeeProofVerifier 的 Owner 可注册任意 Enclave，只要是 AWS Enclave 就可以注册，是整个系统的信任根
 
 ---
@@ -439,9 +440,9 @@ Guardian **必须**逐个 blacklist/retire 受影响的子游戏，使其在 `cl
 
 ### 访问控制
 
-**INV-7**: 只有 PROPOSER（tx.origin）能通过 Factory 创建游戏
+**INV-7**: 只有 `TeeProofVerifier.allowedProposers[tx.origin] == true` 的地址能通过 Factory 创建游戏
 
-**INV-8**: 只有 CHALLENGER（msg.sender）能调用 challenge()
+**INV-8**: 只有 `TeeProofVerifier.allowedChallengers[msg.sender] == true` 的地址能调用 challenge()
 
 **INV-9**: 只有 proposer（msg.sender，即 initialize 时记录的地址）能调用 prove()
 

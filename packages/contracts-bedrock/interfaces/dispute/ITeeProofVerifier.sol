@@ -14,4 +14,10 @@ interface ITeeProofVerifier {
     /// @param enclaveAddress The address to check.
     /// @return True if the address is registered.
     function isRegistered(address enclaveAddress) external view returns (bool);
+
+    /// @notice Check if an address is an allowed proposer.
+    function allowedProposers(address proposer) external view returns (bool);
+
+    /// @notice Check if an address is an allowed challenger.
+    function allowedChallengers(address challenger) external view returns (bool);
 }
