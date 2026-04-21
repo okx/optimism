@@ -97,7 +97,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     ////////////////////////////////////////////////////////////////
 
     event Challenged(address indexed challenger);
-    event Proved(address indexed prover);
+    event Proved(address indexed prover, address[] signers);
     event GameClosed(BondDistributionMode bondDistributionMode);
     event CreditClaimed(address indexed recipient, uint256 amount, BondDistributionMode mode);
 
@@ -302,6 +302,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         }
 
         uint256 prevBlock = startingOutputRoot.l2SequenceNumber;
+        address[] memory signers = new address[](proofs.length);
 
         for (uint256 i = 0; i < proofs.length; i++) {
             // Chain continuity: each batch starts where the previous ended
@@ -331,7 +332,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
                 )
             );
             bytes32 batchDigest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
-            TEE_PROOF_VERIFIER.verifyBatch(batchDigest, proofs[i].signature);
+            signers[i] = TEE_PROOF_VERIFIER.verifyBatch(batchDigest, proofs[i].signature);
 
             prevBlock = proofs[i].l2Block;
         }
@@ -358,7 +359,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
             claimData.status = ProposalStatus.ChallengedAndValidProofProvided;
         }
 
-        emit Proved(claimData.prover);
+        emit Proved(claimData.prover, signers);
         return claimData.status;
     }
 
