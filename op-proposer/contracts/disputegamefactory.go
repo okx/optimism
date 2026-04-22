@@ -133,6 +133,17 @@ func (f *DisputeGameFactory) gameAtIndex(ctx context.Context, idx uint64) (gameM
 	timestamp := result.GetUint64(1)
 	address := result.GetAddress(2)
 
+	// For xlayer: only game types 0 (CannonFaultDisputeGame) and 1 (PermissionedDisputeGame)
+	// use the standard FaultDisputeGame ABI with claimData(uint256). Skip claimData() for
+	// other types to avoid ABI call failures on unknown game types deployed on-chain.
+	if gameType > 1 {
+		return gameMetadata{
+			GameType:  gameType,
+			Timestamp: time.Unix(int64(timestamp), 0),
+			Address:   address,
+		}, nil
+	}
+
 	gameContract := batching.NewBoundContract(f.gameABI, address)
 	cCtx, cancel = context.WithTimeout(ctx, f.networkTimeout)
 	defer cancel()

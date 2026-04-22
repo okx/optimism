@@ -18,7 +18,8 @@ func TestValidConfigIsValid(t *testing.T) {
 }
 
 func TestRollupRpc(t *testing.T) {
-	for _, gameType := range preInteropGameTypes {
+	// For xlayer: only game types 0 and 1 are supported; higher preInterop types are rejected first.
+	for _, gameType := range []uint32{0, 1} {
 		t.Run("RequiredWithPreInteropGame", func(t *testing.T) {
 			cfg := validConfig()
 			cfg.DGFAddress = common.Address{0xaa}.Hex()
@@ -30,14 +31,14 @@ func TestRollupRpc(t *testing.T) {
 		})
 	}
 
-	t.Run("NotRequiredForOtherGameTypes", func(t *testing.T) {
+	t.Run("UnsupportedForOtherGameTypes", func(t *testing.T) {
 		cfg := validConfig()
 		cfg.DGFAddress = common.Address{0xaa}.Hex()
 		cfg.ProposalInterval = 20
 		cfg.RollupRpc = ""
 		cfg.SupervisorRpcs = []string{"http://localhost:8882/supervisor"}
 		cfg.DisputeGameType = 492743
-		require.NoError(t, cfg.Check())
+		require.ErrorIs(t, cfg.Check(), ErrUnsupportedDisputeGameType)
 	})
 }
 
@@ -50,17 +51,18 @@ func TestSupervisorRpc(t *testing.T) {
 			cfg.RollupRpc = "http://localhost:8882/rollup"
 			cfg.SupervisorRpcs = nil
 			cfg.DisputeGameType = gameType
-			require.ErrorIs(t, cfg.Check(), ErrMissingSupervisorRpc)
+			// For xlayer: postInterop game types (>1) are rejected by ErrUnsupportedDisputeGameType.
+			require.ErrorIs(t, cfg.Check(), ErrUnsupportedDisputeGameType)
 		})
 
-		t.Run("NotRequiredForOtherGameTypes", func(t *testing.T) {
+		t.Run("UnsupportedForOtherGameTypes", func(t *testing.T) {
 			cfg := validConfig()
 			cfg.DGFAddress = common.Address{0xaa}.Hex()
 			cfg.ProposalInterval = 20
 			cfg.RollupRpc = "http://localhost:8882/rollup"
 			cfg.SupervisorRpcs = nil
 			cfg.DisputeGameType = 492743
-			require.NoError(t, cfg.Check())
+			require.ErrorIs(t, cfg.Check(), ErrUnsupportedDisputeGameType)
 		})
 	}
 }
@@ -84,11 +86,12 @@ func TestSuperNodeRpc(t *testing.T) {
 			cfg.SupervisorRpcs = nil
 			cfg.SuperNodeRpcs = []string{"http://localhost:8882/supernode"}
 			cfg.DisputeGameType = gameType
-			require.NoError(t, cfg.Check())
+			// For xlayer: postInterop game types (>1) are rejected by ErrUnsupportedDisputeGameType.
+			require.ErrorIs(t, cfg.Check(), ErrUnsupportedDisputeGameType)
 		})
 	}
 
-	t.Run("AllowedForOtherGameTypes", func(t *testing.T) {
+	t.Run("UnsupportedForOtherGameTypes", func(t *testing.T) {
 		cfg := validConfig()
 		cfg.DGFAddress = common.Address{0xaa}.Hex()
 		cfg.ProposalInterval = 20
@@ -96,7 +99,7 @@ func TestSuperNodeRpc(t *testing.T) {
 		cfg.SupervisorRpcs = nil
 		cfg.SuperNodeRpcs = []string{"http://localhost:8882/supernode"}
 		cfg.DisputeGameType = 492743
-		require.NoError(t, cfg.Check())
+		require.ErrorIs(t, cfg.Check(), ErrUnsupportedDisputeGameType)
 	})
 }
 
@@ -135,7 +138,8 @@ func TestRequireSomeRPCSourceForUnknownGameTypes(t *testing.T) {
 	cfg.SupervisorRpcs = nil
 	cfg.SuperNodeRpcs = nil
 	cfg.DisputeGameType = 492743
-	require.ErrorIs(t, cfg.Check(), ErrMissingSource)
+	// For xlayer: unknown game types are rejected before the missing source check.
+	require.ErrorIs(t, cfg.Check(), ErrUnsupportedDisputeGameType)
 }
 
 func validConfig() *CLIConfig {

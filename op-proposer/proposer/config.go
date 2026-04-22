@@ -20,6 +20,8 @@ var (
 	ErrMissingSupervisorRpc = errors.New("missing supervisor rpc or supernode rpc")
 	ErrMissingSource        = errors.New("missing proposal source rpc (rollup, supervisor, or supernode)")
 	ErrConflictingSource    = errors.New("must specify exactly one of rollup rpc, supervisor rpc, or supernode rpc")
+	// For xlayer: only game types 0 and 1 are supported by the current gameAtIndex implementation.
+	ErrUnsupportedDisputeGameType = errors.New("xlayer proposer only supports DisputeGameType 0 (CannonFaultDisputeGame) or 1 (PermissionedDisputeGame)")
 
 	// preInteropGameTypes are  game types that enforce having a rollup rpc.
 	// It is ok if this list isn't complete, unknown game types will allow either rollup or supervisor
@@ -123,6 +125,12 @@ func (c *CLIConfig) Check() error {
 	}
 	if sourceCount > 1 {
 		return ErrConflictingSource
+	}
+	// For xlayer: gameAtIndex only fetches claimData for game types 0 (CannonFaultDisputeGame)
+	// and 1 (PermissionedDisputeGame). Using any other DisputeGameType will cause HasProposedSince
+	// to always return false, leading to duplicate proposal submissions.
+	if c.DisputeGameType > 1 {
+		return ErrUnsupportedDisputeGameType
 	}
 	// Require rollup RPC for pre interop game types
 	if c.DGFAddress != "" && slices.Contains(preInteropGameTypes, c.DisputeGameType) && c.RollupRpc == "" {
