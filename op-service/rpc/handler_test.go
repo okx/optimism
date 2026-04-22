@@ -147,7 +147,7 @@ func TestHandlerWithHTTPBodyLimit(t *testing.T) {
 	}
 }
 
-// TestHandlerWithoutHTTPBodyLimit tests that handler works without body limit configured
+// X Layer: TestHandlerWithoutHTTPBodyLimit tests that handler works without body limit configured
 func TestHandlerWithoutHTTPBodyLimit(t *testing.T) {
 	logger := testlog.Logger(t, log.LevelInfo)
 	h := NewHandler("v1.2.3", WithLogger(logger))

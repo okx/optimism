@@ -39,11 +39,6 @@ var (
 	}
 
 	// Optional flags
-	L2OOAddressFlag = &cli.StringFlag{
-		Name:    "l2oo-address",
-		Usage:   "Address of the L2OutputOracle contract",
-		EnvVars: prefixEnvVars("L2OO_ADDRESS"),
-	}
 	PollIntervalFlag = &cli.DurationFlag{
 		Name:    "poll-interval",
 		Usage:   "Delay between periodic checks on whether it is time to load an output root and propose it.",
@@ -84,6 +79,13 @@ var (
 		Value:   false,
 		EnvVars: prefixEnvVars("WAIT_NODE_SYNC"),
 	}
+	// For xlayer: TeeRollup RPC flag
+	TeeRollupRpcFlag = &cli.StringFlag{
+		Name:    "tee-rollup-rpc",
+		Usage:   "TeeRollup RPC service base URL (required when --game-type=1960)",
+		EnvVars: []string{"TEE_ROLLUP_RPC"},
+	}
+	// For xlayer: genesis height
 	GenesisHeight = &cli.Uint64Flag{
 		Name:    "genesis-height",
 		Usage:   "The genesis block height to use",
@@ -101,7 +103,6 @@ var requiredFlags = []cli.Flag{
 var optionalFlags = []cli.Flag{
 	RollupRpcFlag,
 	SupervisorRpcsFlag,
-	L2OOAddressFlag,
 	PollIntervalFlag,
 	AllowNonFinalizedFlag,
 	L2OutputHDPathFlag,
@@ -110,7 +111,8 @@ var optionalFlags = []cli.Flag{
 	DisputeGameTypeFlag,
 	ActiveSequencerCheckDurationFlag,
 	WaitNodeSyncFlag,
-	GenesisHeight,
+	TeeRollupRpcFlag, // For xlayer
+	GenesisHeight,    // For xlayer
 }
 
 func init() {

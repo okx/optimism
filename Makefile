@@ -23,14 +23,22 @@ build-contracts:
 	(cd packages/contracts-bedrock && just build)
 .PHONY: build-contracts
 
-lint-go: ## Lints Go code with specific linters
-	golangci-lint run ./...
+build-customlint:
+	make -C linter build
+.PHONY: build-customlint
+
+lint-go: build-customlint ## Lints Go code with specific linters
+	./linter/bin/op-golangci-lint run ./...
 	go mod tidy -diff
 .PHONY: lint-go
 
-lint-go-fix: ## Lints Go code with specific linters and fixes reported issues
-	golangci-lint run ./... --fix
+lint-go-fix: build-customlint ## Lints Go code with specific linters and fixes reported issues
+	./linter/bin/op-golangci-lint run ./... --fix
 .PHONY: lint-go-fix
+
+check-op-geth-version: ## Checks that op-geth version in go.mod is valid
+	go run ./ops/scripts/check-op-geth-version
+.PHONY: check-op-geth-version
 
 golang-docker: ## Builds Docker images for Go components using buildx
 	# We don't use a buildx builder here, and just load directly into regular docker, for convenience.
@@ -52,6 +60,10 @@ docker-builder: ## Creates a Docker buildx builder
 	docker buildx create \
 		--driver=docker-container --name=buildx-build --bootstrap --use
 .PHONY: docker-builder
+
+compute-git-versions: ## Computes GIT_VERSION for all images and outputs JSON
+	@GIT_COMMIT=$$(git rev-parse HEAD) ./ops/scripts/compute-git-versions.sh
+.PHONY: compute-git-versions
 
 # add --print to dry-run
 cross-op-node: ## Builds cross-platform Docker image for op-node
@@ -126,6 +138,10 @@ op-supernode: ## Builds op-supernode binary
 	just $(JUSTFLAGS) ./op-supernode/op-supernode
 .PHONY: op-supernode
 
+op-interop-filter: ## Builds op-interop-filter binary
+	just $(JUSTFLAGS) ./op-interop-filter/op-interop-filter
+.PHONY: op-interop-filter
+
 op-program: ## Builds op-program binary
 	make -C ./op-program op-program
 .PHONY: op-program
@@ -142,8 +158,18 @@ op-conductor: ## Builds op-conductor binary
 	just $(JUSTFLAGS) ./op-conductor/op-conductor
 .PHONY: op-conductor
 
-reproducible-prestate:   ## Builds reproducible-prestate binary
-	make -C ./op-program reproducible-prestate
+reproducible-prestate-op-program:
+	make -C ./op-program build-reproducible-prestate
+.PHONY: reproducible-prestate-op-program
+
+reproducible-prestate-kona:
+	cd rust && just build-kona-reproducible-prestate
+.PHONY: reproducible-prestate-kona
+
+reproducible-prestate:  reproducible-prestate-op-program reproducible-prestate-kona ## Builds reproducible prestates for op-program and kona
+	# Output the prestate hashes after all the builds complete so they are easy to find at the end of the build logs.
+	make -C ./op-program output-prestate-hash
+	cd rust && just output-kona-prestate-hash
 .PHONY: reproducible-prestate
 
 cannon-prestates: cannon op-program
@@ -173,7 +199,6 @@ test-unit: ## Runs unit tests for individual components
 	make -C ./op-proposer test
 	make -C ./op-batcher test
 	make -C ./op-e2e test
-	(cd packages/contracts-bedrock && just test)
 .PHONY: test-unit
 
 # Remove the baseline-commit to generate a base reading & show all issues
@@ -294,6 +319,7 @@ go-tests-short: $(TEST_DEPS) ## Runs comprehensive Go tests with -short flag
 # Internal target for running Go tests with gotestsum for CI
 # Usage: make _go-tests-ci-internal GO_TEST_FLAGS="-short"
 _go-tests-ci-internal:
+	$(MAKE) -C cannon cannon elf # Required for cannon/provider_test TestLastStepCacheAccuracy
 	@echo "Setting up test directories..."
 	mkdir -p ./tmp/test-results ./tmp/testlogs
 	@echo "Running Go tests with gotestsum..."
@@ -334,6 +360,10 @@ go-tests-short-ci: ## Runs short Go tests with gotestsum for CI (assumes deps bu
 go-tests-ci: ## Runs comprehensive Go tests with gotestsum for CI (assumes deps built by CI)
 	$(MAKE) _go-tests-ci-internal GO_TEST_FLAGS=""
 .PHONY: go-tests-ci
+
+go-tests-ci-kona-action: ## Runs action tests for kona with gotestsum for CI (assumes deps built by CI)
+	$(MAKE) _go-tests-ci-internal GO_TEST_FLAGS="-count=1 -timeout 60m -run Test_ProgramAction"
+.PHONY: go-tests-ci-kona-action
 
 go-tests-fraud-proofs-ci: ## Runs fraud proofs Go tests with gotestsum for CI (assumes deps built by CI)
 	@echo "Setting up test directories..."

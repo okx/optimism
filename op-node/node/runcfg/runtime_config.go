@@ -94,6 +94,15 @@ func (r *RuntimeConfig) RecommendedProtocolVersion() params.ProtocolVersion {
 	return r.recommended
 }
 
+// SetP2PSequencerAddress sets the P2P sequencer address directly, bypassing L1.
+// Used when skip-l1-check is enabled and the address is obtained from an upstream source.
+func (r *RuntimeConfig) SetP2PSequencerAddress(addr common.Address) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.p2pBlockSignerAddr = addr
+	r.log.Info("set P2P sequencer address from external source", "p2p_seq_address", addr)
+}
+
 // Load resets the runtime configuration by fetching the latest config data from L1 at the given L1 block.
 // Load is safe to call concurrently, but will lock the runtime configuration modifications only,
 // and will thus not block other Load calls with possibly alternative L1 block views.

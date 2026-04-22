@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ethereum-optimism/optimism/op-program/client/l2/engineapi"
+	"github.com/ethereum-optimism/optimism/op-service/bigs"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum/go-ethereum/beacon/engine"
 	"github.com/ethereum/go-ethereum/common"
@@ -63,7 +64,7 @@ func NewMiner(t *testing.T, logger log.Logger, isthmusTime uint64) (*Miner, *cor
 		ExtraData: []byte{0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8}, // for Holocene eip-1559 params
 	}
 	ethCfg := &ethconfig.Config{
-		NetworkId:                 genesis.Config.ChainID.Uint64(),
+		NetworkId:                 bigs.Uint64Strict(genesis.Config.ChainID),
 		Genesis:                   genesis,
 		RollupDisableTxPoolGossip: true,
 		StateScheme:               rawdb.HashScheme,
@@ -122,7 +123,7 @@ func (m *Miner) Fork(t *testing.T, blockNumber uint64, attrs *eth.PayloadAttribu
 			GasLimit:              &gasLimit,
 			EIP1559Params:         &eip1559Params,
 		}
-		if m.backend.Config().IsMinBaseFee(head.Time) {
+		if m.backend.Config().IsJovian(head.Time) {
 			stub := uint64(1e9)
 			attrs.MinBaseFee = &stub
 		}
@@ -146,7 +147,7 @@ func (m *Miner) MineAt(t *testing.T, head *types.Header, attrs *eth.PayloadAttri
 			GasLimit:              &gasLimit,
 			EIP1559Params:         &eip1559Params,
 		}
-		if m.backend.Config().IsMinBaseFee(head.Time) {
+		if m.backend.Config().IsJovian(head.Time) {
 			stub := uint64(1e9)
 			attrs.MinBaseFee = &stub
 		}

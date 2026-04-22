@@ -117,6 +117,7 @@ func NewConfig(ctx cliiface.Context, log log.Logger) (*config.Config, error) {
 		ConfigPersistence:           configPersistence,
 		SafeDBPath:                  ctx.String(flags.SafeDBPath.Name),
 		Sync:                        *syncConfig,
+		L2FollowSource:              NewL2FollowSourceConfig(ctx),
 		RollupHalt:                  haltOption,
 
 		ConductorEnabled: ctx.Bool(flags.ConductorEnabledFlag.Name),
@@ -131,15 +132,6 @@ func NewConfig(ctx cliiface.Context, log log.Logger) (*config.Config, error) {
 		FetchWithdrawalRootFromState:    ctx.Bool(flags.FetchWithdrawalRootFromState.Name),
 
 		ExperimentalOPStackAPI: ctx.Bool(flags.ExperimentalOPStackAPI.Name),
-
-		// For X Layer
-		Apollo: config.ApolloConfig{
-			Enable:    ctx.Bool(flags.ApolloEnabledFlag.Name),
-			AppID:     ctx.String(flags.ApolloAppIDFlag.Name),
-			IP:        ctx.String(flags.ApolloIPFlag.Name),
-			Cluster:   ctx.String(flags.ApolloClusterFlag.Name),
-			Namespace: ctx.String(flags.ApolloNamespaceFlag.Name),
-		},
 	}
 
 	if err := cfg.LoadPersisted(log); err != nil {
@@ -203,6 +195,15 @@ func NewL2EndpointConfig(ctx cliiface.Context, logger log.Logger) (*config.L2End
 	}, nil
 }
 
+func NewL2FollowSourceConfig(ctx cliiface.Context) *config.L2FollowSourceConfig {
+	l2Addr := ctx.String(flags.L2FollowSource.Name)
+	l2RpcTimeout := ctx.Duration(flags.L2FollowSourceRpcTimeout.Name)
+	return &config.L2FollowSourceConfig{
+		L2RPCAddr:        l2Addr,
+		L2RPCCallTimeout: l2RpcTimeout,
+	}
+}
+
 func NewConfigPersistence(ctx cliiface.Context) config.ConfigPersistence {
 	stateFile := ctx.String(flags.RPCAdminPersistence.Name)
 	if stateFile == "" {
@@ -213,12 +214,13 @@ func NewConfigPersistence(ctx cliiface.Context) config.ConfigPersistence {
 
 func NewDriverConfig(ctx cliiface.Context) *driver.Config {
 	cfg := &driver.Config{
-		VerifierConfDepth:   ctx.Uint64(flags.VerifierL1Confs.Name),
-		SequencerConfDepth:  ctx.Uint64(flags.SequencerL1Confs.Name),
-		SequencerEnabled:    ctx.Bool(flags.SequencerEnabledFlag.Name),
-		SequencerStopped:    ctx.Bool(flags.SequencerStoppedFlag.Name),
-		SequencerMaxSafeLag: ctx.Uint64(flags.SequencerMaxSafeLagFlag.Name),
-		RecoverMode:         ctx.Bool(flags.SequencerRecoverMode.Name),
+		VerifierConfDepth:        ctx.Uint64(flags.VerifierL1Confs.Name),
+		SequencerConfDepth:       ctx.Uint64(flags.SequencerL1Confs.Name),
+		SequencerEnabled:         ctx.Bool(flags.SequencerEnabledFlag.Name),
+		SequencerStopped:         ctx.Bool(flags.SequencerStoppedFlag.Name),
+		SequencerMaxSafeLag:      ctx.Uint64(flags.SequencerMaxSafeLagFlag.Name),
+		RecoverMode:              ctx.Bool(flags.SequencerRecoverMode.Name),
+		SequencerSealingDuration: ctx.Duration(flags.SequencerSealingDurationFlag.Name),
 	}
 
 	// Populate finality config from flags. A finality config with null fields
@@ -279,6 +281,7 @@ Conflicting configuration is deprecated, and will stop the op-node from starting
 	}
 	// X Layer hardcoded fork configurations for file-loaded configs
 	rollup.ApplyXLayerHardcodedForks(&rollupConfig)
+	rollup.FixXLayerL2Time(&rollupConfig, rollupConfigPath)
 	return &rollupConfig, nil
 }
 
@@ -351,25 +354,33 @@ func NewSyncConfig(ctx cliiface.Context, log log.Logger) (*sync.Config, error) {
 	} else if ctx.IsSet(flags.L2EngineSyncEnabled.Name) {
 		log.Error("l2.engine-sync is deprecated and will be removed in a future release. Use --syncmode=execution-layer instead.")
 	}
+	l2FollowSourceEndpoint := ctx.String(flags.L2FollowSource.Name)
+	rrSyncEnabled := ctx.Bool(flags.SyncModeReqRespFlag.Name)
 	// p2p.sync.req-resp=false && syncmode.req-resp=true is not allowed
-	if !ctx.Bool(flags.SyncReqRespName) && ctx.Bool(flags.SyncModeReqRespFlag.Name) {
+	if !ctx.Bool(flags.SyncReqRespName) && rrSyncEnabled {
 		return nil, errors.New("cannot set --p2p.sync.req-resp=false and --syncmode.req-resp=true at the same time")
 	}
 	mode, err := sync.StringToMode(ctx.String(flags.SyncModeFlag.Name))
 	if err != nil {
 		return nil, err
 	}
-
 	engineKind := engine.Kind(ctx.String(flags.L2EngineKind.Name))
+	skipL1Check := ctx.Bool(flags.L2FollowSourceSkipL1Check.Name)
+	if skipL1Check && l2FollowSourceEndpoint == "" {
+		return nil, errors.New("--l2.follow.source.skip-l1-check requires --l2.follow.source to be set")
+	}
 	cfg := &sync.Config{
 		SyncMode:                       mode,
 		SyncModeReqResp:                ctx.Bool(flags.SyncModeReqRespFlag.Name),
 		SkipSyncStartCheck:             ctx.Bool(flags.SkipSyncStartCheck.Name),
 		SupportsPostFinalizationELSync: engineKind.SupportsPostFinalizationELSync(),
+		L2FollowSourceEndpoint:         l2FollowSourceEndpoint,
+		// Sequencer needs a manual initial reset when follow source
+		NeedInitialResetEngine:  ctx.Bool(flags.SequencerEnabledFlag.Name) && l2FollowSourceEndpoint != "",
+		SkipFollowSourceL1Check: skipL1Check,
 	}
 	if ctx.Bool(flags.L2EngineSyncEnabled.Name) {
 		cfg.SyncMode = sync.ELSync
 	}
-
 	return cfg, nil
 }

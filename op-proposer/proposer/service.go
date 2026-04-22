@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ethereum-optimism/optimism/op-proposer/contracts"
 	"github.com/ethereum-optimism/optimism/op-proposer/metrics"
 	"github.com/ethereum-optimism/optimism/op-proposer/proposer/rpc"
 	"github.com/ethereum-optimism/optimism/op-proposer/proposer/source"
@@ -38,7 +39,6 @@ type ProposerConfig struct {
 	// How frequently to post L2 outputs when the DisputeGameFactory is configured
 	ProposalInterval time.Duration
 
-	L2OutputOracleAddr     *common.Address
 	DisputeGameFactoryAddr *common.Address
 	DisputeGameType        uint32
 
@@ -50,6 +50,7 @@ type ProposerConfig struct {
 
 	WaitNodeSync bool
 
+	// X Layer: Genesis height may not be zero
 	GenesisHeight uint64
 }
 
@@ -99,7 +100,6 @@ func (ps *ProposerService) initFromCLIConfig(ctx context.Context, version string
 	ps.WaitNodeSync = cfg.WaitNodeSync
 	ps.GenesisHeight = cfg.GenesisHeight
 
-	ps.initL2ooAddress(cfg)
 	ps.initDGF(cfg)
 
 	if err := ps.initRPCClients(ctx, cfg); err != nil {
@@ -128,6 +128,11 @@ func (ps *ProposerService) initFromCLIConfig(ctx context.Context, version string
 }
 
 func (ps *ProposerService) initRPCClients(ctx context.Context, cfg *CLIConfig) error {
+	// For xlayer: TeeRollup has no L1 derivation; CurrentL1 is always zero — waitNodeSync would block forever.
+	if cfg.DisputeGameType == contracts.TEEGameType && cfg.WaitNodeSync {
+		return fmt.Errorf("--wait-node-sync is not supported with TeeRollup game type (1960)")
+	}
+
 	l1Client, err := dial.DialEthClientWithTimeout(ctx, dial.DefaultDialTimeout, ps.Log, cfg.L1EthRpc)
 	if err != nil {
 		return fmt.Errorf("failed to dial L1 RPC: %w", err)
@@ -158,6 +163,29 @@ func (ps *ProposerService) initRPCClients(ctx context.Context, cfg *CLIConfig) e
 			clients = append(clients, cl)
 		}
 		ps.ProposalSource = source.NewSupervisorProposalSource(ps.Log, clients...)
+	}
+	if len(cfg.SuperNodeRpcs) != 0 {
+		var clients []source.SuperNodeClient
+		for _, url := range cfg.SuperNodeRpcs {
+			cl, err := dial.DialSuperNodeClientWithTimeout(ctx, ps.Log, url,
+				client.WithRPCRecorder(ps.Metrics.NewRecorder("supernode")))
+			if err != nil {
+				return fmt.Errorf("failed to dial supernode RPC client (%v): %w", url, err)
+			}
+			clients = append(clients, cl)
+		}
+		ps.ProposalSource = source.NewSuperNodeProposalSource(ps.Log, clients...)
+	}
+	// For xlayer: initialize TeeRollup proposal source
+	if cfg.TeeRollupRpc != "" {
+		teeRollupClient, err := source.NewTeeRollupHTTPClient(cfg.TeeRollupRpc)
+		if err != nil {
+			return fmt.Errorf("failed to create TeeRollup HTTP client: %w", err)
+		}
+		ps.ProposalSource = source.NewTeeRollupProposalSource(ps.Log, teeRollupClient)
+	}
+	if ps.ProposalSource == nil {
+		return ErrMissingSource
 	}
 	return nil
 }
@@ -223,15 +251,6 @@ func (ps *ProposerService) initMetricsServer(cfg *CLIConfig) error {
 	return nil
 }
 
-func (ps *ProposerService) initL2ooAddress(cfg *CLIConfig) {
-	l2ooAddress, err := opservice.ParseAddress(cfg.L2OOAddress)
-	if err != nil {
-		// Return no error & set no L2OO related configuration fields.
-		return
-	}
-	ps.L2OutputOracleAddr = &l2ooAddress
-}
-
 func (ps *ProposerService) initDGF(cfg *CLIConfig) {
 	dgfAddress, err := opservice.ParseAddress(cfg.DGFAddress)
 	if err != nil {
@@ -257,6 +276,14 @@ func (ps *ProposerService) initDriver() error {
 		return err
 	}
 	ps.driver = driver
+
+	// For xlayer: wire TEE-specific parent index resolver only for TEE game type
+	if ps.ProposerConfig.DisputeGameType == contracts.TEEGameType {
+		if err := initTeeSource(ps, driver); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

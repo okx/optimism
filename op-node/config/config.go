@@ -68,6 +68,9 @@ type Config struct {
 	// Optional
 	Tracer tracer.Tracer
 
+	// Optional
+	L2FollowSource L2FollowSourceEndpointSetup
+
 	Sync sync.Config
 
 	// To halt when detecting the node does not support a signaled protocol version
@@ -91,16 +94,10 @@ type Config struct {
 	// Experimental. Enables new opstack RPC namespace. Used by op-test-sequencer.
 	ExperimentalOPStackAPI bool
 
-	// For X Layer
-	Apollo ApolloConfig
-}
-
-type ApolloConfig struct {
-	Enable    bool
-	AppID     string
-	IP        string
-	Cluster   string
-	Namespace string
+	// SupervisorEnabled indicates whether supervisor-based interop features are enabled.
+	// When false (default), interop contracts deploy but cross-chain coordination is handled locally.
+	// When true, the node defers cross-unsafe/cross-safe/finality to the supervisor.
+	SupervisorEnabled bool
 }
 
 // ConductorRPCFunc retrieves the endpoint. The RPC may not immediately be available.
@@ -128,8 +125,11 @@ var ErrMissingPectraBlobSchedule = errors.New("probably missing Pectra blob sche
 
 // Check verifies that the given configuration makes sense
 func (cfg *Config) Check() error {
-	if err := cfg.L1.Check(); err != nil {
-		return fmt.Errorf("l1 endpoint config error: %w", err)
+	// XLayer: skip L1 and Beacon checks when fully trusting upstream source
+	if !cfg.Sync.ShouldSkipFollowSourceL1Check() {
+		if err := cfg.L1.Check(); err != nil {
+			return fmt.Errorf("l1 endpoint config error: %w", err)
+		}
 	}
 	if err := cfg.L2.Check(); err != nil {
 		return fmt.Errorf("l2 endpoint config error: %w", err)
@@ -137,7 +137,7 @@ func (cfg *Config) Check() error {
 	if cfg.L1ChainConfig == nil {
 		return fmt.Errorf("missing L1ChainConfig")
 	}
-	if cfg.Rollup.EcotoneTime != nil {
+	if !cfg.Sync.ShouldSkipFollowSourceL1Check() && cfg.Rollup.EcotoneTime != nil {
 		if cfg.Beacon == nil {
 			return fmt.Errorf("the Ecotone upgrade is scheduled (timestamp = %d) but no L1 Beacon API endpoint is configured", *cfg.Rollup.EcotoneTime)
 		}

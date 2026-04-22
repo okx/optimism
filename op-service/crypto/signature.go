@@ -55,7 +55,7 @@ func SignerFactoryFromConfig(l log.Logger, privateKey, mnemonic, hdPath string, 
 	var signer SignerFactory
 	var fromAddress common.Address
 
-	// Check for XLayer remote signer first (if enabled)
+	// X Layer: Check for XLayer remote signer first (if enabled)
 	if xlayerConfig.Enabled {
 		xlayerClient, err := opsigner.NewXLayerSignerClientFromConfig(l, xlayerConfig)
 		if err != nil {

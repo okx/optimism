@@ -5,21 +5,17 @@ import (
 	"os"
 
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/cli"
+	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/artifacts"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/version"
-
-	opservice "github.com/ethereum-optimism/optimism/op-service"
 )
-
-var (
-	GitCommit = ""
-	GitDate   = ""
-)
-
-// VersionWithMeta holds the textual version string including the metadata.
-var VersionWithMeta = opservice.FormatVersion(version.Version, GitCommit, GitDate, version.Meta)
 
 func main() {
-	app := cli.NewApp(VersionWithMeta)
+	// Ensure cleanup happens on exit
+	defer func() {
+		_ = artifacts.CleanupAll()
+	}()
+
+	app := cli.NewApp(version.VersionWithMeta)
 	app.Writer = os.Stdout
 	app.ErrWriter = os.Stderr
 	err := app.Run(os.Args)

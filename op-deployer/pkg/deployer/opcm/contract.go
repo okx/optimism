@@ -28,6 +28,10 @@ func (c *Contract) ProtocolVersions(ctx context.Context) (common.Address, error)
 	return c.getAddress(ctx, "protocolVersions")
 }
 
+func (c *Contract) OPCMStandardValidator(ctx context.Context) (common.Address, error) {
+	return c.getAddress(ctx, "opcmStandardValidator")
+}
+
 func (c *Contract) getAddress(ctx context.Context, name string) (common.Address, error) {
 	return c.callContractMethod(ctx, name, abi.Arguments{})
 }
@@ -37,7 +41,7 @@ func (c *Contract) GetAddressByNameViaAddressManager(ctx context.Context, name s
 	inputs := abi.Arguments{
 		abi.Argument{
 			Name:    "_name",
-			Type:    mustType("string"),
+			Type:    MustType("string"),
 			Indexed: false,
 		},
 	}
@@ -46,6 +50,56 @@ func (c *Contract) GetAddressByNameViaAddressManager(ctx context.Context, name s
 
 func (c *Contract) GenericAddressGetter(ctx context.Context, functionName string) (common.Address, error) {
 	return c.callContractMethod(ctx, functionName, abi.Arguments{})
+}
+
+func (c *Contract) GenericStringGetter(ctx context.Context, functionName string) (string, error) {
+	return c.callContractMethodString(ctx, functionName, abi.Arguments{})
+}
+
+func (c *Contract) callContractMethodString(ctx context.Context, methodName string, inputs abi.Arguments, args ...interface{}) (string, error) {
+	method := abi.NewMethod(
+		methodName,
+		methodName,
+		abi.Function,
+		"view",
+		true,
+		false,
+		inputs,
+		abi.Arguments{
+			abi.Argument{
+				Name:    "string",
+				Type:    MustType("string"),
+				Indexed: false,
+			},
+		},
+	)
+
+	calldata, err := method.Inputs.Pack(args...)
+	if err != nil {
+		return "", fmt.Errorf("failed to pack inputs: %w", err)
+	}
+
+	msg := ethereum.CallMsg{
+		To:   &c.addr,
+		Data: append(bytes.Clone(method.ID), calldata...),
+	}
+	result, err := c.client.CallContract(ctx, msg, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to call contract: %w", err)
+	}
+
+	out, err := method.Outputs.Unpack(result)
+	if err != nil {
+		return "", fmt.Errorf("failed to unpack result: %w", err)
+	}
+	if len(out) != 1 {
+		return "", fmt.Errorf("unexpected output length: %d", len(out))
+	}
+	str, ok := out[0].(string)
+	if !ok {
+		return "", fmt.Errorf("unexpected type: %T", out[0])
+	}
+	return str, nil
 }
 
 func (c *Contract) callContractMethod(ctx context.Context, methodName string, inputs abi.Arguments, args ...interface{}) (common.Address, error) {
@@ -60,7 +114,7 @@ func (c *Contract) callContractMethod(ctx context.Context, methodName string, in
 		abi.Arguments{
 			abi.Argument{
 				Name:    "address",
-				Type:    mustType("address"),
+				Type:    MustType("address"),
 				Indexed: false,
 			},
 		},
@@ -94,7 +148,7 @@ func (c *Contract) callContractMethod(ctx context.Context, methodName string, in
 	return addr, nil
 }
 
-func mustType(t string) abi.Type {
+func MustType(t string) abi.Type {
 	typ, err := abi.NewType(t, "", nil)
 	if err != nil {
 		panic(err)

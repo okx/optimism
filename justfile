@@ -1,3 +1,9 @@
+# Build all Rust binaries (release) for sysgo tests.
+build-rust-release:
+  cd rust && cargo build --release --bin kona-node --bin kona-supervisor
+  cd op-rbuilder && cargo build --release -p op-rbuilder --bin op-rbuilder
+  cd rollup-boost && cargo build --release -p rollup-boost --bin rollup-boost
+
 # Checks that TODO comments have corresponding issues.
 todo-checker:
   ./ops/scripts/todo-checker.sh
@@ -13,6 +19,11 @@ semgrep-test:
 # Runs shellcheck.
 shellcheck:
   find . -type f -name '*.sh' -not -path '*/node_modules/*' -not -path './packages/contracts-bedrock/lib/*' -not -path './packages/contracts-bedrock/kout*/*' -exec sh -c 'echo "Checking $1"; shellcheck "$1"' _ {} \;
+  find . -type f -name '*.sh' -not -path '*/node_modules/*' -not -path './packages/contracts-bedrock/lib/*' -not -path './packages/contracts-bedrock/kout*/*' -exec shfmt --diff {} \;
+
+# Format shell scripts with shfmt.
+shfmt-fix:
+  find . -type f -name '*.sh' -not -path '*/node_modules/*' -not -path './packages/contracts-bedrock/lib/*' -not -path './packages/contracts-bedrock/kout*/*' -exec shfmt --write {} \;
 
 # Generates a table of contents for the README.md file.
 toc:
@@ -35,3 +46,23 @@ update-op-geth ref:
 	go mod tidy; \
 	echo "Updated op-geth to $ver"
 
+# e.g. GITHUB_TOKEN=$(gh auth token) just generate-release-notes op-batcher v1.16.3 v1.16.4-rc.1
+generate-release-notes component from_tag to_tag:
+    @component="{{ component }}"; \
+    case "$component" in \
+        op-batcher|op-node) \
+            ;; \
+        *) \
+            echo "error: component must be one of: op-batcher, op-node"; \
+            exit 1; \
+            ;; \
+    esac; \
+    git cliff \
+        --include-path {{ component }}/**/* \
+        --include-path go.* \
+        --include-path op-core/**/* \
+        --include-path op-service/**/* \
+        --config .github/cliff.toml \
+        --tag-pattern {{ component }}/{{ from_tag }} \
+        --tag {{ component }}/{{ to_tag }} \
+        -- {{ component }}/{{ from_tag }}..{{ component }}/{{ to_tag }}

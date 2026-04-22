@@ -3,6 +3,9 @@
 package rollup
 
 import (
+	"encoding/json"
+	"os"
+
 	"github.com/ethereum/go-ethereum/log"
 )
 
@@ -46,7 +49,7 @@ func newUint64(v uint64) *uint64 {
 // This function only overrides specific fork times, keeping other configuration from the source.
 func ApplyXLayerHardcodedForks(cfg *Config) *Config {
 	if cfg == nil || cfg.L2ChainID == nil {
-		log.Error("X Layer: No rollup config provided, no modifications needed")
+		log.Info("X Layer: No rollup config provided, no modifications needed")
 		return cfg
 	}
 
@@ -55,7 +58,7 @@ func ApplyXLayerHardcodedForks(cfg *Config) *Config {
 
 	if !exists {
 		// Not an X Layer chain, return config as-is
-		log.Error("X Layer: Not an X Layer chain, no modifications needed", "chainID", chainID)
+		log.Info("X Layer: Not an X Layer chain, no modifications needed", "chainID", chainID)
 		return cfg
 	}
 
@@ -85,4 +88,46 @@ func ApplyXLayerHardcodedForks(cfg *Config) *Config {
 	}
 
 	return cfg
+}
+
+func FixXLayerL2Time(cfg *Config, rollupConfigPath string) {
+	if cfg == nil || cfg.L2ChainID == nil {
+		log.Error("X Layer: No rollup config provided, no modifications needed")
+		return
+	}
+
+	chainID := cfg.L2ChainID.Uint64()
+	if chainID == XLayerMainnetChainID && cfg.Genesis.L2Time != MainnetFixedL2Time {
+		log.Warn("X Layer: auto fixed mainnet l2 time")
+		cfg.Genesis.L2Time = MainnetFixedL2Time
+		saveFixedRollupJSON(cfg, rollupConfigPath)
+	} else if chainID == XLayerTestnetChainID && cfg.Genesis.L2Time != TestnetFixedL2Time {
+		log.Warn("X Layer: auto fixed mainnet l2 time")
+		cfg.Genesis.L2Time = TestnetFixedL2Time
+		saveFixedRollupJSON(cfg, rollupConfigPath)
+	}
+}
+
+func saveFixedRollupJSON(cfg *Config, rollupConfigPath string) {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		log.Error("X Layer: Failed to marshal JSON", "err", err)
+		return
+	}
+
+	// Preserve existing file permissions (file is guaranteed to exist at this point
+	// as it was opened earlier in NewRollupConfig)
+	fileInfo, err := os.Stat(rollupConfigPath)
+	if err != nil {
+		log.Error("X Layer: Failed to stat rollup config file", "path", rollupConfigPath, "err", err)
+		return
+	}
+	fileMode := fileInfo.Mode().Perm()
+
+	err = os.WriteFile(rollupConfigPath, data, fileMode)
+	if err != nil {
+		log.Error("X Layer: Failed to save rollup config", "path", rollupConfigPath, "err", err)
+		return
+	}
+	log.Info("X Layer: Successfully saved fixed rollup config", "path", rollupConfigPath)
 }

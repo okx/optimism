@@ -10,6 +10,7 @@ import (
 
 	"github.com/ethereum-optimism/optimism/op-node/rollup"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/derive"
+	"github.com/ethereum-optimism/optimism/op-service/bigs"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -82,6 +83,33 @@ func WaitForTransaction(hash common.Hash, client *ethclient.Client, timeout time
 			}
 			return nil, fmt.Errorf("receipt for transaction %s not found. tip block number is %d: %w", hash.Hex(), tip.NumberU64(), errTimeout)
 		case <-ticker.C:
+		}
+	}
+}
+
+// WaitUntilTransactionNotFound polls TransactionByHash until the client
+// returns ethereum.NotFound, indicating the EL has finished indexing and
+// the transaction is definitively absent.
+func WaitUntilTransactionNotFound(client *ethclient.Client, hash common.Hash, timeout time.Duration) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	for {
+		_, err := client.TransactionReceipt(ctx, hash)
+		switch {
+		case err == nil:
+			return fmt.Errorf("tx %s unexpectedly found", hash)
+		case errors.Is(err, ethereum.NotFound):
+			return nil
+		case strings.Contains(err.Error(), errStrTxIdxingInProgress):
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("timeout waiting for tx indexer to settle: %w", ctx.Err())
+			case <-ticker.C:
+			}
+		default:
+			return fmt.Errorf("unexpected error while waiting for tx not found: %w", err)
 		}
 	}
 }
@@ -197,7 +225,7 @@ func waitForBlockTag(number *big.Int, client *ethclient.Client, timeout time.Dur
 				}
 				return nil, err
 			}
-			if block != nil && block.NumberU64() >= number.Uint64() {
+			if block != nil && block.NumberU64() >= bigs.Uint64Strict(number) {
 				return client.BlockByNumber(ctx, number)
 			}
 		case <-ctx.Done():

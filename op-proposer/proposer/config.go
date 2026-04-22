@@ -7,6 +7,7 @@ import (
 
 	"github.com/urfave/cli/v2"
 
+	"github.com/ethereum-optimism/optimism/op-proposer/contracts"
 	"github.com/ethereum-optimism/optimism/op-proposer/flags"
 	oplog "github.com/ethereum-optimism/optimism/op-service/log"
 	opmetrics "github.com/ethereum-optimism/optimism/op-service/metrics"
@@ -17,8 +18,10 @@ import (
 
 var (
 	ErrMissingRollupRpc     = errors.New("missing rollup rpc")
-	ErrMissingSupervisorRpc = errors.New("missing supervisor rpc")
-	ErrConflictingSource    = errors.New("must not specify both a rollup rpc and supervisor rpc")
+	ErrMissingSupervisorRpc = errors.New("missing supervisor rpc or supernode rpc")
+	ErrMissingSource        = errors.New("missing proposal source rpc (rollup, supervisor, or supernode)")
+	ErrConflictingSource    = errors.New("must specify exactly one of rollup rpc, supervisor rpc, or supernode rpc")
+	ErrMissingTeeRollupRpc  = errors.New("tee-rollup-rpc is required for TeeRollup game type (1960)") // For xlayer
 
 	// preInteropGameTypes are  game types that enforce having a rollup rpc.
 	// It is ok if this list isn't complete, unknown game types will allow either rollup or supervisor
@@ -46,8 +49,9 @@ type CLIConfig struct {
 	// SupervisorRpcs is the list of HTTP provider URLs for supervisor nodes.
 	SupervisorRpcs []string
 
-	// L2OOAddress is the L2OutputOracle contract address.
-	L2OOAddress string
+	// SuperNodeRpcs is the list of HTTP provider URLs for supernode instances.
+	// Mutually exclusive with RollupRpc and SupervisorRpcs.
+	SuperNodeRpcs []string
 
 	// PollInterval is the delay between periodic checks on whether it is time to load an output root and propose it.
 	PollInterval time.Duration
@@ -81,7 +85,9 @@ type CLIConfig struct {
 	// Whether to wait for the sequencer to sync to a recent block at startup.
 	WaitNodeSync bool
 
-	// genesis height may not be zero
+	// For xlayer: TeeRollup RPC base URL for game type 1960.
+	TeeRollupRpc string
+	// For xlayer: genesis height (may be non-zero on XLayer).
 	GenesisHeight uint64
 }
 
@@ -99,11 +105,8 @@ func (c *CLIConfig) Check() error {
 		return err
 	}
 
-	if c.DGFAddress == "" && c.L2OOAddress == "" {
-		return errors.New("neither the `DisputeGameFactory` nor `L2OutputOracle` address was provided")
-	}
-	if c.DGFAddress != "" && c.L2OOAddress != "" {
-		return errors.New("both the `DisputeGameFactory` and `L2OutputOracle` addresses were provided")
+	if c.DGFAddress == "" {
+		return errors.New("`DisputeGameFactory` is required")
 	}
 	if c.DGFAddress != "" && c.ProposalInterval == 0 {
 		return errors.New("the `DisputeGameFactory` address was provided but the `ProposalInterval` was not set")
@@ -111,20 +114,38 @@ func (c *CLIConfig) Check() error {
 	if c.ProposalInterval != 0 && c.DGFAddress == "" {
 		return errors.New("the `ProposalInterval` was provided but the `DisputeGameFactory` address was not set")
 	}
-	if c.RollupRpc != "" && len(c.SupervisorRpcs) != 0 {
-		return ErrConflictingSource
+	// Check for conflicting RPC sources - only one should be specified
+	sourceCount := 0
+	if c.RollupRpc != "" {
+		sourceCount++
 	}
-	// Require rollup RPC for L2OO
-	if c.L2OOAddress != "" && c.RollupRpc == "" {
-		return ErrMissingRollupRpc
+	if len(c.SupervisorRpcs) != 0 {
+		sourceCount++
+	}
+	if len(c.SuperNodeRpcs) != 0 {
+		sourceCount++
+	}
+	if c.TeeRollupRpc != "" {
+		sourceCount++
+	}
+	if sourceCount > 1 {
+		return ErrConflictingSource
 	}
 	// Require rollup RPC for pre interop game types
 	if c.DGFAddress != "" && slices.Contains(preInteropGameTypes, c.DisputeGameType) && c.RollupRpc == "" {
 		return ErrMissingRollupRpc
 	}
-	// Require supervisor RPC for post interop game types
-	if c.DGFAddress != "" && slices.Contains(postInteropGameTypes, c.DisputeGameType) && len(c.SupervisorRpcs) == 0 {
+	// Require supervisor or supernode RPC for post interop game types
+	if c.DGFAddress != "" && slices.Contains(postInteropGameTypes, c.DisputeGameType) && len(c.SupervisorRpcs) == 0 && len(c.SuperNodeRpcs) == 0 {
 		return ErrMissingSupervisorRpc
+	}
+	// For xlayer: TeeRollup game type requires TeeRollupRpc
+	if c.DisputeGameType == contracts.TEEGameType && c.TeeRollupRpc == "" {
+		return ErrMissingTeeRollupRpc
+	}
+	// For unknown game types, allow any source, but require at least one.
+	if sourceCount == 0 {
+		return ErrMissingSource
 	}
 
 	return nil
@@ -136,7 +157,6 @@ func NewConfig(ctx *cli.Context) *CLIConfig {
 		L1EthRpc:                     ctx.String(flags.L1EthRpcFlag.Name),
 		RollupRpc:                    ctx.String(flags.RollupRpcFlag.Name),
 		SupervisorRpcs:               ctx.StringSlice(flags.SupervisorRpcsFlag.Name),
-		L2OOAddress:                  ctx.String(flags.L2OOAddressFlag.Name),
 		PollInterval:                 ctx.Duration(flags.PollIntervalFlag.Name),
 		TxMgrConfig:                  txmgr.ReadCLIConfig(ctx),
 		AllowNonFinalized:            ctx.Bool(flags.AllowNonFinalizedFlag.Name),
@@ -149,6 +169,7 @@ func NewConfig(ctx *cli.Context) *CLIConfig {
 		DisputeGameType:              uint32(ctx.Uint(flags.DisputeGameTypeFlag.Name)),
 		ActiveSequencerCheckDuration: ctx.Duration(flags.ActiveSequencerCheckDurationFlag.Name),
 		WaitNodeSync:                 ctx.Bool(flags.WaitNodeSyncFlag.Name),
-		GenesisHeight:                ctx.Uint64(flags.GenesisHeight.Name),
+		TeeRollupRpc:                 ctx.String(flags.TeeRollupRpcFlag.Name), // For xlayer
+		GenesisHeight:                ctx.Uint64(flags.GenesisHeight.Name),    // For xlayer
 	}
 }

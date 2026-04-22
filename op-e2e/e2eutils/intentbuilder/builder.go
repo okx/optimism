@@ -20,6 +20,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/artifacts"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/standard"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/state"
+	"github.com/ethereum-optimism/optimism/op-service/bigs"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 )
 
@@ -53,8 +54,8 @@ type L2Configurator interface {
 	WithL1StartBlockHash(hash common.Hash)
 	WithAdditionalDisputeGames(games []state.AdditionalDisputeGame)
 	WithFinalizationPeriodSeconds(value uint64)
-	WithCustomGasToken(enabled bool, name string, symbol string, initialLiquidity *big.Int)
 	WithRevenueShare(enabled bool, chainFeesRecipient common.Address)
+	WithCustomGasToken(name string, symbol string, initialLiquidity *big.Int, liquidityControllerOwner common.Address)
 	ContractsConfigurator
 	L2VaultsConfigurator
 	L2RolesConfigurator
@@ -200,7 +201,7 @@ func (b *intentBuilder) L1() L1Configurator {
 }
 
 func (b *intentBuilder) WithL1(l1ChainID eth.ChainID) (Builder, L1Configurator) {
-	b.intent.L1ChainID = l1ChainID.ToBig().Uint64()
+	b.intent.L1ChainID = bigs.Uint64Strict(l1ChainID.ToBig())
 	return b, &l1Configurator{builder: b}
 }
 
@@ -288,7 +289,7 @@ type l1Configurator struct {
 }
 
 func (c *l1Configurator) WithChainID(chainID eth.ChainID) L1Configurator {
-	c.builder.intent.L1ChainID = chainID.ToBig().Uint64()
+	c.builder.intent.L1ChainID = bigs.Uint64Strict(chainID.ToBig())
 	return c
 }
 
@@ -470,12 +471,12 @@ func (c *l2Configurator) WithEIP1559Denominator(value uint64) {
 	c.builder.intent.Chains[c.chainIndex].Eip1559Denominator = value
 }
 
-func (c *l2Configurator) WithCustomGasToken(enabled bool, name, symbol string, initialLiquidity *big.Int) {
+func (c *l2Configurator) WithCustomGasToken(name, symbol string, initialLiquidity *big.Int, liquidityControllerOwner common.Address) {
 	c.builder.intent.Chains[c.chainIndex].CustomGasToken = state.CustomGasToken{
-		Enabled:          enabled,
-		Name:             name,
-		Symbol:           symbol,
-		InitialLiquidity: (*hexutil.Big)(initialLiquidity),
+		Name:                     name,
+		Symbol:                   symbol,
+		InitialLiquidity:         (*hexutil.Big)(initialLiquidity),
+		LiquidityControllerOwner: liquidityControllerOwner,
 	}
 }
 
