@@ -271,15 +271,8 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
         (TeeDisputeGame parent,,) =
             _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, parentEndBlockHash, parentEndStateHash);
 
-        // Wait for challenge window and resolve parent
-        vm.warp(block.timestamp + MAX_CHALLENGE_DURATION + 1);
-        parent.resolve();
-
-        // Wait for parent finality so it can become anchor
-        vm.warp(block.timestamp + 1);
-        parent.claimCredit(proposer);
-
-        // Create child game referencing parent (parentIndex = 0)
+        // Create child game referencing parent BEFORE parent finalizes and advances anchor.
+        // This is the realistic scenario: child is created while parent is still in progress.
         bytes32 childEndBlockHash = keccak256("child-end-block");
         bytes32 childEndStateHash = keccak256("child-end-state");
         (TeeDisputeGame child,,) = _createGame(proposer, ANCHOR_L2_BLOCK + 10, 0, childEndBlockHash, childEndStateHash);
@@ -289,7 +282,7 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
         assertEq(childStartRoot.raw(), computeRootClaim(parentEndBlockHash, parentEndStateHash).raw());
         assertEq(childStartBlock, ANCHOR_L2_BLOCK + 5);
 
-        // Prove and resolve child
+        // Prove child immediately (before any time warp expires its deadline)
         TeeDisputeGame.BatchProof[] memory proofs = new TeeDisputeGame.BatchProof[](1);
         proofs[0] = buildBatchProof(
             BatchInput({
@@ -306,6 +299,15 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
         vm.prank(proposer);
         child.prove(abi.encode(proofs));
 
+        // Now resolve parent (challenge window expires → DEFENDER_WINS)
+        vm.warp(block.timestamp + MAX_CHALLENGE_DURATION + 1);
+        parent.resolve();
+
+        // Wait for parent finality so it can become anchor
+        vm.warp(block.timestamp + 1);
+        parent.claimCredit(proposer);
+
+        // Child can now resolve (parent is resolved as DEFENDER_WINS)
         assertEq(uint8(child.resolve()), uint8(GameStatus.DEFENDER_WINS));
 
         // Wait for finality and claim
