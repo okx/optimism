@@ -213,7 +213,15 @@ where
 }
 
 #[cfg(feature = "std")]
-impl<ChainSpec, N, R> ConfigureEngineEvm<OpExecutionData> for OpEvmConfig<ChainSpec, N, R>
+// Generalised over `EvmF` so chains that swap `OpEvmFactory<OpTx>`
+// for a custom EVM factory (e.g. XLayer's `XLayerAAEvmFactory` which
+// layers XLayerAA handler branches on top of op-revm) still satisfy
+// `ConfigureEngineEvm` through the same impl. The trait body only
+// reads chain spec and payload — it does not touch the EvmFactory —
+// so the extra generic is purely a bound-widening; no behaviour
+// change for the default `OpEvmFactory<OpTx>` consumer.
+impl<ChainSpec, N, R, EvmF> ConfigureEngineEvm<OpExecutionData>
+    for OpEvmConfig<ChainSpec, N, R, EvmF>
 where
     ChainSpec: EthChainSpec<Header = Header> + OpHardforks,
     N: NodePrimitives<
@@ -225,6 +233,15 @@ where
         >,
     OpTx: FromRecoveredTx<N::SignedTx> + FromTxWithEncoded<N::SignedTx>,
     R: OpReceiptBuilder<Receipt: DepositReceipt, Transaction: SignedTransaction>,
+    EvmF: EvmFactory<
+            Tx: FromRecoveredTx<R::Transaction>
+                    + FromTxWithEncoded<R::Transaction>
+                    + TransactionEnv
+                    + OpTxEnv,
+            Precompiles = PrecompilesMap,
+            Spec = OpSpecId,
+            BlockEnv = BlockEnv,
+        > + core::fmt::Debug,
     Self: Send + Sync + Unpin + Clone + 'static,
 {
     fn evm_env_for_payload(
