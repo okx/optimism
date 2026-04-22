@@ -1024,7 +1024,7 @@ func TestRewindL1SingleBlockL2Impact(t *testing.T) {
 	s.verifyHeads(chainID, block3.ID(), "should have rewound to block3")
 }
 
-// TestL1RewindDeepL2Impact tests L1 reorgs affecting multiple L2 blocks.
+// TestRewindL1DeepL2Impact tests L1 reorgs affecting multiple L2 blocks.
 func TestRewindL1DeepL2Impact(t *testing.T) {
 	s := setupTestChain(t)
 	defer s.Close()

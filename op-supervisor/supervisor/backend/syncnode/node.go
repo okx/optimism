@@ -245,7 +245,7 @@ func (m *ManagedNode) PullEvents(ctx context.Context) (pulledAny bool, err error
 	}
 }
 
-// onNodeEvents handles the incoming events from the node.
+// onNodeEvent handles the incoming events from the node.
 func (m *ManagedNode) onNodeEvent(ev *types.IndexingEvent) {
 	if m.resetCancel != nil {
 		m.log.Debug("Ignoring event during ongoing reset", "event", ev)
