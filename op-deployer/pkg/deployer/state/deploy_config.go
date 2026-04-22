@@ -15,15 +15,14 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 
 	"github.com/ethereum-optimism/optimism/op-chain-ops/genesis"
+	"github.com/ethereum-optimism/optimism/op-service/bigs"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
-var (
-	l2GenesisBlockBaseFeePerGas = hexutil.Big(*(big.NewInt(1000000000)))
-)
+var l2GenesisBlockBaseFeePerGas = hexutil.Big(*(big.NewInt(1000000000)))
 
 func CombineDeployConfig(intent *Intent, chainIntent *ChainIntent, state *State, chainState *ChainState) (genesis.DeployConfig, error) {
-	upgradeSchedule := standard.DefaultHardforkScheduleForTag(standard.CurrentTag)
+	upgradeSchedule := standard.DefaultHardforkSchedule()
 
 	cfg := genesis.DeployConfig{
 		L1DependenciesConfig: genesis.L1DependenciesConfig{
@@ -79,10 +78,11 @@ func CombineDeployConfig(intent *Intent, chainIntent *ChainIntent, state *State,
 			},
 
 			GasTokenDeployConfig: genesis.GasTokenDeployConfig{
-				UseCustomGasToken:          chainIntent.CustomGasToken.Enabled,
+				UseCustomGasToken:          chainIntent.IsCustomGasTokenEnabled(),
 				GasPayingTokenName:         chainIntent.CustomGasToken.Name,
 				GasPayingTokenSymbol:       chainIntent.CustomGasToken.Symbol,
-				NativeAssetLiquidityAmount: chainIntent.CustomGasToken.InitialLiquidity,
+				NativeAssetLiquidityAmount: (*hexutil.Big)(chainIntent.GetInitialLiquidity()),
+				LiquidityControllerOwner:   chainIntent.GetLiquidityControllerOwner(),
 			},
 
 			// STOP! This struct sets the _default_ upgrade schedule for all chains.
@@ -92,7 +92,7 @@ func CombineDeployConfig(intent *Intent, chainIntent *ChainIntent, state *State,
 			UpgradeScheduleDeployConfig: *upgradeSchedule,
 			L2CoreDeployConfig: genesis.L2CoreDeployConfig{
 				L1ChainID:                 intent.L1ChainID,
-				L2ChainID:                 chainState.ID.Big().Uint64(),
+				L2ChainID:                 bigs.Uint64Strict(chainState.ID.Big()),
 				L2BlockTime:               2,
 				FinalizationPeriodSeconds: 12,
 				MaxSequencerDrift:         600,
@@ -162,7 +162,6 @@ func CombineDeployConfig(intent *Intent, chainIntent *ChainIntent, state *State,
 		cfg, err = jsonutil.MergeJSON(cfg, intent.GlobalDeployOverrides)
 		if err != nil {
 			return genesis.DeployConfig{}, fmt.Errorf("error merging global L2 overrides: %w", err)
-
 		}
 	}
 
@@ -181,9 +180,7 @@ func CombineDeployConfig(intent *Intent, chainIntent *ChainIntent, state *State,
 }
 
 func calculateBatchInboxAddr(chainID common.Hash) common.Address {
-	versionByte := byte(0x00)
 	var out common.Address
-	out[0] = versionByte
 	copy(out[1:], crypto.Keccak256(chainID[:])[:19])
 	return out
 }

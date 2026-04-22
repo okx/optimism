@@ -55,6 +55,7 @@ contract SystemConfig is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitializabl
         address optimismPortal;
         address optimismMintableERC20Factory;
         address delayedWETH;
+        address opcm;
     }
 
     /// @notice Version identifier, used for upgrades.
@@ -89,6 +90,9 @@ contract SystemConfig is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitializabl
 
     /// @notice Storage slot that the DelayedWETH address is stored at.
     bytes32 public constant DELAYED_WETH_SLOT = bytes32(uint256(keccak256("systemconfig.delayedweth")) - 1);
+
+    /// @notice Storage slot that the OPCM address is stored at.
+    bytes32 public constant OPCM_SLOT = bytes32(uint256(keccak256("systemconfig.opcm")) - 1);
 
     /// @notice Storage slot that the batch inbox address is stored at.
     bytes32 public constant BATCH_INBOX_SLOT = bytes32(uint256(keccak256("systemconfig.batchinbox")) - 1);
@@ -175,9 +179,9 @@ contract SystemConfig is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitializabl
     error SystemConfig_ValueAlreadySet();
 
     /// @notice Semantic version.
-    /// @custom:semver 3.12.0
+    /// @custom:semver 3.14.0
     function version() public pure virtual returns (string memory) {
-        return "3.12.0";
+        return "3.14.0";
     }
 
     /// @notice Constructs the SystemConfig contract.
@@ -238,6 +242,7 @@ contract SystemConfig is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitializabl
         Storage.setAddress(OPTIMISM_PORTAL_SLOT, _addresses.optimismPortal);
         Storage.setAddress(OPTIMISM_MINTABLE_ERC20_FACTORY_SLOT, _addresses.optimismMintableERC20Factory);
         Storage.setAddress(DELAYED_WETH_SLOT, _addresses.delayedWETH);
+        Storage.setAddress(OPCM_SLOT, _addresses.opcm);
         _setStartBlock();
 
         _setResourceConfig(_config);
@@ -308,6 +313,16 @@ contract SystemConfig is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitializabl
         addr_ = Storage.getAddress(DELAYED_WETH_SLOT);
     }
 
+    /// @notice Getter for the OPCM address.
+    function lastUsedOPCM() public view returns (address addr_) {
+        addr_ = Storage.getAddress(OPCM_SLOT);
+    }
+
+    /// @notice Getter for the version of the last used OPCM.
+    function lastUsedOPCMVersion() public view returns (string memory version_) {
+        version_ = ISemver(lastUsedOPCM()).version();
+    }
+
     /// @notice Consolidated getter for the Addresses struct.
     function getAddresses() external view returns (Addresses memory) {
         return Addresses({
@@ -316,7 +331,8 @@ contract SystemConfig is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitializabl
             l1StandardBridge: l1StandardBridge(),
             optimismPortal: optimismPortal(),
             optimismMintableERC20Factory: optimismMintableERC20Factory(),
-            delayedWETH: delayedWETH()
+            delayedWETH: delayedWETH(),
+            opcm: lastUsedOPCM()
         });
     }
 
@@ -343,6 +359,12 @@ contract SystemConfig is ProxyAdminOwnedBase, OwnableUpgradeable, Reinitializabl
 
         bytes memory data = abi.encode(_unsafeBlockSigner);
         emit ConfigUpdate(VERSION, UpdateType.UNSAFE_BLOCK_SIGNER, data);
+    }
+
+    /// @notice Updates the batcher hash by formatting a provided batcher address.
+    /// @param _batcher New batcher address.
+    function setBatcherHash(address _batcher) external onlyOwner {
+        _setBatcherHash(bytes32(uint256(uint160(_batcher))));
     }
 
     /// @notice Updates the batcher hash. Can only be called by the owner.

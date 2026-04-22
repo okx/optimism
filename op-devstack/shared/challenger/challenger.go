@@ -12,7 +12,7 @@ import (
 
 	"github.com/ethereum-optimism/optimism/op-challenger/config"
 	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/trace/vm"
-	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/types"
+	gameTypes "github.com/ethereum-optimism/optimism/op-challenger/game/types"
 	"github.com/ethereum-optimism/optimism/op-node/rollup"
 	"github.com/ethereum-optimism/optimism/op-service/crypto"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/depset"
@@ -43,6 +43,7 @@ func WithDepset(ds *depset.StaticConfigDependencySet) Option {
 			return fmt.Errorf("failed to write dependency set config: %w", err)
 		}
 		c.Cannon.DepsetConfigPath = path
+		c.CannonKona.DepsetConfigPath = path
 		return nil
 	}
 }
@@ -71,7 +72,7 @@ func applyCannonConfig(c *config.Config, rollupCfgs []*rollup.Config, l1Genesis 
 	return nil
 }
 
-func applyCannonKonaConfig(c *config.Config, rollupCfgs []*rollup.Config, l1Genesis *core.Genesis, l2Geneses []*core.Genesis) error {
+func applyCannonKonaConfig(c *config.Config, rollupCfgs []*rollup.Config, l1Genesis *core.Genesis, l2Geneses []*core.Genesis, interop bool) error {
 	root, err := findMonorepoRoot()
 	if err != nil {
 		return err
@@ -79,14 +80,21 @@ func applyCannonKonaConfig(c *config.Config, rollupCfgs []*rollup.Config, l1Gene
 	if err := applyVmConfig(root, &c.CannonKona, c.Datadir, rollupCfgs, l1Genesis, l2Geneses); err != nil {
 		return err
 	}
-	c.CannonKona.Server = root + "kona/bin/kona-host"
+	c.CannonKona.Server = root + "rust/target/release/kona-host"
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return fmt.Errorf("failed to get absolute path to prestate dir: %w", err)
 	}
-	c.CannonKonaAbsolutePreStateBaseURL, err = url.Parse("file:" + absRoot + "/kona/prestates")
-	if err != nil {
-		return fmt.Errorf("failed to create kona prestates url: %w", err)
+	if interop {
+		c.CannonKonaAbsolutePreStateBaseURL, err = url.Parse("file:" + absRoot + "/rust/kona/prestate-artifacts-cannon-interop")
+		if err != nil {
+			return err
+		}
+	} else {
+		c.CannonKonaAbsolutePreStateBaseURL, err = url.Parse("file:" + absRoot + "/rust/kona/prestate-artifacts-cannon")
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -149,48 +157,61 @@ func WithCannonConfig(rollupCfgs []*rollup.Config, l1Genesis *core.Genesis, l2Ge
 
 func WithCannonKonaConfig(rollupCfgs []*rollup.Config, l1Genesis *core.Genesis, l2Geneses []*core.Genesis) Option {
 	return func(c *config.Config) error {
-		return applyCannonKonaConfig(c, rollupCfgs, l1Genesis, l2Geneses)
+		return applyCannonKonaConfig(c, rollupCfgs, l1Genesis, l2Geneses, false)
 	}
 }
 
-func WithCannonTraceType() Option {
+func WithCannonKonaInteropConfig(rollupCfgs []*rollup.Config, l1Genesis *core.Genesis, l2Geneses []*core.Genesis) Option {
 	return func(c *config.Config) error {
-		c.TraceTypes = append(c.TraceTypes, types.TraceTypeCannon)
+		return applyCannonKonaConfig(c, rollupCfgs, l1Genesis, l2Geneses, true)
+	}
+}
+
+func WithCannonGameType() Option {
+	return func(c *config.Config) error {
+		c.GameTypes = append(c.GameTypes, gameTypes.CannonGameType)
 		return nil
 	}
 }
 
-func WithCannonKonaTraceType() Option {
+func WithCannonKonaGameType() Option {
 	return func(c *config.Config) error {
-		c.TraceTypes = append(c.TraceTypes, types.TraceTypeCannonKona)
+		c.GameTypes = append(c.GameTypes, gameTypes.CannonKonaGameType)
 		return nil
 	}
 }
 
-func WithPermissionedTraceType() Option {
+func WithPermissionedGameType() Option {
 	return func(c *config.Config) error {
-		c.TraceTypes = append(c.TraceTypes, types.TraceTypePermissioned)
+		c.GameTypes = append(c.GameTypes, gameTypes.PermissionedGameType)
 		return nil
 	}
 }
 
-func WithSuperCannonTraceType() Option {
+func WithSuperCannonGameType() Option {
 	return func(c *config.Config) error {
-		c.TraceTypes = append(c.TraceTypes, types.TraceTypeSuperCannon)
+		c.GameTypes = append(c.GameTypes, gameTypes.SuperCannonGameType)
 		return nil
 	}
 }
 
-func WithSuperPermissionedTraceType() Option {
+func WithSuperCannonKonaGameType() Option {
 	return func(c *config.Config) error {
-		c.TraceTypes = append(c.TraceTypes, types.TraceTypeSuperPermissioned)
+		c.GameTypes = append(c.GameTypes, gameTypes.SuperCannonKonaGameType)
+		return nil
+	}
+}
+
+func WithSuperPermissionedGameType() Option {
+	return func(c *config.Config) error {
+		c.GameTypes = append(c.GameTypes, gameTypes.SuperPermissionedGameType)
 		return nil
 	}
 }
 
 func WithFastGames() Option {
 	return func(c *config.Config) error {
-		c.TraceTypes = append(c.TraceTypes, types.TraceTypeFast)
+		c.GameTypes = append(c.GameTypes, gameTypes.FastGameType)
 		return nil
 	}
 }

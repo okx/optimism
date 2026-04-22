@@ -5,9 +5,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum-optimism/optimism/op-acceptance-tests/tests/custom_gas_token"
 	"github.com/ethereum-optimism/optimism/op-devstack/devtest"
 	"github.com/ethereum-optimism/optimism/op-devstack/dsl/contract"
 	"github.com/ethereum-optimism/optimism/op-devstack/presets"
+	"github.com/ethereum-optimism/optimism/op-service/bigs"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/txintent/bindings"
 	"github.com/ethereum-optimism/optimism/op-service/txplan"
@@ -18,6 +20,9 @@ func TestL1ToL2Deposit(gt *testing.T) {
 	// Create a test environment using op-devstack
 	t := devtest.SerialT(gt)
 	sys := presets.NewMinimal(t)
+
+	// Skip this test if CGT is enabled
+	custom_gas_token.SkipIfCGT(t, sys)
 
 	// Wait for L1 node to be responsive
 	sys.L1Network.WaitForOnline()
@@ -60,7 +65,7 @@ func TestL1ToL2Deposit(gt *testing.T) {
 	// Wait for the sequencer to process the deposit
 	t.Require().Eventually(func() bool {
 		head := sys.L2CL.HeadBlockRef(supervisorTypes.LocalUnsafe)
-		return head.L1Origin.Number >= receipt.BlockNumber.Uint64()
+		return head.L1Origin.Number >= bigs.Uint64Strict(receipt.BlockNumber)
 	}, sys.L1EL.TransactionTimeout(), time.Second, "awaiting deposit to be processed by L2")
 
 	alicel2.WaitForBalance(initialL2Balance.Add(depositAmount))

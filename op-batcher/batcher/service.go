@@ -55,6 +55,7 @@ type BatcherConfig struct {
 // BatcherService represents a full batch-submitter instance and its resources,
 // and conforms to the op-service CLI Lifecycle interface.
 type BatcherService struct {
+	closeApp         context.CancelCauseFunc
 	Log              log.Logger
 	Metrics          metrics.Metricer
 	L1Client         *ethclient.Client
@@ -86,15 +87,16 @@ type DriverSetupOption func(setup *DriverSetup)
 // BatcherServiceFromCLIConfig creates a new BatcherService from a CLIConfig.
 // The service components are fully started, except for the driver,
 // which will not be submitting batches (if it was configured to) until the Start part of the lifecycle.
-func BatcherServiceFromCLIConfig(ctx context.Context, version string, cfg *CLIConfig, log log.Logger, opts ...DriverSetupOption) (*BatcherService, error) {
+func BatcherServiceFromCLIConfig(ctx context.Context, closeApp context.CancelCauseFunc, version string, cfg *CLIConfig, log log.Logger, opts ...DriverSetupOption) (*BatcherService, error) {
 	var bs BatcherService
-	if err := bs.initFromCLIConfig(ctx, version, cfg, log, opts...); err != nil {
+	if err := bs.initFromCLIConfig(ctx, closeApp, version, cfg, log, opts...); err != nil {
 		return nil, errors.Join(err, bs.Stop(ctx)) // try to clean up our failed initialization attempt
 	}
 	return &bs, nil
 }
 
-func (bs *BatcherService) initFromCLIConfig(ctx context.Context, version string, cfg *CLIConfig, log log.Logger, opts ...DriverSetupOption) error {
+func (bs *BatcherService) initFromCLIConfig(ctx context.Context, closeApp context.CancelCauseFunc, version string, cfg *CLIConfig, log log.Logger, opts ...DriverSetupOption) error {
+	bs.closeApp = closeApp
 	bs.Version = version
 	bs.Log = log
 	bs.NotSubmittingOnStart = cfg.Stopped
@@ -167,7 +169,7 @@ func (bs *BatcherService) initFromCLIConfig(ctx context.Context, version string,
 	if err := bs.initRollupConfig(ctx); err != nil {
 		return fmt.Errorf("failed to load rollup config: %w", err)
 	}
-	if err := bs.initTxManager(cfg); err != nil {
+	if err := bs.initTxManager(ctx, cfg); err != nil {
 		return fmt.Errorf("failed to init Tx manager: %w", err)
 	}
 	// must be init before driver and channel config
@@ -338,8 +340,14 @@ func (bs *BatcherService) initChannelConfig(cfg *CLIConfig) error {
 	return nil
 }
 
-func (bs *BatcherService) initTxManager(cfg *CLIConfig) error {
-	txManager, err := txmgr.NewSimpleTxManager("batcher", bs.Log, bs.Metrics, cfg.TxMgrConfig)
+func (bs *BatcherService) initTxManager(_ context.Context, cfg *CLIConfig) error {
+	// Create the base config from CLI config
+	txmgrConfig, err := txmgr.NewConfig(cfg.TxMgrConfig, bs.Log)
+	if err != nil {
+		return err
+	}
+
+	txManager, err := txmgr.NewSimpleTxManagerFromConfig("batcher", bs.Log, bs.Metrics, txmgrConfig)
 	if err != nil {
 		return err
 	}
@@ -385,6 +393,7 @@ func (bs *BatcherService) initMetricsServer(cfg *CLIConfig) error {
 
 func (bs *BatcherService) initDriver(opts ...DriverSetupOption) {
 	ds := DriverSetup{
+		closeApp:         bs.closeApp,
 		Log:              bs.Log,
 		Metr:             bs.Metrics,
 		RollupConfig:     bs.RollupConfig,
@@ -436,7 +445,7 @@ func (bs *BatcherService) initAltDA(cfg *CLIConfig) error {
 
 // Start runs once upon start of the batcher lifecycle,
 // and starts batch-submission work if the batcher is configured to start submit data on startup.
-func (bs *BatcherService) Start(_ context.Context) error {
+func (bs *BatcherService) Start(ctx context.Context) error {
 	bs.driver.Log.Info("Starting batcher", "notSubmittingOnStart", bs.NotSubmittingOnStart)
 
 	if !bs.NotSubmittingOnStart {
@@ -468,6 +477,7 @@ func (bs *BatcherService) Stop(ctx context.Context) error {
 
 	// close the TxManager first, so that new work is denied, in-flight work is cancelled as early as possible
 	// (transactions which are expected to be confirmed are still waited for)
+	// TxManager.Close() also stops the blob tip oracle if it's running.
 	if bs.TxManager != nil {
 		bs.TxManager.Close()
 	}

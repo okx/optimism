@@ -3,6 +3,7 @@ package backend
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -23,6 +24,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/ethereum-optimism/optimism/op-service/bigs"
 	"github.com/ethereum-optimism/optimism/op-sync-tester/synctester/backend/config"
 	"github.com/ethereum-optimism/optimism/op-sync-tester/synctester/backend/session"
 	sttypes "github.com/ethereum-optimism/optimism/op-sync-tester/synctester/backend/types"
@@ -131,7 +133,7 @@ func (s *SyncTester) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Blo
 			logger.Warn("L2 Block has zero receipts", "blockNrHash", blockNrOrHash)
 			return nil, errors.New("no receipts")
 		}
-		target := receipts[0].BlockNumber.Uint64()
+		target := bigs.Uint64Strict(receipts[0].BlockNumber)
 		if target > session.CurrentState.Latest {
 			logger.Warn("Requested block is ahead of sync tester state", "requested", target)
 			return nil, ethereum.NotFound
@@ -152,7 +154,7 @@ func (s *SyncTester) GetBlockByHash(ctx context.Context, hash common.Hash, fullT
 		if err := json.Unmarshal(raw, &header); err != nil {
 			return nil, err
 		}
-		target := header.Number.ToInt().Uint64()
+		target := bigs.Uint64Strict(header.Number.ToInt())
 		if target > session.CurrentState.Latest {
 			logger.Warn("Requested block is ahead of sync tester state", "requested", target)
 			return nil, ethereum.NotFound
@@ -217,6 +219,27 @@ func (s *SyncTester) ChainId(ctx context.Context) (hexutil.Big, error) {
 		}
 		return hexutil.Big(*s.chainID.ToBig()), nil
 	})
+}
+
+func (s *SyncTester) ExchangeCapabilities(ctx context.Context, _ []string) []string {
+	return []string{
+		// getPayload
+		"engine_getPayloadV1",
+		"engine_getPayloadV2",
+		"engine_getPayloadV3",
+		"engine_getPayloadV4",
+
+		// forkchoiceUpdated
+		"engine_forkchoiceUpdatedV1",
+		"engine_forkchoiceUpdatedV2",
+		"engine_forkchoiceUpdatedV3",
+
+		// newPayload
+		"engine_newPayloadV1",
+		"engine_newPayloadV2",
+		"engine_newPayloadV3",
+		"engine_newPayloadV4",
+	}
 }
 
 // GetPayloadV1 only supports V1 payloads.
@@ -426,11 +449,17 @@ func (s *SyncTester) forkchoiceUpdated(ctx context.Context, session *eth.SyncTes
 			// Consider as sync error if read only EL interaction fails because we cannot validate
 			return &eth.ForkchoiceUpdatedResult{PayloadStatus: eth.PayloadStatusV1{Status: eth.ExecutionSyncing}, PayloadID: nil}, nil
 		}
+		// https://github.com/ethereum-optimism/specs/blob/510377c586d0cbede2d40402d2371fcadd5656a0/specs/protocol/jovian/exec-engine.md#minimum-base-fee-in-block-header
+		// Implicitly determine whether jovian is enabled by inspecting extraData from read only EL data
+		isJovian := eip1559.ValidateJovianExtraData(newBlock.Header().Extra) == nil
 		// https://github.com/ethereum-optimism/specs/blob/972dec7c7c967800513c354b2f8e5b79340de1c3/specs/protocol/holocene/exec-engine.md#eip-1559-parameters-in-block-header
 		// Implicitly determine whether holocene is enabled by inspecting extraData from read only EL data
-		isHolocene := eip1559.ValidateHoloceneExtraData(newBlock.Header().Extra) == nil
+		isHolocene := true // holocene is always activated when jovian is activated
+		if !isJovian {
+			isHolocene = eip1559.ValidateHoloceneExtraData(newBlock.Header().Extra) == nil
+		}
 		// Sanity check attr comparing with newBlock
-		if err := s.validateAttributesForBlock(attr, newBlock, isHolocene); err != nil {
+		if err := s.validateAttributesForBlock(attr, newBlock, isHolocene, isJovian); err != nil {
 			// https://github.com/ethereum/execution-apis/blob/584905270d8ad665718058060267061ecfd79ca5/src/engine/paris.md#specification-1
 			// Client software MUST respond to this method call in the following way: {error: {code: -38003, message: "Invalid payload attributes"}} if the payload is deemed VALID and forkchoiceState has been applied successfully, but no build process has been started due to invalid payloadAttributes.
 			return &eth.ForkchoiceUpdatedResult{PayloadStatus: eth.PayloadStatusV1{Status: eth.ExecutionInvalid}, PayloadID: nil}, engine.InvalidPayloadAttributes.With(err)
@@ -488,9 +517,12 @@ func (s *SyncTester) forkchoiceUpdated(ctx context.Context, session *eth.SyncTes
 //   - Gas limit must match.
 //   - If Holocene is active: Extra data must be exactly 9 bytes, the version byte must equal to 0,
 //     the remaining 8 bytes must match the EIP-1559 parameters.
+//   - If Jovian is active: Extra data must be exactly 17 bytes, the version byte must equal to 1,
+//     the first 8 bytes must match the EIP-1559 parameters,
+//     the remaining 8 bytes must match the MinBaseFee parameter.
 //
 // Returns an error if any mismatch or invalid condition is found, otherwise nil.
-func (s *SyncTester) validateAttributesForBlock(attr *eth.PayloadAttributes, block *types.Block, isHolocene bool) error {
+func (s *SyncTester) validateAttributesForBlock(attr *eth.PayloadAttributes, block *types.Block, isHolocene, isJovian bool) error {
 	h := block.Header()
 	if h.Time != uint64(attr.Timestamp) {
 		return fmt.Errorf("timestamp mismatch: header=%d, attr=%d", h.Time, attr.Timestamp)
@@ -547,7 +579,7 @@ func (s *SyncTester) validateAttributesForBlock(attr *eth.PayloadAttributes, blo
 			// Cannot validate since EL will fall back to prior eip1559 constants
 			return nil
 		}
-		if !bytes.Equal(block.Extra()[1:], (*attr.EIP1559Params)[:]) {
+		if !bytes.Equal(block.Extra()[1:1+8], (*attr.EIP1559Params)[:]) {
 			return fmt.Errorf("eip1559Params mismatch: %s != 0x%s", *attr.EIP1559Params, hex.EncodeToString(block.Extra()[1:]))
 		}
 	} else {
@@ -555,6 +587,23 @@ func (s *SyncTester) validateAttributesForBlock(attr *eth.PayloadAttributes, blo
 		// Spec: Prior to Holocene activation, eip1559Parameters in PayloadAttributesV3 must be null and is otherwise considered invalid.
 		if attr.EIP1559Params != nil {
 			return fmt.Errorf("holocene disabled but EIP1559Params not nil. eip1559Params: %s", attr.EIP1559Params)
+		}
+	}
+	if isJovian {
+		// https://github.com/ethereum-optimism/specs/blob/510377c586d0cbede2d40402d2371fcadd5656a0/specs/protocol/jovian/exec-engine.md#minimum-base-fee-in-payloadattributesv3
+		// Spec: The Engine API PayloadAttributesV3 is extended with a new field minBaseFee
+		if attr.MinBaseFee == nil {
+			return errors.New("jovian enabled but MinBaseFee nil")
+		}
+		minBaseFee := binary.BigEndian.Uint64(block.Extra()[1+8 : 1+8+8])
+		if minBaseFee != *attr.MinBaseFee {
+			return fmt.Errorf("MinBaseFee mismatch: %d != %d", *attr.MinBaseFee, minBaseFee)
+		}
+	} else {
+		// https://github.com/ethereum-optimism/specs/blob/510377c586d0cbede2d40402d2371fcadd5656a0/specs/protocol/jovian/exec-engine.md#minimum-base-fee-in-payloadattributesv3
+		// Spec: The minBaseFee MUST be null prior to the Jovian fork, and MUST be non-null after the Jovian fork.
+		if attr.MinBaseFee != nil {
+			return fmt.Errorf("jovian disabled but MinBaseFee not nil. MinBaseFee: %d", attr.MinBaseFee)
 		}
 	}
 	return nil

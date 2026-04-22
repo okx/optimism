@@ -217,6 +217,28 @@ var (
 		Value:    time.Second * 10,
 		Category: RollupCategory,
 	}
+	L2FollowSource = &cli.StringFlag{
+		Name:     "l2.follow.source",
+		Usage:    "Address of L2 CL RPC HTTP endpoint to follow source",
+		EnvVars:  prefixEnvVars("L2_FOLLOW_SOURCE"),
+		Category: RollupCategory,
+		Required: false,
+	}
+	L2FollowSourceRpcTimeout = &cli.DurationFlag{
+		Name:     "l2.follow.source.rpc-timeout",
+		Usage:    "L2 follow source client rpc timeout",
+		EnvVars:  prefixEnvVars("L2_FOLLOW_SOURCE_RPC_TIMEOUT"),
+		Value:    time.Second * 10,
+		Category: RollupCategory,
+	}
+	// XLayer: Skip L1 check when following an upstream L2 CL source.
+	L2FollowSourceSkipL1Check = &cli.BoolFlag{
+		Name:     "l2.follow.source.skip-l1-check",
+		Usage:    "Skip L1 origin verification when following an upstream source. Fully trusts the upstream L2 node and removes L1 RPC dependency. Requires --l2.follow.source to be set.",
+		EnvVars:  prefixEnvVars("L2_FOLLOW_SOURCE_SKIP_L1_CHECK"),
+		Category: RollupCategory,
+		Required: false,
+	}
 	VerifierL1Confs = &cli.Uint64Flag{
 		Name:     "verifier.l1-confs",
 		Usage:    "Number of L1 blocks to keep distance from the L1 head before deriving L2 data from. Reorgs are supported, but may be slow to perform.",
@@ -255,6 +277,15 @@ var (
 		Usage:    "Forces the sequencer to strictly prepare the next L1 origin and create empty L2 blocks",
 		EnvVars:  prefixEnvVars("SEQUENCER_RECOVER"),
 		Value:    false,
+		Category: SequencerCategory,
+	}
+	SequencerSealingDurationFlag = &cli.DurationFlag{
+		Name: "sequencer.sealing-duration",
+		Usage: "This is the amount of the time the sequencer allocates to sealing the block " +
+			"(i.e. it will fetch the payload from the execution engine this much prior to the block's timestamp). " +
+			"If this is <= 0 it is automatically adjusted to 50ms.",
+		EnvVars:  prefixEnvVars("SEQUENCER_SEALING_DURATION"),
+		Value:    50 * time.Millisecond,
 		Category: SequencerCategory,
 	}
 	FinalityLookbackFlag = &cli.Uint64Flag{
@@ -441,12 +472,14 @@ var (
 )
 
 var requiredFlags = []cli.Flag{
-	L1NodeAddr,
+	// XLayer: L1NodeAddr moved to optionalFlags to support --l2.follow.source.skip-l1-check mode.
+	// L1 requirement is validated at config.Check() level instead.
 	L2EngineAddr,
 	L2EngineJWTSecret,
 }
 
 var optionalFlags = []cli.Flag{
+	L1NodeAddr,
 	BeaconAddr,
 	BeaconHeader,
 	BeaconFallbackAddrs,
@@ -468,6 +501,7 @@ var optionalFlags = []cli.Flag{
 	SequencerMaxSafeLagFlag,
 	SequencerL1Confs,
 	SequencerRecoverMode,
+	SequencerSealingDurationFlag,
 	FinalityLookbackFlag,
 	FinalityDelayFlag,
 	L1EpochPollIntervalFlag,
@@ -486,6 +520,8 @@ var optionalFlags = []cli.Flag{
 	L1ChainConfig,
 	L2EngineKind,
 	L2EngineRpcTimeout,
+	L2FollowSource,
+	L2FollowSourceSkipL1Check,
 	InteropRPCAddr,
 	InteropRPCPort,
 	InteropJWTSecret,
@@ -523,8 +559,6 @@ func init() {
 	optionalFlags = append(optionalFlags, opflags.CLIFlags(EnvVarPrefix, RollupCategory)...)
 	optionalFlags = append(optionalFlags, altda.CLIFlags(EnvVarPrefix, AltDACategory)...)
 	Flags = append(requiredFlags, optionalFlags...)
-	// For X Layer
-	Flags = append(Flags, XLayerFlags...)
 }
 
 func CheckRequired(ctx cliiface.Context) error {

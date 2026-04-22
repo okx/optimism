@@ -31,13 +31,15 @@ type L2GenesisInput struct {
 	DeployCrossL2Inbox                       bool
 	EnableGovernance                         bool
 	FundDevAccounts                          bool
+	UseRevenueShare                          bool
+	ChainFeesRecipient                       common.Address
+	L1FeesDepositor                          common.Address
 	UseCustomGasToken                        bool
 	GasPayingTokenName                       string
 	GasPayingTokenSymbol                     string
 	NativeAssetLiquidityAmount               *big.Int
-	UseRevenueShare                          bool
-	ChainFeesRecipient                       common.Address
-	L1FeesDepositor                          common.Address
+	LiquidityControllerOwner                 common.Address
+	UseL2CM                                  bool
 }
 
 type L2GenesisScript script.DeployScriptWithoutOutput[L2GenesisInput]

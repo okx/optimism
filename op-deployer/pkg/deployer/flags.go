@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/artifacts"
-
+	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/flags"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/state"
 
 	op_service "github.com/ethereum-optimism/optimism/op-service"
@@ -13,19 +13,23 @@ import (
 )
 
 const (
-	EnvVarPrefix             = "DEPLOYER"
-	L1RPCURLFlagName         = "l1-rpc-url"
-	CacheDirFlagName         = "cache-dir"
-	L1ChainIDFlagName        = "l1-chain-id"
-	ArtifactsLocatorFlagName = "artifacts-locator"
-	L2ChainIDsFlagName       = "l2-chain-ids"
-	WorkdirFlagName          = "workdir"
-	OutdirFlagName           = "outdir"
-	PrivateKeyFlagName       = "private-key"
-	IntentTypeFlagName       = "intent-type"
-	EtherscanAPIKeyFlagName  = "etherscan-api-key"
-	InputFileFlagName        = "input-file"
-	ContractNameFlagName     = "contract-name"
+	EnvVarPrefix             = flags.EnvVarPrefix
+	L1RPCURLFlagName         = flags.L1RPCURLFlagName
+	CacheDirFlagName         = flags.CacheDirFlagName
+	L1ChainIDFlagName        = flags.L1ChainIDFlagName
+	ArtifactsLocatorFlagName = flags.ArtifactsLocatorFlagName
+	L2ChainIDsFlagName       = flags.L2ChainIDsFlagName
+	WorkdirFlagName          = flags.WorkdirFlagName
+	OutdirFlagName           = flags.OutdirFlagName
+	PrivateKeyFlagName       = flags.PrivateKeyFlagName
+	IntentTypeFlagName       = flags.IntentTypeFlagName
+	VerifierAPIKeyFlagName   = flags.VerifierAPIKeyFlagName
+	EtherscanAPIKeyFlagName  = flags.EtherscanAPIKeyFlagName // Deprecated: use VerifierAPIKeyFlagName
+	InputFileFlagName        = flags.InputFileFlagName
+	ContractNameFlagName     = flags.ContractNameFlagName
+	VerifierTypeFlagName     = flags.VerifierTypeFlagName
+	VerifierUrlFlagName      = flags.VerifierUrlFlagName
+	UseForgeFlagName         = flags.UseForgeFlagName
 )
 
 var (
@@ -48,7 +52,7 @@ var (
 		Usage: "Cache directory. " +
 			"If set, the deployer will attempt to cache downloaded artifacts in the specified directory.",
 		EnvVars: PrefixEnvVar("CACHE_DIR"),
-		Value:   DefaultCacheDir(),
+		Value:   flags.DefaultCacheDir(),
 	}
 	L1ChainIDFlag = &cli.Uint64Flag{
 		Name:    L1ChainIDFlagName,
@@ -98,11 +102,11 @@ var (
 			"intent-config-type",
 		},
 	}
-	EtherscanAPIKeyFlag = &cli.StringFlag{
-		Name:     EtherscanAPIKeyFlagName,
-		Usage:    "etherscan API key for contract verification.",
-		EnvVars:  PrefixEnvVar("ETHERSCAN_API_KEY"),
-		Required: true,
+	VerifierAPIKeyFlag = &cli.StringFlag{
+		Name:    VerifierAPIKeyFlagName,
+		Usage:   "API key for contract verifier (etherscan, blockscout, etc.)",
+		EnvVars: append(PrefixEnvVar("VERIFIER_API_KEY"), PrefixEnvVar("ETHERSCAN_API_KEY")...),
+		Aliases: []string{EtherscanAPIKeyFlagName},
 	}
 	InputFileFlag = &cli.StringFlag{
 		Name:    InputFileFlagName,
@@ -113,6 +117,35 @@ var (
 		Name:    ContractNameFlagName,
 		Usage:   "(optional) contract name matching a field within the input file",
 		EnvVars: PrefixEnvVar("CONTRACT_NAME"),
+	}
+	VerifierFlag = &cli.StringFlag{
+		Name:    VerifierTypeFlagName,
+		Usage:   "contract verifier type(s) to use. Comma-separated for multiple verifiers. Options: etherscan (default), blockscout, custom. Example: etherscan,blockscout",
+		EnvVars: PrefixEnvVar("VERIFIER_TYPE"),
+		Value:   "etherscan",
+	}
+	VerifierUrlFlag = &cli.StringFlag{
+		Name:    VerifierUrlFlagName,
+		Usage:   "verifier URL (optional for blockscout, required for custom, ignored for etherscan)",
+		EnvVars: PrefixEnvVar("VERIFIER_URL"),
+	}
+	AutoVerifyFlag = &cli.BoolFlag{
+		Name:    "verify",
+		Usage:   "automatically verify contracts after deployment",
+		EnvVars: PrefixEnvVar("VERIFY"),
+		Value:   false,
+	}
+	UseForgeFlag = &cli.BoolFlag{
+		Name:    UseForgeFlagName,
+		Usage:   "use Forge instead of script.Host for deployment scripts",
+		EnvVars: PrefixEnvVar("USE_FORGE"),
+		Value:   false,
+	}
+	ValidateFlag = &cli.StringFlag{
+		Name:    "validate",
+		Usage:   "automatically validate deployment after apply. Specify validator version (e.g., v2.0.0) or 'auto' to auto-detect from state.json. If not specified, validation is skipped.",
+		EnvVars: PrefixEnvVar("VALIDATE"),
+		Value:   "",
 	}
 )
 
@@ -131,6 +164,12 @@ var ApplyFlags = []cli.Flag{
 	PrivateKeyFlag,
 	DeploymentTargetFlag,
 	OpProgramSvcUrlFlag,
+	AutoVerifyFlag,
+	VerifierAPIKeyFlag,
+	VerifierFlag,
+	VerifierUrlFlag,
+	UseForgeFlag,
+	ValidateFlag,
 }
 
 var UpgradeFlags = []cli.Flag{
@@ -142,9 +181,11 @@ var UpgradeFlags = []cli.Flag{
 var VerifyFlags = []cli.Flag{
 	L1RPCURLFlag,
 	ArtifactsLocatorFlag,
-	EtherscanAPIKeyFlag,
+	VerifierAPIKeyFlag,
 	InputFileFlag,
 	ContractNameFlag,
+	VerifierFlag,
+	VerifierUrlFlag,
 }
 
 func PrefixEnvVar(name string) []string {

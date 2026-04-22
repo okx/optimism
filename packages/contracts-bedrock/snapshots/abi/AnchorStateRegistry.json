@@ -15,7 +15,7 @@
     "name": "anchorGame",
     "outputs": [
       {
-        "internalType": "contract IFaultDisputeGame",
+        "internalType": "contract IDisputeGame",
         "name": "",
         "type": "address"
       }
@@ -118,6 +118,31 @@
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getStartingAnchorRoot",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "Hash",
+            "name": "root",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint256",
+            "name": "l2SequenceNumber",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct Proposal",
+        "name": "",
+        "type": "tuple"
       }
     ],
     "stateMutability": "view",
@@ -470,7 +495,7 @@
     "inputs": [
       {
         "indexed": true,
-        "internalType": "contract IFaultDisputeGame",
+        "internalType": "contract IDisputeGame",
         "name": "game",
         "type": "address"
       }

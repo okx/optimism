@@ -242,6 +242,8 @@ func setupConductor(
 			ListenAddr: localhost,
 			ListenPort: 0, // let the system select a port
 		},
+		// For X Layer: minimum required HTTP body limit
+		HTTPBodyLimitMB: 5,
 	}
 
 	logger := testlog.Logger(t, log.LevelDebug)
@@ -308,7 +310,13 @@ func setupBatcher(t *testing.T, sys *e2esys.System, conductors map[string]*condu
 		CompressionAlgo:              derive.Zlib,
 	}
 
-	batcher, err := bss.BatcherServiceFromCLIConfig(context.Background(), "0.0.1", batcherCLIConfig, sys.Cfg.Loggers["batcher"])
+	batcherContext, batcherCancel := context.WithCancel(context.Background())
+	var closeAppFn context.CancelCauseFunc = func(cause error) {
+		t.Fatalf("closeAppFn called, batcher hit a critical error: %v", cause)
+		batcherCancel()
+	}
+
+	batcher, err := bss.BatcherServiceFromCLIConfig(batcherContext, closeAppFn, "0.0.1", batcherCLIConfig, sys.Cfg.Loggers["batcher"])
 	require.NoError(t, err)
 	err = batcher.Start(context.Background())
 	require.NoError(t, err)

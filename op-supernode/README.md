@@ -27,6 +27,8 @@ but redundant access is eliminated.
 - Data Directories are namespaced to protect SafeDB and P2P resources
 - Flag configuration can be shared amongst chains for common setup.
 
+#### Safety labels
+See [this document](./safety-labels.md)
 
 #### Flag Configuration Tips
 
@@ -75,6 +77,8 @@ Components which expose Start/Stop are given a goroutine to work during `op-supe
 - `Heartbeat`
   - RPC: `heartbeat_check` produces a random-hex sign of life when called.
   - Runtime: emits a simple heartbeat message to the logs to show liveness.
+- `SuperRoot`
+  - RPC: `superroot_atTimestamp` produces a SuperRoot from Verified L2 blocks, and includes sync/derivation information for Proofs.
 
 ### Quickstart
 Build:

@@ -2,18 +2,19 @@
 pragma solidity 0.8.15;
 
 // Testing
-import { StdUtils } from "forge-std/Test.sol";
+import { StdUtils } from "forge-std/StdUtils.sol";
 import { Vm } from "forge-std/Vm.sol";
 import { CommonTest } from "test/setup/CommonTest.sol";
 
 // Libraries
 import { Predeploys } from "src/libraries/Predeploys.sol";
-import { DevFeatures } from "src/libraries/DevFeatures.sol";
+import { Features } from "src/libraries/Features.sol";
+import { SafeSend } from "src/universal/SafeSend.sol";
 
 // Contracts
 import { ILiquidityController } from "interfaces/L2/ILiquidityController.sol";
 import { INativeAssetLiquidity } from "interfaces/L2/INativeAssetLiquidity.sol";
-import { IProxyAdmin } from "interfaces/universal/IProxyAdmin.sol";
+import { IL2ProxyAdmin } from "interfaces/L2/IL2ProxyAdmin.sol";
 
 /// @title CGT_Minter
 /// @notice An actor with the minter role (can mint and burn)
@@ -103,7 +104,7 @@ contract NativeAssetLiquidity_Fundooor is StdUtils {
         _amount = bound(_amount, 0, address(this).balance);
 
         // action: fund _amount
-        vm.deal(address(nativeAssetLiquidity), _amount);
+        new SafeSend{ value: _amount }(payable(address(nativeAssetLiquidity)));
 
         // postcondition: nil here (in the invariant tests)
         // update ghost variables
@@ -190,8 +191,8 @@ contract CustomGasToken_Invariants_Test is CommonTest {
 
     /// @notice Test setup.
     function setUp() public override {
-        skipIfDevFeatureDisabled(DevFeatures.CUSTOM_GAS_TOKEN);
         super.setUp();
+        skipIfSysFeatureDisabled(Features.CUSTOM_GAS_TOKEN);
 
         randomActor = new RandomActor();
         actor_funder = new NativeAssetLiquidity_Fundooor(vm);
@@ -201,7 +202,7 @@ contract CustomGasToken_Invariants_Test is CommonTest {
         randomActor.initAddresses(address(actor_minter), address(actor_funder));
 
         // Authorize the minter actor (simple access control in unit tests)
-        vm.prank(IProxyAdmin(Predeploys.PROXY_ADMIN).owner());
+        vm.prank(IL2ProxyAdmin(Predeploys.PROXY_ADMIN).owner());
         liquidityController.authorizeMinter(address(actor_minter));
 
         // Create the initial supply

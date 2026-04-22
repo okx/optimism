@@ -74,4 +74,20 @@ type Config struct {
 	SkipSyncStartCheck bool `json:"skip_sync_start_check"`
 
 	SupportsPostFinalizationELSync bool `json:"supports_post_finalization_elsync"`
+
+	L2FollowSourceEndpoint string `json:"l2_follow_source_endpoint"`
+	NeedInitialResetEngine bool   `json:"need_initial_reset_engine"`
+
+	// XLayer: skip L1 origin verification when following upstream source.
+	// Fully trusts the upstream L2 node and removes L1 RPC dependency.
+	SkipFollowSourceL1Check bool `json:"skip_follow_source_l1_check"`
+}
+
+func (c *Config) FollowSourceEnabled() bool {
+	return c.L2FollowSourceEndpoint != ""
+}
+
+// ShouldSkipFollowSourceL1Check returns true when L1 verification should be skipped in follow source mode.
+func (c *Config) ShouldSkipFollowSourceL1Check() bool {
+	return c.SkipFollowSourceL1Check && c.FollowSourceEnabled()
 }
