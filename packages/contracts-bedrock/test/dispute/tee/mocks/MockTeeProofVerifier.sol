@@ -9,11 +9,21 @@ contract MockTeeProofVerifier is ITeeProofVerifier {
     error InvalidSignature();
 
     mapping(address => bool) public registered;
+    mapping(address => bool) public allowedProposers;
+    mapping(address => bool) public allowedChallengers;
     bytes32 public lastDigest;
     bytes public lastSignature;
 
     function setRegistered(address enclave, bool value) external {
         registered[enclave] = value;
+    }
+
+    function setAllowedProposer(address proposer, bool value) external {
+        allowedProposers[proposer] = value;
+    }
+
+    function setAllowedChallenger(address challenger, bool value) external {
+        allowedChallengers[challenger] = value;
     }
 
     function verifyBatch(bytes32 digest, bytes calldata signature) external view returns (address signer) {

@@ -53,15 +53,16 @@ contract TeeDisputeGameTest is TeeTestUtils {
         anchorStateRegistry = new MockAnchorStateRegistry();
         teeProofVerifier = new MockTeeProofVerifier();
 
+        teeProofVerifier.setAllowedProposer(proposer, true);
+        teeProofVerifier.setAllowedChallenger(challenger, true);
+
         implementation = new TeeDisputeGame(
             Duration.wrap(MAX_CHALLENGE_DURATION),
             Duration.wrap(MAX_PROVE_DURATION),
             IDisputeGameFactory(address(factory)),
             ITeeProofVerifier(address(teeProofVerifier)),
             CHALLENGER_BOND,
-            IAnchorStateRegistry(address(anchorStateRegistry)),
-            proposer,
-            challenger
+            IAnchorStateRegistry(address(anchorStateRegistry))
         );
 
         factory.setImplementation(GameType.wrap(TEE_DISPUTE_GAME_TYPE), implementation);
@@ -80,7 +81,6 @@ contract TeeDisputeGameTest is TeeTestUtils {
         (Hash startingRoot, uint256 startingBlockNumber) = game.startingOutputRoot();
         assertEq(startingRoot.raw(), computeRootClaim(ANCHOR_BLOCK_HASH, ANCHOR_STATE_HASH).raw());
         assertEq(startingBlockNumber, ANCHOR_L2_BLOCK);
-        assertEq(game.PROPOSER(), proposer);
         assertEq(game.refundModeCredit(proposer), DEFENDER_BOND);
         assertTrue(game.wasRespectedGameTypeWhenCreated());
     }

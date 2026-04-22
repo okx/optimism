@@ -174,15 +174,16 @@ contract TeeDisputeGameInvariantTest is TeeTestUtils {
         anchorStateRegistry = new MockAnchorStateRegistry();
         teeProofVerifier = new MockTeeProofVerifier();
 
+        teeProofVerifier.setAllowedProposer(proposer, true);
+        teeProofVerifier.setAllowedChallenger(challenger, true);
+
         implementation = new TeeDisputeGame(
             Duration.wrap(MAX_CHALLENGE_DURATION),
             Duration.wrap(MAX_PROVE_DURATION),
             IDisputeGameFactory(address(factory)),
             ITeeProofVerifier(address(teeProofVerifier)),
             CHALLENGER_BOND,
-            IAnchorStateRegistry(address(anchorStateRegistry)),
-            proposer,
-            challenger
+            IAnchorStateRegistry(address(anchorStateRegistry))
         );
 
         factory.setImplementation(GameType.wrap(TEE_DISPUTE_GAME_TYPE), implementation);
