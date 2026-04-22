@@ -760,9 +760,9 @@ mod tests {
 
         let metadata = OpFlashblockPayloadMetadata {
             block_number: 100,
-            new_account_balances: BTreeMap::new(),
-            receipts: BTreeMap::new(),
-            access_list: None,
+            new_account_balances: Some(BTreeMap::new()),
+            receipts: Some(BTreeMap::new()),
+            access_list: Some(vec![]),
         };
 
         OpFlashblockPayload { payload_id: PayloadId::new([1u8; 8]), index, base, diff, metadata }

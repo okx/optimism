@@ -115,9 +115,9 @@ mod tests {
 
         let metadata = OpFlashblockPayloadMetadata {
             block_number: 100,
-            new_account_balances: BTreeMap::new(),
-            receipts: BTreeMap::new(),
-            access_list: None,
+            new_account_balances: Some(BTreeMap::new()),
+            receipts: Some(BTreeMap::new()),
+            access_list: Some(vec![]),
         };
 
         OpFlashblockPayload {
@@ -136,7 +136,7 @@ mod tests {
         // Direct field access via public fields
         assert_eq!(payload.metadata.block_number, 100);
         assert_eq!(payload.base.as_ref().map(|b| b.parent_hash), Some(B256::ZERO));
-        assert!(!payload.metadata.receipts.contains_key(&B256::ZERO));
+        assert!(!payload.metadata.receipts.as_ref().is_some_and(|r| r.contains_key(&B256::ZERO)));
     }
 
     #[test]
