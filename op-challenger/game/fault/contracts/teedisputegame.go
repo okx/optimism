@@ -48,6 +48,8 @@ type TeeDisputeGameContract interface {
 	GetProveParams(ctx context.Context, factory *DisputeGameFactoryContract) (TeeProveParams, error)
 	ProveTx(ctx context.Context, proofBytes []byte, from common.Address) (txmgr.TxCandidate, error)
 	GetProposer(ctx context.Context) (common.Address, error)
+	// For xlayer
+	ChallengeTx(ctx context.Context) (txmgr.TxCandidate, error)
 
 	// Bond-related (BondContract interface)
 	GetCredit(ctx context.Context, recipient common.Address) (*big.Int, gameTypes.GameStatus, error)
@@ -276,6 +278,21 @@ func (g *TeeDisputeGameContractLatest) ProveTx(ctx context.Context, proofBytes [
 		return txmgr.TxCandidate{}, fmt.Errorf("%w: %w", ErrSimulationFailed, err)
 	}
 	return call.ToTxCandidate()
+}
+
+// ChallengeTx constructs the challenge() transaction with the required challenger bond as value.
+// For xlayer
+func (g *TeeDisputeGameContractLatest) ChallengeTx(ctx context.Context) (txmgr.TxCandidate, error) {
+	tx, err := g.contract.Call(methodChallenge).ToTxCandidate()
+	if err != nil {
+		return txmgr.TxCandidate{}, fmt.Errorf("failed to create challenge tx: %w", err)
+	}
+	result, err := g.multiCaller.SingleCall(ctx, rpcblock.Latest, g.contract.Call(methodChallengerBond))
+	if err != nil {
+		return txmgr.TxCandidate{}, fmt.Errorf("failed to retrieve challenger bond: %w", err)
+	}
+	tx.Value = result.GetBigInt(0)
+	return tx, nil
 }
 
 // GetProposer reads the proposer storage variable.
