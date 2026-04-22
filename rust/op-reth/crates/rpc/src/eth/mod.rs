@@ -15,7 +15,6 @@ use crate::{
 };
 use alloy_eips::BlockNumHash;
 use alloy_primitives::U256;
-use std::collections::BTreeMap;
 use alloy_rpc_types_eth::{Filter, Log};
 use eyre::WrapErr;
 use futures::StreamExt;
@@ -51,6 +50,7 @@ use reth_tasks::{
     pool::{BlockingTaskGuard, BlockingTaskPool},
 };
 use std::{
+    collections::BTreeMap,
     fmt::{self, Formatter},
     marker::PhantomData,
     sync::Arc,
