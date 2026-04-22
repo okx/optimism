@@ -510,6 +510,10 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         return startingOutputRoot.root;
     }
 
+    function rootClaimByChainId(uint256) public pure returns (Claim rootClaim_) {
+        rootClaim_ = rootClaim();
+    }
+
     function extraData() public pure returns (bytes memory extraData_) {
         extraData_ = _getArgBytes(0x54, 0x64);
     }

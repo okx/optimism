@@ -63,6 +63,10 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
         // --- Deploy real TeeProofVerifier (with MockRiscZeroVerifier) ---
         teeProofVerifier = _deployTeeProofVerifier();
 
+        // --- Register proposer/challenger in the whitelist ---
+        teeProofVerifier.addProposer(proposer);
+        teeProofVerifier.addChallenger(challenger);
+
         // --- Deploy TeeDisputeGame implementation ---
         implementation = new TeeDisputeGame(
             Duration.wrap(MAX_CHALLENGE_DURATION),
@@ -70,9 +74,7 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
             IDisputeGameFactory(address(factory)),
             ITeeProofVerifier(address(teeProofVerifier)),
             CHALLENGER_BOND,
-            IAnchorStateRegistry(address(anchorStateRegistry)),
-            proposer,
-            challenger
+            IAnchorStateRegistry(address(anchorStateRegistry))
         );
 
         factory.setImplementation(TEE_GAME_TYPE, IDisputeGame(address(implementation)), bytes(""));
