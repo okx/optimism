@@ -154,6 +154,16 @@ func (ba *FetchingAttributesBuilder) PreparePayloadAttributes(ctx context.Contex
 		upgradeTxs = append(upgradeTxs, jovian...)
 	}
 
+	// XLayerAA — XLayer-specific (not in upstream OP fork ladder).
+	// Emits the 7 EIP-8130 predeploy installation deposit txs.
+	if ba.rollupCfg.IsXLayerAAActivationBlock(nextL2Time) {
+		xlayerAA, err := XLayerAANetworkUpgradeTransactions()
+		if err != nil {
+			return nil, NewCriticalError(fmt.Errorf("failed to build XLayerAA network upgrade txs: %w", err))
+		}
+		upgradeTxs = append(upgradeTxs, xlayerAA...)
+	}
+
 	// Starting with Karst, upgrade transactions are loaded from a NUT bundle and
 	// additional gas is allocated to the upgrade block so that upgrade transactions
 	// don't need to fit within the system tx gas limit.

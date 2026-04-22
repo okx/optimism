@@ -129,6 +129,23 @@ type Config struct {
 	// Active if JovianTime != nil && L2 block timestamp >= *JovianTime, inactive otherwise.
 	JovianTime *uint64 `json:"jovian_time,omitempty"`
 
+	// XLayerAATime sets the activation time of the XLayerAA (EIP-8130
+	// account-abstraction) network upgrade. XLayer-specific; not part of
+	// the upstream OP fork ladder.
+	//
+	// On the activation boundary block, the XLayerAA upgrade-deposit-tx
+	// bundle (see `XLayerAANetworkUpgradeTransactions`) deploys the 7
+	// EIP-8130 system contracts (AccountConfiguration + 2 wallets + 4
+	// verifiers) at canonical `CREATE(deployer, 0)` addresses. Without
+	// this field set, the bundle is never emitted and `0x7B`-typed
+	// transactions revert at execution.
+	//
+	// Deliberately not threaded through `(Set)ActivationTime` /
+	// `IsForkActive(fork ForkName, ...)` because XLayerAA is not in the
+	// upstream `forks.ForkName` enum — keeping the integration surface
+	// narrow avoids touching shared OP infrastructure.
+	XLayerAATime *uint64 `json:"xlayer_aa_time,omitempty"`
+
 	// KarstTime sets the activation time of the Karst network upgrade.
 	// Active if KarstTime != nil && L2 block timestamp >= *KarstTime, inactive otherwise.
 	KarstTime *uint64 `json:"karst_time,omitempty"`
@@ -560,6 +577,25 @@ func (c *Config) IsJovianActivationBlock(l2BlockTime uint64) bool {
 	return c.IsJovian(l2BlockTime) &&
 		l2BlockTime >= c.BlockTime &&
 		!c.IsJovian(l2BlockTime-c.BlockTime)
+}
+
+// IsXLayerAA returns true if the XLayerAA (EIP-8130) hardfork is active at
+// or past the given timestamp.
+//
+// XLayerAA is XLayer-specific and bypasses the upstream `IsForkActive`
+// helper (which is keyed by `forks.ForkName`) — see the field doc on
+// `Config.XLayerAATime` for the rationale.
+func (c *Config) IsXLayerAA(timestamp uint64) bool {
+	return c.XLayerAATime != nil && timestamp >= *c.XLayerAATime
+}
+
+// IsXLayerAAActivationBlock returns whether the specified block is the first
+// block subject to the XLayerAA upgrade. Used by the attributes builder to
+// decide when to emit the XLayerAA upgrade deposit txs.
+func (c *Config) IsXLayerAAActivationBlock(l2BlockTime uint64) bool {
+	return c.IsXLayerAA(l2BlockTime) &&
+		l2BlockTime >= c.BlockTime &&
+		!c.IsXLayerAA(l2BlockTime-c.BlockTime)
 }
 
 // IsKarstActivationBlock returns whether the specified block is the first block subject to the
