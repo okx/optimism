@@ -112,14 +112,6 @@ func (c XLayerCLIConfig) Check() error {
 		return fmt.Errorf("XLayer address is required when enabled")
 	}
 
-	if c.AccessKey == "" {
-		return fmt.Errorf("XLayer access key is required when enabled")
-	}
-
-	if c.SecretKey == "" {
-		return fmt.Errorf("XLayer secret key is required when enabled")
-	}
-
 	return nil
 }
 
