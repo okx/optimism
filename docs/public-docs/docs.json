@@ -2208,7 +2208,8 @@
                 "pages": [
                   "app-developers/reference/actions/integrating-wallets",
                   "app-developers/reference/actions/wallet-definitions",
-                  "app-developers/reference/actions/lend-documentation"
+                  "app-developers/reference/actions/lend-documentation",
+                  "app-developers/reference/actions/swap-documentation"
                 ]
               },
               {
@@ -2345,7 +2346,8 @@
             "pages": [
               "op-mainnet/network-information/connecting-to-op",
               "op-mainnet/network-information/op-addresses",
-              "op-mainnet/network-information/snapshots"
+              "op-mainnet/network-information/snapshots",
+              "op-mainnet/network-information/transaction-finality"
             ]
           }
         ]
@@ -2370,6 +2372,7 @@
           {
             "group": "Notices",
             "pages": [
+              "notices/stake-based-priority-ordering",
               "notices/req-resp-cl-sync-deprecation",
               "notices/op-geth-deprecation",
               "notices/op-deployer-upgrade-deprecation",
