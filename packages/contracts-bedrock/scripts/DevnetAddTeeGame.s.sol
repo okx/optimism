@@ -110,7 +110,7 @@ contract DevnetAddTeeGame is Script {
         cfg.deployer = vm.addr(cfg.deployerKey);
         cfg.existingDgf = vm.envAddress("EXISTING_DGF");
         cfg.systemConfig = vm.envAddress("SYSTEM_CONFIG_ADDRESS");
-        cfg.disputeGameFinalityDelaySeconds = vm.envUint("DISPUTE_GAME_FINALITY_DELAY_SECONDS");
+        cfg.disputeGameFinalityDelaySeconds = vm.envOr("DISPUTE_GAME_FINALITY_DELAY_SECONDS", uint256(0));
         cfg.maxChallengeDuration = uint64(vm.envUint("MAX_CHALLENGE_DURATION"));
         cfg.maxProveDuration = uint64(vm.envUint("MAX_PROVE_DURATION"));
         cfg.challengerBond = vm.envUint("CHALLENGER_BOND");
