@@ -4,7 +4,6 @@ pragma solidity ^0.8.15;
 import {IAnchorStateRegistry} from "interfaces/dispute/IAnchorStateRegistry.sol";
 import {IDisputeGameFactory} from "interfaces/dispute/IDisputeGameFactory.sol";
 import {IDisputeGame} from "interfaces/dispute/IDisputeGame.sol";
-import {IFaultDisputeGame} from "interfaces/dispute/IFaultDisputeGame.sol";
 import {ISystemConfig} from "interfaces/L1/ISystemConfig.sol";
 import {ISuperchainConfig} from "interfaces/L1/ISuperchainConfig.sol";
 import {IProxyAdmin} from "interfaces/universal/IProxyAdmin.sol";
@@ -24,7 +23,7 @@ contract MockAnchorStateRegistry is IAnchorStateRegistry {
     uint8 public initVersion = 1;
     ISystemConfig public systemConfig;
     IDisputeGameFactory public disputeGameFactory;
-    IFaultDisputeGame public anchorGame;
+    IDisputeGame public anchorGame;
     Proposal internal anchorRoot;
     mapping(IDisputeGame => bool) public disputeGameBlacklist;
     mapping(address => Flags) internal flags;
@@ -135,8 +134,12 @@ contract MockAnchorStateRegistry is IAnchorStateRegistry {
 
     function setAnchorState(IDisputeGame game) external {
         if (revertOnSetAnchorState) revert AnchorStateRegistry_InvalidAnchorGame();
-        anchorGame = IFaultDisputeGame(address(game));
+        anchorGame = game;
         lastSetAnchorState = game;
+    }
+
+    function getStartingAnchorRoot() external view returns (Proposal memory) {
+        return anchorRoot;
     }
 
     function getAnchorRoot() external view returns (Hash, uint256) {

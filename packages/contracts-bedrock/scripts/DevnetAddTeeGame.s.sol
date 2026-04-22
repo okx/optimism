@@ -153,9 +153,7 @@ contract DevnetAddTeeGame is Script {
                 IDisputeGameFactory(cfg.existingDgf),
                 ITeeProofVerifier(verifier),
                 cfg.challengerBond,
-                IAnchorStateRegistry(tzAsr),
-                cfg.proposer,
-                cfg.challenger
+                IAnchorStateRegistry(tzAsr)
             )
         );
     }
