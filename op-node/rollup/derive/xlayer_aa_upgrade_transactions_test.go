@@ -45,31 +45,38 @@ func TestXLayerAAUpgradeTransactionsAddressesMatchCreateAddress(t *testing.T) {
 }
 
 // TestXLayerAANetworkUpgradeTransactions decodes the 7 deposit txs
-// returned by `XLayerAANetworkUpgradeTransactions` and asserts each one
-// has the expected shape: correct `from`, `to == nil`, non-empty data,
-// and (for the 3 contracts with constructor args) the
+// returned by `XLayerAANetworkUpgradeTransactions` and asserts each
+// has the expected shape: correct `from`, `to == nil`, non-empty
+// data, and (for the 3 contracts with constructor args) the
 // `AccountConfiguration` address appended as the trailing 32 bytes.
+//
+// Also asserts the total gas returned by the function equals the sum
+// of per-tx gas limits — this is the value `attributes.go` adds to
+// the activation block's `upgradeGas` budget, so a mismatch would
+// crowd out normal user txs.
 func TestXLayerAANetworkUpgradeTransactions(t *testing.T) {
-	upgradeTxns, err := XLayerAANetworkUpgradeTransactions()
+	upgradeTxns, totalGas, err := XLayerAANetworkUpgradeTransactions()
 	require.NoError(t, err)
 	require.Len(t, upgradeTxns, 7, "expected exactly 7 upgrade txs")
 
 	expected := []struct {
-		name             string
-		from             common.Address
+		name              string
+		from              common.Address
+		gasLimit          uint64
 		hasConstructorArg bool
 	}{
-		{"AccountConfiguration", XLayerAAAccountConfigurationDeployerAddress, false},
-		{"DefaultAccount", XLayerAADefaultAccountDeployerAddress, true},
-		{"DefaultHighRateAccount", XLayerAADefaultHighRateAccountDeployerAddress, true},
-		{"K1Verifier", XLayerAAK1VerifierDeployerAddress, false},
-		{"P256Verifier", XLayerAAP256VerifierDeployerAddress, false},
-		{"WebAuthnVerifier", XLayerAAWebAuthnVerifierDeployerAddress, false},
-		{"DelegateVerifier", XLayerAADelegateVerifierDeployerAddress, true},
+		{"AccountConfiguration", XLayerAAAccountConfigurationDeployerAddress, 2_500_000, false},
+		{"DefaultAccount", XLayerAADefaultAccountDeployerAddress, 1_000_000, true},
+		{"DefaultHighRateAccount", XLayerAADefaultHighRateAccountDeployerAddress, 1_000_000, true},
+		{"K1Verifier", XLayerAAK1VerifierDeployerAddress, 750_000, false},
+		{"P256Verifier", XLayerAAP256VerifierDeployerAddress, 1_500_000, false},
+		{"WebAuthnVerifier", XLayerAAWebAuthnVerifierDeployerAddress, 2_000_000, false},
+		{"DelegateVerifier", XLayerAADelegateVerifierDeployerAddress, 750_000, true},
 	}
 
 	acAddrPadded := common.LeftPadBytes(XLayerAAAccountConfigurationAddress.Bytes(), 32)
 
+	var summedGas uint64
 	for i, exp := range expected {
 		t.Run(exp.name, func(t *testing.T) {
 			tx := new(types.Transaction)
@@ -78,9 +85,8 @@ func TestXLayerAANetworkUpgradeTransactions(t *testing.T) {
 				"tx %d (%s) is not a deposit tx", i, exp.name)
 			require.Nil(t, tx.To(),
 				"tx %d (%s) should be a CREATE (to == nil)", i, exp.name)
-			// Non-deposit-specific accessors don't expose `From` directly,
-			// so we re-derive via the deposit signer. Easier here: just
-			// require non-empty data.
+			require.Equal(t, exp.gasLimit, tx.Gas(),
+				"tx %d (%s) gas mismatch", i, exp.name)
 			require.NotEmpty(t, tx.Data(),
 				"tx %d (%s) data is empty", i, exp.name)
 
@@ -94,5 +100,9 @@ func TestXLayerAANetworkUpgradeTransactions(t *testing.T) {
 					i, exp.name)
 			}
 		})
+		summedGas += exp.gasLimit
 	}
+
+	require.Equal(t, summedGas, totalGas,
+		"totalGas returned by XLayerAANetworkUpgradeTransactions must equal sum of per-tx gas limits")
 }

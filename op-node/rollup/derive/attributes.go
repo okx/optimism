@@ -123,6 +123,13 @@ func (ba *FetchingAttributesBuilder) PreparePayloadAttributes(ctx context.Contex
 	}
 
 	var upgradeTxs []hexutil.Bytes
+	// `upgradeGas` accumulates the extra gas budget that NUT-style
+	// activation blocks need on top of the system tx allowance. Its
+	// original declaration was right before the Karst block (below);
+	// hoisted here so XLayerAA — whose bundle also uses the NUT
+	// machinery via `XLayerAANetworkUpgradeTransactions` — can
+	// contribute to it, since XLayerAA is dispatched before Karst.
+	var upgradeGas uint64
 	if ba.rollupCfg.IsEcotoneActivationBlock(nextL2Time) {
 		upgradeTxs, err = EcotoneNetworkUpgradeTransactions()
 		if err != nil {
@@ -155,19 +162,24 @@ func (ba *FetchingAttributesBuilder) PreparePayloadAttributes(ctx context.Contex
 	}
 
 	// XLayerAA — XLayer-specific (not in upstream OP fork ladder).
-	// Emits the 7 EIP-8130 predeploy installation deposit txs.
+	// Emits the 7 EIP-8130 predeploy installation deposit txs via a
+	// NUT-style bundle. `upgradeGas` is extended so the activation
+	// block gets a dedicated budget for the ~9.5M-gas deploy set
+	// and normal user txs aren't crowded out.
 	if ba.rollupCfg.IsXLayerAAActivationBlock(nextL2Time) {
-		xlayerAA, err := XLayerAANetworkUpgradeTransactions()
+		xlayerAATxs, xlayerAAGas, err := XLayerAANetworkUpgradeTransactions()
 		if err != nil {
 			return nil, NewCriticalError(fmt.Errorf("failed to build XLayerAA network upgrade txs: %w", err))
 		}
-		upgradeTxs = append(upgradeTxs, xlayerAA...)
+		upgradeTxs = append(upgradeTxs, xlayerAATxs...)
+		upgradeGas += xlayerAAGas
 	}
 
 	// Starting with Karst, upgrade transactions are loaded from a NUT bundle and
 	// additional gas is allocated to the upgrade block so that upgrade transactions
-	// don't need to fit within the system tx gas limit.
-	var upgradeGas uint64
+	// don't need to fit within the system tx gas limit. (The `upgradeGas`
+	// declaration was hoisted above so XLayerAA can contribute to the same
+	// budget — both share the NUT-bundle machinery.)
 	if ba.rollupCfg.IsKarstActivationBlock(nextL2Time) {
 		nutTxs, nutGas, err := UpgradeTransactions(forks.Karst)
 		if err != nil {
