@@ -7,6 +7,7 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 
 // Interfaces
 import { IRiscZeroVerifier } from "interfaces/dispute/IRiscZeroVerifier.sol";
+import { IAccessManager } from "interfaces/dispute/zk/IAccessManager.sol";
 
 /// @title TEE Proof Verifier for OP Stack DisputeGame
 /// @notice Verifies TEE enclave identity via ZK proof (owner-gated registration) and
@@ -48,6 +49,9 @@ contract TeeProofVerifier is Ownable {
     ///         does not support immutable for dynamic `bytes` type.
     bytes public expectedRootKey;
 
+    /// @notice Access manager for proposer and challenger permissions.
+    IAccessManager public immutable ACCESS_MANAGER;
+
     /// @notice Current enclave generation (starts at 1, increments on bulk revocation)
     uint256 public enclaveGeneration;
 
@@ -57,12 +61,6 @@ contract TeeProofVerifier is Ownable {
     /// @notice PCR hash recorded for each enclave (on-chain record only, not validated)
     mapping(address => bytes32) public enclavePcrHash;
 
-    /// @notice Allowed proposer addresses.
-    mapping(address => bool) public allowedProposers;
-
-    /// @notice Allowed challenger addresses.
-    mapping(address => bool) public allowedChallengers;
-
     ////////////////////////////////////////////////////////////////
     //                         Events                             //
     ////////////////////////////////////////////////////////////////
@@ -70,10 +68,6 @@ contract TeeProofVerifier is Ownable {
     event EnclaveRegistered(address indexed enclaveAddress, bytes32 indexed pcrHash, uint64 timestampMs);
     event EnclaveRevoked(address indexed enclaveAddress);
     event AllEnclavesRevoked(uint256 previousGeneration, uint256 newGeneration);
-    event ProposerAdded(address indexed proposer);
-    event ProposerRemoved(address indexed proposer);
-    event ChallengerAdded(address indexed challenger);
-    event ChallengerRemoved(address indexed challenger);
 
     ////////////////////////////////////////////////////////////////
     //                         Errors                             //
@@ -85,8 +79,6 @@ contract TeeProofVerifier is Ownable {
     error EnclaveAlreadyRegistered();
     error EnclaveNotRegistered();
     error InvalidSignature();
-    error AddressAlreadyAllowed();
-    error AddressNotAllowed();
 
     ////////////////////////////////////////////////////////////////
     //                       Constructor                          //
@@ -95,11 +87,18 @@ contract TeeProofVerifier is Ownable {
     /// @param _riscZeroVerifier RISC Zero verifier contract (Groth16 or mock)
     /// @param _imageId RISC Zero guest image ID
     /// @param _rootKey Expected AWS Nitro root public key (96 bytes)
-    constructor(IRiscZeroVerifier _riscZeroVerifier, bytes32 _imageId, bytes memory _rootKey) {
+    /// @param _accessManager AccessManager contract for proposer/challenger permissions
+    constructor(
+        IRiscZeroVerifier _riscZeroVerifier,
+        bytes32 _imageId,
+        bytes memory _rootKey,
+        IAccessManager _accessManager
+    ) {
         riscZeroVerifier = _riscZeroVerifier;
         imageId = _imageId;
         expectedRootKey = _rootKey;
         enclaveGeneration = 1;
+        ACCESS_MANAGER = _accessManager;
     }
 
     ////////////////////////////////////////////////////////////////
@@ -211,32 +210,14 @@ contract TeeProofVerifier is Ownable {
         emit AllEnclavesRevoked(previousGeneration, enclaveGeneration);
     }
 
-    /// @notice Add an address to the proposer whitelist.
-    function addProposer(address _proposer) external onlyOwner {
-        if (allowedProposers[_proposer]) revert AddressAlreadyAllowed();
-        allowedProposers[_proposer] = true;
-        emit ProposerAdded(_proposer);
+    /// @notice Check if an address is allowed to propose, delegating to AccessManager.
+    function allowedProposers(address _proposer) external view returns (bool) {
+        return ACCESS_MANAGER.isAllowedProposer(_proposer);
     }
 
-    /// @notice Remove an address from the proposer whitelist.
-    function removeProposer(address _proposer) external onlyOwner {
-        if (!allowedProposers[_proposer]) revert AddressNotAllowed();
-        allowedProposers[_proposer] = false;
-        emit ProposerRemoved(_proposer);
-    }
-
-    /// @notice Add an address to the challenger whitelist.
-    function addChallenger(address _challenger) external onlyOwner {
-        if (allowedChallengers[_challenger]) revert AddressAlreadyAllowed();
-        allowedChallengers[_challenger] = true;
-        emit ChallengerAdded(_challenger);
-    }
-
-    /// @notice Remove an address from the challenger whitelist.
-    function removeChallenger(address _challenger) external onlyOwner {
-        if (!allowedChallengers[_challenger]) revert AddressNotAllowed();
-        allowedChallengers[_challenger] = false;
-        emit ChallengerRemoved(_challenger);
+    /// @notice Check if an address is allowed to challenge, delegating to AccessManager.
+    function allowedChallengers(address _challenger) external view returns (bool) {
+        return ACCESS_MANAGER.isAllowedChallenger(_challenger);
     }
 
     ////////////////////////////////////////////////////////////////

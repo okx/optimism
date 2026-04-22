@@ -13,6 +13,8 @@ import { ITeeProofVerifier } from "interfaces/dispute/ITeeProofVerifier.sol";
 import { IRiscZeroVerifier } from "interfaces/dispute/IRiscZeroVerifier.sol";
 import { TeeDisputeGame, TEE_DISPUTE_GAME_TYPE } from "src/dispute/tee/TeeDisputeGame.sol";
 import { TeeProofVerifier } from "src/dispute/tee/TeeProofVerifier.sol";
+import { AccessManager } from "src/dispute/tee/AccessManager.sol";
+import { IAccessManager } from "interfaces/dispute/zk/IAccessManager.sol";
 import { MockSystemConfig } from "test/dispute/tee/mocks/MockSystemConfig.sol";
 import { Duration, GameType, Hash, Proposal } from "src/dispute/lib/Types.sol";
 
@@ -50,10 +52,11 @@ contract DeployTeeFork is Script {
 
         vm.startBroadcast(deployerKey);
 
-        TeeProofVerifier teeProofVerifier = _deployVerifier();
-        for (uint256 i = 0; i < proposers_.length; i++) teeProofVerifier.addProposer(proposers_[i]);
-        for (uint256 i = 0; i < challengers_.length; i++) teeProofVerifier.addChallenger(challengers_[i]);
         DisputeGameFactory factory = _deployFactory(deployer);
+        AccessManager accessManager = new AccessManager(7 days, IDisputeGameFactory(address(factory)));
+        for (uint256 i = 0; i < proposers_.length; i++) accessManager.setProposer(proposers_[i], true);
+        for (uint256 i = 0; i < challengers_.length; i++) accessManager.setChallenger(challengers_[i], true);
+        TeeProofVerifier teeProofVerifier = _deployVerifier(IAccessManager(address(accessManager)));
         AnchorStateRegistry asr = _deployASR(deployer, factory);
         TeeDisputeGame impl = _deployGame(factory, teeProofVerifier, asr);
 
@@ -66,13 +69,13 @@ contract DeployTeeFork is Script {
         console2.log("TeeDisputeGame impl  :", address(impl));
     }
 
-    function _deployVerifier() internal returns (TeeProofVerifier) {
+    function _deployVerifier(IAccessManager accessManager) internal returns (TeeProofVerifier) {
         IRiscZeroVerifier rv = IRiscZeroVerifier(vm.envAddress("RISC_ZERO_VERIFIER"));
         bytes32 imageId = vm.envBytes32("RISC_ZERO_IMAGE_ID");
         bytes memory rootKey = vm.envBytes("NITRO_ROOT_KEY");
         console2.log("RiscZeroVerifier     :", address(rv));
         console2.log("imageId              :", vm.toString(imageId));
-        return new TeeProofVerifier(rv, imageId, rootKey);
+        return new TeeProofVerifier(rv, imageId, rootKey, accessManager);
     }
 
     function _deployFactory(address deployer) internal returns (DisputeGameFactory) {

@@ -12,6 +12,8 @@ import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
 import { ITeeProofVerifier } from "interfaces/dispute/ITeeProofVerifier.sol";
 import { TeeDisputeGame, TEE_DISPUTE_GAME_TYPE } from "src/dispute/tee/TeeDisputeGame.sol";
 import { TeeProofVerifier } from "src/dispute/tee/TeeProofVerifier.sol";
+import { AccessManager } from "src/dispute/tee/AccessManager.sol";
+import { IAccessManager } from "interfaces/dispute/zk/IAccessManager.sol";
 import { BondDistributionMode, Claim, Duration, GameStatus, GameType, Hash, Proposal } from "src/dispute/lib/Types.sol";
 import { GameNotFinalized } from "src/dispute/lib/Errors.sol";
 import { ParentGameNotResolved, InvalidParentGame } from "src/dispute/tee/lib/Errors.sol";
@@ -40,6 +42,7 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
     DisputeGameFactory internal factory;
     AnchorStateRegistry internal anchorStateRegistry;
     TeeProofVerifier internal teeProofVerifier;
+    AccessManager internal accessManager;
     TeeDisputeGame internal implementation;
 
     address internal proposer;
@@ -60,12 +63,11 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
         // --- Deploy real AnchorStateRegistry via Proxy ---
         anchorStateRegistry = _deployAnchorStateRegistry(factory);
 
-        // --- Deploy real TeeProofVerifier (with MockRiscZeroVerifier) ---
-        teeProofVerifier = _deployTeeProofVerifier();
-
-        // --- Register proposer/challenger in the whitelist ---
-        teeProofVerifier.addProposer(proposer);
-        teeProofVerifier.addChallenger(challenger);
+        // --- Deploy AccessManager + real TeeProofVerifier (with MockRiscZeroVerifier) ---
+        accessManager = new AccessManager(7 days, IDisputeGameFactory(address(factory)));
+        accessManager.setProposer(proposer, true);
+        accessManager.setChallenger(challenger, true);
+        teeProofVerifier = _deployTeeProofVerifier(IAccessManager(address(accessManager)));
 
         // --- Deploy TeeDisputeGame implementation ---
         implementation = new TeeDisputeGame(
@@ -580,10 +582,10 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
         return AnchorStateRegistry(address(proxy));
     }
 
-    function _deployTeeProofVerifier() internal returns (TeeProofVerifier) {
+    function _deployTeeProofVerifier(IAccessManager _accessManager) internal returns (TeeProofVerifier) {
         MockRiscZeroVerifier riscZeroVerifier = new MockRiscZeroVerifier();
         bytes memory expectedRootKey = abi.encodePacked(bytes32(uint256(1)), bytes32(uint256(2)), bytes32(uint256(3)));
-        TeeProofVerifier verifier = new TeeProofVerifier(riscZeroVerifier, IMAGE_ID, expectedRootKey);
+        TeeProofVerifier verifier = new TeeProofVerifier(riscZeroVerifier, IMAGE_ID, expectedRootKey, _accessManager);
 
         // Register the executor enclave via real register() flow
         Vm.Wallet memory enclaveWallet = makeWallet(DEFAULT_EXECUTOR_KEY, "integration-enclave");

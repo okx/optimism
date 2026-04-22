@@ -9,8 +9,10 @@ import {GameType, Duration, Hash, Proposal} from "src/dispute/lib/Types.sol";
 import {AnchorStateRegistry} from "src/dispute/AnchorStateRegistry.sol";
 import {IRiscZeroVerifier} from "interfaces/dispute/IRiscZeroVerifier.sol";
 import {ITeeProofVerifier} from "interfaces/dispute/ITeeProofVerifier.sol";
+import {IAccessManager} from "interfaces/dispute/zk/IAccessManager.sol";
 import {TeeDisputeGame} from "src/dispute/tee/TeeDisputeGame.sol";
 import {TeeProofVerifier} from "src/dispute/tee/TeeProofVerifier.sol";
+import {AccessManager} from "src/dispute/tee/AccessManager.sol";
 import {MockRiscZeroVerifier} from "test/dispute/tee/mocks/MockRiscZeroVerifier.sol";
 import {MockTeeProofVerifier} from "test/dispute/tee/mocks/MockTeeProofVerifier.sol";
 import {Proxy} from "src/universal/Proxy.sol";
@@ -76,10 +78,14 @@ contract DevnetAddTeeGame is Script {
             console2.log("Verifier mode: MockTeeProofVerifier (mock)");
         } else {
             address mockRisc = address(new MockRiscZeroVerifier());
+            AccessManager accessManager = new AccessManager(7 days, IDisputeGameFactory(cfg.existingDgf));
+            if (cfg.proposer != address(0)) accessManager.setProposer(cfg.proposer, true);
+            accessManager.setChallenger(cfg.challenger, true);
             verifier = address(new TeeProofVerifier(
                 IRiscZeroVerifier(mockRisc),
                 bytes32(0), // dummy imageId for devnet
-                bytes("")   // dummy nitroRootKey for devnet
+                bytes(""),  // dummy nitroRootKey for devnet
+                IAccessManager(address(accessManager))
             ));
             console2.log("Verifier mode: TeeProofVerifier + MockRiscZeroVerifier");
         }
