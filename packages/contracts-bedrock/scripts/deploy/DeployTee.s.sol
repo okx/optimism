@@ -43,9 +43,7 @@ contract Deploy is Script {
             accessManager.setChallenger(cfg.challengers[i], true);
         }
 
-        teeProofVerifier = new TeeProofVerifier(
-            cfg.riscZeroVerifier, cfg.imageId, cfg.nitroRootKey, IAccessManager(address(accessManager))
-        );
+        teeProofVerifier = new TeeProofVerifier(cfg.riscZeroVerifier, cfg.imageId, cfg.nitroRootKey);
 
         if (cfg.proofVerifierOwner != cfg.deployer) {
             teeProofVerifier.transferOwnership(cfg.proofVerifierOwner);
@@ -57,6 +55,7 @@ contract Deploy is Script {
             Duration.wrap(cfg.maxProveDuration),
             cfg.disputeGameFactory,
             ITeeProofVerifier(address(teeProofVerifier)),
+            IAccessManager(address(accessManager)),
             cfg.challengerBond,
             cfg.anchorStateRegistry
         );

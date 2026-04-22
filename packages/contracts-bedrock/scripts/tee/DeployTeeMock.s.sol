@@ -61,15 +61,14 @@ contract DeployTeeMock is Script {
         for (uint256 i = 0; i < challengers_.length; i++) accessManager.setChallenger(challengers_[i], true);
         bytes32 imageId = keccak256("mock-image-id");
         bytes memory rootKey = abi.encodePacked(bytes32(uint256(1)), bytes32(uint256(2)), bytes32(uint256(3)));
-        TeeProofVerifier teeProofVerifier =
-            new TeeProofVerifier(mockRiscZero, imageId, rootKey, IAccessManager(address(accessManager)));
+        TeeProofVerifier teeProofVerifier = new TeeProofVerifier(mockRiscZero, imageId, rootKey);
 
         // 4. AnchorStateRegistry (via Proxy)
         AnchorStateRegistry anchorStateRegistry = _deployAnchorStateRegistry(deployer, factory);
 
 
         // 5. TeeDisputeGame implementation + register in factory
-        TeeDisputeGame teeDisputeGame = _deployAndRegisterGame(factory, teeProofVerifier, anchorStateRegistry);
+        TeeDisputeGame teeDisputeGame = _deployAndRegisterGame(factory, teeProofVerifier, accessManager, anchorStateRegistry);
 
         vm.stopBroadcast();
 
@@ -125,6 +124,7 @@ contract DeployTeeMock is Script {
     function _deployAndRegisterGame(
         DisputeGameFactory factory,
         TeeProofVerifier teeProofVerifier,
+        AccessManager _accessManager,
         AnchorStateRegistry anchorStateRegistry
     )
         internal
@@ -135,6 +135,7 @@ contract DeployTeeMock is Script {
             Duration.wrap(MAX_PROVE_DURATION),
             IDisputeGameFactory(address(factory)),
             ITeeProofVerifier(address(teeProofVerifier)),
+            IAccessManager(address(_accessManager)),
             CHALLENGER_BOND,
             IAnchorStateRegistry(address(anchorStateRegistry))
         );

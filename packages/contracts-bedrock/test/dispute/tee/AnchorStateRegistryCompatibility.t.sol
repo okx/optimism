@@ -7,6 +7,8 @@ import {IDisputeGameFactory} from "interfaces/dispute/IDisputeGameFactory.sol";
 import {IAnchorStateRegistry} from "interfaces/dispute/IAnchorStateRegistry.sol";
 import {ISystemConfig} from "interfaces/L1/ISystemConfig.sol";
 import {ITeeProofVerifier} from "interfaces/dispute/ITeeProofVerifier.sol";
+import {IAccessManager} from "interfaces/dispute/zk/IAccessManager.sol";
+import {AccessManager} from "src/dispute/tee/AccessManager.sol";
 import {TeeDisputeGame, TEE_DISPUTE_GAME_TYPE} from "src/dispute/tee/TeeDisputeGame.sol";
 import {Claim, Duration, GameType, Hash, Proposal} from "src/dispute/lib/Types.sol";
 import {MockDisputeGameFactory} from "test/dispute/tee/mocks/MockDisputeGameFactory.sol";
@@ -65,14 +67,16 @@ contract AnchorStateRegistryCompatibilityTest is TeeTestUtils {
         );
         anchorStateRegistry = IAnchorStateRegistry(address(anchorStateRegistryProxy));
 
-        teeProofVerifier.setAllowedProposer(proposer, true);
-        teeProofVerifier.setAllowedChallenger(challenger, true);
+        AccessManager accessManager = new AccessManager(7 days, IDisputeGameFactory(address(factory)));
+        accessManager.setProposer(proposer, true);
+        accessManager.setChallenger(challenger, true);
 
         implementation = new TeeDisputeGame(
             Duration.wrap(MAX_CHALLENGE_DURATION),
             Duration.wrap(MAX_PROVE_DURATION),
             IDisputeGameFactory(address(factory)),
             ITeeProofVerifier(address(teeProofVerifier)),
+            IAccessManager(address(accessManager)),
             CHALLENGER_BOND,
             anchorStateRegistry
         );

@@ -32,6 +32,7 @@ import { IDisputeGameFactory } from "interfaces/dispute/IDisputeGameFactory.sol"
 import { IDisputeGame } from "interfaces/dispute/IDisputeGame.sol";
 import { IAnchorStateRegistry } from "interfaces/dispute/IAnchorStateRegistry.sol";
 import { ITeeProofVerifier } from "interfaces/dispute/ITeeProofVerifier.sol";
+import { IAccessManager } from "interfaces/dispute/zk/IAccessManager.sol";
 
 /// @dev Game type constant for TEE Dispute Game.
 uint32 constant TEE_DISPUTE_GAME_TYPE = 1960;
@@ -129,6 +130,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     Duration internal immutable MAX_PROVE_DURATION;
     IDisputeGameFactory internal immutable DISPUTE_GAME_FACTORY;
     ITeeProofVerifier internal immutable TEE_PROOF_VERIFIER;
+    IAccessManager internal immutable ACCESS_MANAGER;
     uint256 internal immutable CHALLENGER_BOND;
     IAnchorStateRegistry internal immutable ANCHOR_STATE_REGISTRY;
 
@@ -162,6 +164,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         Duration _maxProveDuration,
         IDisputeGameFactory _disputeGameFactory,
         ITeeProofVerifier _teeProofVerifier,
+        IAccessManager _accessManager,
         uint256 _challengerBond,
         IAnchorStateRegistry _anchorStateRegistry
     ) {
@@ -169,6 +172,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
         MAX_PROVE_DURATION = _maxProveDuration;
         DISPUTE_GAME_FACTORY = _disputeGameFactory;
         TEE_PROOF_VERIFIER = _teeProofVerifier;
+        ACCESS_MANAGER = _accessManager;
         CHALLENGER_BOND = _challengerBond;
         ANCHOR_STATE_REGISTRY = _anchorStateRegistry;
     }
@@ -180,7 +184,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
     function initialize() external payable virtual {
         if (initialized) revert AlreadyInitialized();
         if (address(DISPUTE_GAME_FACTORY) != msg.sender) revert IncorrectDisputeGameFactory();
-        if (!TEE_PROOF_VERIFIER.allowedProposers(tx.origin)) revert BadAuth();
+        if (!ACCESS_MANAGER.isAllowedProposer(tx.origin)) revert BadAuth();
 
         assembly {
             if iszero(eq(calldatasize(), 0xBE)) {
@@ -248,7 +252,7 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
 
     function challenge() external payable returns (ProposalStatus) {
         if (claimData.status != ProposalStatus.Unchallenged) revert ClaimAlreadyChallenged();
-        if (!TEE_PROOF_VERIFIER.allowedChallengers(msg.sender)) revert BadAuth();
+        if (!ACCESS_MANAGER.isAllowedChallenger(msg.sender)) revert BadAuth();
         if (gameOver()) revert GameOver();
         if (_getParentGameStatus() == GameStatus.CHALLENGER_WINS) revert InvalidParentGame();
         if (msg.value != CHALLENGER_BOND) revert IncorrectBondAmount();
@@ -550,6 +554,10 @@ contract TeeDisputeGame is Clone, ISemver, IDisputeGame {
 
     function teeProofVerifier() external view returns (ITeeProofVerifier) {
         return TEE_PROOF_VERIFIER;
+    }
+
+    function accessManager() external view returns (IAccessManager) {
+        return ACCESS_MANAGER;
     }
 
     function challengerBond() external view returns (uint256) {

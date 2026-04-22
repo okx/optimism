@@ -3,11 +3,7 @@ pragma solidity ^0.8.15;
 
 import { Vm } from "forge-std/Vm.sol";
 import { TeeProofVerifier } from "src/dispute/tee/TeeProofVerifier.sol";
-import { AccessManager } from "src/dispute/tee/AccessManager.sol";
-import { IAccessManager } from "interfaces/dispute/zk/IAccessManager.sol";
 import { MockRiscZeroVerifier } from "test/dispute/tee/mocks/MockRiscZeroVerifier.sol";
-import { MockDisputeGameFactory } from "test/dispute/tee/mocks/MockDisputeGameFactory.sol";
-import { IDisputeGameFactory } from "interfaces/dispute/IDisputeGameFactory.sol";
 import { TeeTestUtils } from "test/dispute/tee/helpers/TeeTestUtils.sol";
 
 contract TeeProofVerifierTest is TeeTestUtils {
@@ -22,9 +18,7 @@ contract TeeProofVerifierTest is TeeTestUtils {
     function setUp() public {
         riscZeroVerifier = new MockRiscZeroVerifier();
         expectedRootKey = abi.encodePacked(bytes32(uint256(1)), bytes32(uint256(2)), bytes32(uint256(3)));
-        MockDisputeGameFactory mockFactory = new MockDisputeGameFactory();
-        IAccessManager accessManager = IAccessManager(address(new AccessManager(7 days, IDisputeGameFactory(address(mockFactory)))));
-        verifier = new TeeProofVerifier(riscZeroVerifier, IMAGE_ID, expectedRootKey, accessManager);
+        verifier = new TeeProofVerifier(riscZeroVerifier, IMAGE_ID, expectedRootKey);
         enclaveWallet = makeWallet(DEFAULT_EXECUTOR_KEY, "enclave");
     }
 

@@ -67,7 +67,7 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
         accessManager = new AccessManager(7 days, IDisputeGameFactory(address(factory)));
         accessManager.setProposer(proposer, true);
         accessManager.setChallenger(challenger, true);
-        teeProofVerifier = _deployTeeProofVerifier(IAccessManager(address(accessManager)));
+        teeProofVerifier = _deployTeeProofVerifier();
 
         // --- Deploy TeeDisputeGame implementation ---
         implementation = new TeeDisputeGame(
@@ -75,6 +75,7 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
             Duration.wrap(MAX_PROVE_DURATION),
             IDisputeGameFactory(address(factory)),
             ITeeProofVerifier(address(teeProofVerifier)),
+            IAccessManager(address(accessManager)),
             CHALLENGER_BOND,
             IAnchorStateRegistry(address(anchorStateRegistry))
         );
@@ -582,10 +583,10 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
         return AnchorStateRegistry(address(proxy));
     }
 
-    function _deployTeeProofVerifier(IAccessManager _accessManager) internal returns (TeeProofVerifier) {
+    function _deployTeeProofVerifier() internal returns (TeeProofVerifier) {
         MockRiscZeroVerifier riscZeroVerifier = new MockRiscZeroVerifier();
         bytes memory expectedRootKey = abi.encodePacked(bytes32(uint256(1)), bytes32(uint256(2)), bytes32(uint256(3)));
-        TeeProofVerifier verifier = new TeeProofVerifier(riscZeroVerifier, IMAGE_ID, expectedRootKey, _accessManager);
+        TeeProofVerifier verifier = new TeeProofVerifier(riscZeroVerifier, IMAGE_ID, expectedRootKey);
 
         // Register the executor enclave via real register() flow
         Vm.Wallet memory enclaveWallet = makeWallet(DEFAULT_EXECUTOR_KEY, "integration-enclave");

@@ -92,9 +92,7 @@ contract DeployTeePhase1 is Script {
             accessManager.setChallenger(cfg.challengers[i], true);
         }
 
-        teeProofVerifier = new TeeProofVerifier(
-            cfg.riscZeroVerifier, cfg.imageId, cfg.nitroRootKey, IAccessManager(address(accessManager))
-        );
+        teeProofVerifier = new TeeProofVerifier(cfg.riscZeroVerifier, cfg.imageId, cfg.nitroRootKey);
 
         // Transfer ownership before deploying TeeDisputeGame so the owner is set correctly
         // from the moment TeeProofVerifier is live.
@@ -111,6 +109,7 @@ contract DeployTeePhase1 is Script {
             Duration.wrap(cfg.maxProveDuration),
             cfg.disputeGameFactory,
             ITeeProofVerifier(address(teeProofVerifier)),
+            IAccessManager(address(accessManager)),
             cfg.challengerBond,
             IAnchorStateRegistry(address(asrProxy))
         );

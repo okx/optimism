@@ -7,7 +7,6 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 
 // Interfaces
 import { IRiscZeroVerifier } from "interfaces/dispute/IRiscZeroVerifier.sol";
-import { IAccessManager } from "interfaces/dispute/zk/IAccessManager.sol";
 
 /// @title TEE Proof Verifier for OP Stack DisputeGame
 /// @notice Verifies TEE enclave identity via ZK proof (owner-gated registration) and
@@ -49,9 +48,6 @@ contract TeeProofVerifier is Ownable {
     ///         does not support immutable for dynamic `bytes` type.
     bytes public expectedRootKey;
 
-    /// @notice Access manager for proposer and challenger permissions.
-    IAccessManager public immutable ACCESS_MANAGER;
-
     /// @notice Current enclave generation (starts at 1, increments on bulk revocation)
     uint256 public enclaveGeneration;
 
@@ -87,18 +83,11 @@ contract TeeProofVerifier is Ownable {
     /// @param _riscZeroVerifier RISC Zero verifier contract (Groth16 or mock)
     /// @param _imageId RISC Zero guest image ID
     /// @param _rootKey Expected AWS Nitro root public key (96 bytes)
-    /// @param _accessManager AccessManager contract for proposer/challenger permissions
-    constructor(
-        IRiscZeroVerifier _riscZeroVerifier,
-        bytes32 _imageId,
-        bytes memory _rootKey,
-        IAccessManager _accessManager
-    ) {
+    constructor(IRiscZeroVerifier _riscZeroVerifier, bytes32 _imageId, bytes memory _rootKey) {
         riscZeroVerifier = _riscZeroVerifier;
         imageId = _imageId;
         expectedRootKey = _rootKey;
         enclaveGeneration = 1;
-        ACCESS_MANAGER = _accessManager;
     }
 
     ////////////////////////////////////////////////////////////////
@@ -208,16 +197,6 @@ contract TeeProofVerifier is Ownable {
         uint256 previousGeneration = enclaveGeneration;
         enclaveGeneration = previousGeneration + 1;
         emit AllEnclavesRevoked(previousGeneration, enclaveGeneration);
-    }
-
-    /// @notice Check if an address is allowed to propose, delegating to AccessManager.
-    function allowedProposers(address _proposer) external view returns (bool) {
-        return ACCESS_MANAGER.isAllowedProposer(_proposer);
-    }
-
-    /// @notice Check if an address is allowed to challenge, delegating to AccessManager.
-    function allowedChallengers(address _challenger) external view returns (bool) {
-        return ACCESS_MANAGER.isAllowedChallenger(_challenger);
     }
 
     ////////////////////////////////////////////////////////////////

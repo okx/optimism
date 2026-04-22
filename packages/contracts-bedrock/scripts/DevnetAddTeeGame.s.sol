@@ -10,9 +10,9 @@ import {AnchorStateRegistry} from "src/dispute/AnchorStateRegistry.sol";
 import {IRiscZeroVerifier} from "interfaces/dispute/IRiscZeroVerifier.sol";
 import {ITeeProofVerifier} from "interfaces/dispute/ITeeProofVerifier.sol";
 import {IAccessManager} from "interfaces/dispute/zk/IAccessManager.sol";
+import {AccessManager} from "src/dispute/tee/AccessManager.sol";
 import {TeeDisputeGame} from "src/dispute/tee/TeeDisputeGame.sol";
 import {TeeProofVerifier} from "src/dispute/tee/TeeProofVerifier.sol";
-import {AccessManager} from "src/dispute/tee/AccessManager.sol";
 import {MockRiscZeroVerifier} from "test/dispute/tee/mocks/MockRiscZeroVerifier.sol";
 import {MockTeeProofVerifier} from "test/dispute/tee/mocks/MockTeeProofVerifier.sol";
 import {Proxy} from "src/universal/Proxy.sol";
@@ -78,31 +78,32 @@ contract DevnetAddTeeGame is Script {
             console2.log("Verifier mode: MockTeeProofVerifier (mock)");
         } else {
             address mockRisc = address(new MockRiscZeroVerifier());
-            AccessManager accessManager = new AccessManager(7 days, IDisputeGameFactory(cfg.existingDgf));
-            if (cfg.proposer != address(0)) accessManager.setProposer(cfg.proposer, true);
-            accessManager.setChallenger(cfg.challenger, true);
             verifier = address(new TeeProofVerifier(
                 IRiscZeroVerifier(mockRisc),
                 bytes32(0), // dummy imageId for devnet
-                bytes(""),  // dummy nitroRootKey for devnet
-                IAccessManager(address(accessManager))
+                bytes("")   // dummy nitroRootKey for devnet
             ));
             console2.log("Verifier mode: TeeProofVerifier + MockRiscZeroVerifier");
         }
 
-        // 2. Deploy a fresh ProxyAdmin owned by the deployer for TEE-specific proxies.
+        // 2. Deploy AccessManager for proposer/challenger permissions.
+        AccessManager accessManager = new AccessManager(7 days, IDisputeGameFactory(cfg.existingDgf));
+        if (cfg.proposer != address(0)) accessManager.setProposer(cfg.proposer, true);
+        accessManager.setChallenger(cfg.challenger, true);
+
+        // 3. Deploy a fresh ProxyAdmin owned by the deployer for TEE-specific proxies.
         //    The devnet's existing ProxyAdmin is owned by the TRANSACTOR contract,
         //    not the deployer EOA, so we can't call upgrade() through it directly.
         //    With our own ProxyAdmin: proxyAdminOwner() == deployer == msg.sender, so
         //    ProxyAdminOwnedBase._assertOnlyProxyAdminOrProxyAdminOwner() passes in initialize().
         address teeProxyAdmin = address(new ProxyAdmin(cfg.deployer));
 
-        // 3. New AnchorStateRegistry (impl + Proxy), pointing at the EXISTING DGF.
+        // 4. New AnchorStateRegistry (impl + Proxy), pointing at the EXISTING DGF.
         //    This lets isGameProper() recognise games created by the existing factory.
         address tzAsr = _deployAsr(cfg, teeProxyAdmin);
 
-        // 4. TeeDisputeGame impl (no proxy — it's the impl)
-        address teeDisputeGame = _deployTeeStack(cfg, verifier, tzAsr);
+        // 5. TeeDisputeGame impl (no proxy — it's the impl)
+        address teeDisputeGame = _deployTeeStack(cfg, verifier, address(accessManager), tzAsr);
 
         vm.stopBroadcast();
 
@@ -148,7 +149,7 @@ contract DevnetAddTeeGame is Script {
         return address(asrProxy);
     }
 
-    function _deployTeeStack(Config memory cfg, address verifier, address tzAsr)
+    function _deployTeeStack(Config memory cfg, address verifier, address _accessManager, address tzAsr)
         internal
         returns (address teeDisputeGame)
     {
@@ -158,6 +159,7 @@ contract DevnetAddTeeGame is Script {
                 Duration.wrap(cfg.maxProveDuration),
                 IDisputeGameFactory(cfg.existingDgf),
                 ITeeProofVerifier(verifier),
+                IAccessManager(_accessManager),
                 cfg.challengerBond,
                 IAnchorStateRegistry(tzAsr)
             )
