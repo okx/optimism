@@ -180,6 +180,11 @@ impl From<OpTypedTransaction> for OpTransactionRequest {
             OpTypedTransaction::Eip2930(tx) => Self(tx.into()),
             OpTypedTransaction::Eip1559(tx) => Self(tx.into()),
             OpTypedTransaction::Eip7702(tx) => Self(tx.into()),
+            // Eip8130's shape has no faithful TransactionRequest
+            // projection (phased calls, embedded auth). Return an
+            // empty request — callers needing the wire form should
+            // serialize the tx directly.
+            OpTypedTransaction::Eip8130(_) => Self(Default::default()),
             OpTypedTransaction::Deposit(tx) => tx.into(),
         }
     }
@@ -192,6 +197,9 @@ impl From<OpTxEnvelope> for OpTransactionRequest {
             OpTxEnvelope::Eip1559(tx) => tx.into(),
             OpTxEnvelope::Eip7702(tx) => tx.into(),
             OpTxEnvelope::Deposit(tx) => tx.into(),
+            // Eip8130 and Legacy fall through — Eip8130 has no
+            // faithful TransactionRequest projection, Legacy is
+            // the pre-existing "other" arm.
             _ => Default::default(),
         }
     }

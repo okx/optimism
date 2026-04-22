@@ -134,6 +134,22 @@ impl FromTxWithEncoded<OpTxEnvelope> for OpTx {
             OpTxEnvelope::Eip2930(tx) => Self::from_encoded_tx(tx, caller, encoded),
             OpTxEnvelope::Eip7702(tx) => Self::from_encoded_tx(tx, caller, encoded),
             OpTxEnvelope::Deposit(tx) => Self::from_encoded_tx(tx.inner(), caller, encoded),
+            // EIP-8130 (XLayerAA) — handler consumes TxEip8130 directly;
+            // the standard TxEnv projection is a minimal placeholder.
+            OpTxEnvelope::Eip8130(sealed) => {
+                let inner = sealed.inner();
+                let base = TxEnv {
+                    tx_type: inner.ty(),
+                    caller,
+                    gas_limit: inner.gas_limit,
+                    ..Default::default()
+                };
+                OpTx(OpTransaction {
+                    base,
+                    enveloped_tx: Some(encoded),
+                    deposit: Default::default(),
+                })
+            }
         }
     }
 }

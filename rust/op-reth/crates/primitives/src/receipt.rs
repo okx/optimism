@@ -71,6 +71,8 @@ pub(super) mod serde_bincode_compat {
         Eip1559(alloy_consensus::serde_bincode_compat::Receipt<'a, alloy_primitives::Log>),
         /// EIP-7702 receipt
         Eip7702(alloy_consensus::serde_bincode_compat::Receipt<'a, alloy_primitives::Log>),
+        /// EIP-8130 (XLayerAA) receipt
+        Eip8130(alloy_consensus::serde_bincode_compat::Receipt<'a, alloy_primitives::Log>),
         /// Deposit receipt
         Deposit(
             op_alloy_consensus::serde_bincode_compat::OpDepositReceipt<'a, alloy_primitives::Log>,
@@ -84,6 +86,7 @@ pub(super) mod serde_bincode_compat {
                 super::OpReceipt::Eip2930(receipt) => Self::Eip2930(receipt.into()),
                 super::OpReceipt::Eip1559(receipt) => Self::Eip1559(receipt.into()),
                 super::OpReceipt::Eip7702(receipt) => Self::Eip7702(receipt.into()),
+                super::OpReceipt::Eip8130(receipt) => Self::Eip8130(receipt.into()),
                 super::OpReceipt::Deposit(receipt) => Self::Deposit(receipt.into()),
             }
         }
@@ -96,6 +99,7 @@ pub(super) mod serde_bincode_compat {
                 OpReceipt::Eip2930(receipt) => Self::Eip2930(receipt.into()),
                 OpReceipt::Eip1559(receipt) => Self::Eip1559(receipt.into()),
                 OpReceipt::Eip7702(receipt) => Self::Eip7702(receipt.into()),
+                OpReceipt::Eip8130(receipt) => Self::Eip8130(receipt.into()),
                 OpReceipt::Deposit(receipt) => Self::Deposit(receipt.into()),
             }
         }

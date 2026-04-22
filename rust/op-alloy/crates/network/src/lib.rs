@@ -225,6 +225,9 @@ impl NetworkWallet<Optimism> for EthereumWallet {
             OpTypedTransaction::Deposit(_) => {
                 return Err(alloy_signer::Error::other("not implemented for deposit tx"));
             }
+            OpTypedTransaction::Eip8130(_) => {
+                return Err(alloy_signer::Error::other("not implemented for eip8130 tx"));
+            }
         };
         let tx = NetworkWallet::<Ethereum>::sign_transaction_from(self, sender, tx).await?;
 

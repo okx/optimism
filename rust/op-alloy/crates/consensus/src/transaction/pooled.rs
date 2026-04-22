@@ -1,9 +1,9 @@
 //! Defines the exact transaction variants that are allowed to be propagated over the eth p2p
 //! protocol in op.
 
-use crate::OpTxEnvelope;
+use crate::{OpTxEnvelope, eip8130::TxEip8130};
 use alloy_consensus::{
-    Extended, SignableTransaction, Signed, TransactionEnvelope, TxEip7702, TxEnvelope,
+    Extended, Sealed, SignableTransaction, Signed, TransactionEnvelope, TxEip7702, TxEnvelope,
     error::ValueError,
     transaction::{TxEip1559, TxEip2930, TxHashRef, TxLegacy},
 };
@@ -32,6 +32,12 @@ pub enum OpPooledTransaction {
     /// A [`TxEip7702`] transaction tagged with type 4.
     #[envelope(ty = 4)]
     Eip7702(Signed<TxEip7702>),
+    /// A [`TxEip8130`] tagged with type 0x7B (EIP-8130 account-abstracted
+    /// transaction). Unlike the other pooled variants this one is
+    /// `Sealed` rather than `Signed` — AA embeds its authentication
+    /// in the body rather than via an external ECDSA signature.
+    #[envelope(ty = 123)]
+    Eip8130(Sealed<TxEip8130>),
 }
 
 impl OpPooledTransaction {
@@ -43,6 +49,10 @@ impl OpPooledTransaction {
             Self::Eip2930(tx) => tx.signature_hash(),
             Self::Eip1559(tx) => tx.signature_hash(),
             Self::Eip7702(tx) => tx.signature_hash(),
+            // Eip8130 has no single "signature hash" (its body
+            // embeds sender_auth / payer_auth). The seal hash is
+            // the closest analogue — identifies the tx uniquely.
+            Self::Eip8130(tx) => tx.seal(),
         }
     }
 
@@ -53,16 +63,27 @@ impl OpPooledTransaction {
             Self::Eip2930(tx) => tx.hash(),
             Self::Eip1559(tx) => tx.hash(),
             Self::Eip7702(tx) => tx.hash(),
+            Self::Eip8130(tx) => tx.hash_ref(),
         }
     }
 
     /// Returns the signature of the transaction.
-    pub const fn signature(&self) -> &Signature {
+    ///
+    /// For [`Self::Eip8130`] returns a dummy all-zeros signature —
+    /// AA txs have no external ECDSA signature, but the
+    /// API-shape of `&Signature` is forced by the other variants.
+    /// Callers that route through this method for AA txs are likely
+    /// on a wrong path; use the envelope-level signer-recovery
+    /// helper instead.
+    pub fn signature(&self) -> &Signature {
+        static AA_DUMMY_SIG: Signature =
+            Signature::new(alloy_primitives::U256::ZERO, alloy_primitives::U256::ZERO, false);
         match self {
             Self::Legacy(tx) => tx.signature(),
             Self::Eip2930(tx) => tx.signature(),
             Self::Eip1559(tx) => tx.signature(),
             Self::Eip7702(tx) => tx.signature(),
+            Self::Eip8130(_) => &AA_DUMMY_SIG,
         }
     }
 
@@ -74,16 +95,47 @@ impl OpPooledTransaction {
             Self::Eip2930(tx) => tx.tx().encode_for_signing(out),
             Self::Eip1559(tx) => tx.tx().encode_for_signing(out),
             Self::Eip7702(tx) => tx.tx().encode_for_signing(out),
+            // Eip8130 has no separate "signing form" — callers
+            // needing the sender / payer signing hash should reach
+            // directly for `sender_signature_hash`/`payer_signature_hash`.
+            // Writing the 2718 body here keeps round-trips sane
+            // for any consumer that assumes "something was written".
+            Self::Eip8130(tx) => tx.inner().encode_2718(out),
         }
     }
 
     /// Converts the transaction into the ethereum [`TxEnvelope`].
+    ///
+    /// # Panics
+    ///
+    /// Panics on [`Self::Eip8130`] — AA txs have no Ethereum-side
+    /// envelope slot. Callers that may hold an AA variant should
+    /// use [`Self::try_into_eth_envelope`] instead (added
+    /// downstream).
     pub fn into_envelope(self) -> TxEnvelope {
         match self {
             Self::Legacy(tx) => tx.into(),
             Self::Eip2930(tx) => tx.into(),
             Self::Eip1559(tx) => tx.into(),
             Self::Eip7702(tx) => tx.into(),
+            Self::Eip8130(_) => panic!(
+                "OpPooledTransaction::into_envelope: AA transactions have no Ethereum TxEnvelope projection; use try_into_eth_envelope"
+            ),
+        }
+    }
+
+    /// Fallible counterpart to [`Self::into_envelope`] that rejects
+    /// [`Self::Eip8130`] instead of panicking.
+    pub fn try_into_eth_envelope(self) -> Result<TxEnvelope, ValueError<Self>> {
+        match self {
+            Self::Legacy(tx) => Ok(tx.into()),
+            Self::Eip2930(tx) => Ok(tx.into()),
+            Self::Eip1559(tx) => Ok(tx.into()),
+            Self::Eip7702(tx) => Ok(tx.into()),
+            Self::Eip8130(tx) => Err(ValueError::new(
+                Self::Eip8130(tx),
+                "AA transactions have no Ethereum TxEnvelope projection",
+            )),
         }
     }
 
@@ -94,6 +146,7 @@ impl OpPooledTransaction {
             Self::Eip2930(tx) => tx.into(),
             Self::Eip1559(tx) => tx.into(),
             Self::Eip7702(tx) => tx.into(),
+            Self::Eip8130(tx) => OpTxEnvelope::Eip8130(tx),
         }
     }
 
@@ -161,6 +214,10 @@ impl From<OpPooledTransaction> for alloy_consensus::transaction::PooledTransacti
             OpPooledTransaction::Eip2930(tx) => tx.into(),
             OpPooledTransaction::Eip1559(tx) => tx.into(),
             OpPooledTransaction::Eip7702(tx) => tx.into(),
+            // See `into_envelope` panic note.
+            OpPooledTransaction::Eip8130(_) => panic!(
+                "OpPooledTransaction -> alloy_consensus::PooledTransaction: AA has no Ethereum projection"
+            ),
         }
     }
 }
@@ -176,6 +233,11 @@ impl alloy_consensus::transaction::SignerRecoverable for OpPooledTransaction {
     fn recover_signer(
         &self,
     ) -> Result<alloy_primitives::Address, alloy_consensus::crypto::RecoveryError> {
+        // AA variant routes through the dedicated helper — dummy
+        // signature won't recover correctly.
+        if let Self::Eip8130(tx) = self {
+            return crate::eip8130::recover_eip8130_signer(tx.inner());
+        }
         let signature_hash = self.signature_hash();
         alloy_consensus::crypto::secp256k1::recover_signer(self.signature(), signature_hash)
     }
@@ -183,6 +245,9 @@ impl alloy_consensus::transaction::SignerRecoverable for OpPooledTransaction {
     fn recover_signer_unchecked(
         &self,
     ) -> Result<alloy_primitives::Address, alloy_consensus::crypto::RecoveryError> {
+        if let Self::Eip8130(tx) = self {
+            return crate::eip8130::recover_eip8130_signer(tx.inner());
+        }
         let signature_hash = self.signature_hash();
         alloy_consensus::crypto::secp256k1::recover_signer_unchecked(
             self.signature(),
@@ -207,6 +272,7 @@ impl alloy_consensus::transaction::SignerRecoverable for OpPooledTransaction {
             Self::Eip7702(tx) => {
                 alloy_consensus::transaction::SignerRecoverable::recover_unchecked_with_buf(tx, buf)
             }
+            Self::Eip8130(tx) => crate::eip8130::recover_eip8130_signer(tx.inner()),
         }
     }
 }

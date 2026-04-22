@@ -1,5 +1,6 @@
 use crate::{
     OpPooledTransaction, TxDeposit,
+    eip8130::TxEip8130,
     transaction::{OpDepositInfo, OpTransactionInfo},
 };
 use alloy_consensus::{
@@ -37,6 +38,12 @@ pub enum OpTxEnvelope {
     /// A [`TxEip7702`] tagged with type 4.
     #[envelope(ty = 4)]
     Eip7702(Signed<TxEip7702>),
+    /// A [`TxEip8130`] tagged with type 0x7B (EIP-8130 account-abstracted
+    /// transaction). Carries embedded `sender_auth` / `payer_auth`
+    /// blobs instead of an external ECDSA signature, so the wire
+    /// shape is `Sealed<TxEip8130>` rather than `Signed<TxEip8130>`.
+    #[envelope(ty = 123)]
+    Eip8130(Sealed<TxEip8130>),
     /// A [`TxDeposit`] tagged with type 0x7E.
     #[envelope(ty = 126)]
     #[serde(serialize_with = "crate::serde_deposit_tx_rpc")]
@@ -140,6 +147,7 @@ impl From<Signed<OpTypedTransaction>> for OpTxEnvelope {
                 let tx = Signed::new_unchecked(tx_eip7702, sig, hash);
                 Self::Eip7702(tx)
             }
+            OpTypedTransaction::Eip8130(tx) => Self::Eip8130(Sealed::new_unchecked(tx, hash)),
             OpTypedTransaction::Deposit(tx) => Self::Deposit(Sealed::new_unchecked(tx, hash)),
         }
     }
@@ -186,6 +194,11 @@ impl From<OpTxEnvelope> for alloy_rpc_types_eth::TransactionRequest {
             OpTxEnvelope::Eip2930(tx) => tx.into_parts().0.into(),
             OpTxEnvelope::Eip1559(tx) => tx.into_parts().0.into(),
             OpTxEnvelope::Eip7702(tx) => tx.into_parts().0.into(),
+            // EIP-8130's shape (phased calls, embedded auth) has no
+            // faithful `TransactionRequest` projection. Fall through
+            // to default — callers that need the wire form should
+            // reach for `encoded_2718` directly.
+            OpTxEnvelope::Eip8130(_tx) => alloy_rpc_types_eth::TransactionRequest::default(),
             OpTxEnvelope::Deposit(tx) => tx.into_inner().into(),
             OpTxEnvelope::Legacy(tx) => tx.into_parts().0.into(),
         }
@@ -249,6 +262,7 @@ impl OpTxEnvelope {
             Self::Eip2930(tx) => Ok(tx.into()),
             Self::Eip1559(tx) => Ok(tx.into()),
             Self::Eip7702(tx) => Ok(tx.into()),
+            Self::Eip8130(tx) => Ok(OpPooledTransaction::Eip8130(tx)),
             Self::Deposit(tx) => {
                 Err(ValueError::new(tx.into(), "Deposit transactions cannot be pooled"))
             }
@@ -274,9 +288,12 @@ impl OpTxEnvelope {
             Self::Eip2930(tx) => Ok(tx.into()),
             Self::Eip1559(tx) => Ok(tx.into()),
             Self::Eip7702(tx) => Ok(tx.into()),
-            tx @ Self::Deposit(_) => Err(ValueError::new(
+            // EIP-8130 and Deposit both lack a faithful Ethereum
+            // projection — one is OP-specific, the other is an L2
+            // extension with no upstream tx-type slot.
+            tx @ (Self::Eip8130(_) | Self::Deposit(_)) => Err(ValueError::new(
                 tx,
-                "Deposit transactions cannot be converted to ethereum transaction",
+                "Deposit / Eip8130 transactions cannot be converted to ethereum transaction",
             )),
         }
     }
@@ -323,6 +340,14 @@ impl OpTxEnvelope {
             Self::Eip2930(tx) => &mut tx.tx_mut().input,
             Self::Legacy(tx) => &mut tx.tx_mut().input,
             Self::Eip7702(tx) => &mut tx.tx_mut().input,
+            // TxEip8130 has no single `input` — it carries phased
+            // `calls: Vec<Vec<Call>>`. The closest stand-in for
+            // this doc-hidden helper (used by op-reth's test tooling
+            // and the `override` path in `eth_call`) is the
+            // `sender_auth` blob, which is also the field whose
+            // hash-affecting mutation is the likely reason someone
+            // reaches for `input_mut`. Mirrors Base's choice.
+            Self::Eip8130(tx) => &mut tx.inner_mut().sender_auth,
             Self::Deposit(tx) => &mut tx.inner_mut().input,
         }
     }
@@ -398,7 +423,11 @@ impl OpTxEnvelope {
             Self::Eip2930(tx) => Some(tx.signature()),
             Self::Eip1559(tx) => Some(tx.signature()),
             Self::Eip7702(tx) => Some(tx.signature()),
-            Self::Deposit(_) => None,
+            // Neither Deposit nor Eip8130 carry an external ECDSA
+            // signature (Deposit has none; Eip8130's sender_auth is
+            // structurally different and meaningful only through
+            // the verifier dispatch, not as `&Signature`).
+            Self::Eip8130(_) | Self::Deposit(_) => None,
         }
     }
 
@@ -409,6 +438,7 @@ impl OpTxEnvelope {
             Self::Eip2930(_) => OpTxType::Eip2930,
             Self::Eip1559(_) => OpTxType::Eip1559,
             Self::Eip7702(_) => OpTxType::Eip7702,
+            Self::Eip8130(_) => OpTxType::Eip8130,
             Self::Deposit(_) => OpTxType::Deposit,
         }
     }
@@ -420,6 +450,7 @@ impl OpTxEnvelope {
             Self::Eip1559(tx) => tx.hash(),
             Self::Eip2930(tx) => tx.hash(),
             Self::Eip7702(tx) => tx.hash(),
+            Self::Eip8130(tx) => tx.hash_ref(),
             Self::Deposit(tx) => tx.hash_ref(),
         }
     }
@@ -436,6 +467,10 @@ impl OpTxEnvelope {
             Self::Eip2930(t) => t.eip2718_encoded_length(),
             Self::Eip1559(t) => t.eip2718_encoded_length(),
             Self::Eip7702(t) => t.eip2718_encoded_length(),
+            // `Sealed<TxEip8130>` has no dedicated
+            // `eip2718_encoded_length` — reach through to the inner
+            // tx's `Encodable2718` impl.
+            Self::Eip8130(t) => t.inner().encode_2718_len(),
             Self::Deposit(t) => t.eip2718_encoded_length(),
         }
     }
@@ -457,6 +492,13 @@ impl alloy_consensus::transaction::SignerRecoverable for OpTxEnvelope {
             Self::Eip2930(tx) => tx.signature_hash(),
             Self::Eip1559(tx) => tx.signature_hash(),
             Self::Eip7702(tx) => tx.signature_hash(),
+            // Eip8130's sender_auth isn't a plain `&Signature`
+            // (configured-account mode has no signature at all, EOA
+            // mode needs `sender_signature_hash`). Full recovery
+            // lives in the dedicated helper.
+            Self::Eip8130(tx) => {
+                return crate::eip8130::recover_eip8130_signer(tx.inner());
+            }
             // Optimism's Deposit transaction does not have a signature. Directly return the
             // `from` address.
             Self::Deposit(tx) => return Ok(tx.from),
@@ -466,7 +508,9 @@ impl alloy_consensus::transaction::SignerRecoverable for OpTxEnvelope {
             Self::Eip2930(tx) => tx.signature(),
             Self::Eip1559(tx) => tx.signature(),
             Self::Eip7702(tx) => tx.signature(),
-            Self::Deposit(_) => unreachable!("Deposit transactions should not be handled here"),
+            Self::Eip8130(_) | Self::Deposit(_) => {
+                unreachable!("Eip8130 / Deposit handled above")
+            }
         };
         alloy_consensus::crypto::secp256k1::recover_signer(signature, signature_hash)
     }
@@ -479,6 +523,9 @@ impl alloy_consensus::transaction::SignerRecoverable for OpTxEnvelope {
             Self::Eip2930(tx) => tx.signature_hash(),
             Self::Eip1559(tx) => tx.signature_hash(),
             Self::Eip7702(tx) => tx.signature_hash(),
+            Self::Eip8130(tx) => {
+                return crate::eip8130::recover_eip8130_signer(tx.inner());
+            }
             // Optimism's Deposit transaction does not have a signature. Directly return the
             // `from` address.
             Self::Deposit(tx) => return Ok(tx.from),
@@ -488,7 +535,9 @@ impl alloy_consensus::transaction::SignerRecoverable for OpTxEnvelope {
             Self::Eip2930(tx) => tx.signature(),
             Self::Eip1559(tx) => tx.signature(),
             Self::Eip7702(tx) => tx.signature(),
-            Self::Deposit(_) => unreachable!("Deposit transactions should not be handled here"),
+            Self::Eip8130(_) | Self::Deposit(_) => {
+                unreachable!("Eip8130 / Deposit handled above")
+            }
         };
         alloy_consensus::crypto::secp256k1::recover_signer_unchecked(signature, signature_hash)
     }
@@ -510,6 +559,10 @@ impl alloy_consensus::transaction::SignerRecoverable for OpTxEnvelope {
             Self::Eip7702(tx) => {
                 alloy_consensus::transaction::SignerRecoverable::recover_unchecked_with_buf(tx, buf)
             }
+            // The `buf`-reusing recover path isn't meaningful for
+            // Eip8130 (sender_auth is a bespoke blob, not an RLP
+            // signing-payload); fall through to the standard helper.
+            Self::Eip8130(tx) => crate::eip8130::recover_eip8130_signer(tx.inner()),
             Self::Deposit(tx) => Ok(tx.from),
         }
     }
@@ -518,7 +571,7 @@ impl alloy_consensus::transaction::SignerRecoverable for OpTxEnvelope {
 /// Bincode-compatible serde implementation for `OpTxEnvelope`.
 #[cfg(all(feature = "serde", feature = "serde-bincode-compat"))]
 pub mod serde_bincode_compat {
-    use crate::serde_bincode_compat::TxDeposit;
+    use crate::{eip8130::TxEip8130 as Eip8130Tx, serde_bincode_compat::TxDeposit};
     use alloy_consensus::{
         Sealed, Signed,
         transaction::serde_bincode_compat::{TxEip1559, TxEip2930, TxEip7702, TxLegacy},
@@ -558,6 +611,15 @@ pub mod serde_bincode_compat {
             /// Borrowed EIP-7702 transaction data.
             transaction: TxEip7702<'a>,
         },
+        /// EIP-8130 AA variant. Owned (not borrowed) because
+        /// `TxEip8130`'s nested `calls: Vec<Vec<Call>>` makes a
+        /// serde-with Cow-view non-trivial for marginal size wins.
+        Eip8130 {
+            /// Precomputed hash of the sealed AA body.
+            hash: B256,
+            /// Owned AA transaction payload.
+            transaction: Eip8130Tx,
+        },
         /// Deposit variant.
         Deposit {
             /// Precomputed hash.
@@ -586,6 +648,10 @@ pub mod serde_bincode_compat {
                     signature: *signed_7702.signature(),
                     transaction: signed_7702.tx().into(),
                 },
+                super::OpTxEnvelope::Eip8130(sealed_aa) => Self::Eip8130 {
+                    hash: sealed_aa.seal(),
+                    transaction: sealed_aa.inner().clone(),
+                },
                 super::OpTxEnvelope::Deposit(sealed_deposit) => Self::Deposit {
                     hash: sealed_deposit.seal(),
                     transaction: sealed_deposit.inner().into(),
@@ -608,6 +674,9 @@ pub mod serde_bincode_compat {
                 }
                 OpTxEnvelope::Eip7702 { signature, transaction } => {
                     Self::Eip7702(Signed::new_unhashed(transaction.into(), signature))
+                }
+                OpTxEnvelope::Eip8130 { hash, transaction } => {
+                    Self::Eip8130(Sealed::new_unchecked(transaction, hash))
                 }
                 OpTxEnvelope::Deposit { hash, transaction } => {
                     Self::Deposit(Sealed::new_unchecked(transaction.into(), hash))

@@ -248,6 +248,7 @@ impl Encodable2718 for OvmTransactionSigned {
                 set_code_tx.eip2718_encoded_length(&self.signature)
             }
             OpTypedTransaction::Deposit(deposit_tx) => deposit_tx.eip2718_encoded_length(),
+            OpTypedTransaction::Eip8130(tx) => tx.encode_2718_len(),
         }
     }
 
@@ -276,6 +277,7 @@ impl Decodable2718 for OvmTransactionSigned {
                 OpTypedTransaction::Deposit(TxDeposit::rlp_decode(buf)?),
                 TxDeposit::signature(),
             )),
+            OpTxType::Eip8130 => Err(Eip2718Error::UnexpectedType(ty)),
         }
     }
 

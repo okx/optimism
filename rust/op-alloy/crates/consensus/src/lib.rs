@@ -23,6 +23,11 @@ pub use transaction::{
     OpTxType, OpTypedTransaction, TxDeposit,
 };
 
+/// Re-export of the EIP-8130 wire types module at the crate root so
+/// downstream consumers can write `op_alloy_consensus::eip8130::TxEip8130`
+/// without threading through the `transaction::` path.
+pub use transaction::eip8130;
+
 pub mod eip1559;
 pub use eip1559::{
     EIP1559ParamError, decode_eip_1559_params, decode_holocene_extra_data,

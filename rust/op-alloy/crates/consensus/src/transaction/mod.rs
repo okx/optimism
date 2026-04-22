@@ -24,6 +24,10 @@ pub use deposit::serde_deposit_tx_rpc;
 mod meta;
 pub use meta::{OpDepositInfo, OpTransactionInfo};
 
+// EIP-8130 account-abstraction wire types (downstream-maintained
+// — see eip8130/mod.rs for the rebase-minimisation rationale).
+pub mod eip8130;
+
 /// Bincode-compatible serde implementations for transaction types.
 #[cfg(all(feature = "serde", feature = "serde-bincode-compat"))]
 pub mod serde_bincode_compat {

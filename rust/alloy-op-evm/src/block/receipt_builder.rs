@@ -58,6 +58,7 @@ impl OpReceiptBuilder for OpAlloyReceiptBuilder {
                     OpTxType::Eip2930 => OpReceiptEnvelope::Eip2930(receipt),
                     OpTxType::Eip1559 => OpReceiptEnvelope::Eip1559(receipt),
                     OpTxType::Eip7702 => OpReceiptEnvelope::Eip7702(receipt),
+                    OpTxType::Eip8130 => OpReceiptEnvelope::Eip8130(receipt),
                     OpTxType::Deposit => unreachable!(),
                 })
             }
