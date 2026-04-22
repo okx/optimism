@@ -141,12 +141,30 @@ func (f *DisputeGameFactory) isValidParentGame(ctx context.Context, asrAddr comm
 	return respected && !blacklisted && !retired, nil
 }
 
+// anchorL2SeqNumFromASR queries the current anchor l2SequenceNumber from the AnchorStateRegistry.
+// Mirrors the contract read in TeeDisputeGame.initialize() (line 218).
+func (f *DisputeGameFactory) anchorL2SeqNumFromASR(ctx context.Context, asrAddr common.Address) (uint64, error) {
+	cCtx, cancel := context.WithTimeout(ctx, f.networkTimeout)
+	defer cancel()
+	asrContract := batching.NewBoundContract(asrSnapshotABI, asrAddr)
+	result, err := f.caller.SingleCall(cCtx, rpcblock.Latest, asrContract.Call("getAnchorRoot"))
+	if err != nil {
+		return 0, fmt.Errorf("tee-rollup: failed to get anchor root from ASR %v: %w", asrAddr, err)
+	}
+	n := result.GetBigInt(1) // second return value is l2SequenceNumber
+	if !n.IsUint64() {
+		return 0, fmt.Errorf("tee-rollup: anchor l2SequenceNumber %s overflows uint64", n)
+	}
+	return n.Uint64(), nil
+}
+
 // FindLastGameIndex scans the DGF in reverse to find the most recent game with the
 // given gameType that is a valid parent candidate:
-//   - DEFENDER_WINS: accepted immediately (contract allows it)
-//   - IN_PROGRESS + self-proposed: accepted (proposer == self)
+//   - DEFENDER_WINS: accepted only if l2SeqNum > anchorL2SeqNum (contract requirement)
+//   - IN_PROGRESS + self-proposed: accepted only if l2SeqNum > anchorL2SeqNum
 //   - CHALLENGER_WINS: skipped (contract rejects with InvalidParentGame)
 //   - IN_PROGRESS + other proposer: skipped (cannot control resolution)
+//   - l2SeqNum <= anchorL2SeqNum: skipped (contract rejects with InvalidParentGame on line 219)
 //
 // Uses an in-memory cache for immutable fields (GameType, Address, Proposer) to avoid redundant RPCs.
 // Returns (idx, parentL2SeqNum, true, nil) if found, (0, 0, false, nil) if not found within maxScan, or (0, 0, false, err) on error.
@@ -163,6 +181,13 @@ func (f *DisputeGameFactory) FindLastGameIndex(ctx context.Context, gameType uin
 	asrAddr, err := f.asrAddrFromImpl(ctx, gameType)
 	if err != nil {
 		return 0, 0, false, fmt.Errorf("tee-rollup: failed to get ASR addr for game type %d: %w", gameType, err)
+	}
+	// Fetch anchor l2SeqNum once before the loop. The contract (TeeDisputeGame.sol:219) requires
+	// parent.l2SequenceNumber > anchorL2SequenceNumber; skip candidates that don't satisfy this
+	// so we fall back to MaxUint32 (anchor sentinel) rather than sending a tx that will revert.
+	anchorL2SeqNum, err := f.anchorL2SeqNumFromASR(ctx, asrAddr)
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("tee-rollup: failed to get anchor l2SeqNum: %w", err)
 	}
 	scanned := uint64(0)
 	for idx := gameCount - 1; ; idx-- {
@@ -236,20 +261,32 @@ func (f *DisputeGameFactory) FindLastGameIndex(ctx context.Context, gameType uin
 			continue
 		}
 
-		// DEFENDER_WINS — accept immediately
+		// DEFENDER_WINS — accept if l2SeqNum is strictly above anchor (contract line 219)
 		if status == GameStatusDefenderWins {
 			l2SeqNum, err := f.gameL2SeqNum(ctx, entry.Address)
 			if err != nil {
 				return 0, 0, false, fmt.Errorf("tee-rollup: failed to get l2SequenceNumber at index %d: %w", idx, err)
 			}
+			if l2SeqNum <= anchorL2SeqNum {
+				if idx == 0 {
+					break
+				}
+				continue
+			}
 			return idx, l2SeqNum, true, nil
 		}
 
-		// IN_PROGRESS — only accept if self-proposed
+		// IN_PROGRESS — only accept if self-proposed and l2SeqNum is strictly above anchor
 		if gameProposer == proposer {
 			l2SeqNum, err := f.gameL2SeqNum(ctx, entry.Address)
 			if err != nil {
 				return 0, 0, false, fmt.Errorf("tee-rollup: failed to get l2SequenceNumber at index %d: %w", idx, err)
+			}
+			if l2SeqNum <= anchorL2SeqNum {
+				if idx == 0 {
+					break
+				}
+				continue
 			}
 			return idx, l2SeqNum, true, nil
 		}
