@@ -8,7 +8,7 @@ use alloy_evm::{FromRecoveredTx, FromTxWithEncoded, IntoTxEnv};
 use alloy_op_evm::block::OpTxEnv;
 use alloy_primitives::{Address, B256, Bytes, TxKind, U256};
 use core::ops::{Deref, DerefMut};
-use op_alloy_consensus::{OpTxEnvelope, TxDeposit};
+use op_alloy_consensus::{eip8130::TxEip8130, OpTxEnvelope, TxDeposit};
 use op_revm::{OpTransaction, transaction::deposit::DepositTransactionParts};
 use revm::context::TxEnv;
 
@@ -136,23 +136,24 @@ impl FromTxWithEncoded<OpTxEnvelope> for FpvmOpTx {
             OpTxEnvelope::Eip2930(tx) => Self::from_encoded_tx(tx, caller, encoded),
             OpTxEnvelope::Eip7702(tx) => Self::from_encoded_tx(tx, caller, encoded),
             OpTxEnvelope::Deposit(tx) => Self::from_encoded_tx(tx.inner(), caller, encoded),
-            // EIP-8130 (XLayerAA) — minimal TxEnv placeholder; the XLayerAA
-            // handler consumes TxEip8130 directly.
-            OpTxEnvelope::Eip8130(sealed) => {
-                let inner = sealed.inner();
-                let base = TxEnv {
-                    tx_type: inner.ty(),
-                    caller,
-                    gas_limit: inner.gas_limit,
-                    ..Default::default()
-                };
-                FpvmOpTx(OpTransaction {
-                    base,
-                    enveloped_tx: Some(encoded),
-                    deposit: Default::default(),
-                })
-            }
+            OpTxEnvelope::Eip8130(tx) => Self::from_encoded_tx(tx.inner(), caller, encoded),
         }
+    }
+}
+
+impl FromRecoveredTx<TxEip8130> for FpvmOpTx {
+    fn from_recovered_tx(tx: &TxEip8130, sender: Address) -> Self {
+        let encoded = tx.encoded_2718();
+        Self::from_encoded_tx(tx, sender, encoded.into())
+    }
+}
+
+impl FromTxWithEncoded<TxEip8130> for FpvmOpTx {
+    fn from_encoded_tx(tx: &TxEip8130, caller: Address, encoded: Bytes) -> Self {
+        // Delegate to alloy-evm's `FromRecoveredTx<TxEip8130>` for the actual
+        // field mapping (first call → legacy-shaped TxEnv, tx_type = 0x7B).
+        let base = TxEnv::from_recovered_tx(tx, caller);
+        FpvmOpTx(OpTransaction { base, enveloped_tx: Some(encoded), deposit: Default::default() })
     }
 }
 

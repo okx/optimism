@@ -26,13 +26,22 @@ use super::{
 /// RLP layout (outer list):
 /// ```text
 /// [chain_id, from, nonce_key, nonce_sequence, expiry,
-///  max_priority_fee_per_gas, max_fee_per_gas, gas_limit,
+///  gas_price, gas_limit,
 ///  account_changes, calls, payer,
 ///  sender_auth, payer_auth]
 /// ```
 ///
 /// `from` and `payer` are optional address fields — RLP-encoded as the empty
 /// string (`0x80`) when absent, and as a 20-byte string when present.
+///
+/// # XLayer fee model
+///
+/// XLayer does not run EIP-1559 dynamic base-fee accounting at the chain
+/// level — it uses legacy-style constant gas pricing. EIP-8130 in XLayer
+/// therefore carries a single `gas_price` field rather than the
+/// `(max_priority_fee_per_gas, max_fee_per_gas)` pair from Base's reference
+/// design. This is a **wire-level divergence** from Base's 0x7B; cross-chain
+/// tooling must be configured per deployment.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -55,12 +64,11 @@ pub struct TxEip8130 {
     /// decode time (the wire shape is the same).
     #[cfg_attr(feature = "serde", serde(with = "alloy_serde::quantity"))]
     pub expiry: u64,
-    /// EIP-1559 priority fee (per gas).
+    /// Flat gas price (wei per gas), legacy-style. XLayer does not expose a
+    /// separate priority-fee lane; the AA handler charges `gas_price *
+    /// gas_used` against the payer with no tip/base-fee split.
     #[cfg_attr(feature = "serde", serde(with = "alloy_serde::quantity"))]
-    pub max_priority_fee_per_gas: u128,
-    /// EIP-1559 max fee (per gas).
-    #[cfg_attr(feature = "serde", serde(with = "alloy_serde::quantity"))]
-    pub max_fee_per_gas: u128,
+    pub gas_price: u128,
     /// Execution-only gas budget. The AA intrinsic gas (nonce, auth, pre
     /// writes, …) is computed separately and added to this by the handler.
     #[cfg_attr(
@@ -118,8 +126,7 @@ impl TxEip8130 {
         self.nonce_key.encode(out);
         self.nonce_sequence.encode(out);
         self.expiry.encode(out);
-        self.max_priority_fee_per_gas.encode(out);
-        self.max_fee_per_gas.encode(out);
+        self.gas_price.encode(out);
         self.gas_limit.encode(out);
         encode_list(&self.account_changes, out);
         encode_nested_calls(&self.calls, out);
@@ -135,8 +142,7 @@ impl TxEip8130 {
             self.nonce_key.length() +
             self.nonce_sequence.length() +
             self.expiry.length() +
-            self.max_priority_fee_per_gas.length() +
-            self.max_fee_per_gas.length() +
+            self.gas_price.length() +
             self.gas_limit.length() +
             list_len(&self.account_changes) +
             nested_calls_len(&self.calls) +
@@ -152,8 +158,7 @@ impl TxEip8130 {
             nonce_key: Decodable::decode(buf)?,
             nonce_sequence: Decodable::decode(buf)?,
             expiry: Decodable::decode(buf)?,
-            max_priority_fee_per_gas: Decodable::decode(buf)?,
-            max_fee_per_gas: Decodable::decode(buf)?,
+            gas_price: Decodable::decode(buf)?,
             gas_limit: Decodable::decode(buf)?,
             account_changes: Decodable::decode(buf)?,
             calls: decode_nested_calls(buf)?,
@@ -187,7 +192,7 @@ impl TxEip8130 {
     /// Encodes the preimage for the **sender** signature hash:
     /// ```text
     /// AA_TX_TYPE_ID ‖ rlp([chain_id, from, nonce_key, nonce_sequence, expiry,
-    ///                      max_priority_fee_per_gas, max_fee_per_gas, gas_limit,
+    ///                      gas_price, gas_limit,
     ///                      account_changes, calls, payer])
     /// ```
     pub fn encode_for_sender_signing(&self, out: &mut dyn BufMut) {
@@ -196,8 +201,7 @@ impl TxEip8130 {
             self.nonce_key.length() +
             self.nonce_sequence.length() +
             self.expiry.length() +
-            self.max_priority_fee_per_gas.length() +
-            self.max_fee_per_gas.length() +
+            self.gas_price.length() +
             self.gas_limit.length() +
             list_len(&self.account_changes) +
             nested_calls_len(&self.calls) +
@@ -210,8 +214,7 @@ impl TxEip8130 {
         self.nonce_key.encode(out);
         self.nonce_sequence.encode(out);
         self.expiry.encode(out);
-        self.max_priority_fee_per_gas.encode(out);
-        self.max_fee_per_gas.encode(out);
+        self.gas_price.encode(out);
         self.gas_limit.encode(out);
         encode_list(&self.account_changes, out);
         encode_nested_calls(&self.calls, out);
@@ -221,7 +224,7 @@ impl TxEip8130 {
     /// Encodes the preimage for the **payer** signature hash:
     /// ```text
     /// AA_PAYER_TYPE ‖ rlp([chain_id, from, nonce_key, nonce_sequence, expiry,
-    ///                      max_priority_fee_per_gas, max_fee_per_gas, gas_limit,
+    ///                      gas_price, gas_limit,
     ///                      account_changes, calls])
     /// ```
     ///
@@ -235,8 +238,7 @@ impl TxEip8130 {
             self.nonce_key.length() +
             self.nonce_sequence.length() +
             self.expiry.length() +
-            self.max_priority_fee_per_gas.length() +
-            self.max_fee_per_gas.length() +
+            self.gas_price.length() +
             self.gas_limit.length() +
             list_len(&self.account_changes) +
             nested_calls_len(&self.calls);
@@ -248,8 +250,7 @@ impl TxEip8130 {
         self.nonce_key.encode(out);
         self.nonce_sequence.encode(out);
         self.expiry.encode(out);
-        self.max_priority_fee_per_gas.encode(out);
-        self.max_fee_per_gas.encode(out);
+        self.gas_price.encode(out);
         self.gas_limit.encode(out);
         encode_list(&self.account_changes, out);
         encode_nested_calls(&self.calls, out);
@@ -351,15 +352,18 @@ impl Transaction for TxEip8130 {
     }
 
     fn gas_price(&self) -> Option<u128> {
-        None
+        Some(self.gas_price)
     }
 
     fn max_fee_per_gas(&self) -> u128 {
-        self.max_fee_per_gas
+        // Legacy-style fee: the max a sender pays IS gas_price.
+        self.gas_price
     }
 
     fn max_priority_fee_per_gas(&self) -> Option<u128> {
-        Some(self.max_priority_fee_per_gas)
+        // XLayer doesn't expose a priority-fee lane for AA txs; callers that
+        // ask for the EIP-1559 tip see `None`, consistent with legacy txs.
+        None
     }
 
     fn max_fee_per_blob_gas(&self) -> Option<u128> {
@@ -367,19 +371,18 @@ impl Transaction for TxEip8130 {
     }
 
     fn priority_fee_or_price(&self) -> u128 {
-        self.max_priority_fee_per_gas
+        self.gas_price
     }
 
-    fn effective_gas_price(&self, base_fee: Option<u64>) -> u128 {
-        base_fee.map_or(self.max_fee_per_gas, |base_fee| {
-            let tip = self.max_fee_per_gas.saturating_sub(base_fee as u128);
-            let tip = tip.min(self.max_priority_fee_per_gas);
-            base_fee as u128 + tip
-        })
+    fn effective_gas_price(&self, _base_fee: Option<u64>) -> u128 {
+        // Legacy fee model: effective price is always `gas_price`, regardless
+        // of any base-fee the underlying chain header happens to carry.
+        self.gas_price
     }
 
     fn is_dynamic_fee(&self) -> bool {
-        true
+        // Legacy-style fee: no dynamic base-fee / tip split.
+        false
     }
 
     fn is_create(&self) -> bool {
@@ -420,11 +423,9 @@ impl Transaction for TxEip8130 {
     }
 
     fn effective_tip_per_gas(&self, base_fee: u64) -> Option<u128> {
+        // Legacy fee: the "tip" is `gas_price - base_fee`, clamped to zero.
         let base = base_fee as u128;
-        if self.max_fee_per_gas < base {
-            return None;
-        }
-        Some((self.max_fee_per_gas - base).min(self.max_priority_fee_per_gas))
+        Some(self.gas_price.saturating_sub(base))
     }
 }
 
@@ -445,8 +446,7 @@ mod tests {
             nonce_key: U256::from(0u64),
             nonce_sequence: 42,
             expiry: 0,
-            max_priority_fee_per_gas: 1_000_000_000,
-            max_fee_per_gas: 10_000_000_000,
+            gas_price: 10_000_000_000,
             gas_limit: 100_000,
             account_changes: vec![],
             calls: vec![vec![Call {
@@ -485,10 +485,11 @@ mod tests {
         assert_eq!(Transaction::chain_id(&tx), Some(196));
         assert_eq!(tx.nonce(), 42);
         assert_eq!(tx.gas_limit(), 100_000);
-        assert!(tx.gas_price().is_none());
+        // Legacy-style fee model — `gas_price` is `Some(..)`, no tip lane.
+        assert_eq!(tx.gas_price(), Some(10_000_000_000));
         assert_eq!(tx.max_fee_per_gas(), 10_000_000_000);
-        assert_eq!(tx.max_priority_fee_per_gas(), Some(1_000_000_000));
-        assert!(tx.is_dynamic_fee());
+        assert!(tx.max_priority_fee_per_gas().is_none());
+        assert!(!tx.is_dynamic_fee());
         assert_eq!(tx.value(), U256::ZERO);
         assert_eq!(tx.ty(), AA_TX_TYPE_ID);
     }

@@ -8,7 +8,7 @@ use alloy_evm::{FromRecoveredTx, FromTxWithEncoded, IntoTxEnv};
 use alloy_op_evm::block::OpTxEnv;
 use alloy_primitives::{Address, B256, Bytes, TxKind, U256};
 use core::ops::{Deref, DerefMut};
-use op_alloy_consensus::{OpTxEnvelope, TxDeposit};
+use op_alloy_consensus::{eip8130::TxEip8130, OpTxEnvelope, TxDeposit};
 use op_revm::{OpTransaction, transaction::deposit::DepositTransactionParts};
 use reth_evm::TransactionEnv;
 use revm::context::TxEnv;
@@ -134,23 +134,26 @@ impl FromTxWithEncoded<OpTxEnvelope> for OpTx {
             OpTxEnvelope::Eip2930(tx) => Self::from_encoded_tx(tx, caller, encoded),
             OpTxEnvelope::Eip7702(tx) => Self::from_encoded_tx(tx, caller, encoded),
             OpTxEnvelope::Deposit(tx) => Self::from_encoded_tx(tx.inner(), caller, encoded),
-            // EIP-8130 (XLayerAA) — handler consumes TxEip8130 directly;
-            // the standard TxEnv projection is a minimal placeholder.
-            OpTxEnvelope::Eip8130(sealed) => {
-                let inner = sealed.inner();
-                let base = TxEnv {
-                    tx_type: inner.ty(),
-                    caller,
-                    gas_limit: inner.gas_limit,
-                    ..Default::default()
-                };
-                OpTx(OpTransaction {
-                    base,
-                    enveloped_tx: Some(encoded),
-                    deposit: Default::default(),
-                })
-            }
+            OpTxEnvelope::Eip8130(tx) => Self::from_encoded_tx(tx.inner(), caller, encoded),
         }
+    }
+}
+
+impl FromRecoveredTx<TxEip8130> for OpTx {
+    fn from_recovered_tx(tx: &TxEip8130, sender: Address) -> Self {
+        let encoded = tx.encoded_2718();
+        Self::from_encoded_tx(tx, sender, encoded.into())
+    }
+}
+
+impl FromTxWithEncoded<TxEip8130> for OpTx {
+    fn from_encoded_tx(tx: &TxEip8130, caller: Address, encoded: Bytes) -> Self {
+        // Project the AA tx into a legacy-shaped TxEnv (first call of the
+        // first phase) — `TxEnv::from_recovered_tx` in alloy-evm does the
+        // actual field mapping and keeps `tx_type = 0x7B` so revm routes
+        // it through `TransactionType::Custom`.
+        let base = TxEnv::from_recovered_tx(tx, caller);
+        OpTx(OpTransaction { base, enveloped_tx: Some(encoded), deposit: Default::default() })
     }
 }
 
