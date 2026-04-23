@@ -278,6 +278,16 @@ async fn main() {
                 "enclave_addr": format!("{}", enclave_addr),
                 "user_data": user_data_hex,
             },
+            "register_parameters": {
+                "seal": format!("0x{}", seal_hex),
+                "attestationData": serde_json::json!([
+                    timestamp_ms,
+                    format!("0x{}", pcr0_hash_hex),
+                    format!("0x{}", enclave_pubkey_hex),
+                    format!("0x{}", user_data_hex),
+                ])
+            }
+
         });
         std::fs::write(&path, serde_json::to_string_pretty(&json).unwrap())
             .unwrap_or_else(|e| panic!("Failed to write {}: {}", path.display(), e));
