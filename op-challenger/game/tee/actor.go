@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/contracts"
 	"github.com/ethereum-optimism/optimism/op-challenger/game/generic"
 	gameTypes "github.com/ethereum-optimism/optimism/op-challenger/game/types"
+	"github.com/ethereum-optimism/optimism/op-challenger/sender"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/sources/batching/rpcblock"
 	"github.com/ethereum-optimism/optimism/op-service/txmgr"
@@ -72,6 +73,7 @@ type Actor struct {
 	proveResultCh      chan proveResult // buffered(1), receives result from background goroutine
 	proveInFlight      bool             // whether a background prove goroutine is running
 	proveGivenUp       bool             // true after prove timeout or non-retryable error — no more retries
+	pendingProof       []byte           // survives mempool failures so the next tick can resubmit without re-proving
 }
 
 // ActorCreator returns a generic.ActorCreator that creates TEE Actors.
@@ -111,14 +113,10 @@ func (a *Actor) Act(ctx context.Context) error {
 
 	var txs []txmgr.TxCandidate
 
-	// 1. Non-blocking check for background prove result
 	select {
 	case result := <-a.proveResultCh:
 		a.proveInFlight = false
 		if result.err != nil {
-			// Two possible errors from ProveAndWait:
-			// 1. context.DeadlineExceeded — proveTimeout (default 1h) expired after retries
-			// 2. errNonRetryable — code=10001 invalid params, retrying won't help
 			a.proveGivenUp = true
 			if errors.Is(result.err, context.DeadlineExceeded) {
 				a.logger.Error("TEE prove timed out, giving up",
@@ -131,19 +129,29 @@ func (a *Actor) Act(ctx context.Context) error {
 					"err", result.err, "game", a.contract.Addr())
 			}
 		} else {
-			a.logger.Info("Background TEE prove finished, submitting proof", "game", a.contract.Addr())
-			tx, err := a.contract.ProveTx(ctx, result.proofBytes, a.txSender.From())
+			a.pendingProof = result.proofBytes
+			a.logger.Info("TEE prove finished, proof cached",
+				"game", a.contract.Addr(), "size", len(result.proofBytes))
+		}
+	default:
+	}
+
+	if len(a.pendingProof) > 0 {
+		if metadata.ProposalStatus != contracts.ProposalStatusChallenged ||
+			metadata.Deadline.Before(a.l1Clock.Now()) {
+			a.logger.Warn("Dropping cached TEE proof: proposal moved past Challenged",
+				"game", a.contract.Addr(), "status", metadata.ProposalStatus)
+			a.pendingProof = nil
+		} else {
+			tx, err := a.contract.ProveTx(ctx, a.pendingProof, a.txSender.From())
 			if err != nil {
 				return fmt.Errorf("failed to create prove tx: %w", err)
 			}
 			txs = append(txs, tx)
 		}
-	default:
-		// No result yet
 	}
 
-	// 2. Start background prove if needed, not already in flight, and not given up
-	if len(txs) == 0 && !a.proveInFlight && !a.proveGivenUp {
+	if len(a.pendingProof) == 0 && !a.proveInFlight && !a.proveGivenUp {
 		if err := a.tryStartProve(ctx, metadata); errors.Is(err, errNoProveRequired) {
 			a.logger.Debug("No prove required")
 		} else if err != nil {
@@ -151,7 +159,6 @@ func (a *Actor) Act(ctx context.Context) error {
 		}
 	}
 
-	// 3. Try resolve
 	if tx, err := a.createResolveTx(ctx, metadata); errors.Is(err, errNoResolutionRequired) {
 		a.logger.Debug("No resolution required")
 	} else if err != nil {
@@ -163,9 +170,15 @@ func (a *Actor) Act(ctx context.Context) error {
 	if len(txs) == 0 {
 		return nil
 	}
-	if err := a.txSender.SendAndWaitSimple(fmt.Sprintf("respond to tee game %v", a.contract.Addr()), txs...); err != nil {
-		return fmt.Errorf("failed to send transactions for tee game %v: %w", a.contract.Addr(), err)
+	sendErr := a.txSender.SendAndWaitSimple(fmt.Sprintf("respond to tee game %v", a.contract.Addr()), txs...)
+	if sendErr != nil {
+		// Drop cache on on-chain revert (retry would revert again); keep it on mempool failures.
+		if errors.Is(sendErr, sender.ErrTransactionReverted) {
+			a.pendingProof = nil
+		}
+		return fmt.Errorf("failed to send transactions for tee game %v: %w", a.contract.Addr(), sendErr)
 	}
+	a.pendingProof = nil
 	return nil
 }
 
@@ -264,6 +277,9 @@ func (a *Actor) AdditionalStatus(ctx context.Context) ([]any, error) {
 	status := []any{"proposalStatus", metadata.ProposalStatus}
 	if a.proveInFlight {
 		status = append(status, "proveInFlight", true)
+	}
+	if len(a.pendingProof) > 0 {
+		status = append(status, "pendingProof", true)
 	}
 	if a.proveGivenUp {
 		status = append(status, "proveGivenUp", true)

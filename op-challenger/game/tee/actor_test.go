@@ -9,6 +9,7 @@ import (
 
 	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/contracts"
 	"github.com/ethereum-optimism/optimism/op-challenger/game/types"
+	"github.com/ethereum-optimism/optimism/op-challenger/sender"
 	"github.com/ethereum-optimism/optimism/op-service/clock"
 	"github.com/ethereum-optimism/optimism/op-service/sources/batching/rpcblock"
 	"github.com/ethereum-optimism/optimism/op-service/testlog"
@@ -210,6 +211,74 @@ func TestActorProveTimeoutSetsGivenUp(t *testing.T) {
 	err := actor.Act(context.Background())
 	require.NoError(t, err)
 	require.True(t, actor.proveGivenUp, "proveGivenUp should be set after timeout")
+}
+
+// TestActorPendingProofRetryAfterMempoolFailure verifies that if the ProveTx
+// submission fails at the mempool level (e.g. "nonce too low" from a flaky
+// remote signer), the cached proof is retained and the next Act() tick resubmits
+// the same proof without kicking off a fresh background prove.
+func TestActorPendingProofRetryAfterMempoolFailure(t *testing.T) {
+	actor, stubs := setupTeeActorTest(t)
+	stubs.contract.setDeadlineNotReached()
+	stubs.contract.challenge(t)
+
+	// Tick 1: background prove completes, ProveTx is built and sent,
+	// but sender reports a mempool-level failure.
+	actor.proveInFlight = true
+	actor.proveResultCh <- proveResult{proofBytes: []byte{0xab, 0xcd}, err: nil}
+	stubs.sender.sendErr = errors.New("aborted tx send due to critical error: nonce too low")
+
+	err := actor.Act(context.Background())
+	require.Error(t, err, "send failure should propagate")
+	require.Equal(t, []byte{0xab, 0xcd}, actor.pendingProof, "mempool failure must preserve cached proof")
+	require.Equal(t, []string{proveData}, stubs.sender.sentData)
+	require.False(t, actor.proveInFlight, "prove goroutine already finished")
+
+	// Tick 2: sender recovers; actor must reuse cached proof rather than re-prove.
+	stubs.sender.sendErr = nil
+	err = actor.Act(context.Background())
+	require.NoError(t, err)
+	require.Nil(t, actor.pendingProof, "successful send must clear cache")
+	require.False(t, actor.proveInFlight, "must not start a new prove when cache was used")
+	require.Equal(t, []string{proveData, proveData}, stubs.sender.sentData, "same proof should be sent twice")
+}
+
+// TestActorPendingProofDroppedOnRevert verifies the cache is dropped when the
+// tx reverts on-chain — resubmitting the same proof would revert again.
+func TestActorPendingProofDroppedOnRevert(t *testing.T) {
+	actor, stubs := setupTeeActorTest(t)
+	stubs.contract.setDeadlineNotReached()
+	stubs.contract.challenge(t)
+
+	actor.proveInFlight = true
+	actor.proveResultCh <- proveResult{proofBytes: []byte{0xab, 0xcd}, err: nil}
+	stubs.sender.sendErr = sender.ErrTransactionReverted
+
+	err := actor.Act(context.Background())
+	require.Error(t, err)
+	require.Nil(t, actor.pendingProof, "on-chain revert must drop cached proof")
+}
+
+// TestActorPendingProofDroppedWhenProposalMovedOn verifies the cache is dropped
+// if the proposal status changes away from Challenged between ticks (e.g. someone
+// else already proved or the game was resolved).
+func TestActorPendingProofDroppedWhenProposalMovedOn(t *testing.T) {
+	actor, stubs := setupTeeActorTest(t)
+	stubs.contract.setDeadlineNotReached()
+	stubs.contract.challenge(t)
+
+	// Pre-seed a cached proof left over from a previous tick.
+	actor.pendingProof = []byte{0xab, 0xcd}
+
+	// On-chain state has advanced past Challenged while we held the cache.
+	stubs.contract.prove(t)
+	require.Equal(t, contracts.ProposalStatusChallengedAndValidProofProvided, stubs.contract.proposalStatus)
+
+	err := actor.Act(context.Background())
+	require.NoError(t, err)
+	require.Nil(t, actor.pendingProof, "cache must be dropped when proposal moved past Challenged")
+	// No ProveTx sent — the cache was dropped before building a tx.
+	require.NotContains(t, stubs.sender.sentData, proveData)
 }
 
 func TestActorProveGivenUpSkipsProve(t *testing.T) {
