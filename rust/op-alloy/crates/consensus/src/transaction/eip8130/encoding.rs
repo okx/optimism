@@ -3,18 +3,17 @@
 //! Hand-rolled (rather than derive-based) because two of the helpers need to
 //! stay stable across both signing and non-signing preimages:
 //!
-//! - [`encode_optional_address`] / [`decode_optional_address`] treat
-//!   `None` as the empty RLP string (`0x80`), matching tempo's convention.
-//! - [`encode_nested_calls`] / [`decode_nested_calls`] preserve phase
-//!   boundaries (`Vec<Vec<Call>>`) so EIP-8130's atomic-per-phase semantics
-//!   survive round-tripping.
+//! - [`encode_optional_address`] / [`decode_optional_address`] treat `None` as the empty RLP string
+//!   (`0x80`), matching tempo's convention.
+//! - [`encode_nested_calls`] / [`decode_nested_calls`] preserve phase boundaries (`Vec<Vec<Call>>`)
+//!   so EIP-8130's atomic-per-phase semantics survive round-tripping.
 //!
 //! Kept in a dedicated module so [`super::tx`] only holds field ordering.
 
-use std::vec::Vec;
+use alloc::vec::Vec;
 
 use alloy_primitives::Address;
-use alloy_rlp::{length_of_length, BufMut, Decodable, Encodable, Header};
+use alloy_rlp::{BufMut, Decodable, Encodable, Header, length_of_length};
 
 use super::Call;
 
@@ -74,7 +73,7 @@ pub(crate) fn decode_optional_address(buf: &mut &[u8]) -> alloy_rlp::Result<Opti
 /// Encodes `Vec<Vec<Call>>` as an RLP list-of-lists (phase boundaries
 /// preserved).
 pub(crate) fn encode_nested_calls(phases: &[Vec<Call>], out: &mut dyn BufMut) {
-    let payload_len: usize = phases.iter().map(|phase| list_len(phase.as_slice())).sum();
+    let payload_len: usize = phases.iter().map(|phase| list_len::<Call>(phase.as_slice())).sum();
     Header { list: true, payload_length: payload_len }.encode(out);
     for phase in phases {
         encode_list(phase, out);
@@ -83,7 +82,7 @@ pub(crate) fn encode_nested_calls(phases: &[Vec<Call>], out: &mut dyn BufMut) {
 
 /// RLP length of a `Vec<Vec<Call>>` encoded via [`encode_nested_calls`].
 pub(crate) fn nested_calls_len(phases: &[Vec<Call>]) -> usize {
-    let payload_len: usize = phases.iter().map(|phase| list_len(phase.as_slice())).sum();
+    let payload_len: usize = phases.iter().map(|phase| list_len::<Call>(phase.as_slice())).sum();
     payload_len + length_of_length(payload_len)
 }
 

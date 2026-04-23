@@ -5,11 +5,11 @@
 //! `encode_for_payer_signing`) — this module only computes `keccak256`
 //! over the preimage and parses the auth blob layout.
 
-use std::vec::Vec;
+use alloc::vec::Vec;
 
-use alloy_primitives::{keccak256, Address, Bytes, B256};
+use alloy_primitives::{Address, B256, Bytes, keccak256};
 
-use super::{types::ConfigChangeEntry, TxEip8130};
+use super::{TxEip8130, types::ConfigChangeEntry};
 
 /// Hash committed by the sender's signature:
 /// `keccak256(tx.encode_for_sender_signing())`.

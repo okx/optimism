@@ -648,10 +648,9 @@ pub mod serde_bincode_compat {
                     signature: *signed_7702.signature(),
                     transaction: signed_7702.tx().into(),
                 },
-                super::OpTxEnvelope::Eip8130(sealed_aa) => Self::Eip8130 {
-                    hash: sealed_aa.seal(),
-                    transaction: sealed_aa.inner().clone(),
-                },
+                super::OpTxEnvelope::Eip8130(sealed_aa) => {
+                    Self::Eip8130 { hash: sealed_aa.seal(), transaction: sealed_aa.inner().clone() }
+                }
                 super::OpTxEnvelope::Deposit(sealed_deposit) => Self::Deposit {
                     hash: sealed_deposit.seal(),
                     transaction: sealed_deposit.inner().into(),

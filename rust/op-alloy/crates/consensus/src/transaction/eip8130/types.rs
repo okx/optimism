@@ -1,9 +1,9 @@
 //! XLayerAA (EIP-8130) sub-types: calls, owners, account-change entries.
 
-use std::vec::Vec;
+use alloc::vec::Vec;
 
-use alloy_primitives::{Address, Bytes, B256};
-use alloy_rlp::{length_of_length, BufMut, Decodable, Encodable, Header};
+use alloy_primitives::{Address, B256, Bytes};
+use alloy_rlp::{BufMut, Decodable, Encodable, Header, length_of_length};
 
 // ---------------------------------------------------------------------------
 // Call
@@ -150,10 +150,10 @@ pub struct OwnerChange {
 
 impl Encodable for OwnerChange {
     fn encode(&self, out: &mut dyn BufMut) {
-        let payload = self.change_type.length()
-            + self.verifier.length()
-            + self.owner_id.length()
-            + self.scope.length();
+        let payload = self.change_type.length() +
+            self.verifier.length() +
+            self.owner_id.length() +
+            self.scope.length();
         Header { list: true, payload_length: payload }.encode(out);
         self.change_type.encode(out);
         self.verifier.encode(out);
@@ -162,10 +162,10 @@ impl Encodable for OwnerChange {
     }
 
     fn length(&self) -> usize {
-        let payload = self.change_type.length()
-            + self.verifier.length()
-            + self.owner_id.length()
-            + self.scope.length();
+        let payload = self.change_type.length() +
+            self.verifier.length() +
+            self.owner_id.length() +
+            self.scope.length();
         payload + length_of_length(payload)
     }
 }
@@ -258,11 +258,11 @@ impl Encodable for AccountChangeEntry {
         match self {
             Self::Create(c) => {
                 let owners_payload: usize = c.initial_owners.iter().map(Encodable::length).sum();
-                let payload = CHANGE_TYPE_CREATE.length()
-                    + c.user_salt.length()
-                    + c.bytecode.length()
-                    + length_of_length(owners_payload)
-                    + owners_payload;
+                let payload = CHANGE_TYPE_CREATE.length() +
+                    c.user_salt.length() +
+                    c.bytecode.length() +
+                    length_of_length(owners_payload) +
+                    owners_payload;
                 Header { list: true, payload_length: payload }.encode(out);
                 CHANGE_TYPE_CREATE.encode(out);
                 c.user_salt.encode(out);
@@ -274,12 +274,12 @@ impl Encodable for AccountChangeEntry {
             }
             Self::ConfigChange(cc) => {
                 let ops_payload: usize = cc.owner_changes.iter().map(Encodable::length).sum();
-                let payload = CHANGE_TYPE_CONFIG.length()
-                    + cc.chain_id.length()
-                    + cc.sequence.length()
-                    + length_of_length(ops_payload)
-                    + ops_payload
-                    + cc.authorizer_auth.length();
+                let payload = CHANGE_TYPE_CONFIG.length() +
+                    cc.chain_id.length() +
+                    cc.sequence.length() +
+                    length_of_length(ops_payload) +
+                    ops_payload +
+                    cc.authorizer_auth.length();
                 Header { list: true, payload_length: payload }.encode(out);
                 CHANGE_TYPE_CONFIG.encode(out);
                 cc.chain_id.encode(out);
@@ -303,21 +303,21 @@ impl Encodable for AccountChangeEntry {
         match self {
             Self::Create(c) => {
                 let owners_payload: usize = c.initial_owners.iter().map(Encodable::length).sum();
-                let payload = CHANGE_TYPE_CREATE.length()
-                    + c.user_salt.length()
-                    + c.bytecode.length()
-                    + length_of_length(owners_payload)
-                    + owners_payload;
+                let payload = CHANGE_TYPE_CREATE.length() +
+                    c.user_salt.length() +
+                    c.bytecode.length() +
+                    length_of_length(owners_payload) +
+                    owners_payload;
                 payload + length_of_length(payload)
             }
             Self::ConfigChange(cc) => {
                 let ops_payload: usize = cc.owner_changes.iter().map(Encodable::length).sum();
-                let payload = CHANGE_TYPE_CONFIG.length()
-                    + cc.chain_id.length()
-                    + cc.sequence.length()
-                    + length_of_length(ops_payload)
-                    + ops_payload
-                    + cc.authorizer_auth.length();
+                let payload = CHANGE_TYPE_CONFIG.length() +
+                    cc.chain_id.length() +
+                    cc.sequence.length() +
+                    length_of_length(ops_payload) +
+                    ops_payload +
+                    cc.authorizer_auth.length();
                 payload + length_of_length(payload)
             }
             Self::Delegation(d) => {

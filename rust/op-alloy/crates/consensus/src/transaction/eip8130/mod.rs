@@ -23,8 +23,7 @@
 //! Every addition an L2 integrator has to make when they rebase
 //! against a future upstream op-alloy is confined to:
 //!
-//! - this whole directory (8 standalone files, none shared with
-//!   existing op-alloy code),
+//! - this whole directory (8 standalone files, none shared with existing op-alloy code),
 //! - one `pub mod eip8130;` line in [`crate::transaction`], and
 //! - one variant + its `From`/`match` arms in each of:
 //!   - [`OpTxEnvelope`] (envelope.rs)
@@ -57,21 +56,23 @@ pub use constants::{
     EOA_AUTH_GAS, MAX_ACCOUNT_CHANGES_PER_TX, MAX_CALLS_PER_TX, MAX_CONFIG_OPS_PER_TX,
     MAX_SIGNATURE_SIZE, NONCE_KEY_COLD_GAS, NONCE_KEY_MAX, NONCE_KEY_WARM_GAS, SLOAD_GAS,
 };
+#[cfg(feature = "k256")]
+pub use native::k1_recover;
 pub use native::{
-    delegate_recover, k1_owner_id, k1_recover, native_verify, p256_raw_recover,
-    p256_webauthn_recover, NativeVerifyError, NativeVerifyResult,
+    NativeVerifyError, NativeVerifyResult, delegate_recover, k1_owner_id, native_verify,
+    p256_raw_recover, p256_webauthn_recover,
 };
 pub use signature::{
-    config_change_digest, parse_sender_auth, payer_signature_hash, sender_signature_hash,
-    ParsedSenderAuth,
+    ParsedSenderAuth, config_change_digest, parse_sender_auth, payer_signature_hash,
+    sender_signature_hash,
 };
 pub use tx::TxEip8130;
 pub use types::{
-    AccountChangeEntry, Call, ConfigChangeEntry, CreateEntry, DelegationEntry, Owner, OwnerChange,
-    OwnerScope, CHANGE_TYPE_CONFIG, CHANGE_TYPE_CREATE, CHANGE_TYPE_DELEGATION, OP_AUTHORIZE_OWNER,
-    OP_REVOKE_OWNER,
+    AccountChangeEntry, CHANGE_TYPE_CONFIG, CHANGE_TYPE_CREATE, CHANGE_TYPE_DELEGATION, Call,
+    ConfigChangeEntry, CreateEntry, DelegationEntry, OP_AUTHORIZE_OWNER, OP_REVOKE_OWNER, Owner,
+    OwnerChange, OwnerScope,
 };
 pub use verifier::{
-    auth_verifier_kind, verifier_kind, NativeVerifier, VerifierKind, DELEGATE_VERIFIER_ADDRESS,
-    K1_VERIFIER_ADDRESS, P256_RAW_VERIFIER_ADDRESS, P256_WEBAUTHN_VERIFIER_ADDRESS,
+    DELEGATE_VERIFIER_ADDRESS, K1_VERIFIER_ADDRESS, NativeVerifier, P256_RAW_VERIFIER_ADDRESS,
+    P256_WEBAUTHN_VERIFIER_ADDRESS, VerifierKind, auth_verifier_kind, verifier_kind,
 };

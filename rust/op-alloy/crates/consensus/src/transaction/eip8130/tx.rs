@@ -5,20 +5,20 @@
 //! wrapper — the "signed" tx *is* [`TxEip8130`]. Phased call batching
 //! replaces the single `to` + `input` of a standard tx.
 
-use std::vec::Vec;
+use alloc::vec::Vec;
 
 use alloy_consensus::{Sealable, Transaction, Typed2718};
 use alloy_eips::eip2718::{Decodable2718, Eip2718Error, Eip2718Result, Encodable2718, IsTyped2718};
-use alloy_primitives::{keccak256, Address, Bytes, ChainId, TxKind, B256, U256};
-use alloy_rlp::{length_of_length, BufMut, Decodable, Encodable, Header};
+use alloy_primitives::{Address, B256, Bytes, ChainId, TxKind, U256, keccak256};
+use alloy_rlp::{BufMut, Decodable, Encodable, Header, length_of_length};
 
 use super::{
+    AccountChangeEntry, Call,
     constants::{AA_PAYER_TYPE, AA_TX_TYPE_ID},
     encoding::{
         decode_nested_calls, decode_optional_address, encode_list, encode_nested_calls,
         encode_optional_address, list_len, nested_calls_len, optional_address_len,
     },
-    AccountChangeEntry, Call,
 };
 
 /// An XLayerAA (EIP-8130) account-abstracted transaction.
@@ -130,19 +130,19 @@ impl TxEip8130 {
 
     /// Combined length of all encoded fields (the RLP list payload length).
     fn fields_len(&self) -> usize {
-        self.chain_id.length()
-            + optional_address_len(&self.from)
-            + self.nonce_key.length()
-            + self.nonce_sequence.length()
-            + self.expiry.length()
-            + self.max_priority_fee_per_gas.length()
-            + self.max_fee_per_gas.length()
-            + self.gas_limit.length()
-            + list_len(&self.account_changes)
-            + nested_calls_len(&self.calls)
-            + optional_address_len(&self.payer)
-            + self.sender_auth.length()
-            + self.payer_auth.length()
+        self.chain_id.length() +
+            optional_address_len(&self.from) +
+            self.nonce_key.length() +
+            self.nonce_sequence.length() +
+            self.expiry.length() +
+            self.max_priority_fee_per_gas.length() +
+            self.max_fee_per_gas.length() +
+            self.gas_limit.length() +
+            list_len(&self.account_changes) +
+            nested_calls_len(&self.calls) +
+            optional_address_len(&self.payer) +
+            self.sender_auth.length() +
+            self.payer_auth.length()
     }
 
     fn rlp_decode_fields(buf: &mut &[u8]) -> alloy_rlp::Result<Self> {
@@ -191,17 +191,17 @@ impl TxEip8130 {
     ///                      account_changes, calls, payer])
     /// ```
     pub fn encode_for_sender_signing(&self, out: &mut dyn BufMut) {
-        let payload_len = self.chain_id.length()
-            + optional_address_len(&self.from)
-            + self.nonce_key.length()
-            + self.nonce_sequence.length()
-            + self.expiry.length()
-            + self.max_priority_fee_per_gas.length()
-            + self.max_fee_per_gas.length()
-            + self.gas_limit.length()
-            + list_len(&self.account_changes)
-            + nested_calls_len(&self.calls)
-            + optional_address_len(&self.payer);
+        let payload_len = self.chain_id.length() +
+            optional_address_len(&self.from) +
+            self.nonce_key.length() +
+            self.nonce_sequence.length() +
+            self.expiry.length() +
+            self.max_priority_fee_per_gas.length() +
+            self.max_fee_per_gas.length() +
+            self.gas_limit.length() +
+            list_len(&self.account_changes) +
+            nested_calls_len(&self.calls) +
+            optional_address_len(&self.payer);
 
         out.put_u8(AA_TX_TYPE_ID);
         Header { list: true, payload_length: payload_len }.encode(out);
@@ -230,16 +230,16 @@ impl TxEip8130 {
     /// — a valid sender signature cannot be replayed as a payer signature
     /// on the same tx.
     pub fn encode_for_payer_signing(&self, out: &mut dyn BufMut) {
-        let payload_len = self.chain_id.length()
-            + optional_address_len(&self.from)
-            + self.nonce_key.length()
-            + self.nonce_sequence.length()
-            + self.expiry.length()
-            + self.max_priority_fee_per_gas.length()
-            + self.max_fee_per_gas.length()
-            + self.gas_limit.length()
-            + list_len(&self.account_changes)
-            + nested_calls_len(&self.calls);
+        let payload_len = self.chain_id.length() +
+            optional_address_len(&self.from) +
+            self.nonce_key.length() +
+            self.nonce_sequence.length() +
+            self.expiry.length() +
+            self.max_priority_fee_per_gas.length() +
+            self.max_fee_per_gas.length() +
+            self.gas_limit.length() +
+            list_len(&self.account_changes) +
+            nested_calls_len(&self.calls);
 
         out.put_u8(AA_PAYER_TYPE);
         Header { list: true, payload_length: payload_len }.encode(out);

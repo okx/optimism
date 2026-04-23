@@ -5,9 +5,9 @@
 //! same address, so the deployment header, salt mixing, and CREATE2
 //! formula are pinned by explicit unit tests.
 
-use std::vec::Vec;
+use alloc::vec::Vec;
 
-use alloy_primitives::{keccak256, Address, Bytes, B256};
+use alloy_primitives::{Address, B256, Bytes, keccak256};
 
 use super::types::Owner;
 

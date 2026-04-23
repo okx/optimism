@@ -5,7 +5,7 @@
 //! (handled by a STATICCALL from the handler during execution). Auth blobs
 //! start with a 20-byte verifier prefix — see [`auth_verifier_kind`].
 
-use alloy_primitives::{address, Address};
+use alloy_primitives::{Address, address};
 
 /// Native secp256k1 / ecrecover verifier sentinel — `address(1)`.
 pub const K1_VERIFIER_ADDRESS: Address = address!("0x0000000000000000000000000000000000000001");
@@ -112,11 +112,7 @@ pub fn verifier_kind(address: Address) -> VerifierKind {
 /// Returns `None` for blobs shorter than 20 bytes — malformed shape that
 /// consumers should reject outright rather than try to interpret.
 pub fn auth_verifier_kind(auth: &[u8]) -> Option<VerifierKind> {
-    if auth.len() < 20 {
-        None
-    } else {
-        Some(verifier_kind(Address::from_slice(&auth[..20])))
-    }
+    if auth.len() < 20 { None } else { Some(verifier_kind(Address::from_slice(&auth[..20]))) }
 }
 
 #[cfg(test)]

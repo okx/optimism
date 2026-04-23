@@ -46,13 +46,11 @@ impl OpEip8130Transaction for OpTxEnvelope {
 
 /// Recovers the sender address from an EIP-8130 transaction.
 ///
-/// - **Configured owner** (`from` is `Some`): the sender is the
-///   declared `from` field — no ecrecover is performed. The
-///   `sender_auth` blob is validated for owner-set membership at
+/// - **Configured owner** (`from` is `Some`): the sender is the declared `from` field — no
+///   ecrecover is performed. The `sender_auth` blob is validated for owner-set membership at
 ///   execution time, not at the signer-recovery boundary.
-/// - **EOA mode** (`from` is `None`): ecrecovers the sender from
-///   the 65-byte K1 ECDSA signature in `sender_auth` over
-///   [`sender_signature_hash`].
+/// - **EOA mode** (`from` is `None`): ecrecovers the sender from the 65-byte K1 ECDSA signature in
+///   `sender_auth` over [`sender_signature_hash`].
 ///
 /// `pub(crate)` so [`crate::transaction::envelope`]'s
 /// [`SignerRecoverable`] impl can delegate here in a one-line

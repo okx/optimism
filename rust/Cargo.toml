@@ -668,6 +668,7 @@ alloy-evm = { path = "/home/po/now/xlayer-reth/deps/alloy-evm" }
 # XLayer: redirect okx/reth git deps to local fork carrying the EIP-8130 (0x7B) reth-codecs patches.
 # Branch: feat/xlayer-aa-v1-1.11.3 (matches the version 1.11.3 rev the submodule expects).
 [patch."https://github.com/okx/reth"]
+reth = { path = "/home/po/now/okx-reth/bin/reth" }
 reth-basic-payload-builder = { path = "/home/po/now/okx-reth/crates/payload/basic" }
 reth-chainspec = { path = "/home/po/now/okx-reth/crates/chainspec" }
 reth-chain-state = { path = "/home/po/now/okx-reth/crates/chain-state" }

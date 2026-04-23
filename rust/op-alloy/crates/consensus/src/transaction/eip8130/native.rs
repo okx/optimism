@@ -10,7 +10,7 @@
 //! Filling those in is a follow-up — the shape is complete so downstream
 //! code (E3 / E4a) does not depend on the specific scheme being wired up.
 
-use alloy_primitives::{keccak256, Address, Signature, SignatureError, B256};
+use alloy_primitives::{Address, B256, Signature, SignatureError, keccak256};
 
 use super::verifier::NativeVerifier;
 
@@ -55,6 +55,11 @@ fn describe_signature_error(_err: SignatureError) -> &'static str {
 ///
 /// The signature must be in the 65-byte `r ‖ s ‖ v` format (parity
 /// normalised via [`Signature::from_bytes_and_parity`] semantics).
+///
+/// Requires the `k256` feature on `op-alloy-consensus` (which pulls in
+/// `alloy-primitives/k256` for secp256k1 recovery). Downstream crates
+/// that need native K1 verification must opt in via that feature.
+#[cfg(feature = "k256")]
 pub fn k1_recover(
     prehash: &B256,
     signature: &[u8],
@@ -111,7 +116,10 @@ pub fn native_verify(
     data: &[u8],
 ) -> Result<NativeVerifyResult, NativeVerifyError> {
     match kind {
+        #[cfg(feature = "k256")]
         NativeVerifier::K1 => k1_recover(prehash, data),
+        #[cfg(not(feature = "k256"))]
+        NativeVerifier::K1 => Err(NativeVerifyError::NotImplemented(NativeVerifier::K1)),
         NativeVerifier::P256Raw => p256_raw_recover(prehash, data),
         NativeVerifier::P256WebAuthn => p256_webauthn_recover(prehash, data),
         NativeVerifier::Delegate => delegate_recover(prehash, data),
@@ -120,7 +128,7 @@ pub fn native_verify(
 
 #[cfg(test)]
 mod tests {
-    use alloy_primitives::{b256, U256};
+    use alloy_primitives::{U256, b256};
 
     use super::*;
 
@@ -130,12 +138,14 @@ mod tests {
         assert_eq!(k1_owner_id(address), keccak256(address.as_slice()));
     }
 
+    #[cfg(feature = "k256")]
     #[test]
     fn k1_recover_bad_size_rejected() {
         let h = B256::repeat_byte(0x01);
         assert!(matches!(k1_recover(&h, &[0u8; 64]), Err(NativeVerifyError::BadSize)));
     }
 
+    #[cfg(feature = "k256")]
     #[test]
     fn k1_recover_produces_address_and_owner_id() {
         // Build a well-formed 65-byte signature blob. Recovery may or may
