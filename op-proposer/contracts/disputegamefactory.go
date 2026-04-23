@@ -76,17 +76,23 @@ func (f *DisputeGameFactory) HasProposedSince(ctx context.Context, proposer comm
 		return false, time.Time{}, common.Hash{}, nil
 	}
 	for idx := gameCount - 1; ; idx-- {
-		game, err := f.gameAtIndex(ctx, idx)
+		gt, ts, err := f.gameBasicInfoAtIndex(ctx, idx)
 		if err != nil {
 			return false, time.Time{}, common.Hash{}, fmt.Errorf("failed to get dispute game %d: %w", idx, err)
 		}
-		if game.Timestamp.Before(cutoff) {
+		if ts.Before(cutoff) {
 			// Reached a game that is before the expected cutoff, so we haven't found a suitable proposal
 			return false, time.Time{}, common.Hash{}, nil
 		}
-		if game.GameType == gameType && game.Proposer == proposer {
+		if gt == gameType {
+			game, err := f.gameAtIndex(ctx, idx)
+			if err != nil {
+				return false, time.Time{}, common.Hash{}, fmt.Errorf("failed to get dispute game %d: %w", idx, err)
+			}
 			// Found a matching proposal
-			return true, game.Timestamp, game.Claim, nil
+			if game.Proposer == proposer {
+				return true, game.Timestamp, game.Claim, nil
+			}
 		}
 		if idx == 0 { // Need to check here rather than in the for condition to avoid underflow
 			// Checked every game and didn't find a match
@@ -162,4 +168,16 @@ func (f *DisputeGameFactory) gameAtIndex(ctx context.Context, idx uint64) (gameM
 		Proposer:  claimant,
 		Claim:     claim,
 	}, nil
+}
+
+// gameBasicInfoAtIndex returns basic game info without loading claimData
+// This avoids reverts when iterating over games with incompatible ABIs
+func (f *DisputeGameFactory) gameBasicInfoAtIndex(ctx context.Context, idx uint64) (gameType uint32, timestamp time.Time, err error) {
+	cCtx, cancel := context.WithTimeout(ctx, f.networkTimeout)
+	defer cancel()
+	result, err := f.caller.SingleCall(cCtx, rpcblock.Latest, f.contract.Call(methodGameAtIndex, new(big.Int).SetUint64(idx)))
+	if err != nil {
+		return 0, time.Time{}, fmt.Errorf("failed to load game %v: %w", idx, err)
+	}
+	return result.GetUint32(0), time.Unix(int64(result.GetUint64(1)), 0), nil
 }

@@ -199,6 +199,25 @@ func TestHasProposedSince(t *testing.T) {
 			require.Equal(t, expectedProposalTime, proposalTime)
 			require.Equal(t, common.Hash{0xdd}, claim)
 		})
+
+		t.Run("SkipsClaimForDifferentType-"+contractType.name, func(t *testing.T) {
+			stubRpc, factory := setupDisputeGameFactoryTest(t)
+			// idx 0: matching game type with claim data
+			withClaims(stubRpc, contractType.abi,
+				gameMetadata{GameType: 0, Timestamp: time.Unix(1400, 0), Address: common.Address{0x66}, Proposer: proposerAddr},
+			)
+			// Append idx 1: different game type, no claim data (would revert if called)
+			stubRpc.SetResponse(factoryAddr, methodGameCount, rpcblock.Latest, nil, []interface{}{big.NewInt(2)})
+			stubRpc.SetResponse(factoryAddr, methodGameAtIndex, rpcblock.Latest, []interface{}{big.NewInt(1)}, []interface{}{
+				uint32(1), uint64(1500), common.Address{0x55},
+			})
+
+			proposed, proposalTime, claim, err := factory.HasProposedSince(context.Background(), proposerAddr, cutOffTime, 0)
+			require.NoError(t, err)
+			require.True(t, proposed)
+			require.Equal(t, time.Unix(1400, 0), proposalTime)
+			require.Equal(t, common.Hash{0xdd}, claim)
+		})
 	}
 }
 
