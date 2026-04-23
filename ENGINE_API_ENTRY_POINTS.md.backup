@@ -1,0 +1,726 @@
+# Engine API Entry Points - FCU, NewPayload, and GetPayload
+
+This document identifies the entry points and facades for the three core Engine API methods in the OP Stack:
+- **ForkchoiceUpdated (FCU)** - Updates the forkchoice state on the execution client
+- **NewPayload** - Executes a full block on the execution engine
+- **GetPayload** - Retrieves the execution payload associated with a PayloadID
+
+---
+
+## CONSENSUS LAYER PERSPECTIVE (op-node)
+
+The op-node acts as the **client** making Engine API calls to the execution layer. It orchestrates L2 block derivation, validation, and sequencing.
+
+---
+
+## 1. Main Facade Layer: `EngineAPIClient`
+
+**Location**: `op-service/sources/engine_client.go`
+
+This is the **primary facade** that wraps all Engine API calls. It provides version-aware routing for the Engine API methods.
+
+### Key Methods:
+
+#### ForkchoiceUpdate
+```go
+func (s *EngineAPIClient) ForkchoiceUpdate(ctx context.Context, fc *eth.ForkchoiceState, attributes *eth.PayloadAttributes) (*eth.ForkchoiceUpdatedResult, error)
+```
+- **Line 76-92** in `engine_client.go`
+- Routes to: `engine_forkchoiceUpdatedV1`, `engine_forkchoiceUpdatedV2`, or `engine_forkchoiceUpdatedV3`
+- Version selection via `EngineVersionProvider.ForkchoiceUpdatedVersion(attr)`
+
+#### NewPayload
+```go
+func (s *EngineAPIClient) NewPayload(ctx context.Context, payload *eth.ExecutionPayload, parentBeaconBlockRoot *common.Hash) (*eth.PayloadStatusV1, error)
+```
+- **Line 97-123** in `engine_client.go`
+- Routes to: `engine_newPayloadV2`, `engine_newPayloadV3`, or `engine_newPayloadV4`
+- Version selection via `EngineVersionProvider.NewPayloadVersion(timestamp)`
+
+#### GetPayload
+```go
+func (s *EngineAPIClient) GetPayload(ctx context.Context, payloadInfo eth.PayloadInfo) (*eth.ExecutionPayloadEnvelope, error)
+```
+- **Line 126-138** in `engine_client.go`
+- Routes to: `engine_getPayloadV2`, `engine_getPayloadV3`, or `engine_getPayloadV4`
+- Version selection via `EngineVersionProvider.GetPayloadVersion(timestamp)`
+
+### RPC Method Constants
+**Location**: `op-service/eth/types.go` (lines 795-809)
+
+```go
+const (
+    FCUV1 EngineAPIMethod = "engine_forkchoiceUpdatedV1"
+    FCUV2 EngineAPIMethod = "engine_forkchoiceUpdatedV2"
+    FCUV3 EngineAPIMethod = "engine_forkchoiceUpdatedV3"
+
+    NewPayloadV2 EngineAPIMethod = "engine_newPayloadV2"
+    NewPayloadV3 EngineAPIMethod = "engine_newPayloadV3"
+    NewPayloadV4 EngineAPIMethod = "engine_newPayloadV4"
+
+    GetPayloadV2 EngineAPIMethod = "engine_getPayloadV2"
+    GetPayloadV3 EngineAPIMethod = "engine_getPayloadV3"
+    GetPayloadV4 EngineAPIMethod = "engine_getPayloadV4"
+)
+```
+
+---
+
+## 2. Controller Layer: `EngineController`
+
+**Location**: `op-node/rollup/engine/engine_controller.go`
+
+The `EngineController` is the **main orchestrator** for managing the execution engine state and making Engine API calls. It handles forkchoice state management and payload insertion.
+
+### Key Components:
+
+#### ExecEngine Interface
+```go
+type ExecEngine interface {
+    GetPayload(ctx context.Context, payloadInfo eth.PayloadInfo) (*eth.ExecutionPayloadEnvelope, error)
+    ForkchoiceUpdate(ctx context.Context, state *eth.ForkchoiceState, attr *eth.PayloadAttributes) (*eth.ForkchoiceUpdatedResult, error)
+    NewPayload(ctx context.Context, payload *eth.ExecutionPayload, parentBeaconBlockRoot *common.Hash) (*eth.PayloadStatusV1, error)
+    // ... other methods
+}
+```
+- **Lines 57-64** in `engine_controller.go`
+
+### Key Methods Using Engine API:
+
+#### 1. ForkchoiceUpdate Calls
+
+**tryUpdateEngineInternal** (Line ~479)
+```go
+func (e *EngineController) tryUpdateEngineInternal(ctx context.Context) error
+```
+- Main entry point for FCU calls
+- Constructs ForkchoiceState from current heads (unsafe, safe, finalized)
+- Calls `e.engine.ForkchoiceUpdate(ctx, &fc, nil)`
+
+**tryBackupUnsafeReorg** (Line ~670)
+```go
+func (e *EngineController) tryBackupUnsafeReorg(ctx context.Context) (bool, error)
+```
+- Uses FCU to attempt chain reorgs
+- Falls back to backup unsafe head when needed
+
+#### 2. NewPayload Calls
+
+**insertUnsafePayload** (Line ~530)
+```go
+func (e *EngineController) insertUnsafePayload(ctx context.Context, envelope *eth.ExecutionPayloadEnvelope, ref eth.L2BlockRef) error
+```
+- Primary method for inserting new unsafe payloads
+- Calls `e.engine.NewPayload(ctx, envelope.ExecutionPayload, envelope.ParentBeaconBlockRoot)`
+- Followed by FCU call to update forkchoice state
+
+#### 3. GetPayload Calls
+
+**onBuildSeal** (via build_seal.go)
+```go
+func (e *EngineController) onBuildSeal(ctx context.Context, ev BuildSealEvent)
+```
+- Seals block by calling `e.engine.GetPayload(ctx, ev.Info)`
+- Used during block building process
+
+---
+
+## 3. RPC API Layer: Engine Controller API
+
+**Location**: `op-node/rollup/engine/api.go`
+
+Provides RPC-exposed methods for block building that internally use Engine API.
+
+### Key Methods:
+
+#### OpenBlock
+```go
+func (e *EngineController) OpenBlock(ctx context.Context, parent eth.BlockID, attrs *eth.PayloadAttributes) (eth.PayloadInfo, error)
+```
+- **Line 24** in `api.go`
+- Initiates block building via ForkchoiceUpdate with attributes
+- Calls `e.startPayload(ctx, fc, attrs)` which uses FCU
+
+#### SealBlock
+```go
+func (e *EngineController) SealBlock(ctx context.Context, id eth.PayloadInfo) (*eth.ExecutionPayloadEnvelope, error)
+```
+- **Line 95** in `api.go`
+- Completes block building via GetPayload
+- Calls `e.engine.GetPayload(ctx, id)`
+
+#### CancelBlock
+```go
+func (e *EngineController) CancelBlock(ctx context.Context, id eth.PayloadInfo) error
+```
+- **Line 75** in `api.go`
+- Cancels block building (still calls GetPayload to verify)
+
+---
+
+## 4. Event-Driven Entry Points
+
+**Location**: `op-node/rollup/engine/engine_controller.go` and `events.go`
+
+The EngineController uses an event-driven system to trigger Engine API calls:
+
+### ForkchoiceUpdate Events
+
+**ForkchoiceUpdateEvent** (events.go, line 22)
+```go
+type ForkchoiceUpdateEvent struct {
+    UnsafeL2Head, SafeL2Head, FinalizedL2Head eth.L2BlockRef
+}
+```
+
+**Event Handler** (engine_controller.go, line 745+)
+```go
+func (e *EngineController) OnEvent(ctx context.Context, ev event.Event) bool {
+    switch x := ev.(type) {
+    case ForkchoiceUpdateEvent:
+        e.onForkchoiceUpdate(ctx, x)
+    // ...
+    }
+}
+```
+
+**Triggered by:**
+- `UnsafeUpdateEvent` - New unsafe block added
+- `SetUnsafeHead()` - Direct state updates
+- `requestForkchoiceUpdate()` - Manual requests
+
+---
+
+## 5. Supporting Components
+
+### Version Provider
+**Location**: `op-wheel/engine/version_provider.go`
+
+```go
+type EngineVersionProvider interface {
+    ForkchoiceUpdatedVersion(attr *eth.PayloadAttributes) eth.EngineAPIMethod
+    NewPayloadVersion(timestamp uint64) eth.EngineAPIMethod
+    GetPayloadVersion(timestamp uint64) eth.EngineAPIMethod
+}
+```
+
+Routes to correct version based on fork rules (Cancun, etc.)
+
+### Mock/Test Implementations
+- `op-devstack/sysgo/engine_client.go` - Test client
+- `op-e2e/e2eutils/geth/fakepos.go` - Fake PoS engine for testing
+- `op-supernode/supernode/chain_container/engine_controller/` - Alternative implementation
+
+---
+
+## 6. Call Flow Summary
+
+### Typical ForkchoiceUpdate Flow:
+```
+Driver/Sequencer
+    ↓
+EngineController.SetUnsafeHead()
+    ↓
+UnsafeUpdateEvent emitted
+    ↓
+EngineController.OnEvent() → tryUpdateEngine()
+    ↓
+EngineController.tryUpdateEngineInternal()
+    ↓
+ExecEngine.ForkchoiceUpdate() [interface]
+    ↓
+EngineAPIClient.ForkchoiceUpdate() [facade]
+    ↓
+RPC.CallContext("engine_forkchoiceUpdatedV3", ...)
+    ↓
+op-geth (execution layer)
+```
+
+### Typical NewPayload Flow:
+```
+P2P Sync / Derivation Pipeline
+    ↓
+EngineController.InsertUnsafePayload()
+    ↓
+EngineController.insertUnsafePayload()
+    ↓
+ExecEngine.NewPayload() [interface]
+    ↓
+EngineAPIClient.NewPayload() [facade]
+    ↓
+RPC.CallContext("engine_newPayloadV3", ...)
+    ↓
+op-geth (execution layer)
+```
+
+### Typical GetPayload Flow:
+```
+Block Building (Sequencer)
+    ↓
+BuildSealEvent emitted
+    ↓
+EngineController.onBuildSeal()
+    ↓
+ExecEngine.GetPayload() [interface]
+    ↓
+EngineAPIClient.GetPayload() [facade]
+    ↓
+RPC.CallContext("engine_getPayloadV3", ...)
+    ↓
+op-geth (execution layer)
+```
+
+---
+
+## CL-7. Key Files Reference (Consensus Layer)
+
+| Component | File Path | Purpose |
+|-----------|-----------|---------|
+| **Main Facade** | `op-service/sources/engine_client.go` | Primary Engine API client wrapper |
+| **Controller** | `op-node/rollup/engine/engine_controller.go` | Orchestrates engine state and API calls |
+| **Events** | `op-node/rollup/engine/events.go` | Event definitions for engine operations |
+| **API Methods** | `op-node/rollup/engine/api.go` | RPC-exposed block building methods |
+| **Types** | `op-service/eth/types.go` | Engine API method constants and types |
+| **Version Provider** | `op-wheel/engine/version_provider.go` | Version routing logic |
+| **Engine Interface** | `op-node/rollup/engine/engine_controller.go:57-64` | ExecEngine interface definition |
+
+---
+
+---
+
+## EXECUTION LAYER PERSPECTIVE (op-geth)
+
+The execution layer (op-geth) acts as the **server** implementing Engine API methods. It receives RPC calls from the consensus layer (op-node) and executes blocks, manages chain state, and builds new blocks.
+
+**Note**: op-geth is maintained in a separate repository (github.com/ethereum-optimism/op-geth) and is based on go-ethereum with OP Stack modifications.
+
+---
+
+## EL-1. Engine API Server Implementation
+
+**Location**: `eth/catalyst/api.go` (in op-geth repository)
+
+The main Engine API server is implemented in the `ConsensusAPI` struct which handles incoming RPC calls from the consensus layer.
+
+### Key Server Structure:
+
+```go
+type ConsensusAPI struct {
+    eth      *eth.Ethereum      // Access to blockchain and state
+    remoteBlocks *headerQueue    // Cache for remote block headers
+    localBlocks  *payloadQueue   // Cache for locally built blocks
+}
+```
+
+### RPC Method Handlers:
+
+#### EL-1.1. ForkchoiceUpdated Implementation
+
+**Methods**:
+- `ForkchoiceUpdatedV1(ForkchoiceStateV1, *PayloadAttributes) (ForkChoiceResponse, error)`
+- `ForkchoiceUpdatedV2(ForkchoiceStateV1, *PayloadAttributes) (ForkChoiceResponse, error)`
+- `ForkchoiceUpdatedV3(ForkchoiceStateV1, *PayloadAttributes) (ForkChoiceResponse, error)`
+
+**Purpose**:
+- Updates the canonical chain head (unsafe, safe, finalized)
+- Validates forkchoice state consistency
+- Optionally starts block building if PayloadAttributes provided
+- Returns PayloadID for block building
+
+**Key Operations**:
+1. Validates forkchoice state (head, safe, finalized must be valid)
+2. Updates blockchain canonical head via `SetHead()`
+3. Updates safe and finalized labels
+4. If attributes provided: starts block building and returns PayloadID
+5. Returns execution status (VALID, INVALID, SYNCING)
+
+#### EL-1.2. NewPayload Implementation
+
+**Methods**:
+- `NewPayloadV1(*ExecutableData) (PayloadStatusV1, error)`
+- `NewPayloadV2(*ExecutableData) (PayloadStatusV1, error)`
+- `NewPayloadV3(*ExecutableData, []Hash, *Hash) (PayloadStatusV1, error)`
+- `NewPayloadV4(*ExecutableData, []Hash, *Hash, [][]byte) (PayloadStatusV1, error)`
+
+**Purpose**:
+- Receives new execution payload from consensus layer
+- Validates block structure and transactions
+- Executes block and updates state
+- Returns validation status
+
+**Key Operations**:
+1. Validates payload structure (version-specific checks)
+2. Validates parent block exists
+3. Executes all transactions in the block
+4. Validates state root, receipts root, logs bloom
+5. Stores block in database
+6. Returns VALID, INVALID, SYNCING, or ACCEPTED status
+
+**Version-Specific Validation**:
+- **V2**: Validates withdrawals (Shanghai fork)
+- **V3**: Validates blob transactions, excess blob gas, parent beacon root (Cancun fork)
+- **V4**: Validates execution requests (Prague fork)
+
+#### EL-1.3. GetPayload Implementation
+
+**Methods**:
+- `GetPayloadV1(PayloadID) (*ExecutionPayloadEnvelope, error)`
+- `GetPayloadV2(PayloadID) (*ExecutionPayloadEnvelope, error)`
+- `GetPayloadV3(PayloadID) (*ExecutionPayloadEnvelope, error)`
+- `GetPayloadV4(PayloadID) (*ExecutionPayloadEnvelope, error)`
+
+**Purpose**:
+- Returns a previously built block payload by PayloadID
+- Seals the block for proposal
+
+**Key Operations**:
+1. Looks up payload in local cache by PayloadID
+2. Finalizes block (stops adding transactions)
+3. Returns ExecutionPayloadEnvelope with:
+   - ExecutionPayload (block data)
+   - BlockValue (fees collected)
+   - BlobsBundle (blob sidecars for Cancun+)
+   - ShouldOverrideBuilder flag
+   - ExecutionRequests (for Prague+)
+
+---
+
+## EL-2. Block Building Pipeline
+
+**Location**: `miner/worker.go` and `miner/miner.go` (in op-geth)
+
+### Block Building Flow:
+
+```
+ForkchoiceUpdated(with attributes)
+    ↓
+ConsensusAPI.forkchoiceUpdated()
+    ↓
+Miner.buildPayload(attributes)
+    ↓
+Worker.buildBlock()
+    ↓
+[Transaction Selection & Execution]
+    ↓
+Store in payloadQueue
+    ↓
+Return PayloadID
+    
+GetPayload(PayloadID)
+    ↓
+Retrieve from payloadQueue
+    ↓
+Finalize block
+    ↓
+Return ExecutionPayloadEnvelope
+```
+
+### Key Components:
+
+#### Worker
+- Manages block building state
+- Selects transactions from mempool
+- Executes transactions against state
+- Applies gas limits and block limits
+- Handles OP Stack deposit transactions
+
+#### Miner
+- Coordinates block building
+- Manages multiple payload building tasks
+- Handles payload caching
+
+---
+
+## EL-3. State Management
+
+**Location**: `core/blockchain.go` (in op-geth)
+
+### Forkchoice State Updates:
+
+The blockchain maintains three important labels:
+
+#### Current Head (Unsafe)
+- The tip of the canonical chain
+- Can be reorged
+- Updated by `SetHead()` or `SetCanonical()`
+
+#### Safe Head
+- Blocks that are safe from reorgs (under normal conditions)
+- Updated by `SetSafe()`
+- Stored in database
+
+#### Finalized Head
+- Blocks that are finalized and cannot be reorged
+- Updated by `SetFinalized()`
+- Stored in database
+
+### State Transition Flow:
+
+```
+NewPayload → Block Validation → State Execution → Database Storage
+                                          ↓
+ForkchoiceUpdated → SetCanonical → Update Head/Safe/Finalized Labels
+```
+
+---
+
+## EL-4. OP Stack Specific Modifications
+
+**Location**: Various files in op-geth with OP Stack changes
+
+### Key Differences from Standard Ethereum:
+
+#### Deposit Transactions
+- Special transaction type for L1→L2 messages
+- Processed first in every block
+- Cannot fail or be reverted
+- Located in: `core/types/deposit_tx.go`
+
+#### Sequencer Fee Vault
+- Collects transaction fees
+- Different from standard Ethereum fee mechanism
+- Located in: `core/state_processor.go`
+
+#### L1 Attributes Transaction
+- First transaction in every block
+- Contains L1 block info (number, hash, timestamp, basefee)
+- Used for L1 data availability
+- Located in: `core/types/rollup_l1_cost.go`
+
+#### Bedrock/Canyon/Delta/Ecotone/Fjord/Granite/Holocene Forks
+- OP Stack specific fork activations
+- Modified in: `params/config.go`
+
+---
+
+## EL-5. RPC Server Setup
+
+**Location**: `node/node.go` and `eth/catalyst/api.go` (in op-geth)
+
+### Engine API Endpoint:
+
+The Engine API is exposed on a separate authenticated endpoint:
+- **Default Port**: 8551 (authenticated RPC)
+- **Authentication**: JWT token required
+- **Protocol**: HTTP/JSON-RPC
+- **Methods**: engine_* namespace
+
+### Registration:
+
+```go
+// Registers Engine API methods
+func (api *ConsensusAPI) RegisterAPIs(stack *node.Node) {
+    stack.RegisterAPIs([]rpc.API{{
+        Namespace: "engine",
+        Version:   "1.0",
+        Service:   api,
+        Public:    true,
+        Authenticated: true,
+    }})
+}
+```
+
+---
+
+## EL-6. Validation Pipeline
+
+### NewPayload Validation Steps:
+
+1. **Structural Validation**
+   - Block number is parent + 1
+   - Timestamp is after parent timestamp
+   - ExtraData size limits
+   - Gas limit changes are valid
+
+2. **Fork-Specific Validation**
+   - Withdrawals present/absent as required
+   - Blob fields for Cancun+
+   - Parent beacon root for Cancun+
+   - EIP-1559 params for Holocene
+
+3. **State Execution**
+   - Execute all transactions
+   - Validate state root matches
+   - Validate receipts root matches
+   - Validate logs bloom matches
+
+4. **OP Stack Validation**
+   - L1 attributes transaction is first
+   - Deposit transactions before user transactions
+   - Sequencer drift limits
+   - L1 data availability
+
+### ForkchoiceUpdated Validation Steps:
+
+1. **Ancestry Check**
+   - Head is descendant of safe
+   - Safe is descendant of finalized
+   - All referenced blocks exist
+
+2. **Canonical Chain Update**
+   - Reorg if necessary
+   - Update canonical chain
+   - Emit chain events
+
+3. **Label Updates**
+   - Update safe block label
+   - Update finalized block label
+   - Persist to database
+
+---
+
+## EL-7. Key Files Reference (Execution Layer)
+
+**Note**: These files are in the op-geth repository (github.com/ethereum-optimism/op-geth)
+
+| Component | File Path | Purpose |
+|-----------|-----------|---------|
+| **Engine API Server** | `eth/catalyst/api.go` | Main Engine API implementation |
+| **Forkchoice Management** | `eth/catalyst/api.go` | Forkchoice update handling |
+| **Payload Building** | `miner/worker.go` | Block construction |
+| **Miner** | `miner/miner.go` | Payload building coordination |
+| **Blockchain** | `core/blockchain.go` | Chain state management |
+| **State Processor** | `core/state_processor.go` | Transaction execution |
+| **Block Validation** | `core/block_validator.go` | Block validation logic |
+| **OP Types** | `core/types/*` | OP Stack transaction types |
+| **OP State Transition** | `core/state_transition.go` | OP Stack state changes |
+
+---
+
+## EL-8. Call Flow Summary (Execution Layer)
+
+### ForkchoiceUpdated Flow (EL Side):
+
+```
+RPC: engine_forkchoiceUpdatedV3
+    ↓
+ConsensusAPI.ForkchoiceUpdatedV3()
+    ↓
+Validate forkchoice state
+    ↓
+BlockChain.SetCanonical(head)
+    ↓
+BlockChain.SetSafe(safe)
+    ↓
+BlockChain.SetFinalized(finalized)
+    ↓
+[If attributes provided]
+    ↓
+Miner.BuildPayload(attributes)
+    ↓
+Return ForkChoiceResponse{PayloadID}
+```
+
+### NewPayload Flow (EL Side):
+
+```
+RPC: engine_newPayloadV3
+    ↓
+ConsensusAPI.NewPayloadV3()
+    ↓
+Validate payload structure
+    ↓
+BlockChain.InsertBlockWithoutSetHead()
+    ↓
+StateProcessor.Process(block)
+    ↓
+[Execute all transactions]
+    ↓
+Validate state/receipts/bloom roots
+    ↓
+Store block in database
+    ↓
+Return PayloadStatusV1{VALID}
+```
+
+### GetPayload Flow (EL Side):
+
+```
+RPC: engine_getPayloadV3
+    ↓
+ConsensusAPI.GetPayloadV3()
+    ↓
+Lookup PayloadID in cache
+    ↓
+Worker.FinalizeBlock()
+    ↓
+Build ExecutionPayloadEnvelope
+    ↓
+Return envelope with:
+  - ExecutionPayload
+  - BlockValue
+  - BlobsBundle
+```
+
+---
+
+## EL-9. Reference Implementation
+
+A reference implementation of Engine API logic (used in op-program for fault proofs) is available in this repository:
+
+**Location**: `op-program/client/l2/engineapi/l2_engine_api.go`
+
+This implementation provides:
+- `ForkchoiceUpdatedV1/V2/V3` - Reference implementation
+- `NewPayloadV1/V2/V3/V4` - Reference implementation with OP Stack validation
+- `GetPayloadV1/V2/V3` - Reference implementation
+- Comments referencing original op-geth code
+
+Example methods:
+- Lines 270-278: ForkchoiceUpdatedV3 implementation
+- Lines 345-380: NewPayloadV3 implementation
+- Lines 382-430: NewPayloadV4 implementation
+
+---
+
+## Conclusion - Full Architecture
+
+The Engine API in the OP Stack follows a **client-server** architecture:
+
+### Consensus Layer (op-node) - CLIENT SIDE:
+1. **Facade Layer** (`EngineAPIClient`) - Version-aware RPC client
+2. **Controller Layer** (`EngineController`) - State management and orchestration
+3. **Event Layer** - Reactive triggers for engine operations
+4. **API Layer** - RPC-exposed methods for external callers
+
+### Execution Layer (op-geth) - SERVER SIDE:
+1. **RPC Server** - Receives authenticated Engine API calls
+2. **Consensus API** - Handles forkchoice updates and payload management
+3. **Miner/Worker** - Builds blocks and manages payloads
+4. **Blockchain** - Manages chain state and canonical chain
+5. **State Processor** - Executes transactions and validates state
+
+### Communication Flow:
+
+```
+┌─────────────────────────────────────┐
+│   Consensus Layer (op-node)        │
+│                                     │
+│   EngineController                  │
+│         ↓                           │
+│   EngineAPIClient (Facade)          │
+│         ↓                           │
+│   RPC Client                        │
+└──────────────┬──────────────────────┘
+               │
+               │ JWT-authenticated
+               │ JSON-RPC over HTTP
+               │ (Port 8551)
+               │
+┌──────────────▼──────────────────────┐
+│   Execution Layer (op-geth)         │
+│                                     │
+│   RPC Server                        │
+│         ↓                           │
+│   ConsensusAPI (Handler)            │
+│         ↓                           │
+│   ├─► ForkchoiceUpdate              │
+│   ├─► NewPayload                    │
+│   └─► GetPayload                    │
+│         ↓                           │
+│   BlockChain / Miner / StateDB      │
+└─────────────────────────────────────┘
+```
+
+The consensus layer drives block derivation and validation, while the execution layer provides the EVM execution environment and state management. Together they form the complete L2 rollup node.
+

@@ -115,22 +115,17 @@ impl<EngineClient_: EngineClient> BuildTask<EngineClient_> {
             &self.cfg,
             attributes_envelope.attributes.payload_attributes.timestamp,
         );
-        let update = match forkchoice_version {
-            EngineForkchoiceVersion::V3 => {
-                engine_client
-                    .fork_choice_updated_v3(new_forkchoice, Some(attributes_envelope.attributes))
-                    .await
-            }
-            EngineForkchoiceVersion::V2 => {
-                engine_client
-                    .fork_choice_updated_v2(new_forkchoice, Some(attributes_envelope.attributes))
-                    .await
-            }
-        }
-        .map_err(|e| {
-            error!(target: "engine_builder", "Forkchoice update failed: {}", e);
-            BuildTaskError::EngineBuildError(EngineBuildError::AttributesInsertionFailed(e))
-        })?;
+        let update = engine_client
+            .fork_choice_updated(
+                forkchoice_version,
+                new_forkchoice,
+                Some(attributes_envelope.attributes),
+            )
+            .await
+            .map_err(|e| {
+                error!(target: "engine_builder", "Forkchoice update failed: {}", e);
+                BuildTaskError::EngineBuildError(EngineBuildError::AttributesInsertionFailed(e))
+            })?;
 
         Self::validate_forkchoice_status(update.payload_status.status)?;
 

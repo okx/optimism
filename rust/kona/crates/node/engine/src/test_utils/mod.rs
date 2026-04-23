@@ -4,6 +4,7 @@ pub use attributes::TestAttributesBuilder;
 mod engine_client;
 pub use engine_client::{
     MockEngineClient, MockEngineClientBuilder, MockEngineStorage, test_engine_client_builder,
+    default_execution_payload_v1, default_payload_envelope,
 };
 
 mod engine_state;

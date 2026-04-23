@@ -34,14 +34,15 @@ fn configure_fcu(
         EngineForkchoiceVersion::V2 => {
             // Ecotone not yet active
             cfg.hardforks.ecotone_time = Some(attributes_timestamp + 1);
-            b.with_fork_choice_updated_v2_response(fcu_response)
         }
         EngineForkchoiceVersion::V3 => {
             // Ecotone is active
             cfg.hardforks.ecotone_time = Some(attributes_timestamp);
-            b.with_fork_choice_updated_v3_response(fcu_response)
         }
     }
+
+    // Both versions now share a single unified response
+    b.with_fork_choice_updated_response(fcu_response)
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]

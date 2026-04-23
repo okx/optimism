@@ -1,18 +1,21 @@
 //! An Engine API Client.
 
-use crate::{Metrics, RollupBoostServerArgs, RollupBoostServerError};
+use crate::{
+    EngineForkchoiceVersion, EngineGetPayloadVersion, Metrics, RollupBoostServerArgs,
+    RollupBoostServerError,
+};
 use alloy_eips::{BlockId, eip1898::BlockNumberOrTag};
 use alloy_network::{Ethereum, Network};
 use alloy_primitives::{Address, B256, BlockHash, Bytes, StorageKey};
 use alloy_provider::{EthGetBlock, Provider, RootProvider, RpcWithBlock, ext::EngineApi};
 use alloy_rpc_client::RpcClient;
 use alloy_rpc_types_engine::{
-    ClientVersionV1, ExecutionPayloadBodiesV1, ExecutionPayloadEnvelopeV2, ExecutionPayloadInputV2,
-    ExecutionPayloadV1, ExecutionPayloadV3, ForkchoiceState, ForkchoiceUpdated, JwtSecret,
-    PayloadId, PayloadStatus,
+    ClientVersionV1, ExecutionPayload, ExecutionPayloadBodiesV1, ExecutionPayloadEnvelopeV2,
+    ExecutionPayloadInputV2, ExecutionPayloadV3, ForkchoiceState,
+    ForkchoiceUpdated, JwtSecret, PayloadId, PayloadStatus,
 };
 use alloy_rpc_types_eth::{Block, EIP1186AccountProofResponse};
-use alloy_transport::{RpcError, TransportErrorKind, TransportResult};
+use alloy_transport::{RpcError, TransportError, TransportErrorKind, TransportResult};
 use alloy_transport_http::{
     AuthLayer, AuthService, Http, HyperClient,
     hyper_util::{
@@ -29,8 +32,8 @@ use op_alloy_network::Optimism;
 use op_alloy_provider::ext::engine::OpEngineApi;
 use op_alloy_rpc_types::Transaction;
 use op_alloy_rpc_types_engine::{
-    OpExecutionPayloadEnvelopeV3, OpExecutionPayloadEnvelopeV4, OpExecutionPayloadV4,
-    OpPayloadAttributes, ProtocolVersion,
+    OpExecutionPayload, OpExecutionPayloadEnvelope, OpExecutionPayloadEnvelopeV3,
+    OpExecutionPayloadEnvelopeV4, OpExecutionPayloadV4, OpPayloadAttributes, ProtocolVersion,
 };
 use parking_lot::Mutex;
 use rollup_boost::{
@@ -64,10 +67,16 @@ pub enum EngineClientError {
 pub type HyperAuthClient<B = Full<Bytes>> = HyperClient<B, AuthService<Client<HttpConnector, B>>>;
 
 /// Engine API client used to communicate with L1/L2 ELs and optional rollup-boost.
-/// `EngineClient` trait that is very coupled to its only implementation.
-/// The main reason this exists is for mocking/unit testing.
+///
+/// This trait is transport-agnostic: it does not require an HTTP implementation, so it
+/// can be satisfied by both the standard [`OpEngineClient`] (HTTP/JWT) and by in-process
+/// implementations that send messages directly to an execution-layer engine via channels.
+///
+/// All Engine API methods used by the engine task queue
+/// (`BuildTask`, `InsertTask`, `SealTask`, `SynchronizeTask`) are declared here explicitly
+/// rather than inherited from a transport-specific supertrait.
 #[async_trait]
-pub trait EngineClient: OpEngineApi<Optimism, Http<HyperAuthClient>> + Send + Sync {
+pub trait EngineClient: Send + Sync {
     /// Returns a reference to the inner [`RollupConfig`].
     fn cfg(&self) -> &RollupConfig;
 
@@ -85,8 +94,37 @@ pub trait EngineClient: OpEngineApi<Optimism, Http<HyperAuthClient>> + Send + Sy
         keys: Vec<StorageKey>,
     ) -> RpcWithBlock<(Address, Vec<StorageKey>), EIP1186AccountProofResponse>;
 
-    /// Sends the given payload to the execution layer client, as specified for the Paris fork.
-    async fn new_payload_v1(&self, payload: ExecutionPayloadV1) -> TransportResult<PayloadStatus>;
+    // ── Engine API: new_payload ──────────────────────────────────────────────
+
+    /// Sends a new payload to the execution engine.
+    ///
+    /// The Engine API version is determined by the `execution_payload` variant in the
+    /// envelope — no explicit version argument needed.
+    async fn new_payload(
+        &self,
+        envelope: OpExecutionPayloadEnvelope,
+    ) -> TransportResult<PayloadStatus>;
+
+    // ── Engine API: forkchoiceUpdated ────────────────────────────────────────
+
+    /// Sends a forkchoice update to the execution engine.
+    async fn fork_choice_updated(
+        &self,
+        version: EngineForkchoiceVersion,
+        fork_choice_state: ForkchoiceState,
+        payload_attributes: Option<OpPayloadAttributes>,
+    ) -> TransportResult<ForkchoiceUpdated>;
+
+    // ── Engine API: getPayload ───────────────────────────────────────────────
+
+    /// Returns the built payload for the given payload ID.
+    async fn get_payload(
+        &self,
+        version: EngineGetPayloadVersion,
+        payload_id: PayloadId,
+    ) -> TransportResult<OpExecutionPayloadEnvelope>;
+
+    // ── L2 chain helpers ─────────────────────────────────────────────────────
 
     /// Fetches the [`Block<Transaction>`] for the given [`BlockNumberOrTag`].
     async fn l2_block_by_label(
@@ -299,8 +337,104 @@ where
         self.engine.get_proof(address, keys)
     }
 
-    async fn new_payload_v1(&self, payload: ExecutionPayloadV1) -> TransportResult<PayloadStatus> {
-        self.engine.new_payload_v1(payload).await
+    async fn new_payload(
+        &self,
+        envelope: OpExecutionPayloadEnvelope,
+    ) -> TransportResult<PayloadStatus> {
+        let pbr = envelope.parent_beacon_block_root.unwrap_or_default();
+        match envelope.execution_payload {
+            OpExecutionPayload::V1(payload) => self.engine.new_payload_v1(payload).await,
+            OpExecutionPayload::V2(payload) => {
+                let input = ExecutionPayloadInputV2 {
+                    execution_payload: payload.payload_inner,
+                    withdrawals: Some(payload.withdrawals),
+                };
+                <L2Provider as OpEngineApi<Optimism, Http<HyperAuthClient>>>::new_payload_v2(
+                    &self.engine,
+                    input,
+                )
+                .await
+            }
+            OpExecutionPayload::V3(payload) => self
+                .rollup_boost
+                .new_payload_v3(payload, vec![], pbr)
+                .await
+                .map_err(|err| RollupBoostServerError::from(err).into()),
+            OpExecutionPayload::V4(payload) => self
+                .rollup_boost
+                .new_payload_v4(payload.clone(), vec![], pbr, vec![])
+                .await
+                .map_err(|err| RollupBoostServerError::from(err).into()),
+        }
+    }
+
+    async fn fork_choice_updated(
+        &self,
+        version: EngineForkchoiceVersion,
+        fork_choice_state: ForkchoiceState,
+        payload_attributes: Option<OpPayloadAttributes>,
+    ) -> TransportResult<ForkchoiceUpdated> {
+        match version {
+            EngineForkchoiceVersion::V3 => self
+                .rollup_boost
+                .fork_choice_updated_v3(fork_choice_state, payload_attributes)
+                .await
+                .map_err(|err| RollupBoostServerError::from(err).into()),
+            EngineForkchoiceVersion::V2 => {
+                <L2Provider as OpEngineApi<Optimism, Http<HyperAuthClient>>>::fork_choice_updated_v2(
+                    &self.engine,
+                    fork_choice_state,
+                    payload_attributes,
+                )
+                .await
+            }
+        }
+    }
+
+    async fn get_payload(
+        &self,
+        version: EngineGetPayloadVersion,
+        payload_id: PayloadId,
+    ) -> TransportResult<OpExecutionPayloadEnvelope> {
+        match version {
+            EngineGetPayloadVersion::V4 => {
+                let p = self
+                    .rollup_boost
+                    .get_payload_v4(payload_id)
+                    .await
+                    .map_err(|err| TransportError::from(RollupBoostServerError::from(err)))?;
+                Ok(OpExecutionPayloadEnvelope {
+                    parent_beacon_block_root: Some(p.parent_beacon_block_root),
+                    execution_payload: OpExecutionPayload::V4(p.execution_payload),
+                })
+            }
+            EngineGetPayloadVersion::V3 => {
+                let p = self
+                    .rollup_boost
+                    .get_payload_v3(payload_id)
+                    .await
+                    .map_err(|err| TransportError::from(RollupBoostServerError::from(err)))?;
+                Ok(OpExecutionPayloadEnvelope {
+                    parent_beacon_block_root: Some(p.parent_beacon_block_root),
+                    execution_payload: OpExecutionPayload::V3(p.execution_payload),
+                })
+            }
+            EngineGetPayloadVersion::V2 => {
+                let p = <L2Provider as OpEngineApi<Optimism, Http<HyperAuthClient>>>::get_payload_v2(
+                    &self.engine,
+                    payload_id,
+                )
+                .await?;
+                Ok(OpExecutionPayloadEnvelope {
+                    parent_beacon_block_root: None,
+                    execution_payload: match p.execution_payload.into_payload() {
+                        ExecutionPayload::V1(pl) => OpExecutionPayload::V1(pl),
+                        ExecutionPayload::V2(pl) => OpExecutionPayload::V2(pl),
+                        _ => unreachable!("V2 getPayload response must be V1 or V2"),
+                    },
+                })
+            }
+        }
     }
 
     async fn l2_block_by_label(
@@ -490,6 +624,7 @@ where
 }
 
 /// Wrapper to record the time taken for a call to the engine API and log the result as a metric.
+#[allow(unused_variables)] // metric_label and duration unused when metrics feature is disabled
 async fn record_call_time<T, Err>(
     f: impl Future<Output = Result<T, Err>>,
     metric_label: &'static str,

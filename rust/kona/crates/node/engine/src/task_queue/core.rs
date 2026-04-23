@@ -3,7 +3,7 @@
 use super::EngineTaskExt;
 use crate::{
     EngineClient, EngineState, EngineSyncStateUpdate, EngineTask, EngineTaskError,
-    EngineTaskErrorSeverity, Metrics, SyncStartError, SynchronizeTask, SynchronizeTaskError,
+    EngineTaskErrorSeverity, SyncStartError, SynchronizeTask, SynchronizeTaskError,
     find_starting_forkchoice, task_queue::EngineTaskErrors,
 };
 use alloy_rpc_types_eth::Transaction;

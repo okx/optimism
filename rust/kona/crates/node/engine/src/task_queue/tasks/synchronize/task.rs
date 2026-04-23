@@ -1,7 +1,8 @@
 //! A task for the `engine_forkchoiceUpdated` method, with no attributes.
 
 use crate::{
-    EngineClient, EngineState, EngineTaskExt, SynchronizeTaskError, state::EngineSyncStateUpdate,
+    EngineClient, EngineForkchoiceVersion, EngineState, EngineTaskExt, SynchronizeTaskError,
+    state::EngineSyncStateUpdate,
 };
 use alloy_rpc_types_engine::{INVALID_FORK_CHOICE_STATE_ERROR, PayloadStatusEnum};
 use async_trait::async_trait;
@@ -117,10 +118,11 @@ impl<EngineClient_: EngineClient> EngineTaskExt for SynchronizeTask<EngineClient
         let forkchoice = new_sync_state.create_forkchoice_state();
 
         // Handle the forkchoice update result.
-        // NOTE: it doesn't matter which version we use here, because we're not sending any
-        // payload attributes. The forkchoice updated call is version agnostic if no payload
-        // attributes are provided.
-        let response = self.client.fork_choice_updated_v3(forkchoice, None).await;
+        // No payload attributes — version is agnostic; V3 is used as the default.
+        let response = self
+            .client
+            .fork_choice_updated(EngineForkchoiceVersion::V3, forkchoice, None)
+            .await;
 
         let valid_response = response.map_err(|e| {
             // Fatal forkchoice update error.
@@ -143,12 +145,10 @@ impl<EngineClient_: EngineClient> EngineTaskExt for SynchronizeTask<EngineClient
         state.sync_state = new_sync_state;
 
         let fcu_duration = fcu_time_start.elapsed();
-        debug!(
+        info!(
             target: "engine",
             fcu_duration = ?fcu_duration,
-            forkchoice = ?forkchoice,
-            response = ?valid_response,
-            "Forkchoice updated"
+            "FCU ok"
         );
 
         Ok(())

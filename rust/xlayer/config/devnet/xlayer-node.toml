@@ -1,0 +1,19 @@
+# xlayer-node devnet configuration
+# All paths are relative to the project root.
+# Run the binary from project root: ./target/release/xlayer-node --xlayer-config config/devnet/xlayer-node.toml
+#
+# L1 prerequisites (xlayer-toolkit docker-compose):
+#   docker compose up -d l1-geth l1-beacon-chain l1-validator
+
+l1_rpc_url      = "http://localhost:8545"
+l2_rpc_url      = "http://localhost:8123"
+beacon_url      = "http://localhost:3500"
+
+rollup_config   = "config/devnet/rollup.json"
+l1_genesis_file = "config/devnet/l1-genesis.json"
+
+# Wait for 5 L1 confirmations before deriving L2 blocks (devnet default).
+l1_confs = 5
+
+# kona-node rollup RPC port (optimism_syncStatus, admin_startSequencer, etc.)
+rpc_port = 9545
