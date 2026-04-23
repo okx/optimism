@@ -57,12 +57,6 @@ contract TeeProofVerifier is Ownable {
     /// @notice PCR hash recorded for each enclave (on-chain record only, not validated)
     mapping(address => bytes32) public enclavePcrHash;
 
-    /// @notice Allowed proposer addresses.
-    mapping(address => bool) public allowedProposers;
-
-    /// @notice Allowed challenger addresses.
-    mapping(address => bool) public allowedChallengers;
-
     ////////////////////////////////////////////////////////////////
     //                         Events                             //
     ////////////////////////////////////////////////////////////////
@@ -70,10 +64,6 @@ contract TeeProofVerifier is Ownable {
     event EnclaveRegistered(address indexed enclaveAddress, bytes32 indexed pcrHash, uint64 timestampMs);
     event EnclaveRevoked(address indexed enclaveAddress);
     event AllEnclavesRevoked(uint256 previousGeneration, uint256 newGeneration);
-    event ProposerAdded(address indexed proposer);
-    event ProposerRemoved(address indexed proposer);
-    event ChallengerAdded(address indexed challenger);
-    event ChallengerRemoved(address indexed challenger);
 
     ////////////////////////////////////////////////////////////////
     //                         Errors                             //
@@ -85,8 +75,6 @@ contract TeeProofVerifier is Ownable {
     error EnclaveAlreadyRegistered();
     error EnclaveNotRegistered();
     error InvalidSignature();
-    error AddressAlreadyAllowed();
-    error AddressNotAllowed();
 
     ////////////////////////////////////////////////////////////////
     //                       Constructor                          //
@@ -209,34 +197,6 @@ contract TeeProofVerifier is Ownable {
         uint256 previousGeneration = enclaveGeneration;
         enclaveGeneration = previousGeneration + 1;
         emit AllEnclavesRevoked(previousGeneration, enclaveGeneration);
-    }
-
-    /// @notice Add an address to the proposer whitelist.
-    function addProposer(address _proposer) external onlyOwner {
-        if (allowedProposers[_proposer]) revert AddressAlreadyAllowed();
-        allowedProposers[_proposer] = true;
-        emit ProposerAdded(_proposer);
-    }
-
-    /// @notice Remove an address from the proposer whitelist.
-    function removeProposer(address _proposer) external onlyOwner {
-        if (!allowedProposers[_proposer]) revert AddressNotAllowed();
-        allowedProposers[_proposer] = false;
-        emit ProposerRemoved(_proposer);
-    }
-
-    /// @notice Add an address to the challenger whitelist.
-    function addChallenger(address _challenger) external onlyOwner {
-        if (allowedChallengers[_challenger]) revert AddressAlreadyAllowed();
-        allowedChallengers[_challenger] = true;
-        emit ChallengerAdded(_challenger);
-    }
-
-    /// @notice Remove an address from the challenger whitelist.
-    function removeChallenger(address _challenger) external onlyOwner {
-        if (!allowedChallengers[_challenger]) revert AddressNotAllowed();
-        allowedChallengers[_challenger] = false;
-        emit ChallengerRemoved(_challenger);
     }
 
     ////////////////////////////////////////////////////////////////

@@ -12,6 +12,8 @@ import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
 import { ITeeProofVerifier } from "interfaces/dispute/ITeeProofVerifier.sol";
 import { TeeDisputeGame, TEE_DISPUTE_GAME_TYPE } from "src/dispute/tee/TeeDisputeGame.sol";
 import { TeeProofVerifier } from "src/dispute/tee/TeeProofVerifier.sol";
+import { AccessManager } from "src/dispute/tee/AccessManager.sol";
+import { IAccessManager } from "interfaces/dispute/zk/IAccessManager.sol";
 import { BondDistributionMode, Claim, Duration, GameStatus, GameType, Hash, Proposal } from "src/dispute/lib/Types.sol";
 import { GameNotFinalized } from "src/dispute/lib/Errors.sol";
 import { ParentGameNotResolved, InvalidParentGame } from "src/dispute/tee/lib/Errors.sol";
@@ -40,6 +42,7 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
     DisputeGameFactory internal factory;
     AnchorStateRegistry internal anchorStateRegistry;
     TeeProofVerifier internal teeProofVerifier;
+    AccessManager internal accessManager;
     TeeDisputeGame internal implementation;
 
     address internal proposer;
@@ -60,12 +63,11 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
         // --- Deploy real AnchorStateRegistry via Proxy ---
         anchorStateRegistry = _deployAnchorStateRegistry(factory);
 
-        // --- Deploy real TeeProofVerifier (with MockRiscZeroVerifier) ---
+        // --- Deploy AccessManager + real TeeProofVerifier (with MockRiscZeroVerifier) ---
+        accessManager = new AccessManager(7 days, IDisputeGameFactory(address(factory)));
+        accessManager.setProposer(proposer, true);
+        accessManager.setChallenger(challenger, true);
         teeProofVerifier = _deployTeeProofVerifier();
-
-        // --- Register proposer/challenger in the whitelist ---
-        teeProofVerifier.addProposer(proposer);
-        teeProofVerifier.addChallenger(challenger);
 
         // --- Deploy TeeDisputeGame implementation ---
         implementation = new TeeDisputeGame(
@@ -73,6 +75,7 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
             Duration.wrap(MAX_PROVE_DURATION),
             IDisputeGameFactory(address(factory)),
             ITeeProofVerifier(address(teeProofVerifier)),
+            IAccessManager(address(accessManager)),
             CHALLENGER_BOND,
             IAnchorStateRegistry(address(anchorStateRegistry))
         );

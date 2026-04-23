@@ -6,10 +6,12 @@ import { Proxy } from "src/universal/Proxy.sol";
 import { AnchorStateRegistry } from "src/dispute/AnchorStateRegistry.sol";
 import { TeeDisputeGame, TEE_DISPUTE_GAME_TYPE } from "src/dispute/tee/TeeDisputeGame.sol";
 import { TeeProofVerifier } from "src/dispute/tee/TeeProofVerifier.sol";
+import { AccessManager } from "src/dispute/tee/AccessManager.sol";
 import { IDisputeGameFactory } from "interfaces/dispute/IDisputeGameFactory.sol";
 import { IAnchorStateRegistry } from "interfaces/dispute/IAnchorStateRegistry.sol";
 import { IRiscZeroVerifier } from "interfaces/dispute/IRiscZeroVerifier.sol";
 import { ITeeProofVerifier } from "interfaces/dispute/ITeeProofVerifier.sol";
+import { IAccessManager } from "interfaces/dispute/zk/IAccessManager.sol";
 import { Duration } from "src/dispute/lib/Types.sol";
 
 /// @title DeployTeePhase1
@@ -45,6 +47,8 @@ contract DeployTeePhase1 is Script {
         // AnchorStateRegistry
         address proxyAdmin;
         uint256 disputeGameFinalityDelay;
+        // AccessManager
+        uint256 fallbackTimeout;
         // TeeProofVerifier
         IRiscZeroVerifier riscZeroVerifier;
         bytes32 imageId;
@@ -79,20 +83,22 @@ contract DeployTeePhase1 is Script {
         //    Initialisation is done in Phase 2 via ProxyAdmin.upgradeAndCall().
         asrProxy = new Proxy(cfg.proxyAdmin);
 
-        // 3. Deploy TeeProofVerifier
-        teeProofVerifier = new TeeProofVerifier(cfg.riscZeroVerifier, cfg.imageId, cfg.nitroRootKey);
-
+        // 3. Deploy AccessManager and TeeProofVerifier
+        AccessManager accessManager = new AccessManager(cfg.fallbackTimeout, cfg.disputeGameFactory);
         for (uint256 i = 0; i < cfg.proposers.length; i++) {
-            teeProofVerifier.addProposer(cfg.proposers[i]);
+            accessManager.setProposer(cfg.proposers[i], true);
         }
         for (uint256 i = 0; i < cfg.challengers.length; i++) {
-            teeProofVerifier.addChallenger(cfg.challengers[i]);
+            accessManager.setChallenger(cfg.challengers[i], true);
         }
+
+        teeProofVerifier = new TeeProofVerifier(cfg.riscZeroVerifier, cfg.imageId, cfg.nitroRootKey);
 
         // Transfer ownership before deploying TeeDisputeGame so the owner is set correctly
         // from the moment TeeProofVerifier is live.
         if (cfg.proofVerifierOwner != cfg.deployer) {
             teeProofVerifier.transferOwnership(cfg.proofVerifierOwner);
+            accessManager.transferOwnership(cfg.proofVerifierOwner);
         }
 
         // 4. Deploy TeeDisputeGame implementation.
@@ -103,6 +109,7 @@ contract DeployTeePhase1 is Script {
             Duration.wrap(cfg.maxProveDuration),
             cfg.disputeGameFactory,
             ITeeProofVerifier(address(teeProofVerifier)),
+            IAccessManager(address(accessManager)),
             cfg.challengerBond,
             IAnchorStateRegistry(address(asrProxy))
         );
@@ -122,6 +129,7 @@ contract DeployTeePhase1 is Script {
         cfg.riscZeroVerifier = IRiscZeroVerifier(vm.envAddress("RISC_ZERO_VERIFIER"));
         cfg.imageId = vm.envBytes32("RISC_ZERO_IMAGE_ID");
         cfg.nitroRootKey = vm.envBytes("NITRO_ROOT_KEY");
+        cfg.fallbackTimeout = vm.envOr("FALLBACK_TIMEOUT", uint256(7 days));
         cfg.proofVerifierOwner = vm.envOr("PROOF_VERIFIER_OWNER", cfg.deployer);
         cfg.proposers = vm.envAddress("PROPOSERS", ",");
         cfg.challengers = vm.envAddress("CHALLENGERS", ",");

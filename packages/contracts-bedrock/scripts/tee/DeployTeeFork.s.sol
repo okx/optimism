@@ -13,6 +13,8 @@ import { ITeeProofVerifier } from "interfaces/dispute/ITeeProofVerifier.sol";
 import { IRiscZeroVerifier } from "interfaces/dispute/IRiscZeroVerifier.sol";
 import { TeeDisputeGame, TEE_DISPUTE_GAME_TYPE } from "src/dispute/tee/TeeDisputeGame.sol";
 import { TeeProofVerifier } from "src/dispute/tee/TeeProofVerifier.sol";
+import { AccessManager } from "src/dispute/tee/AccessManager.sol";
+import { IAccessManager } from "interfaces/dispute/zk/IAccessManager.sol";
 import { MockSystemConfig } from "test/dispute/tee/mocks/MockSystemConfig.sol";
 import { Duration, GameType, Hash, Proposal } from "src/dispute/lib/Types.sol";
 
@@ -50,12 +52,13 @@ contract DeployTeeFork is Script {
 
         vm.startBroadcast(deployerKey);
 
-        TeeProofVerifier teeProofVerifier = _deployVerifier();
-        for (uint256 i = 0; i < proposers_.length; i++) teeProofVerifier.addProposer(proposers_[i]);
-        for (uint256 i = 0; i < challengers_.length; i++) teeProofVerifier.addChallenger(challengers_[i]);
         DisputeGameFactory factory = _deployFactory(deployer);
+        AccessManager accessManager = new AccessManager(7 days, IDisputeGameFactory(address(factory)));
+        for (uint256 i = 0; i < proposers_.length; i++) accessManager.setProposer(proposers_[i], true);
+        for (uint256 i = 0; i < challengers_.length; i++) accessManager.setChallenger(challengers_[i], true);
+        TeeProofVerifier teeProofVerifier = _deployVerifier();
         AnchorStateRegistry asr = _deployASR(deployer, factory);
-        TeeDisputeGame impl = _deployGame(factory, teeProofVerifier, asr);
+        TeeDisputeGame impl = _deployGame(factory, teeProofVerifier, accessManager, asr);
 
         vm.stopBroadcast();
 
@@ -107,6 +110,7 @@ contract DeployTeeFork is Script {
     function _deployGame(
         DisputeGameFactory factory,
         TeeProofVerifier verifier,
+        AccessManager _accessManager,
         AnchorStateRegistry asr
     )
         internal
@@ -117,6 +121,7 @@ contract DeployTeeFork is Script {
             Duration.wrap(MAX_PROVE_DURATION),
             IDisputeGameFactory(address(factory)),
             ITeeProofVerifier(address(verifier)),
+            IAccessManager(address(_accessManager)),
             CHALLENGER_BOND,
             IAnchorStateRegistry(address(asr))
         );
