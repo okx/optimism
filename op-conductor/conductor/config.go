@@ -109,6 +109,12 @@ type Config struct {
 
 	// X Layer: HTTPBodyLimitMB is the HTTP request body size limit in MB for RPC server.
 	HTTPBodyLimitMB int
+
+	// X Layer: RoundRobinLeaderTransfer enables deterministic round-robin leader transfer.
+	RoundRobinLeaderTransfer bool
+
+	// X Layer: RaftNoShutdownOnRemove prevents Raft from shutting down when removed from cluster.
+	RaftNoShutdownOnRemove bool
 }
 
 // Check validates the CLIConfig.
@@ -225,6 +231,10 @@ func NewConfig(ctx *cli.Context, log log.Logger) (*Config, error) {
 
 		// X Layer: HTTPBodyLimitMB is the HTTP request body size limit in MB for RPC server.
 		HTTPBodyLimitMB: ctx.Int(flags.HTTPBodyLimitMB.Name),
+		// X Layer: RoundRobinLeaderTransfer enables deterministic round-robin leader transfer.
+		RoundRobinLeaderTransfer: ctx.Bool(flags.RoundRobinLeaderTransfer.Name),
+		// X Layer: RaftNoShutdownOnRemove prevents Raft from shutting down when removed.
+		RaftNoShutdownOnRemove: ctx.Bool(flags.RaftNoShutdownOnRemove.Name),
 	}, nil
 }
 
