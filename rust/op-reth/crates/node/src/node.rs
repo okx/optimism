@@ -1023,6 +1023,11 @@ where
         let validator =
             TransactionValidationTaskExecutor::eth_builder(ctx.provider().clone(), evm_config)
                 .no_eip4844()
+                // XLayerAA (EIP-8130, 0x7B) is an L2-specific tx type; register
+                // it on the custom-types bitmap so the generic
+                // EthTransactionValidator lets it through to the AA structural
+                // check downstream.
+                .with_custom_tx_type(op_alloy_consensus::eip8130::AA_TX_TYPE_ID)
                 .with_max_tx_input_bytes(ctx.config().txpool.max_tx_input_bytes)
                 .kzg_settings(ctx.kzg_settings()?)
                 .set_tx_fee_cap(ctx.config().rpc.rpc_tx_fee_cap)

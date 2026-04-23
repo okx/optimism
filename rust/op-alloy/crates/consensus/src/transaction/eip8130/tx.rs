@@ -480,30 +480,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "manual dev-chain smoke helper; prints a raw 2718 tx for chain_id=2195"]
-    fn dump_dev_chain_raw_tx() {
-        use alloy_primitives::hex;
-        let tx = TxEip8130 {
-            chain_id: 2195,
-            from: None,
-            nonce_key: U256::ZERO,
-            nonce_sequence: 0,
-            expiry: 0,
-            max_priority_fee_per_gas: 1,
-            max_fee_per_gas: 1_000_000_000,
-            gas_limit: 100_000,
-            account_changes: vec![],
-            calls: vec![vec![Call { to: Address::repeat_byte(0xBB), data: Bytes::from_static(&[]) }]],
-            payer: None,
-            sender_auth: Bytes::from_static(&[0xFFu8; 65]),
-            payer_auth: Bytes::new(),
-        };
-        let mut buf = Vec::new();
-        tx.encode_2718(&mut buf);
-        println!("DUMP_RAW_2718=0x{}", hex::encode(&buf));
-    }
-
-    #[test]
     fn tx_trait_getters() {
         let tx = sample_tx();
         assert_eq!(Transaction::chain_id(&tx), Some(196));
