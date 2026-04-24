@@ -6,7 +6,6 @@ RUN apt-get install -y wget \
 WORKDIR /app
 # Cache go dependencies first
 COPY go.mod go.sum ./
-COPY op-geth/ ./op-geth/
 RUN --mount=type=cache,target=/root/.cache \
     --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
