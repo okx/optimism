@@ -62,6 +62,7 @@ pub const OP_MAINNET_CONFIG: RollupConfig = RollupConfig {
         jovian_time: Some(OP_MAINNET_JOVIAN_TIMESTAMP),
         karst_time: None,
         interop_time: None,
+        xlayer_aa_time: None,
     },
     batch_inbox_address: address!("ff00000000000000000000000000000000000010"),
     deposit_contract_address: address!("beb5fc579115071764c7423a4f12edde41f106ed"),

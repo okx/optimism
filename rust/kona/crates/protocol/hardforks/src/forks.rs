@@ -1,6 +1,6 @@
 //! Contains all hardforks represented in the [`crate::Hardfork`] type.
 
-use crate::{Ecotone, Fjord, Interop, Isthmus, Jovian, Karst};
+use crate::{Ecotone, Fjord, Interop, Isthmus, Jovian, Karst, XLayerAA};
 
 /// Optimism Hardforks
 ///
@@ -59,6 +59,9 @@ impl Hardforks {
 
     /// The Interop hardfork upgrade transactions.
     pub const INTEROP: Interop = Interop;
+
+    /// The XLayerAA (EIP-8130) hardfork upgrade transactions.
+    pub const XLAYER_AA: XLayerAA = XLayerAA;
 }
 
 #[cfg(test)]

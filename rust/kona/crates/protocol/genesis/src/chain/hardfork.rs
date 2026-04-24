@@ -77,6 +77,11 @@ pub struct HardForkConfig {
     /// otherwise.
     #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub interop_time: Option<u64>,
+    /// `xlayer_aa_time` sets the activation time for the XLayerAA (EIP-8130) network upgrade.
+    /// Active if `xlayer_aa_time` != None && L2 block timestamp >= `Some(xlayer_aa_time)`,
+    /// inactive otherwise.
+    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+    pub xlayer_aa_time: Option<u64>,
 }
 
 impl Display for HardForkConfig {
@@ -110,6 +115,7 @@ impl HardForkConfig {
             ("Jovian", self.jovian_time),
             ("Karst", self.karst_time),
             ("Interop", self.interop_time),
+            ("XLayerAA", self.xlayer_aa_time),
         ]
         .into_iter()
     }
@@ -146,6 +152,7 @@ mod tests {
             jovian_time: None,
             karst_time: None,
             interop_time: None,
+            xlayer_aa_time: None,
         };
 
         let deserialized: HardForkConfig = serde_json::from_str(raw).unwrap();
@@ -194,6 +201,7 @@ mod tests {
             jovian_time: None,
             karst_time: None,
             interop_time: None,
+            xlayer_aa_time: None,
         };
 
         let deserialized: HardForkConfig = toml::from_str(raw).unwrap();
@@ -229,6 +237,7 @@ mod tests {
             jovian_time: Some(10),
             karst_time: Some(11),
             interop_time: Some(12),
+            xlayer_aa_time: Some(13),
         };
 
         let mut iter = hardforks.iter();
@@ -244,6 +253,7 @@ mod tests {
         assert_eq!(iter.next(), Some(("Jovian", Some(10))));
         assert_eq!(iter.next(), Some(("Karst", Some(11))));
         assert_eq!(iter.next(), Some(("Interop", Some(12))));
+        assert_eq!(iter.next(), Some(("XLayerAA", Some(13))));
         assert_eq!(iter.next(), None);
     }
 }

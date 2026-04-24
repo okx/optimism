@@ -1,13 +1,15 @@
 //! This module contains the top level span batch transaction data type.
 
-use alloy_consensus::{Transaction, TxEnvelope, TxType};
+use alloc::vec::Vec;
+use alloy_consensus::{Transaction, TxEnvelope};
 use alloy_primitives::{Address, Signature, U256};
 use alloy_rlp::{Bytes, Decodable, Encodable};
+use op_alloy_consensus::OpTxType;
 
 use crate::{
     SpanBatchEip1559TransactionData, SpanBatchEip2930TransactionData,
-    SpanBatchEip7702TransactionData, SpanBatchError, SpanBatchLegacyTransactionData,
-    SpanDecodingError,
+    SpanBatchEip7702TransactionData, SpanBatchEip8130TransactionData, SpanBatchError,
+    SpanBatchLegacyTransactionData, SpanDecodingError,
 };
 
 /// The typed transaction data for a transaction within a span batch.
@@ -21,6 +23,8 @@ pub enum SpanBatchTransactionData {
     Eip1559(SpanBatchEip1559TransactionData),
     /// EIP-7702 transaction data.
     Eip7702(SpanBatchEip7702TransactionData),
+    /// EIP-8130 (XLayerAA) transaction data.
+    Eip8130(SpanBatchEip8130TransactionData),
 }
 
 impl Encodable for SpanBatchTransactionData {
@@ -30,15 +34,19 @@ impl Encodable for SpanBatchTransactionData {
                 data.encode(out);
             }
             Self::Eip2930(data) => {
-                out.put_u8(TxType::Eip2930 as u8);
+                out.put_u8(OpTxType::Eip2930 as u8);
                 data.encode(out);
             }
             Self::Eip1559(data) => {
-                out.put_u8(TxType::Eip1559 as u8);
+                out.put_u8(OpTxType::Eip1559 as u8);
                 data.encode(out);
             }
             Self::Eip7702(data) => {
-                out.put_u8(TxType::Eip7702 as u8);
+                out.put_u8(OpTxType::Eip7702 as u8);
+                data.encode(out);
+            }
+            Self::Eip8130(data) => {
+                out.put_u8(OpTxType::Eip8130 as u8);
                 data.encode(out);
             }
         }
@@ -106,12 +114,13 @@ impl TryFrom<&TxEnvelope> for SpanBatchTransactionData {
 
 impl SpanBatchTransactionData {
     /// Returns the transaction type of the [`SpanBatchTransactionData`].
-    pub const fn tx_type(&self) -> TxType {
+    pub const fn tx_type(&self) -> OpTxType {
         match self {
-            Self::Legacy(_) => TxType::Legacy,
-            Self::Eip2930(_) => TxType::Eip2930,
-            Self::Eip1559(_) => TxType::Eip1559,
-            Self::Eip7702(_) => TxType::Eip7702,
+            Self::Legacy(_) => OpTxType::Legacy,
+            Self::Eip2930(_) => OpTxType::Eip2930,
+            Self::Eip1559(_) => OpTxType::Eip1559,
+            Self::Eip7702(_) => OpTxType::Eip7702,
+            Self::Eip8130(_) => OpTxType::Eip8130,
         }
     }
 
@@ -121,21 +130,30 @@ impl SpanBatchTransactionData {
             return Err(alloy_rlp::Error::Custom("Invalid transaction data"));
         }
 
-        match b[0].try_into().map_err(|_| alloy_rlp::Error::Custom("Invalid tx type"))? {
-            TxType::Eip2930 => {
+        let tx_type: OpTxType =
+            b[0].try_into().map_err(|_| alloy_rlp::Error::Custom("Invalid tx type"))?;
+        match tx_type {
+            OpTxType::Eip2930 => {
                 Ok(Self::Eip2930(SpanBatchEip2930TransactionData::decode(&mut &b[1..])?))
             }
-            TxType::Eip1559 => {
+            OpTxType::Eip1559 => {
                 Ok(Self::Eip1559(SpanBatchEip1559TransactionData::decode(&mut &b[1..])?))
             }
-            TxType::Eip7702 => {
+            OpTxType::Eip7702 => {
                 Ok(Self::Eip7702(SpanBatchEip7702TransactionData::decode(&mut &b[1..])?))
+            }
+            OpTxType::Eip8130 => {
+                Ok(Self::Eip8130(SpanBatchEip8130TransactionData::decode(&mut &b[1..])?))
             }
             _ => Err(alloy_rlp::Error::Custom("Invalid transaction type")),
         }
     }
 
     /// Converts the [`SpanBatchTransactionData`] into a signed transaction as [`TxEnvelope`].
+    ///
+    /// Returns [`SpanBatchError`] for EIP-8130 AA transactions — use
+    /// [`encode_aa_to_buf`][Self::encode_aa_to_buf] for those, or call
+    /// [`encode_to_buf`][Self::encode_to_buf] which handles both cases.
     pub fn to_signed_tx(
         &self,
         nonce: u64,
@@ -168,6 +186,52 @@ impl SpanBatchTransactionData {
                 };
                 TxEnvelope::Eip7702(data.to_signed_tx(nonce, gas, addr, chain_id, signature)?)
             }
+            Self::Eip8130(_) => {
+                return Err(SpanBatchError::Decoding(SpanDecodingError::InvalidTransactionType));
+            }
         })
+    }
+
+    /// Encodes an EIP-8130 AA transaction as raw EIP-2718 bytes into `buf`.
+    ///
+    /// Panics in debug mode if called on a non-AA variant; use
+    /// [`encode_to_buf`][Self::encode_to_buf] for a unified path.
+    pub fn encode_aa_to_buf(
+        &self,
+        nonce: u64,
+        gas: u64,
+        chain_id: u64,
+        buf: &mut Vec<u8>,
+    ) -> Result<(), SpanBatchError> {
+        use alloy_eips::eip2718::Encodable2718;
+        let Self::Eip8130(data) = self else {
+            return Err(SpanBatchError::Decoding(SpanDecodingError::InvalidTransactionType));
+        };
+        let tx = data.to_tx(nonce, gas, chain_id)?;
+        tx.encode_2718(buf);
+        Ok(())
+    }
+
+    /// Encodes any transaction variant as raw EIP-2718 bytes into `buf`.
+    ///
+    /// For AA txs the signature and `to` parameters are ignored (the auth blob is
+    /// already part of [`SpanBatchEip8130TransactionData`]).
+    pub fn encode_to_buf(
+        &self,
+        nonce: u64,
+        gas: u64,
+        to: Option<Address>,
+        chain_id: u64,
+        signature: Signature,
+        is_protected: bool,
+        buf: &mut Vec<u8>,
+    ) -> Result<(), SpanBatchError> {
+        use alloy_eips::eip2718::Encodable2718;
+        if matches!(self, Self::Eip8130(_)) {
+            return self.encode_aa_to_buf(nonce, gas, chain_id, buf);
+        }
+        let envelope = self.to_signed_tx(nonce, gas, to, chain_id, signature, is_protected)?;
+        envelope.encode_2718(buf);
+        Ok(())
     }
 }

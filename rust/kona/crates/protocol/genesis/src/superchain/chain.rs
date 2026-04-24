@@ -100,6 +100,7 @@ mod tests {
                     jovian_time: None,
                     karst_time: None,
                     interop_time: None,
+                    xlayer_aa_time: None,
                 },
                 protocol_versions_addr: None,
                 superchain_config_addr: None,

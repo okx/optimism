@@ -334,6 +334,17 @@ impl RollupConfig {
             !self.is_interop_active(timestamp.saturating_sub(self.block_time))
     }
 
+    /// Returns true if XLayerAA (EIP-8130) is active at the given timestamp.
+    pub fn is_xlayer_aa_active(&self, timestamp: u64) -> bool {
+        self.hardforks.xlayer_aa_time.is_some_and(|t| timestamp >= t)
+    }
+
+    /// Returns true if the timestamp marks the first XLayerAA block.
+    pub fn is_first_xlayer_aa_block(&self, timestamp: u64) -> bool {
+        self.is_xlayer_aa_active(timestamp) &&
+            !self.is_xlayer_aa_active(timestamp.saturating_sub(self.block_time))
+    }
+
     /// Returns true if a DA Challenge proxy Address is provided in the rollup config and the
     /// address is not zero.
     pub fn is_alt_da_enabled(&self) -> bool {
@@ -719,6 +730,7 @@ mod tests {
                 jovian_time: Some(100),
                 karst_time: Some(110),
                 interop_time: Some(120),
+                xlayer_aa_time: None,
             },
             block_time: 2,
             ..Default::default()

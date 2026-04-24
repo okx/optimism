@@ -181,6 +181,12 @@ impl SingleBatch {
             {
                 return BatchValidity::Drop(BatchDropReason::Eip7702PreIsthmus);
             }
+            // If XLayerAA is not active yet and the transaction is an AA tx, drop the batch.
+            if !cfg.is_xlayer_aa_active(self.timestamp) &&
+                tx.as_ref().first() == Some(&(OpTxType::Eip8130 as u8))
+            {
+                return BatchValidity::Drop(BatchDropReason::Eip8130PreXLayerAA);
+            }
         }
 
         BatchValidity::Accept
@@ -594,6 +600,64 @@ mod tests {
         assert_eq!(
             single_batch.check_batch(&cfg, &l1_blocks, l2_safe_head, &inclusion_block),
             BatchValidity::Drop(BatchDropReason::DepositTransaction)
+        );
+    }
+
+    #[test]
+    fn test_check_batch_drop_8130_pre_xlayer_aa() {
+        let mut transactions = example_transactions();
+        transactions.push(Bytes::copy_from_slice(&[OpTxType::Eip8130 as u8]));
+
+        let single_batch = SingleBatch {
+            parent_hash: BlockHash::ZERO,
+            epoch_num: 1,
+            epoch_hash: BlockHash::ZERO,
+            timestamp: 1,
+            transactions,
+        };
+
+        // XLayerAA not active (xlayer_aa_time not set)
+        let cfg = RollupConfig { max_sequencer_drift: 1, ..Default::default() };
+        let l1_blocks = vec![BlockInfo::default(), BlockInfo::default()];
+        let l2_safe_head = L2BlockInfo {
+            block_info: BlockInfo { timestamp: 1, ..Default::default() },
+            ..Default::default()
+        };
+        let inclusion_block = BlockInfo::default();
+        assert_eq!(
+            single_batch.check_batch(&cfg, &l1_blocks, l2_safe_head, &inclusion_block),
+            BatchValidity::Drop(BatchDropReason::Eip8130PreXLayerAA)
+        );
+    }
+
+    #[test]
+    fn test_check_batch_accept_8130_post_xlayer_aa() {
+        let mut transactions = example_transactions();
+        transactions.push(Bytes::copy_from_slice(&[OpTxType::Eip8130 as u8]));
+
+        let single_batch = SingleBatch {
+            parent_hash: BlockHash::ZERO,
+            epoch_num: 1,
+            epoch_hash: BlockHash::ZERO,
+            timestamp: 1,
+            transactions,
+        };
+
+        // XLayerAA active from timestamp 0
+        let cfg = RollupConfig {
+            max_sequencer_drift: 1,
+            hardforks: HardForkConfig { xlayer_aa_time: Some(0), ..Default::default() },
+            ..Default::default()
+        };
+        let l1_blocks = vec![BlockInfo::default(), BlockInfo::default()];
+        let l2_safe_head = L2BlockInfo {
+            block_info: BlockInfo { timestamp: 1, ..Default::default() },
+            ..Default::default()
+        };
+        let inclusion_block = BlockInfo::default();
+        assert_eq!(
+            single_batch.check_batch(&cfg, &l1_blocks, l2_safe_head, &inclusion_block),
+            BatchValidity::Accept
         );
     }
 

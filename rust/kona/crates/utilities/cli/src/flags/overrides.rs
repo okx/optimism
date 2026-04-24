@@ -72,6 +72,7 @@ impl OverrideArgs {
             jovian_time: self.jovian_override.map(Some).unwrap_or(config.hardforks.jovian_time),
             karst_time: self.karst_override.map(Some).unwrap_or(config.hardforks.karst_time),
             interop_time: self.interop_override.map(Some).unwrap_or(config.hardforks.interop_time),
+            xlayer_aa_time: config.hardforks.xlayer_aa_time,
         };
         RollupConfig { hardforks, ..config }
     }
@@ -134,6 +135,7 @@ mod tests {
                 jovian_time: Some(1745000001),
                 karst_time: Some(1750000000),
                 interop_time: Some(1755000000),
+                xlayer_aa_time: None,
             }
         );
     }
