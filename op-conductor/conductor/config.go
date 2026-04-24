@@ -66,11 +66,22 @@ type Config struct {
 	// SupervisorRPC is the HTTP provider URL for supervisor.
 	SupervisorRPC string
 
-	// RollupBoostEnabled is true if the rollup boost is enabled.
+	// RollupBoostEnabled enables the rollup-boost healthcheck (HTTP status codes).
+	// When enabled, healthchecks are performed against ExecutionRPC + "/healthz".
+	// The client internally appends the /healthz path to ExecutionRPC.
 	RollupBoostEnabled bool
 
-	// RollupBoostHealthcheckTimeout is the timeout for rollup boost healthcheck.
+	// RollupBoostHealthcheckTimeout is the timeout for rollup-boost healthchecks (applies to both standard and next).
 	RollupBoostHealthcheckTimeout time.Duration
+
+	// RollupBoostNextEnabled enables the next rollup-boost healthcheck (JSON-based).
+	// Requires RollupBoostNextHealthcheckURL to be set.
+	RollupBoostNextEnabled bool
+
+	// RollupBoostNextHealthcheckURL is the full URL (including path) for the rollup-boost health endpoint.
+	// Must include the complete path (e.g., "http://localhost:8080/healthz").
+	// Required when RollupBoostNextEnabled is true.
+	RollupBoostNextHealthcheckURL string
 
 	// Paused is true if the conductor should start in a paused state.
 	Paused bool
@@ -120,6 +131,12 @@ func (c *Config) Check() error {
 	if c.ExecutionRPC == "" {
 		return fmt.Errorf("missing geth RPC")
 	}
+	if c.RollupBoostEnabled && c.RollupBoostNextEnabled {
+		return fmt.Errorf("only one of rollup-boost or rollup-boost next healthchecks can be enabled")
+	}
+	if c.RollupBoostNextEnabled && c.RollupBoostNextHealthcheckURL == "" {
+		return fmt.Errorf("missing rollup-boost next healthcheck URL")
+	}
 	if err := c.HealthCheck.Check(); err != nil {
 		return errors.Wrap(err, "invalid health check config")
 	}
@@ -136,9 +153,9 @@ func (c *Config) Check() error {
 		return errors.Wrap(err, "invalid rpc config")
 	}
 
-	// X Layer: Validate HTTP body limit: must be >= 5MB
-	if c.HTTPBodyLimitMB < 5 {
-		return fmt.Errorf("HTTP body limit must be at least 5MB, got %dMB", c.HTTPBodyLimitMB)
+	// X Layer: Validate HTTP body limit: must be >= 5MB and <= 256MB
+	if c.HTTPBodyLimitMB < 5 || c.HTTPBodyLimitMB > 256 {
+		return fmt.Errorf("HTTP body limit must be between 5MB and 256MB, got %dMB", c.HTTPBodyLimitMB)
 	}
 	return nil
 }
@@ -162,7 +179,6 @@ func NewConfig(ctx *cli.Context, log log.Logger) (*Config, error) {
 	if executionP2pCheckApi == "" {
 		executionP2pCheckApi = "net"
 	}
-
 	return &Config{
 		ConsensusAddr: ctx.String(flags.ConsensusAddr.Name),
 		ConsensusPort: ctx.Int(flags.ConsensusPort.Name),
@@ -182,6 +198,8 @@ func NewConfig(ctx *cli.Context, log log.Logger) (*Config, error) {
 		SupervisorRPC:                 ctx.String(flags.SupervisorRPC.Name),
 		RollupBoostEnabled:            ctx.Bool(flags.RollupBoostEnabled.Name),
 		RollupBoostHealthcheckTimeout: ctx.Duration(flags.RollupBoostHealthcheckTimeout.Name),
+		RollupBoostNextEnabled:        ctx.Bool(flags.RollupBoostNextEnabled.Name),
+		RollupBoostNextHealthcheckURL: ctx.String(flags.RollupBoostNextHealthcheckURL.Name),
 		Paused:                        ctx.Bool(flags.Paused.Name),
 		HealthCheck: HealthCheckConfig{
 			Interval:                 ctx.Uint64(flags.HealthCheckInterval.Name),

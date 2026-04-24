@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/log"
 
+	"github.com/ethereum-optimism/optimism/op-node/node/runcfg"
 	"github.com/ethereum-optimism/optimism/op-node/node/safedb"
 	"github.com/ethereum-optimism/optimism/op-node/rollup"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/engine"
@@ -19,6 +20,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/rpc"
 	opsigner "github.com/ethereum-optimism/optimism/op-service/signer"
+	"github.com/ethereum-optimism/optimism/op-service/sources"
 )
 
 type l2EthClient interface {
@@ -208,4 +210,20 @@ func (a *opstackAPI) CommitBlockV1(ctx context.Context, envelope *opsigner.Signe
 
 func (a *opstackAPI) PublishBlockV1(ctx context.Context, signed *opsigner.SignedExecutionPayloadEnvelope) error {
 	return a.publisher.PublishBlock(ctx, signed)
+}
+
+// XLayer: xlayer_runtimeConfig RPC for follower nodes to fetch P2PSequencerAddress
+
+type xlayerAPI struct {
+	runtimeConfig runcfg.ReadonlyRuntimeConfig
+}
+
+func NewXLayerAPI(runCfg runcfg.ReadonlyRuntimeConfig) *xlayerAPI {
+	return &xlayerAPI{runtimeConfig: runCfg}
+}
+
+func (a *xlayerAPI) RuntimeConfig(_ context.Context) (*sources.XLayerRuntimeConfigResponse, error) {
+	return &sources.XLayerRuntimeConfigResponse{
+		P2PSequencerAddress: a.runtimeConfig.P2PSequencerAddress(),
+	}, nil
 }

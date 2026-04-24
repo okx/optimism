@@ -7,8 +7,10 @@ import {IAnchorStateRegistry} from "interfaces/dispute/IAnchorStateRegistry.sol"
 import {Duration} from "src/dispute/lib/Types.sol";
 import {IRiscZeroVerifier} from "interfaces/dispute/IRiscZeroVerifier.sol";
 import {ITeeProofVerifier} from "interfaces/dispute/ITeeProofVerifier.sol";
+import {IAccessManager} from "interfaces/dispute/zk/IAccessManager.sol";
 import {TeeDisputeGame} from "src/dispute/tee/TeeDisputeGame.sol";
 import {TeeProofVerifier} from "src/dispute/tee/TeeProofVerifier.sol";
+import {AccessManager} from "src/dispute/tee/AccessManager.sol";
 
 contract Deploy is Script {
     struct DeployConfig {
@@ -17,14 +19,15 @@ contract Deploy is Script {
         IRiscZeroVerifier riscZeroVerifier;
         bytes32 imageId;
         bytes nitroRootKey;
+        uint256 fallbackTimeout;
         IDisputeGameFactory disputeGameFactory;
         IAnchorStateRegistry anchorStateRegistry;
         uint64 maxChallengeDuration;
         uint64 maxProveDuration;
         uint256 challengerBond;
         address proofVerifierOwner;
-        address proposer;
-        address challenger;
+        address[] proposers;
+        address[] challengers;
     }
 
     function run() external returns (TeeProofVerifier teeProofVerifier, TeeDisputeGame teeDisputeGame) {
@@ -32,9 +35,19 @@ contract Deploy is Script {
 
         vm.startBroadcast(cfg.deployerKey);
 
+        AccessManager accessManager = new AccessManager(cfg.fallbackTimeout, cfg.disputeGameFactory);
+        for (uint256 i = 0; i < cfg.proposers.length; i++) {
+            accessManager.setProposer(cfg.proposers[i], true);
+        }
+        for (uint256 i = 0; i < cfg.challengers.length; i++) {
+            accessManager.setChallenger(cfg.challengers[i], true);
+        }
+
         teeProofVerifier = new TeeProofVerifier(cfg.riscZeroVerifier, cfg.imageId, cfg.nitroRootKey);
+
         if (cfg.proofVerifierOwner != cfg.deployer) {
             teeProofVerifier.transferOwnership(cfg.proofVerifierOwner);
+            accessManager.transferOwnership(cfg.proofVerifierOwner);
         }
 
         teeDisputeGame = new TeeDisputeGame(
@@ -42,10 +55,9 @@ contract Deploy is Script {
             Duration.wrap(cfg.maxProveDuration),
             cfg.disputeGameFactory,
             ITeeProofVerifier(address(teeProofVerifier)),
+            IAccessManager(address(accessManager)),
             cfg.challengerBond,
-            cfg.anchorStateRegistry,
-            cfg.proposer,
-            cfg.challenger
+            cfg.anchorStateRegistry
         );
 
         vm.stopBroadcast();
@@ -61,13 +73,14 @@ contract Deploy is Script {
         cfg.riscZeroVerifier = IRiscZeroVerifier(vm.envAddress("RISC_ZERO_VERIFIER"));
         cfg.imageId = vm.envBytes32("RISC_ZERO_IMAGE_ID");
         cfg.nitroRootKey = vm.envBytes("NITRO_ROOT_KEY");
+        cfg.fallbackTimeout = vm.envOr("FALLBACK_TIMEOUT", uint256(7 days));
         cfg.disputeGameFactory = IDisputeGameFactory(vm.envAddress("DISPUTE_GAME_FACTORY"));
         cfg.anchorStateRegistry = IAnchorStateRegistry(vm.envAddress("ANCHOR_STATE_REGISTRY"));
         cfg.maxChallengeDuration = uint64(vm.envUint("MAX_CHALLENGE_DURATION"));
         cfg.maxProveDuration = uint64(vm.envUint("MAX_PROVE_DURATION"));
         cfg.challengerBond = vm.envUint("CHALLENGER_BOND");
         cfg.proofVerifierOwner = vm.envOr("PROOF_VERIFIER_OWNER", cfg.deployer);
-        cfg.proposer = vm.envAddress("PROPOSER");
-        cfg.challenger = vm.envAddress("CHALLENGER");
+        cfg.proposers = vm.envAddress("PROPOSERS", ",");
+        cfg.challengers = vm.envAddress("CHALLENGERS", ",");
     }
 }

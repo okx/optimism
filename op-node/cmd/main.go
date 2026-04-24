@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/apolloconfig/agollo/v4/env/config"
 	"github.com/urfave/cli/v2"
 
 	"github.com/ethereum/go-ethereum/log"
@@ -25,7 +24,6 @@ import (
 	"github.com/ethereum-optimism/optimism/op-service/ctxinterrupt"
 	oplog "github.com/ethereum-optimism/optimism/op-service/log"
 	"github.com/ethereum-optimism/optimism/op-service/metrics/doc"
-	"github.com/ethereum/go-ethereum/xlayer/apollo"
 )
 
 var (
@@ -59,7 +57,7 @@ func main() {
 		},
 		{
 			Name:        "doc",
-			Subcommands: doc.NewSubcommands(metrics.NewMetrics("default")),
+			Subcommands: doc.NewSubcommands(metrics.NewMetrics("default", nil)),
 		},
 		{
 			Name:        "networks",
@@ -75,34 +73,20 @@ func main() {
 	}
 }
 
+//nolint:staticcheck // SA5011: Suppress nil pointer dereference warnings for this function
 func RollupNodeMain(ctx *cli.Context, closeApp context.CancelCauseFunc) (cliapp.Lifecycle, error) {
 	logCfg := oplog.ReadCLIConfig(ctx)
 	log := oplog.NewLogger(oplog.AppOut(ctx), logCfg)
 	oplog.SetGlobalLogHandler(log.Handler())
 	opservice.ValidateEnvVars(flags.EnvVarPrefix, flags.Flags, log)
 	opservice.WarnOnDeprecatedFlags(ctx, flags.DeprecatedFlags, log)
-	m := metrics.NewMetrics("default")
+	m := metrics.NewMetrics("default", nil)
 
 	cfg, err := opnode.NewConfig(ctx, log)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create the rollup node config: %w", err)
 	}
 	cfg.Cancel = closeApp
-
-	if cfg != nil && cfg.Apollo.Enable {
-		_, err := apollo.TryInitialize(&config.AppConfig{
-			AppID:         cfg.Apollo.AppID,
-			IP:            cfg.Apollo.IP,
-			Cluster:       cfg.Apollo.Cluster,
-			NamespaceName: cfg.Apollo.Namespace,
-		})
-
-		if err != nil {
-			log.Error("Failed to initialize apollo: %v", err)
-			return nil, fmt.Errorf("failed to initialize apollo: %w", err)
-		}
-		log.Info("Apollo client initialized, apollo config: %+v", cfg.Apollo)
-	}
 
 	// Only pretty-print the banner if it is a terminal log. Otherwise log it as key-value pairs.
 	if logCfg.Format == "terminal" {
@@ -111,7 +95,7 @@ func RollupNodeMain(ctx *cli.Context, closeApp context.CancelCauseFunc) (cliapp.
 		cfg.Rollup.LogDescription(log, chaincfg.L2ChainIDToNetworkDisplayName)
 	}
 
-	n, err := node.New(ctx.Context, cfg, log, VersionWithMeta, m)
+	n, err := node.New(ctx.Context, cfg, log, VersionWithMeta, m, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create the rollup node: %w", err)
 	}

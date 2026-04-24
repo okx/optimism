@@ -12,6 +12,8 @@ import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
 import { ITeeProofVerifier } from "interfaces/dispute/ITeeProofVerifier.sol";
 import { TeeDisputeGame, TEE_DISPUTE_GAME_TYPE } from "src/dispute/tee/TeeDisputeGame.sol";
 import { TeeProofVerifier } from "src/dispute/tee/TeeProofVerifier.sol";
+import { AccessManager } from "src/dispute/tee/AccessManager.sol";
+import { IAccessManager } from "interfaces/dispute/zk/IAccessManager.sol";
 import { MockRiscZeroVerifier } from "test/dispute/tee/mocks/MockRiscZeroVerifier.sol";
 import { MockSystemConfig } from "test/dispute/tee/mocks/MockSystemConfig.sol";
 import { Duration, GameType, Hash, Proposal } from "src/dispute/lib/Types.sol";
@@ -24,8 +26,8 @@ import { Duration, GameType, Hash, Proposal } from "src/dispute/lib/Types.sol";
 ///   anvil --block-time 1
 ///
 ///   PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
-///   PROPOSER=0x70997970C51812dc3A010C7d01b50e0d17dc79C8 \
-///   CHALLENGER=0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC \
+///   PROPOSERS=0x70997970C51812dc3A010C7d01b50e0d17dc79C8 \
+///   CHALLENGERS=0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC \
 ///   forge script scripts/tee/DeployTeeMock.s.sol --rpc-url http://localhost:8545 --broadcast
 contract DeployTeeMock is Script {
     uint256 internal constant DEFENDER_BOND = 0.1 ether;
@@ -42,28 +44,31 @@ contract DeployTeeMock is Script {
     function run() external {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerKey);
-        address proposer_ = vm.envAddress("PROPOSER");
-        address challenger_ = vm.envAddress("CHALLENGER");
+        address[] memory proposers_ = vm.envAddress("PROPOSERS", ",");
+        address[] memory challengers_ = vm.envAddress("CHALLENGERS", ",");
 
         vm.startBroadcast(deployerKey);
 
         // 1. MockRiscZeroVerifier -- verify() is a no-op
         MockRiscZeroVerifier mockRiscZero = new MockRiscZeroVerifier();
 
-        // 2. TeeProofVerifier with mock verifier + dummy imageId/rootKey
+        // 2. DisputeGameFactory (via Proxy) -- needed before AccessManager
+        DisputeGameFactory factory = _deployFactory(deployer);
+
+        // 3. AccessManager + TeeProofVerifier with mock verifier + dummy imageId/rootKey
+        AccessManager accessManager = new AccessManager(7 days, IDisputeGameFactory(address(factory)));
+        for (uint256 i = 0; i < proposers_.length; i++) accessManager.setProposer(proposers_[i], true);
+        for (uint256 i = 0; i < challengers_.length; i++) accessManager.setChallenger(challengers_[i], true);
         bytes32 imageId = keccak256("mock-image-id");
         bytes memory rootKey = abi.encodePacked(bytes32(uint256(1)), bytes32(uint256(2)), bytes32(uint256(3)));
         TeeProofVerifier teeProofVerifier = new TeeProofVerifier(mockRiscZero, imageId, rootKey);
 
-        // 3. DisputeGameFactory (via Proxy)
-        DisputeGameFactory factory = _deployFactory(deployer);
-
         // 4. AnchorStateRegistry (via Proxy)
         AnchorStateRegistry anchorStateRegistry = _deployAnchorStateRegistry(deployer, factory);
 
+
         // 5. TeeDisputeGame implementation + register in factory
-        TeeDisputeGame teeDisputeGame =
-            _deployAndRegisterGame(factory, teeProofVerifier, anchorStateRegistry, proposer_, challenger_);
+        TeeDisputeGame teeDisputeGame = _deployAndRegisterGame(factory, teeProofVerifier, accessManager, anchorStateRegistry);
 
         vm.stopBroadcast();
 
@@ -75,8 +80,6 @@ contract DeployTeeMock is Script {
         console2.log("TeeDisputeGame impl  :", address(teeDisputeGame));
         console2.log("");
         console2.log("=== Config ===");
-        console2.log("PROPOSER             :", proposer_);
-        console2.log("CHALLENGER           :", challenger_);
         console2.log("DEFENDER_BOND        :", DEFENDER_BOND);
         console2.log("CHALLENGER_BOND      :", CHALLENGER_BOND);
         console2.log("TEE_GAME_TYPE        :", TEE_DISPUTE_GAME_TYPE);
@@ -121,9 +124,8 @@ contract DeployTeeMock is Script {
     function _deployAndRegisterGame(
         DisputeGameFactory factory,
         TeeProofVerifier teeProofVerifier,
-        AnchorStateRegistry anchorStateRegistry,
-        address proposer_,
-        address challenger_
+        AccessManager _accessManager,
+        AnchorStateRegistry anchorStateRegistry
     )
         internal
         returns (TeeDisputeGame)
@@ -133,10 +135,9 @@ contract DeployTeeMock is Script {
             Duration.wrap(MAX_PROVE_DURATION),
             IDisputeGameFactory(address(factory)),
             ITeeProofVerifier(address(teeProofVerifier)),
+            IAccessManager(address(_accessManager)),
             CHALLENGER_BOND,
-            IAnchorStateRegistry(address(anchorStateRegistry)),
-            proposer_,
-            challenger_
+            IAnchorStateRegistry(address(anchorStateRegistry))
         );
 
         factory.setImplementation(TEE_GAME_TYPE, IDisputeGame(address(teeDisputeGame)), bytes(""));

@@ -40,7 +40,42 @@ func NewStandardClient(workdir string) (*Client, error) {
 	}
 
 	forgeClient := NewClient(forgeBinary)
-	forgeClient.Wd = filepath.Dir(workdir)
+
+	// Determine the working directory for forge
+	// The artifacts FS points to a subdirectory (e.g., "forge-artifacts" or "out"),
+	// but forge needs to run from the parent directory where foundry.toml is located.
+	// This matches the structure from ExtractEmbedded/ExtractFromFile where:
+	// - untarPath/forge-artifacts/ contains the artifacts
+	// - untarPath/foundry.toml is the config file
+	// This can be removed once we remove the OPCM code and use the artifacts FS directly.
+	var forgeWd string
+	info, err := os.Stat(workdir)
+	if err != nil {
+		forgeWd = workdir
+	} else if info.IsDir() {
+		foundryToml := filepath.Join(workdir, "foundry.toml")
+		if _, err := os.Stat(foundryToml); err == nil {
+			forgeWd = workdir
+		} else {
+			// foundry.toml not found, check parent directory
+			// This handles the case where workdir points to forge-artifacts/ or out/
+			parent := filepath.Dir(workdir)
+			parentFoundryToml := filepath.Join(parent, "foundry.toml")
+			if _, err := os.Stat(parentFoundryToml); err == nil {
+				forgeWd = parent
+			} else {
+				forgeWd = workdir
+			}
+		}
+	} else {
+		forgeWd = filepath.Dir(workdir)
+	}
+
+	if err := os.MkdirAll(forgeWd, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to ensure forge working directory exists: %w", err)
+	}
+
+	forgeClient.Wd = forgeWd
 	fmt.Printf("Forge client working directory: %s\n", forgeClient.Wd)
 
 	return forgeClient, nil
@@ -85,6 +120,16 @@ func (c *Client) RunScript(ctx context.Context, script string, sig string, args 
 	cliOpts = append(cliOpts, "--sig", sig, script, "0x"+hex.EncodeToString(args))
 	if err := c.execCmd(ctx, buf, io.Discard, cliOpts...); err != nil {
 		return "", fmt.Errorf("failed to execute forge script: %w", err)
+	}
+	return buf.String(), nil
+}
+
+func (c *Client) VerifyContract(ctx context.Context, opts ...string) (string, error) {
+	buf := new(bytes.Buffer)
+	cliOpts := []string{"verify-contract"}
+	cliOpts = append(cliOpts, opts...)
+	if err := c.execCmd(ctx, buf, buf, cliOpts...); err != nil {
+		return buf.String(), fmt.Errorf("failed to verify contract: %w", err)
 	}
 	return buf.String(), nil
 }

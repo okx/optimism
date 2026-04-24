@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -25,7 +26,6 @@ type OpReth struct {
 	mu sync.Mutex
 
 	id        stack.L2ELNodeID
-	l2Net     *L2Network
 	jwtPath   string
 	jwtSecret [32]byte
 	authRPC   string
@@ -100,8 +100,8 @@ func (n *OpReth) Start() {
 		})
 		n.userRPC = "ws://" + n.userProxy.Addr()
 	}
-	logOut := logpipe.ToLogger(n.p.Logger().New("component", "op-reth", "src", "stdout"))
-	logErr := logpipe.ToLogger(n.p.Logger().New("component", "op-reth", "src", "stderr"))
+	logOut := logpipe.ToLogger(n.p.Logger().New("component", "op-reth", "src", "stdout", "id", n.id.String()))
+	logErr := logpipe.ToLogger(n.p.Logger().New("component", "op-reth", "src", "stderr", "id", n.id.String()))
 
 	authRPCChan := make(chan string, 1)
 	defer close(authRPCChan)
@@ -134,12 +134,12 @@ func (n *OpReth) Start() {
 			metricsTargetChan <- NewPrometheusMetricsTarget(parsedUrl.Hostname(), parsedUrl.Port(), false)
 		}
 	}
-	stdOutLogs := logpipe.LogProcessor(func(line []byte) {
+	stdOutLogs := logpipe.LogCallback(func(line []byte) {
 		e := logpipe.ParseRustStructuredLogs(line)
 		logOut(e)
 		onLogEntry(e)
 	})
-	stdErrLogs := logpipe.LogProcessor(func(line []byte) {
+	stdErrLogs := logpipe.LogCallback(func(line []byte) {
 		e := logpipe.ParseRustStructuredLogs(line)
 		logErr(e)
 	})
@@ -201,10 +201,9 @@ func WithOpReth(id stack.L2ELNodeID, opts ...L2ELOption) stack.Option[*Orchestra
 		useInterop := l2Net.genesis.Config.InteropTime != nil
 
 		supervisorRPC := ""
-		if useInterop {
-			require.NotNil(cfg.SupervisorID, "supervisor is required for interop")
+		if useInterop && cfg.SupervisorID != nil {
 			sup, ok := orch.supervisors.Get(*cfg.SupervisorID)
-			require.True(ok, "supervisor is required for interop")
+			require.True(ok, "supervisor not found")
 			supervisorRPC = sup.UserRPC()
 		}
 
@@ -266,21 +265,50 @@ func WithOpReth(id stack.L2ELNodeID, opts ...L2ELOption) stack.Option[*Orchestra
 		}
 
 		if areMetricsEnabled() {
-			// NB: Instead of getAvailableLocalPort, we should pass "0" so the OS picks its
-			// own port, but that is not currently logged properly so we cannot parse it.
-			// See: https://github.com/op-rs/op-reth/issues/333
-			metricsPort, err := getAvailableLocalPort()
-			p.Require().NoError(err, "WithOpReth: getting metrics port")
-			args = append(args, "--metrics="+metricsPort)
+			// Use port 0 to let the OS assign a port atomically at bind time.
+			// The actual port will be discovered by parsing the process logs.
+			args = append(args, "--metrics=127.0.0.1:0")
 		}
 
 		if supervisorRPC != "" {
 			args = append(args, "--rollup.supervisor-http="+supervisorRPC)
 		}
 
+		// initialise op-reth
+		initArgs := []string{
+			"init",
+			"--datadir=" + dataDirPath,
+			"--chain=" + chainConfigPath,
+		}
+		err = exec.Command(execPath, initArgs...).Run()
+		p.Require().NoError(err, "must init op-reth node")
+
+		if cfg.ProofHistory {
+			proofHistoryDir := filepath.Join(tempDir, "proof-history")
+
+			// initialise proof history
+			initProofsArgs := []string{
+				"proofs",
+				"init",
+				"--datadir=" + dataDirPath,
+				"--chain=" + chainConfigPath,
+				"--proofs-history.storage-path=" + proofHistoryDir,
+			}
+			err = exec.Command(execPath, initProofsArgs...).Run()
+			p.Require().NoError(err, "must init op-reth proof history")
+
+			args = append(
+				args,
+				"--proofs-history",
+				// todo: make these configurable via env-vars (ethereum-optimism/optimism#18908)
+				"--proofs-history.window=200",
+				"--proofs-history.prune-interval=1m",
+				"--proofs-history.storage-path="+proofHistoryDir,
+			)
+		}
+
 		l2EL := &OpReth{
 			id:                 id,
-			l2Net:              l2Net,
 			jwtPath:            jwtPath,
 			jwtSecret:          jwtSecret,
 			authRPC:            "",

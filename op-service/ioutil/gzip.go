@@ -3,14 +3,55 @@ package ioutil
 import (
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 )
 
-// OpenDecompressed opens a reader for the specified file and automatically gzip decompresses the content
-// if the filename ends with .gz
+const (
+	// MaxDecompressedSize limits the maximum size of decompressed data from gzip files
+	// to prevent memory exhaustion attacks via specially crafted compressed files.
+	MaxDecompressedSize = 10 * 1024 * 1024 * 1024 // 10GB
+)
+
+var (
+	// ErrDecompressedSizeExceeded is returned when decompressed data reaches or exceeds MaxDecompressedSize.
+	ErrDecompressedSizeExceeded = errors.New("decompressed data size exceeds maximum allowed size")
+)
+
+// limitedReadCloser wraps an io.ReadCloser and enforces a maximum read limit.
+// It returns ErrDecompressedSizeExceeded when the limit is exceeded.
+// For X Layer: Read implements the io.Reader interface.
+type limitedReadCloser struct {
+	limitReader *io.LimitedReader
+	readCloser  io.ReadCloser
+	closer      io.Closer
+}
+
+// X Layer: Read implements the io.Reader interface.
+func (l *limitedReadCloser) Read(p []byte) (n int, err error) {
+	n, err = l.limitReader.Read(p)
+
+	// When EOF is reached and the read limit is exhausted, the decompressed size
+	// has reached MaxDecompressedSize, which is treated as an error.
+	if err == io.EOF && l.limitReader.N == 0 {
+		return n, ErrDecompressedSizeExceeded
+	}
+
+	return n, err
+}
+
+// X Layer: Close implements the io.Closer interface.
+func (l *limitedReadCloser) Close() error {
+	return errors.Join(l.readCloser.Close(), l.closer.Close())
+}
+
+// OpenDecompressed opens a reader for the specified file and automatically decompresses gzip content
+// if the filename ends with .gz. For gzip files, the decompressed output is limited to MaxDecompressedSize.
+// Returns ErrDecompressedSizeExceeded if the decompressed size reaches or exceeds the limit.
+// For X Layer: OpenDecompressed opens a reader for the specified file and automatically decompresses gzip content
 func OpenDecompressed(path string) (io.ReadCloser, error) {
 	r, err := os.Open(path)
 	if err != nil {
@@ -22,7 +63,12 @@ func OpenDecompressed(path string) (io.ReadCloser, error) {
 			r.Close()
 			return nil, fmt.Errorf("failed to create gzip reader: %w", err)
 		}
-		return NewWrappedReadCloser(gr, r), nil
+		limitReader := &io.LimitedReader{R: gr, N: MaxDecompressedSize}
+		return &limitedReadCloser{
+			limitReader: limitReader,
+			readCloser:  gr,
+			closer:      r,
+		}, nil
 	}
 	return r, nil
 }

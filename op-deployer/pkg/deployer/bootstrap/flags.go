@@ -192,6 +192,11 @@ var ImplementationsFlags = []cli.Flag{
 	L1ProxyAdminOwnerFlag,
 	SuperchainProxyAdminFlag,
 	ChallengerFlag,
+	deployer.AutoVerifyFlag,
+	deployer.VerifierFlag,
+	deployer.VerifierUrlFlag,
+	deployer.VerifierAPIKeyFlag,
+	deployer.UseForgeFlag,
 }
 
 var ProxyFlags = []cli.Flag{
@@ -213,6 +218,11 @@ var SuperchainFlags = []cli.Flag{
 	PausedFlag,
 	RequiredProtocolVersionFlag,
 	RecommendedProtocolVersionFlag,
+	deployer.AutoVerifyFlag,
+	deployer.VerifierFlag,
+	deployer.VerifierUrlFlag,
+	deployer.VerifierAPIKeyFlag,
+	deployer.UseForgeFlag,
 }
 
 var ValidatorFlags = []cli.Flag{

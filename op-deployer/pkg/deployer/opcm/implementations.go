@@ -1,6 +1,7 @@
 package opcm
 
 import (
+	"fmt"
 	"math/big"
 
 	"github.com/ethereum-optimism/optimism/op-chain-ops/script"
@@ -35,6 +36,10 @@ type DeployImplementationsOutput struct {
 	OpcmUpgrader                     common.Address `json:"opcmUpgraderAddress"`
 	OpcmInteropMigrator              common.Address `json:"opcmInteropMigratorAddress"`
 	OpcmStandardValidator            common.Address `json:"opcmStandardValidatorAddress"`
+	OpcmUtils                        common.Address `json:"opcmUtilsAddress"`
+	OpcmMigrator                     common.Address `json:"opcmMigratorAddress"`
+	OpcmV2                           common.Address `json:"opcmV2Address"`
+	OpcmContainer                    common.Address `json:"opcmContainerAddress"`
 	DelayedWETHImpl                  common.Address `json:"delayedWETHImplAddress"`
 	OptimismPortalImpl               common.Address `json:"optimismPortalImplAddress"`
 	OptimismPortalInteropImpl        common.Address `json:"optimismPortalInteropImplAddress"`
@@ -50,10 +55,11 @@ type DeployImplementationsOutput struct {
 	AnchorStateRegistryImpl          common.Address `json:"anchorStateRegistryImplAddress"`
 	SuperchainConfigImpl             common.Address `json:"superchainConfigImplAddress"`
 	ProtocolVersionsImpl             common.Address `json:"protocolVersionsImplAddress"`
-	FaultDisputeGameV2Impl           common.Address `json:"faultDisputeGameV2ImplAddress"`
-	PermissionedDisputeGameV2Impl    common.Address `json:"permissionedDisputeGameV2ImplAddress"`
+	FaultDisputeGameImpl             common.Address `json:"faultDisputeGameImplAddress"`
+	PermissionedDisputeGameImpl      common.Address `json:"permissionedDisputeGameImplAddress"`
 	SuperFaultDisputeGameImpl        common.Address `json:"superFaultDisputeGameImplAddress"`
 	SuperPermissionedDisputeGameImpl common.Address `json:"superPermissionedDisputeGameImplAddress"`
+	StorageSetterImpl                common.Address `json:"storageSetterImplAddress"`
 }
 
 type DeployImplementationsScript script.DeployScriptWithOutput[DeployImplementationsInput, DeployImplementationsOutput]
@@ -71,4 +77,19 @@ func NewDeployImplementationsForgeCaller(client *forge.Client) forge.ScriptCalle
 		&forge.BytesScriptEncoder[DeployImplementationsInput]{TypeName: "DeployImplementationsInput"},
 		&forge.BytesScriptDecoder[DeployImplementationsOutput]{TypeName: "DeployImplementationsOutput"},
 	)
+}
+
+// DeployImplementationsViaForge deploys implementation contracts using Forge
+func DeployImplementationsViaForge(env *ForgeEnv, input DeployImplementationsInput) (DeployImplementationsOutput, error) {
+	var output DeployImplementationsOutput
+	if err := env.validate(true); err != nil {
+		return output, err
+	}
+	forgeCaller := NewDeployImplementationsForgeCaller(env.Client)
+	var err error
+	output, _, err = forgeCaller(env.Context, input, env.buildForgeOpts()...)
+	if err != nil {
+		return output, fmt.Errorf("failed to deploy implementations with Forge: %w", err)
+	}
+	return output, nil
 }

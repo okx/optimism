@@ -3,17 +3,18 @@ pragma solidity 0.8.15;
 
 // Testing
 import { CommonTest } from "test/setup/CommonTest.sol";
-import { Reverter } from "test/mocks/Callers.sol";
 
 // Interfaces
-import { IProxyAdmin } from "interfaces/universal/IProxyAdmin.sol";
+import { IL2ProxyAdmin } from "interfaces/L2/IL2ProxyAdmin.sol";
 import { IFeeVault } from "interfaces/L2/IFeeVault.sol";
 import { IL2ToL1MessagePasser } from "interfaces/L2/IL2ToL1MessagePasser.sol";
+import { IL2ToL1MessagePasserCGT } from "interfaces/L2/IL2ToL1MessagePasserCGT.sol";
 
 // Libraries
 import { Hashing } from "src/libraries/Hashing.sol";
 import { Types } from "src/libraries/Types.sol";
 import { Predeploys } from "src/libraries/Predeploys.sol";
+import { Features } from "src/libraries/Features.sol";
 
 /// @title FeeVault_Uncategorized_Test
 /// @notice Abstract test contract for fee feeVault testing.
@@ -29,7 +30,7 @@ abstract contract FeeVault_Uncategorized_Test is CommonTest {
     /// @notice Helper function to set up L2 withdrawal configuration.
     function _setupL2Withdrawal() internal {
         // Set the withdrawal network to L2
-        vm.prank(IProxyAdmin(Predeploys.PROXY_ADMIN).owner());
+        vm.prank(IL2ProxyAdmin(Predeploys.PROXY_ADMIN).owner());
         feeVault.setWithdrawalNetwork(Types.WithdrawalNetwork.L2);
     }
 
@@ -71,7 +72,7 @@ abstract contract FeeVault_Uncategorized_Test is CommonTest {
     function testFuzz_withdraw_notEnough_reverts(uint256 _minWithdrawalAmount) external {
         // Set the minimum withdrawal amount
         _minWithdrawalAmount = bound(_minWithdrawalAmount, 1, type(uint256).max);
-        vm.prank(IProxyAdmin(Predeploys.PROXY_ADMIN).owner());
+        vm.prank(IL2ProxyAdmin(Predeploys.PROXY_ADMIN).owner());
         feeVault.setMinWithdrawalAmount(_minWithdrawalAmount);
 
         // Set the balance to be less than the minimum withdrawal amount
@@ -83,16 +84,18 @@ abstract contract FeeVault_Uncategorized_Test is CommonTest {
 
     /// @notice Tests that `withdraw` successfully initiates a withdrawal to L1.
     function test_withdraw_toL1_succeeds() external {
+        skipIfSysFeatureEnabled(Features.CUSTOM_GAS_TOKEN);
+
         // Setup L1 withdrawal
-        vm.prank(IProxyAdmin(Predeploys.PROXY_ADMIN).owner());
+        vm.prank(IL2ProxyAdmin(Predeploys.PROXY_ADMIN).owner());
         feeVault.setWithdrawalNetwork(Types.WithdrawalNetwork.L1);
 
         // Set recipient
-        vm.prank(IProxyAdmin(Predeploys.PROXY_ADMIN).owner());
+        vm.prank(IL2ProxyAdmin(Predeploys.PROXY_ADMIN).owner());
         feeVault.setRecipient(recipient);
 
         // Set minimum withdrawal amount
-        vm.prank(IProxyAdmin(Predeploys.PROXY_ADMIN).owner());
+        vm.prank(IL2ProxyAdmin(Predeploys.PROXY_ADMIN).owner());
         feeVault.setMinWithdrawalAmount(minWithdrawalAmount);
 
         // Set the balance to be greater than the minimum withdrawal amount
@@ -143,6 +146,31 @@ abstract contract FeeVault_Uncategorized_Test is CommonTest {
         assertEq(Predeploys.L2_TO_L1_MESSAGE_PASSER.balance, amount);
     }
 
+    /// @notice Tests that withdraw to L1 reverts when custom gas token is enabled and value is sent.
+    function testFuzz_withdraw_toL1WithCustomGasToken_reverts(uint256 _amount) external {
+        skipIfSysFeatureDisabled(Features.CUSTOM_GAS_TOKEN);
+
+        // Setup L1 withdrawal
+        vm.prank(IL2ProxyAdmin(Predeploys.PROXY_ADMIN).owner());
+        feeVault.setWithdrawalNetwork(Types.WithdrawalNetwork.L1);
+
+        // Set recipient
+        vm.prank(IL2ProxyAdmin(Predeploys.PROXY_ADMIN).owner());
+        feeVault.setRecipient(recipient);
+
+        // Set minimum withdrawal amount
+        vm.prank(IL2ProxyAdmin(Predeploys.PROXY_ADMIN).owner());
+        feeVault.setMinWithdrawalAmount(minWithdrawalAmount);
+
+        // Set the balance to be greater than the minimum withdrawal amount
+        _amount = bound(_amount, feeVault.minWithdrawalAmount() + 1, type(uint128).max);
+        vm.deal(address(feeVault), _amount);
+
+        // Withdrawal should revert due to CGT mode
+        vm.expectRevert(IL2ToL1MessagePasserCGT.L2ToL1MessagePasserCGT_NotAllowedOnCGTMode.selector);
+        feeVault.withdraw();
+    }
+
     /// @notice Tests that `withdraw` successfully initiates a withdrawal to L2.
     function test_withdraw_toL2_succeeds() public {
         _setupL2Withdrawal();
@@ -182,7 +210,7 @@ abstract contract FeeVault_Uncategorized_Test is CommonTest {
         assertEq(feeVault.totalProcessed(), 0);
 
         // Ensure the RECIPIENT reverts
-        vm.etch(feeVault.RECIPIENT(), type(Reverter).runtimeCode);
+        vm.mockCallRevert(feeVault.RECIPIENT(), bytes(hex""), hex"");
 
         // The entire feeVault's balance is withdrawn
         vm.expectCall(recipient, address(feeVault).balance, bytes(""));
@@ -193,7 +221,7 @@ abstract contract FeeVault_Uncategorized_Test is CommonTest {
 
     /// @notice Tests that the owner can successfully set minimum withdrawal amount with fuzz testing.
     function testFuzz_setMinWithdrawalAmount_succeeds(uint256 _newMinWithdrawalAmount) external {
-        address owner = IProxyAdmin(Predeploys.PROXY_ADMIN).owner();
+        address owner = IL2ProxyAdmin(Predeploys.PROXY_ADMIN).owner();
 
         vm.prank(owner);
         IFeeVault(payable(address(feeVault))).setMinWithdrawalAmount(_newMinWithdrawalAmount);
@@ -204,7 +232,7 @@ abstract contract FeeVault_Uncategorized_Test is CommonTest {
 
     /// @notice Tests that non-owner cannot set minimum withdrawal amount with fuzz testing.
     function testFuzz_setMinWithdrawalAmount_onlyOwner_reverts(address _caller, uint256 _newAmount) external {
-        address owner = IProxyAdmin(Predeploys.PROXY_ADMIN).owner();
+        address owner = IL2ProxyAdmin(Predeploys.PROXY_ADMIN).owner();
         vm.assume(_caller != owner);
 
         uint256 initialAmount = feeVault.minWithdrawalAmount();
@@ -219,7 +247,7 @@ abstract contract FeeVault_Uncategorized_Test is CommonTest {
 
     /// @notice Tests that the owner can successfully set recipient with fuzz testing.
     function testFuzz_setRecipient_succeeds(address _newRecipient) external {
-        address owner = IProxyAdmin(Predeploys.PROXY_ADMIN).owner();
+        address owner = IL2ProxyAdmin(Predeploys.PROXY_ADMIN).owner();
 
         vm.prank(owner);
         IFeeVault(payable(address(feeVault))).setRecipient(_newRecipient);
@@ -230,7 +258,7 @@ abstract contract FeeVault_Uncategorized_Test is CommonTest {
 
     /// @notice Tests that non-owner cannot set recipient with fuzz testing.
     function testFuzz_setRecipient_onlyOwner_reverts(address _caller, address _newRecipient) external {
-        address owner = IProxyAdmin(Predeploys.PROXY_ADMIN).owner();
+        address owner = IL2ProxyAdmin(Predeploys.PROXY_ADMIN).owner();
         vm.assume(_caller != owner);
 
         address initialRecipient = feeVault.recipient();
@@ -249,7 +277,7 @@ abstract contract FeeVault_Uncategorized_Test is CommonTest {
         _networkValue = uint8(bound(_networkValue, 0, 1));
         Types.WithdrawalNetwork newNetwork = Types.WithdrawalNetwork(_networkValue);
 
-        address owner = IProxyAdmin(Predeploys.PROXY_ADMIN).owner();
+        address owner = IL2ProxyAdmin(Predeploys.PROXY_ADMIN).owner();
 
         vm.prank(owner);
         IFeeVault(payable(address(feeVault))).setWithdrawalNetwork(newNetwork);
@@ -260,7 +288,7 @@ abstract contract FeeVault_Uncategorized_Test is CommonTest {
 
     /// @notice Tests that non-owner cannot set withdrawal network with fuzz testing.
     function testFuzz_setWithdrawalNetwork_onlyOwner_reverts(address _caller, uint8 _networkValue) external {
-        address owner = IProxyAdmin(Predeploys.PROXY_ADMIN).owner();
+        address owner = IL2ProxyAdmin(Predeploys.PROXY_ADMIN).owner();
         vm.assume(_caller != owner);
 
         // Bound to valid enum values

@@ -13,6 +13,8 @@ import { ITeeProofVerifier } from "interfaces/dispute/ITeeProofVerifier.sol";
 import { IRiscZeroVerifier } from "interfaces/dispute/IRiscZeroVerifier.sol";
 import { TeeDisputeGame, TEE_DISPUTE_GAME_TYPE } from "src/dispute/tee/TeeDisputeGame.sol";
 import { TeeProofVerifier } from "src/dispute/tee/TeeProofVerifier.sol";
+import { AccessManager } from "src/dispute/tee/AccessManager.sol";
+import { IAccessManager } from "interfaces/dispute/zk/IAccessManager.sol";
 import { MockSystemConfig } from "test/dispute/tee/mocks/MockSystemConfig.sol";
 import { Duration, GameType, Hash, Proposal } from "src/dispute/lib/Types.sol";
 
@@ -24,8 +26,8 @@ import { Duration, GameType, Hash, Proposal } from "src/dispute/lib/Types.sol";
 ///   anvil --fork-url $ETH_RPC_URL --block-time 1
 ///
 ///   PRIVATE_KEY=0xac09...ff80 \
-///   PROPOSER=0x7099...79C8 \
-///   CHALLENGER=0x3C44...93BC \
+///   PROPOSERS=0x7099...79C8 \
+///   CHALLENGERS=0x3C44...93BC \
 ///   RISC_ZERO_VERIFIER=0x8EaB2D97Dfce405A1692a21b3ff3A172d593D319 \
 ///   RISC_ZERO_IMAGE_ID=0x<guest image id> \
 ///   NITRO_ROOT_KEY=0x<96 bytes P384 root key hex> \
@@ -45,8 +47,8 @@ contract DeployTeeFork is Script {
     function run() external {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerKey);
-        address proposer_ = vm.envAddress("PROPOSER");
-        address challenger_ = vm.envAddress("CHALLENGER");
+        address[] memory proposers_ = vm.envAddress("PROPOSERS", ",");
+        address[] memory challengers_ = vm.envAddress("CHALLENGERS", ",");
 
         vm.startBroadcast(deployerKey);
 
@@ -54,10 +56,13 @@ contract DeployTeeFork is Script {
         bytes32 anchorStateHash = vm.envOr("ANCHOR_STATE_HASH", DEFAULT_ANCHOR_STATE_HASH);
         uint256 anchorL2Block = vm.envOr("ANCHOR_L2_BLOCK", DEFAULT_ANCHOR_L2_BLOCK);
 
-        TeeProofVerifier teeProofVerifier = _deployVerifier();
         DisputeGameFactory factory = _deployFactory(deployer);
-        AnchorStateRegistry asr = _deployASR(deployer, factory, anchorBlockHash, anchorStateHash, anchorL2Block);
-        TeeDisputeGame impl = _deployGame(factory, teeProofVerifier, asr, proposer_, challenger_);
+        AccessManager accessManager = new AccessManager(7 days, IDisputeGameFactory(address(factory)));
+        for (uint256 i = 0; i < proposers_.length; i++) accessManager.setProposer(proposers_[i], true);
+        for (uint256 i = 0; i < challengers_.length; i++) accessManager.setChallenger(challengers_[i], true);
+        TeeProofVerifier teeProofVerifier = _deployVerifier();
+        AnchorStateRegistry asr = _deployASR(deployer, factory);
+        TeeDisputeGame impl = _deployGame(factory, teeProofVerifier, accessManager, asr);
 
         vm.stopBroadcast();
 
@@ -118,9 +123,8 @@ contract DeployTeeFork is Script {
     function _deployGame(
         DisputeGameFactory factory,
         TeeProofVerifier verifier,
-        AnchorStateRegistry asr,
-        address proposer_,
-        address challenger_
+        AccessManager _accessManager,
+        AnchorStateRegistry asr
     )
         internal
         returns (TeeDisputeGame)
@@ -130,10 +134,9 @@ contract DeployTeeFork is Script {
             Duration.wrap(MAX_PROVE_DURATION),
             IDisputeGameFactory(address(factory)),
             ITeeProofVerifier(address(verifier)),
+            IAccessManager(address(_accessManager)),
             CHALLENGER_BOND,
-            IAnchorStateRegistry(address(asr)),
-            proposer_,
-            challenger_
+            IAnchorStateRegistry(address(asr))
         );
         factory.setImplementation(TEE_GAME_TYPE, IDisputeGame(address(impl)), bytes(""));
         factory.setInitBond(TEE_GAME_TYPE, DEFENDER_BOND);

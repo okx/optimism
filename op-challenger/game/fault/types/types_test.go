@@ -4,6 +4,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -61,20 +62,23 @@ func TestIsRootPosition(t *testing.T) {
 	}
 }
 
-func TestKnownGameTypeForEveryTraceType(t *testing.T) {
-	for _, traceType := range TraceTypes {
-		traceType := traceType
-		t.Run(traceType.String(), func(t *testing.T) {
-			require.NotEqual(t, UnknownGameType, traceType.GameType())
-		})
+func TestID(t *testing.T) {
+	claimA := Claim{
+		ClaimData: ClaimData{
+			Value:    common.HexToHash("0x55d9a57ad73a4d68335354f80bf36742904d51a79af247a2a94fb3cd66315001"),
+			Position: NewPositionFromGIndex(big.NewInt(65728)),
+		},
+		ContractIndex:       1524,
+		ParentContractIndex: 15,
 	}
-}
 
-func TestKnownStringForUtilisedGameType(t *testing.T) {
-	for _, traceType := range TraceTypes {
-		traceType := traceType
-		t.Run(traceType.String(), func(t *testing.T) {
-			require.NotContains(t, traceType.GameType().String(), "invalid")
-		})
+	claimB := Claim{
+		ClaimData: ClaimData{
+			Value:    common.HexToHash("0xc055d9a57ad73a4d68335354f80bf36742904d51a79af247a2a94fb3cd663150"),
+			Position: NewPositionFromGIndex(big.NewInt(256)),
+		},
+		ParentContractIndex: 271,
 	}
+
+	require.NotEqual(t, common.Hash(claimA.ID()), common.Hash(claimB.ID()))
 }

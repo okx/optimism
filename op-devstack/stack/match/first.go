@@ -10,6 +10,7 @@ var FirstL2Challenger = First[stack.L2ChallengerID, stack.L2Challenger]()
 
 var FirstTestSequencer = First[stack.TestSequencerID, stack.TestSequencer]()
 var FirstSupervisor = First[stack.SupervisorID, stack.Supervisor]()
+var FirstSupernode = First[stack.SupernodeID, stack.Supernode]()
 
 var FirstL1EL = First[stack.L1ELNodeID, stack.L1ELNode]()
 var FirstL1CL = First[stack.L1CLNodeID, stack.L1CLNode]()
@@ -21,3 +22,6 @@ var FirstCluster = First[stack.ClusterID, stack.Cluster]()
 
 var FirstFaucet = First[stack.FaucetID, stack.Faucet]()
 var FirstSyncTester = First[stack.SyncTesterID, stack.SyncTester]()
+
+var FirstOPRBuilderNode = First[stack.OPRBuilderNodeID, stack.OPRBuilderNode]()
+var FirstRollupBoostNode = First[stack.RollupBoostNodeID, stack.RollupBoostNode]()

@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/ethereum-optimism/optimism/op-service/bigs"
 	"github.com/ethereum-optimism/optimism/op-service/sources/batching"
 	"github.com/ethereum-optimism/optimism/op-service/sources/batching/rpcblock"
 	"github.com/ethereum-optimism/optimism/op-service/txmgr"
@@ -21,7 +22,8 @@ const (
 	methodCreateGame  = "create"
 	methodVersion     = "version"
 
-	methodClaim = "claimData"
+	methodClaim       = "claimData"
+	methodTEEProposer = "proposer" // For xlayer: TEE game stores the actual game creator (tx.origin) in public proposer var
 )
 
 type gameMetadata struct {
@@ -37,6 +39,7 @@ type DisputeGameFactory struct {
 	contract       *batching.BoundContract
 	gameABI        *abi.ABI
 	networkTimeout time.Duration
+	teeCache       gameIndexCache // For xlayer
 }
 
 func NewDisputeGameFactory(addr common.Address, caller *batching.MultiCaller, networkTimeout time.Duration) *DisputeGameFactory {
@@ -94,7 +97,7 @@ func (f *DisputeGameFactory) HasProposedSince(ctx context.Context, proposer comm
 	}
 }
 
-func (f *DisputeGameFactory) ProposalTx(ctx context.Context, gameType uint32, outputRoot common.Hash, l2BlockNum uint64) (txmgr.TxCandidate, error) {
+func (f *DisputeGameFactory) ProposalTx(ctx context.Context, gameType uint32, outputRoot common.Hash, extraData []byte) (txmgr.TxCandidate, error) {
 	cCtx, cancel := context.WithTimeout(ctx, f.networkTimeout)
 	defer cancel()
 	result, err := f.caller.SingleCall(cCtx, rpcblock.Latest, f.contract.Call(methodInitBonds, gameType))
@@ -102,7 +105,7 @@ func (f *DisputeGameFactory) ProposalTx(ctx context.Context, gameType uint32, ou
 		return txmgr.TxCandidate{}, fmt.Errorf("failed to fetch init bond: %w", err)
 	}
 	initBond := result.GetBigInt(0)
-	call := f.contract.Call(methodCreateGame, gameType, outputRoot, common.BigToHash(big.NewInt(int64(l2BlockNum))).Bytes())
+	call := f.contract.Call(methodCreateGame, gameType, outputRoot, extraData)
 	candidate, err := call.ToTxCandidate()
 	if err != nil {
 		return txmgr.TxCandidate{}, err
@@ -118,7 +121,7 @@ func (f *DisputeGameFactory) gameCount(ctx context.Context) (uint64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to load game count: %w", err)
 	}
-	return result.GetBigInt(0).Uint64(), nil
+	return bigs.Uint64Strict(result.GetBigInt(0)), nil
 }
 
 func (f *DisputeGameFactory) gameAtIndex(ctx context.Context, idx uint64) (gameMetadata, error) {
@@ -132,16 +135,39 @@ func (f *DisputeGameFactory) gameAtIndex(ctx context.Context, idx uint64) (gameM
 	timestamp := result.GetUint64(1)
 	address := result.GetAddress(2)
 
-	gameContract := batching.NewBoundContract(f.gameABI, address)
-	cCtx, cancel = context.WithTimeout(ctx, f.networkTimeout)
-	defer cancel()
-	result, err = f.caller.SingleCall(cCtx, rpcblock.Latest, gameContract.Call(methodClaim, big.NewInt(0)))
-	if err != nil {
-		return gameMetadata{}, fmt.Errorf("failed to load root claim of game %v: %w", idx, err)
+	var claimant common.Address
+	var claim common.Hash
+	if gameType == 0 || gameType == 1 {
+		gameContract := batching.NewBoundContract(f.gameABI, address)
+		cCtx, cancel = context.WithTimeout(ctx, f.networkTimeout)
+		defer cancel()
+		result, err = f.caller.SingleCall(cCtx, rpcblock.Latest, gameContract.Call(methodClaim, big.NewInt(0)))
+		if err != nil {
+			return gameMetadata{}, fmt.Errorf("failed to load root claim of game %v: %w", idx, err)
+		}
+		// We don't need most of the claim data, only the claim and the claimant which is the game proposer
+		claimant = result.GetAddress(2)
+		claim = result.GetHash(4)
+	} else if gameType == TEEGameType { // For xlayer: uses different claimData() ABI with no args
+		// For xlayer: use snapshot ABI loaded from compiled artifact instead of inline JSON
+		newGameContract := batching.NewBoundContract(teeDisputeGameSnapshotABI, address)
+		cCtx, cancel = context.WithTimeout(ctx, f.networkTimeout)
+		defer cancel()
+		result, err = f.caller.SingleCall(cCtx, rpcblock.Latest, newGameContract.Call(methodClaim))
+		if err != nil {
+			return gameMetadata{}, fmt.Errorf("failed to load root claim of game %v: %w", idx, err)
+		}
+		// For xlayer: TEE game has a dedicated proposer storage var; claimData index 2 is prover, not proposer
+		claim = result.GetHash(3)
+		cCtx, cancel = context.WithTimeout(ctx, f.networkTimeout)
+		defer cancel()
+		proposerResult, err := f.caller.SingleCall(cCtx, rpcblock.Latest, newGameContract.Call(methodTEEProposer))
+		if err != nil {
+			return gameMetadata{}, fmt.Errorf("failed to load proposer of TEE game %v: %w", idx, err)
+		}
+		claimant = proposerResult.GetAddress(0)
 	}
-	// We don't need most of the claim data, only the claim and the claimant which is the game proposer
-	claimant := result.GetAddress(2)
-	claim := result.GetHash(4)
+	// Other game types are not handled, claimant and claim remain zero values
 
 	return gameMetadata{
 		GameType:  gameType,

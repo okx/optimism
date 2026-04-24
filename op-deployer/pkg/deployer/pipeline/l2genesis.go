@@ -7,28 +7,19 @@ import (
 	"github.com/ethereum-optimism/optimism/op-chain-ops/genesis"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 
-	"github.com/ethereum-optimism/optimism/op-service/jsonutil"
-
-	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/standard"
-
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/env"
+	"github.com/ethereum-optimism/optimism/op-service/jsonutil"
 
 	"github.com/ethereum-optimism/optimism/op-chain-ops/foundry"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/broadcaster"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/opcm"
+	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/standard"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/state"
 
 	"github.com/ethereum/go-ethereum/common"
 )
 
 type l2GenesisOverrides struct {
-	// ===== CUSTOM GAS TOKEN (CGT) CONFIGURATION =====
-	UseCustomGasToken          bool         `json:"useCustomGasToken"`          // CGT: Enable custom gas token mode
-	GasPayingTokenName         string       `json:"gasPayingTokenName"`         // CGT: Name of the custom gas token
-	GasPayingTokenSymbol       string       `json:"gasPayingTokenSymbol"`       // CGT: Symbol of the custom gas token
-	NativeAssetLiquidityAmount *hexutil.Big `json:"nativeAssetLiquidityAmount"` // CGT: Liquidity amount for NativeAssetLiquidity contract
-
-	// ===== GENERAL L2 CONFIGURATION (NON-CGT) =====
 	FundDevAccounts                          bool                      `json:"fundDevAccounts"`
 	BaseFeeVaultMinimumWithdrawalAmount      *hexutil.Big              `json:"baseFeeVaultMinimumWithdrawalAmount"`
 	L1FeeVaultMinimumWithdrawalAmount        *hexutil.Big              `json:"l1FeeVaultMinimumWithdrawalAmount"`
@@ -40,6 +31,14 @@ type l2GenesisOverrides struct {
 	OperatorFeeVaultWithdrawalNetwork        genesis.WithdrawalNetwork `json:"operatorFeeVaultWithdrawalNetwork"`
 	EnableGovernance                         bool                      `json:"enableGovernance"`
 	GovernanceTokenOwner                     common.Address            `json:"governanceTokenOwner"`
+}
+
+type cgtConfig struct {
+	UseCustomGasToken          bool
+	GasPayingTokenName         string
+	GasPayingTokenSymbol       string
+	NativeAssetLiquidityAmount *big.Int
+	LiquidityControllerOwner   common.Address
 }
 
 func GenerateL2Genesis(pEnv *Env, intent *state.Intent, bundle ArtifactsBundle, st *state.State, chainID common.Hash) error {
@@ -82,6 +81,18 @@ func GenerateL2Genesis(pEnv *Env, intent *state.Intent, bundle ArtifactsBundle, 
 		return fmt.Errorf("failed to calculate L2 genesis overrides: %w", err)
 	}
 
+	cgt := buildCGTConfig(thisIntent)
+
+	// Check if L2CM feature is enabled
+	var useL2CM bool
+	if devFeatureBitmap, ok := intent.GlobalDeployOverrides["devFeatureBitmap"].(common.Hash); ok {
+		// TODO(#19151): Replace this with the L2CMDevFlag constant when we fix import cycles.
+		l2CMFlag := common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000100000")
+		if isDevFeatureEnabled(devFeatureBitmap, l2CMFlag) {
+			useL2CM = true
+		}
+	}
+
 	if err := script.Run(opcm.L2GenesisInput{
 		L1ChainID:                                new(big.Int).SetUint64(intent.L1ChainID),
 		L2ChainID:                                chainID.Big(),
@@ -106,14 +117,16 @@ func GenerateL2Genesis(pEnv *Env, intent *state.Intent, bundle ArtifactsBundle, 
 		DeployCrossL2Inbox:                       len(intent.Chains) > 1,
 		EnableGovernance:                         overrides.EnableGovernance,
 		FundDevAccounts:                          overrides.FundDevAccounts,
-		// Custom Gas Token (CGT) configuration passed to L2Genesis script
-		UseCustomGasToken:          thisIntent.CustomGasToken.Enabled, // CGT: Enable/disable custom gas token
-		GasPayingTokenName:         thisIntent.CustomGasToken.Name,    // CGT: Token name (e.g., "Custom Gas Token")
-		GasPayingTokenSymbol:       thisIntent.CustomGasToken.Symbol,  // CGT: Token symbol (e.g., "CGT")
-		NativeAssetLiquidityAmount: thisIntent.GetInitialLiquidity(),  // CGT: Liquidity amount for NativeAssetLiquidity contract
-		UseRevenueShare:            thisIntent.UseRevenueShare,
-		ChainFeesRecipient:         thisIntent.ChainFeesRecipient,
-		L1FeesDepositor:            standard.L1FeesDepositor,
+		UseRevenueShare:                          thisIntent.UseRevenueShare,
+		ChainFeesRecipient:                       thisIntent.ChainFeesRecipient,
+		L1FeesDepositor:                          standard.L1FeesDepositor,
+		// Custom Gas Token (CGT) configuration from intent
+		UseCustomGasToken:          cgt.UseCustomGasToken,
+		GasPayingTokenName:         cgt.GasPayingTokenName,
+		GasPayingTokenSymbol:       cgt.GasPayingTokenSymbol,
+		NativeAssetLiquidityAmount: cgt.NativeAssetLiquidityAmount,
+		LiquidityControllerOwner:   cgt.LiquidityControllerOwner,
+		UseL2CM:                    useL2CM,
 	}); err != nil {
 		return fmt.Errorf("failed to call L2Genesis script: %w", err)
 	}
@@ -133,7 +146,7 @@ func GenerateL2Genesis(pEnv *Env, intent *state.Intent, bundle ArtifactsBundle, 
 }
 
 func calculateL2GenesisOverrides(intent *state.Intent, thisIntent *state.ChainIntent) (l2GenesisOverrides, *genesis.UpgradeScheduleDeployConfig, error) {
-	schedule := standard.DefaultHardforkScheduleForTag(standard.CurrentTag)
+	schedule := standard.DefaultHardforkSchedule()
 
 	overrides := defaultOverrides()
 	// Special case for FundDevAccounts since it's both an intent value and an override.
@@ -162,17 +175,27 @@ func calculateL2GenesisOverrides(intent *state.Intent, thisIntent *state.ChainIn
 		}
 	}
 
-	// If CustomGasToken is not enabled, update it with override values
-	if !thisIntent.CustomGasToken.Enabled {
-		thisIntent.CustomGasToken = state.CustomGasToken{
-			Enabled:          overrides.UseCustomGasToken,
-			Name:             overrides.GasPayingTokenName,
-			Symbol:           overrides.GasPayingTokenSymbol,
-			InitialLiquidity: overrides.NativeAssetLiquidityAmount,
+	return overrides, schedule, nil
+}
+
+// buildCGTConfig returns the CGT configuration when enabled, otherwise an empty config.
+func buildCGTConfig(intent *state.ChainIntent) cgtConfig {
+	if !intent.IsCustomGasTokenEnabled() {
+		return cgtConfig{
+			UseCustomGasToken:          false,
+			GasPayingTokenName:         "",
+			GasPayingTokenSymbol:       "",
+			NativeAssetLiquidityAmount: big.NewInt(0),
+			LiquidityControllerOwner:   common.Address{},
 		}
 	}
-
-	return overrides, schedule, nil
+	return cgtConfig{
+		UseCustomGasToken:          true,
+		GasPayingTokenName:         intent.CustomGasToken.Name,
+		GasPayingTokenSymbol:       intent.CustomGasToken.Symbol,
+		NativeAssetLiquidityAmount: intent.GetInitialLiquidity(),
+		LiquidityControllerOwner:   intent.GetLiquidityControllerOwner(),
+	}
 }
 
 func shouldGenerateL2Genesis(thisChainState *state.ChainState) bool {
@@ -186,7 +209,6 @@ func wdNetworkToBig(wd genesis.WithdrawalNetwork) *big.Int {
 
 func defaultOverrides() l2GenesisOverrides {
 	return l2GenesisOverrides{
-		// ===== GENERAL L2 DEFAULTS =====
 		FundDevAccounts:                          false,
 		BaseFeeVaultMinimumWithdrawalAmount:      standard.VaultMinWithdrawalAmount,
 		L1FeeVaultMinimumWithdrawalAmount:        standard.VaultMinWithdrawalAmount,
@@ -198,10 +220,5 @@ func defaultOverrides() l2GenesisOverrides {
 		OperatorFeeVaultWithdrawalNetwork:        "local",
 		EnableGovernance:                         false,
 		GovernanceTokenOwner:                     standard.GovernanceTokenOwner,
-		// ===== CGT DEFAULTS =====
-		UseCustomGasToken:          false,                         // CGT disabled by default
-		GasPayingTokenName:         "",                            // Empty when CGT disabled
-		GasPayingTokenSymbol:       "",                            // Empty when CGT disabled
-		NativeAssetLiquidityAmount: (*hexutil.Big)(big.NewInt(0)), // Default to 0 when CGT disabled (consistent with "" and false)
 	}
 }

@@ -5,6 +5,8 @@ import { IDisputeGameFactory } from "interfaces/dispute/IDisputeGameFactory.sol"
 import { IDisputeGame } from "interfaces/dispute/IDisputeGame.sol";
 import { IAnchorStateRegistry } from "interfaces/dispute/IAnchorStateRegistry.sol";
 import { ITeeProofVerifier } from "interfaces/dispute/ITeeProofVerifier.sol";
+import { IAccessManager } from "interfaces/dispute/zk/IAccessManager.sol";
+import { AccessManager } from "src/dispute/tee/AccessManager.sol";
 import { TeeDisputeGame, TEE_DISPUTE_GAME_TYPE } from "src/dispute/tee/TeeDisputeGame.sol";
 import { BondDistributionMode, Duration, GameType, Claim, Hash, GameStatus } from "src/dispute/lib/Types.sol";
 import { MockAnchorStateRegistry } from "test/dispute/tee/mocks/MockAnchorStateRegistry.sol";
@@ -174,15 +176,18 @@ contract TeeDisputeGameInvariantTest is TeeTestUtils {
         anchorStateRegistry = new MockAnchorStateRegistry();
         teeProofVerifier = new MockTeeProofVerifier();
 
+        AccessManager accessManager = new AccessManager(7 days, IDisputeGameFactory(address(factory)));
+        accessManager.setProposer(proposer, true);
+        accessManager.setChallenger(challenger, true);
+
         implementation = new TeeDisputeGame(
             Duration.wrap(MAX_CHALLENGE_DURATION),
             Duration.wrap(MAX_PROVE_DURATION),
             IDisputeGameFactory(address(factory)),
             ITeeProofVerifier(address(teeProofVerifier)),
+            IAccessManager(address(accessManager)),
             CHALLENGER_BOND,
-            IAnchorStateRegistry(address(anchorStateRegistry)),
-            proposer,
-            challenger
+            IAnchorStateRegistry(address(anchorStateRegistry))
         );
 
         factory.setImplementation(GameType.wrap(TEE_DISPUTE_GAME_TYPE), implementation);

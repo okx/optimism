@@ -16,6 +16,9 @@ var superFaultDisputeGame []byte
 //go:embed abi/FaultDisputeGame.json
 var faultDisputeGame []byte
 
+//go:embed abi/OptimisticZkGame.json
+var zkDisputeGame []byte
+
 //go:embed abi/PreimageOracle.json
 var preimageOracle []byte
 
@@ -31,21 +34,35 @@ var systemConfig []byte
 //go:embed abi/CrossL2Inbox.json
 var crossL2Inbox []byte
 
+//go:embed abi/AnchorStateRegistry.json
+var anchorStateRegistry []byte // For xlayer
+
+//go:embed abi/TeeDisputeGame.json
+var teeDisputeGame []byte // For xlayer
+
 func LoadDisputeGameFactoryABI() *abi.ABI {
 	return loadABI(disputeGameFactory)
 }
+
 func LoadSuperFaultDisputeGameABI() *abi.ABI {
 	return loadABI(superFaultDisputeGame)
 }
+
 func LoadFaultDisputeGameABI() *abi.ABI {
 	return loadABI(faultDisputeGame)
 }
+
 func LoadPreimageOracleABI() *abi.ABI {
 	return loadABI(preimageOracle)
 }
+
 func LoadMIPSABI() *abi.ABI {
 	return loadABI(mips)
 }
+func LoadZKDisputeGameABI() *abi.ABI {
+	return loadABI(zkDisputeGame)
+}
+
 func LoadDelayedWETHABI() *abi.ABI {
 	return loadABI(delayedWETH)
 }
@@ -56,6 +73,14 @@ func LoadSystemConfigABI() *abi.ABI {
 
 func LoadCrossL2InboxABI() *abi.ABI {
 	return loadABI(crossL2Inbox)
+}
+
+func LoadAnchorStateRegistryABI() *abi.ABI { // For xlayer
+	return loadABI(anchorStateRegistry)
+}
+
+func LoadTeeDisputeGameABI() *abi.ABI { // For xlayer
+	return loadABI(teeDisputeGame)
 }
 
 func loadABI(json []byte) *abi.ABI {

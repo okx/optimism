@@ -19,7 +19,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/google/uuid"
-	"github.com/holiman/uint256"
 )
 
 // Contract method signatures (4-byte selectors)
@@ -35,6 +34,12 @@ const (
 
 	// FaultDisputeGame.claimCredit(address _recipient)
 	MethodSigClaimCredit = "0x60e27464"
+
+	// DisputeGame.prove(bytes _proof)
+	MethodSigProve = "0x375bfa5d"
+
+	// DisputeGame.challenge()
+	MethodSigChallenge = "0xd2ef7398"
 )
 
 // OperateType represents the operation type for XLayer remote signer
@@ -64,6 +69,12 @@ const (
 
 	// OperateTypeChallengerClaimCredit represents challenger claimCredit operation type
 	OperateTypeChallengerClaimCredit OperateType = 23
+
+	// OperateTypeProve represents TEE challenger prove(bytes) operation type
+	OperateTypeProve OperateType = 27
+
+	// OperateTypeChallenge represents TEE challenger challenge() operation type
+	OperateTypeChallenge OperateType = 28
 )
 
 // ComponentRole represents the role/type of blockchain component
@@ -83,16 +94,14 @@ const (
 	ComponentRoleUnknown ComponentRole = "unknown"
 )
 
-// Retry configuration constants
+// Polling configuration constants
 const (
-	// MaxSigningRetries is the maximum number of retry attempts for signing requests
-	MaxSigningRetries = 3
-
-	// RetryDelay is the delay duration between retry attempts
-	RetryDelay = 5 * time.Second
-
 	// SignResultPollInterval is the polling interval for querying signing results
 	SignResultPollInterval = 1 * time.Second
+
+	// MaxPollAttempts is the maximum number of polling attempts before giving up
+	// With 1 second interval, 120 attempts = 2 minutes max wait time
+	MaxPollAttempts = 120
 )
 
 // Response status codes
@@ -196,6 +205,11 @@ func NewXLayerRemoteClient(logger log.Logger, config XLayerConfig) *XLayerRemote
 // This method is safe for concurrent use - requests are serialized internally to prevent
 // concurrent calls to the remote signing service, which may not support parallel requests.
 func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.Int, from common.Address, tx *types.Transaction) (*types.Transaction, error) {
+	// Validate input parameters
+	if tx == nil {
+		return nil, fmt.Errorf("transaction is nil")
+	}
+
 	// Serialize all signing requests to prevent concurrent calls to remote signer
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -226,7 +240,7 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 		if err != nil {
 			return nil, fmt.Errorf("failed to build proposer other info: %w", err)
 		}
-		operateType = OperateTypeProposer
+		operateType = c.getProposerOperateType(tx)
 
 	case ComponentRoleChallenger:
 		otherInfo, err = c.buildChallengerOtherInfo(tx)
@@ -236,11 +250,65 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 		operateType = c.getChallengerOperateType(tx)
 
 	default:
-		otherInfo, err = c.buildDefaultOtherInfo(tx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to build default other info: %w", err)
+		// Unknown component type, reject to avoid sending incorrect operateType
+		// which could cause the remote signer to process incorrectly or block the address
+		var methodSig string
+		if len(tx.Data()) >= 4 {
+			methodSig = hexutil.Encode(tx.Data()[:4])
 		}
-		operateType = c.getDefaultOperateType(tx)
+		c.logger.Error("Unknown component type detected, refusing to sign transaction",
+			"componentType", componentType,
+			"txType", tx.Type(),
+			"txHash", tx.Hash().Hex(),
+			"from", from.Hex(),
+			"to", func() string {
+				if tx.To() == nil {
+					return "<nil>"
+				}
+				return tx.To().Hex()
+			}(),
+			"nonce", tx.Nonce(),
+			"value", func() string {
+				if tx.Value() != nil {
+					return tx.Value().String()
+				}
+				return "<nil>"
+			}(),
+			"gas", tx.Gas(),
+			"gasPrice", func() string {
+				if tx.GasPrice() != nil {
+					return tx.GasPrice().String()
+				}
+				return "<nil>"
+			}(),
+			"gasTipCap", func() string {
+				if tx.GasTipCap() != nil {
+					return tx.GasTipCap().String()
+				}
+				return "<nil>"
+			}(),
+			"gasFeeCap", func() string {
+				if tx.GasFeeCap() != nil {
+					return tx.GasFeeCap().String()
+				}
+				return "<nil>"
+			}(),
+			"dataLen", len(tx.Data()),
+			"methodSig", methodSig,
+			"data", hexutil.Encode(tx.Data()),
+			"blobHashes", len(tx.BlobHashes()),
+			"chainId", func() string {
+				if chainId != nil {
+					return chainId.String()
+				}
+				return "<nil>"
+			}())
+		toAddr := "<nil>"
+		if tx.To() != nil {
+			toAddr = tx.To().Hex()
+		}
+		return nil, fmt.Errorf("unknown component type %q: refusing to sign transaction (txType=%d, to=%s, nonce=%d, methodSig=%s, dataLen=%d) to prevent address blocking",
+			componentType, tx.Type(), toAddr, tx.Nonce(), methodSig, len(tx.Data()))
 	}
 
 	toAddress := ""
@@ -254,13 +322,19 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 
 	fromLower := common.HexToAddress(strings.ToLower(from.Hex()))
 
+	// Generate UUID for order tracking (using NewRandom to avoid potential panic)
+	refOrderID, err := uuid.NewRandom()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate order ID: %w", err)
+	}
+
 	signReq := &XLayerSignRequest{
 		UserID:          c.config.UserID,
 		OperateType:     operateType,
 		OperateAddress:  fromLower,
 		Symbol:          c.config.Symbol,
 		ProjectSymbol:   c.config.ProjectSymbol,
-		RefOrderID:      uuid.New().String(),
+		RefOrderID:      refOrderID.String(),
 		OperateSymbol:   c.config.OperateSymbol,
 		OperateAmount:   operateAmount,
 		SysFrom:         c.config.SysFrom,
@@ -292,75 +366,14 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 		"toAddress_in_struct", signReq.ToAddress,
 		"tx_to_is_nil", tx.To() == nil)
 
-	// 4. Send signing request and wait for result with intelligent retry logic
-	// Retry only for "pending transaction" errors from remote signer
-	var signedTx *types.Transaction
-
-	for attempt := 0; attempt <= MaxSigningRetries; attempt++ {
-		if attempt > 0 {
-			c.logger.Warn("Retrying remote signing after pending transaction error",
-				"attempt", attempt,
-				"max_retries", MaxSigningRetries,
-				"delay", RetryDelay,
-				"nonce", tx.Nonce())
-
-			// Wait before retry, respecting context cancellation
-			select {
-			case <-ctx.Done():
-				return nil, fmt.Errorf("context cancelled during retry: %w", ctx.Err())
-			case <-time.After(RetryDelay):
-				// Continue to retry
-			}
-		}
-
-		var err error
-		signedTx, err = c.postSignRequestAndWaitResult(ctx, signReq, tx)
-		if err == nil {
-			// Success - transaction signed
-			if attempt > 0 {
-				c.logger.Info("Remote signing succeeded after retry",
-					"attempt", attempt,
-					"nonce", tx.Nonce())
-			}
-			break
-		}
-
-		// Check if error is "pending transaction" related
-		errStr := err.Error()
-		isPendingTxError := strings.Contains(errStr, "未完成交易") ||
-			strings.Contains(errStr, "pending transaction") ||
-			strings.Contains(errStr, "相同地址有未完成交易") ||
-			strings.Contains(errStr, "has pending transactions")
-
-		if !isPendingTxError {
-			// Not a pending tx error - fail immediately without retry
-			c.logger.Error("Remote signing failed with non-retryable error",
-				"error", err,
-				"nonce", tx.Nonce())
-			return nil, fmt.Errorf("remote signing failed: %w", err)
-		}
-
-		if attempt == MaxSigningRetries {
-			// Max retries reached for pending tx error
-			c.logger.Error("Remote signing failed after max retries",
-				"max_retries", MaxSigningRetries,
-				"error", err,
-				"nonce", tx.Nonce())
-			return nil, fmt.Errorf("remote signing failed after %d retries (pending transaction): %w", MaxSigningRetries, err)
-		}
-
-		// Will retry - log the pending transaction error
-		c.logger.Info("Remote signer reported pending transaction, will retry",
-			"nonce", tx.Nonce(),
-			"attempt", attempt+1,
-			"max_retries", MaxSigningRetries,
-			"next_retry_in", RetryDelay)
-	}
-
-	// Sanity check: ensure signedTx is not nil or invalid
-	if signedTx == nil {
-		c.logger.Error("signedTx is nil after all retries")
-		return nil, fmt.Errorf("signedTx is nil")
+	// 4. Send signing request and wait for result
+	// Note: Retry logic is handled by upstream txmgr, no internal retry needed here
+	signedTx, err := c.postSignRequestAndWaitResult(ctx, signReq, tx)
+	if err != nil {
+		c.logger.Error("Remote signing failed",
+			"error", err,
+			"nonce", tx.Nonce())
+		return nil, fmt.Errorf("remote signing failed: %w", err)
 	}
 
 	// Log signed transaction details with safe nil handling
@@ -492,7 +505,8 @@ func (c *XLayerRemoteClient) detectComponentType(tx *types.Transaction) Componen
 
 func (c *XLayerRemoteClient) detectProposerMethod(methodSig []byte) ComponentRole {
 	methodSigHex := hexutil.Encode(methodSig)
-	if methodSigHex == MethodSigDGFCreate {
+	switch methodSigHex {
+	case MethodSigDGFCreate, MethodSigProve:
 		return ComponentRoleProposer
 	}
 	return ComponentRoleUnknown
@@ -501,7 +515,7 @@ func (c *XLayerRemoteClient) detectProposerMethod(methodSig []byte) ComponentRol
 func (c *XLayerRemoteClient) detectChallengerMethod(methodSig []byte) ComponentRole {
 	methodSigHex := hexutil.Encode(methodSig)
 	switch methodSigHex {
-	case MethodSigResolveClaim, MethodSigResolve, MethodSigClaimCredit:
+	case MethodSigResolveClaim, MethodSigResolve, MethodSigClaimCredit, MethodSigChallenge:
 		return ComponentRoleChallenger
 	}
 	return ComponentRoleUnknown
@@ -585,8 +599,12 @@ func (c *XLayerRemoteClient) postSignRequestAndWaitResult(ctx context.Context, r
 		"gas", signedTx.Gas(),
 		"data_len", len(signedTx.Data()))
 
-	// 4. For blob transactions, attach sidecar
-	// Do not reassemble! Use the transaction returned by remote signer directly
+	// 4. For blob transactions, attach the original sidecar if not present in signed tx.
+	// NOTE: Remote signer only signs the transaction core fields without blob data (Sidecar).
+	// We must attach the original Sidecar back to the signed transaction, as it's required
+	// for broadcasting EIP-4844 blob transactions.
+	// This is NOT reassembling transaction fields - we only restore the blob data that was
+	// intentionally excluded from the signing request due to its large size (~128KB per blob).
 	if originalTx.Type() == types.BlobTxType && signedTx.BlobTxSidecar() == nil {
 		c.logger.Info("Attaching sidecar to signed blob transaction")
 		if originalTx.BlobTxSidecar() != nil {
@@ -599,66 +617,6 @@ func (c *XLayerRemoteClient) postSignRequestAndWaitResult(ctx context.Context, r
 	return &signedTx, nil
 }
 
-// reassembleBlobTransaction reassembles a blob transaction with signature from remote signer
-func (c *XLayerRemoteClient) reassembleBlobTransaction(originalTx *types.Transaction, signedTx *types.Transaction) (*types.Transaction, error) {
-	c.logger.Info("Reassembling blob transaction with signature from remote signer")
-
-	// Extract signature values from remote signed transaction
-	v, r, s := signedTx.RawSignatureValues()
-
-	// Get original blob transaction internal data
-	var originalBlobTx *types.BlobTx
-	switch inner := originalTx.Type(); inner {
-	case types.BlobTxType:
-		// Extract all parameters from original transaction
-		originalBlobTx = &types.BlobTx{
-			ChainID:    uint256.MustFromBig(originalTx.ChainId()),
-			Nonce:      originalTx.Nonce(),
-			GasTipCap:  uint256.MustFromBig(originalTx.GasTipCap()),
-			GasFeeCap:  uint256.MustFromBig(originalTx.GasFeeCap()),
-			Gas:        originalTx.Gas(),
-			To:         *originalTx.To(),
-			Value:      uint256.MustFromBig(originalTx.Value()),
-			Data:       originalTx.Data(),
-			BlobFeeCap: uint256.MustFromBig(originalTx.BlobGasFeeCap()),
-			BlobHashes: originalTx.BlobHashes(),
-			Sidecar:    originalTx.BlobTxSidecar(),
-		}
-	default:
-		return nil, fmt.Errorf("original transaction is not a BlobTx, type: %d", inner)
-	}
-
-	// Create new blob transaction using original parameters + remote signature
-	reassembledBlobTx := &types.BlobTx{
-		ChainID:    originalBlobTx.ChainID,
-		Nonce:      originalBlobTx.Nonce,
-		GasTipCap:  originalBlobTx.GasTipCap,
-		GasFeeCap:  originalBlobTx.GasFeeCap,
-		Gas:        originalBlobTx.Gas,
-		To:         originalBlobTx.To,
-		Value:      originalBlobTx.Value,
-		Data:       originalBlobTx.Data,
-		AccessList: originalBlobTx.AccessList,
-		BlobFeeCap: originalBlobTx.BlobFeeCap,
-		BlobHashes: originalBlobTx.BlobHashes,
-		Sidecar:    originalBlobTx.Sidecar,
-		// Use signature values from remote signer
-		V: uint256.MustFromBig(v),
-		R: uint256.MustFromBig(r),
-		S: uint256.MustFromBig(s),
-	}
-
-	reassembledTx := types.NewTx(reassembledBlobTx)
-
-	c.logger.Info("Blob transaction reassembled successfully",
-		"type", reassembledTx.Type(),
-		"nonce", reassembledTx.Nonce(),
-		"to", reassembledTx.To(),
-		"hasSidecar", reassembledTx.BlobTxSidecar() != nil)
-
-	return reassembledTx, nil
-}
-
 // postSignRequest sends a signing request to XLayer remote signer
 func (c *XLayerRemoteClient) postSignRequest(ctx context.Context, req *XLayerSignRequest) error {
 	// 1. Serialize request with sorted keys
@@ -667,7 +625,6 @@ func (c *XLayerRemoteClient) postSignRequest(ctx context.Context, req *XLayerSig
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Debug: 打印实际发送的JSON
 	c.logger.Debug("Serialized sign request JSON",
 		"payload", string(payload),
 		"depositAddress_field", req.DepositeAddress,
@@ -787,16 +744,31 @@ func (c *XLayerRemoteClient) waitSignResult(ctx context.Context, orderID string)
 	ticker := time.NewTicker(SignResultPollInterval)
 	defer ticker.Stop()
 
+	attempts := 0
 	for {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-ticker.C:
+			attempts++
+			if attempts > MaxPollAttempts {
+				return nil, fmt.Errorf("exceeded maximum poll attempts (%d) waiting for sign result, orderID: %s", MaxPollAttempts, orderID)
+			}
+
 			result, err := c.querySignResult(ctx, queryReq)
-			if err == nil && result.Success && len(result.Data) > 0 {
+			if err != nil {
+				c.logger.Debug("Query sign result failed, retrying",
+					"attempt", attempts,
+					"maxAttempts", MaxPollAttempts,
+					"orderID", orderID,
+					"error", err)
+				continue
+			}
+
+			if result.Success && len(result.Data) > 0 {
 				return result, nil
 			}
-			// Continue waiting
+			// Continue waiting for result
 		}
 	}
 }
@@ -928,6 +900,11 @@ func (c *XLayerRemoteClient) sortedMarshal(v interface{}) ([]byte, error) {
 
 // buildProposerOtherInfo builds Proposer's OtherInfo by unpacking ABI-encoded business parameters
 func (c *XLayerRemoteClient) buildProposerOtherInfo(tx *types.Transaction) (string, error) {
+	// Route TEE prove() to its own builder
+	if len(tx.Data()) >= 4 && hexutil.Encode(tx.Data()[:4]) == MethodSigProve {
+		return c.buildProposerTeeProveOtherInfo(tx, c.buildBaseOtherInfo(tx))
+	}
+
 	// Base transaction parameters
 	baseInfo := c.buildBaseOtherInfo(tx)
 
@@ -975,6 +952,34 @@ func (c *XLayerRemoteClient) buildProposerOtherInfo(tx *types.Transaction) (stri
 	}
 
 	return string(data), nil
+}
+
+// buildProposerTeeProveOtherInfo builds OtherInfo for TEE prove(bytes) method
+func (c *XLayerRemoteClient) buildProposerTeeProveOtherInfo(tx *types.Transaction, baseInfo XLayerOtherInfo) (string, error) {
+	// prove(bytes _proof): ABI-encoded as selector(4) + offset(32) + length(32) + data(padded)
+	// Extract only the actual bytes content, excluding ABI offset/length headers and padding.
+	var proofBytes *string
+	if len(tx.Data()) > 4+64 { // 4 selector + 32 offset + 32 length
+		lengthBig := new(big.Int).SetBytes(tx.Data()[36:68]) // length field at bytes[36:68]
+		length := int(lengthBig.Int64())
+		if len(tx.Data()) >= 68+length {
+			raw := tx.Data()[68 : 68+length]
+			s := hexutil.Encode(raw)
+			proofBytes = &s
+		}
+	}
+
+	enhancedInfo := struct {
+		XLayerOtherInfo
+		OperateType int     `json:"operateType"`
+		ProofBytes  *string `json:"proofBytes,omitempty"`
+	}{
+		XLayerOtherInfo: baseInfo,
+		OperateType:     int(OperateTypeProve),
+		ProofBytes:      proofBytes,
+	}
+
+	return c.marshalOtherInfo(enhancedInfo)
 }
 
 // buildBatcherOtherInfo builds Batcher's OtherInfo
@@ -1075,6 +1080,8 @@ func (c *XLayerRemoteClient) buildChallengerOtherInfo(tx *types.Transaction) (st
 		return c.buildChallengerResolveOtherInfo(tx, baseInfo)
 	case MethodSigClaimCredit: // claimCredit
 		return c.buildChallengerClaimCreditOtherInfo(tx, baseInfo)
+	case MethodSigChallenge: // challenge
+		return c.buildChallengerTeeChallengOtherInfo(tx, baseInfo)
 	default:
 		// Unknown method, return base info with method signature
 		c.logger.Warn("Unknown challenger method signature", "signature", methodSigHex)
@@ -1161,10 +1168,20 @@ func (c *XLayerRemoteClient) buildChallengerClaimCreditOtherInfo(tx *types.Trans
 	return c.marshalOtherInfo(enhancedInfo)
 }
 
-// buildDefaultOtherInfo builds default OtherInfo
-func (c *XLayerRemoteClient) buildDefaultOtherInfo(tx *types.Transaction) (string, error) {
-	baseInfo := c.buildBaseOtherInfo(tx)
-	return c.marshalOtherInfo(baseInfo)
+// buildChallengerTeeChallengOtherInfo builds OtherInfo for TEE challenge() method
+func (c *XLayerRemoteClient) buildChallengerTeeChallengOtherInfo(tx *types.Transaction, baseInfo XLayerOtherInfo) (string, error) {
+	// challenge() - no parameters, but is payable (carries challengerBond as value)
+	enhancedInfo := struct {
+		XLayerOtherInfo
+		Method      string `json:"method"`
+		OperateType int    `json:"operateType"`
+	}{
+		XLayerOtherInfo: baseInfo,
+		Method:          "challenge",
+		OperateType:     int(OperateTypeChallenge),
+	}
+
+	return c.marshalOtherInfo(enhancedInfo)
 }
 
 // buildBaseOtherInfo builds base OtherInfo parameters
@@ -1213,6 +1230,17 @@ func (c *XLayerRemoteClient) getBatcherOperateType(tx *types.Transaction) Operat
 	}
 }
 
+// getProposerOperateType returns the operate type for Proposer transactions based on method signature
+func (c *XLayerRemoteClient) getProposerOperateType(tx *types.Transaction) OperateType {
+	if len(tx.Data()) >= 4 {
+		switch hexutil.Encode(tx.Data()[:4]) {
+		case MethodSigProve:
+			return OperateTypeProve
+		}
+	}
+	return OperateTypeProposer
+}
+
 // getChallengerOperateType returns the operate type for Challenger transactions based on method signature
 func (c *XLayerRemoteClient) getChallengerOperateType(tx *types.Transaction) OperateType {
 	methodSigHex := hexutil.Encode(tx.Data()[:4])
@@ -1223,21 +1251,11 @@ func (c *XLayerRemoteClient) getChallengerOperateType(tx *types.Transaction) Ope
 		return OperateTypeChallengerResolve
 	case MethodSigClaimCredit:
 		return OperateTypeChallengerClaimCredit
+	case MethodSigChallenge:
+		return OperateTypeChallenge
 	default:
 		c.logger.Warn("Unknown challenger method, using default operateType", "signature", methodSigHex)
 		return OperateTypeChallengerResolveClaim
-	}
-}
-
-// getDefaultOperateType returns the default operate type based on transaction type
-func (c *XLayerRemoteClient) getDefaultOperateType(tx *types.Transaction) OperateType {
-	switch tx.Type() {
-	case types.BlobTxType:
-		return OperateTypeBatcherBlob
-	case types.DynamicFeeTxType:
-		return OperateTypeDynamicFee
-	default:
-		return OperateTypeLegacy
 	}
 }
 
@@ -1356,11 +1374,6 @@ func (c *XLayerRemoteClient) verifySignedTransaction(originalTx *types.Transacti
 		}
 	}
 
-	// 8. Verify the fee parameters (perform intelligent verification based on the transaction type after signing)
-	if err := c.verifyGasFields(originalTx, signedTx); err != nil {
-		return fmt.Errorf("gas fields verification failed: %w", err)
-	}
-
 	// 9.Verify whether the signature is valid
 	if err := c.verifyTransactionSignature(signedTx); err != nil {
 		return fmt.Errorf("transaction signature verification failed: %w", err)
@@ -1372,60 +1385,6 @@ func (c *XLayerRemoteClient) verifySignedTransaction(originalTx *types.Transacti
 		"type", signedTx.Type(),
 		"to", signedTx.To(),
 		"nonce", signedTx.Nonce())
-
-	return nil
-}
-
-func (c *XLayerRemoteClient) verifyBlobTxFields(originalTx *types.Transaction, signedTx *types.Transaction) error {
-	// gas fee cap
-	if originalTx.GasFeeCap().Cmp(signedTx.GasFeeCap()) != 0 {
-		return fmt.Errorf("gas fee cap mismatch: original=%s, signed=%s",
-			originalTx.GasFeeCap().String(), signedTx.GasFeeCap().String())
-	}
-
-	// gas tip cap
-	if originalTx.GasTipCap().Cmp(signedTx.GasTipCap()) != 0 {
-		return fmt.Errorf("gas tip cap mismatch: original=%s, signed=%s",
-			originalTx.GasTipCap().String(), signedTx.GasTipCap().String())
-	}
-
-	// blob gas fee cap
-	if originalTx.BlobGasFeeCap().Cmp(signedTx.BlobGasFeeCap()) != 0 {
-		return fmt.Errorf("blob gas fee cap mismatch: original=%s, signed=%s",
-			originalTx.BlobGasFeeCap().String(), signedTx.BlobGasFeeCap().String())
-	}
-
-	// blob hash
-	originalHashes := originalTx.BlobHashes()
-	signedHashes := signedTx.BlobHashes()
-	if len(originalHashes) != len(signedHashes) {
-		return fmt.Errorf("blob hashes count mismatch: original=%d, signed=%d",
-			len(originalHashes), len(signedHashes))
-	}
-
-	for i, originalHash := range originalHashes {
-		if originalHash != signedHashes[i] {
-			return fmt.Errorf("blob hash mismatch at index %d: original=%s, signed=%s",
-				i, originalHash.Hex(), signedHashes[i].Hex())
-		}
-	}
-
-	return nil
-}
-
-// verifyDynamicFeeTxFields verify EIP-1559
-func (c *XLayerRemoteClient) verifyDynamicFeeTxFields(originalTx *types.Transaction, signedTx *types.Transaction) error {
-	// 验证gas fee cap
-	if originalTx.GasFeeCap().Cmp(signedTx.GasFeeCap()) != 0 {
-		return fmt.Errorf("gas fee cap mismatch: original=%s, signed=%s",
-			originalTx.GasFeeCap().String(), signedTx.GasFeeCap().String())
-	}
-
-	// 验证gas tip cap
-	if originalTx.GasTipCap().Cmp(signedTx.GasTipCap()) != 0 {
-		return fmt.Errorf("gas tip cap mismatch: original=%s, signed=%s",
-			originalTx.GasTipCap().String(), signedTx.GasTipCap().String())
-	}
 
 	return nil
 }
@@ -1459,79 +1418,6 @@ func (c *XLayerRemoteClient) verifyTransactionSignature(signedTx *types.Transact
 	return nil
 }
 
-// verifyGasFields Intelligently verify the gas field and handle transaction type conversions
-func (c *XLayerRemoteClient) verifyGasFields(originalTx *types.Transaction, signedTx *types.Transaction) error {
-	// Verify based on the transaction type after signing
-	switch signedTx.Type() {
-	case types.BlobTxType:
-		// After signing, it becomes a blob transaction, and the original transaction must also be a blob transaction
-		if originalTx.Type() != types.BlobTxType {
-			return fmt.Errorf("blob transaction type mismatch: original=%d, signed=%d",
-				originalTx.Type(), signedTx.Type())
-		}
-		return c.verifyBlobTxFields(originalTx, signedTx)
-
-	case types.DynamicFeeTxType:
-		// After signing, it becomes an EIP-1559 transaction
-		if originalTx.Type() != types.DynamicFeeTxType {
-			return fmt.Errorf("dynamic fee transaction type mismatch: original=%d, signed=%d",
-				originalTx.Type(), signedTx.Type())
-		}
-		return c.verifyDynamicFeeTxFields(originalTx, signedTx)
-
-	case types.LegacyTxType:
-		// After signing, it becomes a Legacy transaction, which may be converted from EIP-1559
-		return c.verifyLegacyTxFields(originalTx, signedTx)
-
-	default:
-		return fmt.Errorf("unsupported signed transaction type: %d", signedTx.Type())
-	}
-}
-
-// verifyLegacyTxFields Verify Legacy transaction fields (handle conversions from EIP-1559)
-func (c *XLayerRemoteClient) verifyLegacyTxFields(originalTx *types.Transaction, signedTx *types.Transaction) error {
-	switch originalTx.Type() {
-	case types.LegacyTxType:
-		// The original transaction was Legacy, directly comparing the gas price
-		if originalTx.GasPrice().Cmp(signedTx.GasPrice()) != 0 {
-			return fmt.Errorf("gas price mismatch: original=%s, signed=%s",
-				originalTx.GasPrice().String(), signedTx.GasPrice().String())
-		}
-
-	case types.DynamicFeeTxType:
-		// The original is EIP-1559. To convert it to Legacy, it is necessary to verify whether the gas price is reasonable
-		// The gas price of Legacy should be equal to or close to the original gas fee cap
-		originalGasFeeCap := originalTx.GasFeeCap()
-		signedGasPrice := signedTx.GasPrice()
-
-		// A certain margin of error (such as ±20%) is allowed as the remote signer may adjust
-		tolerance := new(big.Int).Div(originalGasFeeCap, big.NewInt(5)) // 20% tolerance
-		lowerBound := new(big.Int).Sub(originalGasFeeCap, tolerance)
-		upperBound := new(big.Int).Add(originalGasFeeCap, tolerance)
-
-		if signedGasPrice.Cmp(lowerBound) < 0 || signedGasPrice.Cmp(upperBound) > 0 {
-			c.logger.Warn("Gas price conversion outside tolerance range",
-				"original_gas_fee_cap", originalGasFeeCap.String(),
-				"original_gas_tip_cap", originalTx.GasTipCap().String(),
-				"signed_gas_price", signedGasPrice.String(),
-				"tolerance", tolerance.String(),
-				"lower_bound", lowerBound.String(),
-				"upper_bound", upperBound.String())
-			// No error is returned; only warnings are recorded because this conversion is allowed
-		}
-
-		c.logger.Debug("EIP-1559 to Legacy gas conversion verified",
-			"original_gas_fee_cap", originalGasFeeCap.String(),
-			"original_gas_tip_cap", originalTx.GasTipCap().String(),
-			"signed_gas_price", signedGasPrice.String())
-
-	default:
-		return fmt.Errorf("unsupported original transaction type for legacy conversion: %d", originalTx.Type())
-	}
-
-	return nil
-}
-
 func convertValueToOperateAmount(valueWei *big.Int) string {
 	if valueWei == nil || valueWei.Sign() == 0 {
 		return "0"
@@ -1550,5 +1436,7 @@ func convertValueToOperateAmount(valueWei *big.Int) string {
 }
 
 func (c *XLayerRemoteClient) Close() {
-	// Cleanup resources
+	if c.client != nil {
+		c.client.CloseIdleConnections()
+	}
 }

@@ -28,17 +28,6 @@ type OutputRootProof struct {
 	LatestBlockhash          [32]byte
 }
 
-type SuperRootProof struct {
-	Version     [1]byte
-	Timestamp   uint64
-	OutputRoots []OutputRootWithChainID
-}
-
-type OutputRootWithChainID struct {
-	ChainID *big.Int
-	Root    [32]byte
-}
-
 type OptimismPortal2 struct {
 	// Read-only functions
 	CheckWithdrawal                 func(withdrawalHash [32]byte, proofSubmitter common.Address) TypedCall[any] `sol:"checkWithdrawal"`
@@ -64,6 +53,7 @@ type OptimismPortal2 struct {
 	RespectedGameTypeUpdatedAt func() TypedCall[uint64]                                                                   `sol:"respectedGameTypeUpdatedAt"`
 	SuperchainConfig           func() TypedCall[common.Address]                                                           `sol:"superchainConfig"`
 	SystemConfig               func() TypedCall[common.Address]                                                           `sol:"systemConfig"`
+	AnchorStateRegistry        func() TypedCall[common.Address]                                                           `sol:"anchorStateRegistry"`
 	Version                    func() TypedCall[string]                                                                   `sol:"version"`
 
 	// Write functions
@@ -86,9 +76,8 @@ type OptimismPortal2 struct {
 		GasLimit *big.Int
 		Data     []byte
 	}, proofSubmitter common.Address) TypedCall[any] `sol:"finalizeWithdrawalTransactionExternalProof"`
-	Initialize                          func(disputeGameFactory common.Address, systemConfig common.Address, superchainConfig common.Address) TypedCall[any]                                                                          `sol:"initialize"`
-	ProveWithdrawalTransactionSuperRoot func(tx WithdrawalTransaction, disputeGame common.Address, outputRootIndex *big.Int, superRootProof SuperRootProof, outputRootProof OutputRootProof, withdrawalProof [][]byte) TypedCall[any] `sol:"proveWithdrawalTransaction"`
-	ProveWithdrawalTransaction          func(tx WithdrawalTransaction, disputeGameIndex *big.Int, outputRootProof OutputRootProof, withdrawalProof [][]byte) TypedCall[any]                                                           `sol:"proveWithdrawalTransaction"`
-	SetRespectedGameType                func(gameType uint32) TypedCall[any]                                                                                                                                                          `sol:"setRespectedGameType"`
-	Receive                             func() TypedCall[any]                                                                                                                                                                         `sol:"receive"`
+	Initialize                 func(disputeGameFactory common.Address, systemConfig common.Address, superchainConfig common.Address) TypedCall[any]                `sol:"initialize"`
+	ProveWithdrawalTransaction func(tx WithdrawalTransaction, disputeGameIndex *big.Int, outputRootProof OutputRootProof, withdrawalProof [][]byte) TypedCall[any] `sol:"proveWithdrawalTransaction"`
+	SetRespectedGameType       func(gameType uint32) TypedCall[any]                                                                                                `sol:"setRespectedGameType"`
+	Receive                    func() TypedCall[any]                                                                                                               `sol:"receive"`
 }

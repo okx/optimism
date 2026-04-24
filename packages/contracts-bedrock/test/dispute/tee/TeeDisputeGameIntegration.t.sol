@@ -12,6 +12,8 @@ import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
 import { ITeeProofVerifier } from "interfaces/dispute/ITeeProofVerifier.sol";
 import { TeeDisputeGame, TEE_DISPUTE_GAME_TYPE } from "src/dispute/tee/TeeDisputeGame.sol";
 import { TeeProofVerifier } from "src/dispute/tee/TeeProofVerifier.sol";
+import { AccessManager } from "src/dispute/tee/AccessManager.sol";
+import { IAccessManager } from "interfaces/dispute/zk/IAccessManager.sol";
 import { BondDistributionMode, Claim, Duration, GameStatus, GameType, Hash, Proposal } from "src/dispute/lib/Types.sol";
 import { GameNotFinalized } from "src/dispute/lib/Errors.sol";
 import { ParentGameNotResolved, InvalidParentGame } from "src/dispute/tee/lib/Errors.sol";
@@ -40,6 +42,7 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
     DisputeGameFactory internal factory;
     AnchorStateRegistry internal anchorStateRegistry;
     TeeProofVerifier internal teeProofVerifier;
+    AccessManager internal accessManager;
     TeeDisputeGame internal implementation;
 
     address internal proposer;
@@ -60,7 +63,10 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
         // --- Deploy real AnchorStateRegistry via Proxy ---
         anchorStateRegistry = _deployAnchorStateRegistry(factory);
 
-        // --- Deploy real TeeProofVerifier (with MockRiscZeroVerifier) ---
+        // --- Deploy AccessManager + real TeeProofVerifier (with MockRiscZeroVerifier) ---
+        accessManager = new AccessManager(7 days, IDisputeGameFactory(address(factory)));
+        accessManager.setProposer(proposer, true);
+        accessManager.setChallenger(challenger, true);
         teeProofVerifier = _deployTeeProofVerifier();
 
         // --- Deploy TeeDisputeGame implementation ---
@@ -69,10 +75,9 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
             Duration.wrap(MAX_PROVE_DURATION),
             IDisputeGameFactory(address(factory)),
             ITeeProofVerifier(address(teeProofVerifier)),
+            IAccessManager(address(accessManager)),
             CHALLENGER_BOND,
-            IAnchorStateRegistry(address(anchorStateRegistry)),
-            proposer,
-            challenger
+            IAnchorStateRegistry(address(anchorStateRegistry))
         );
 
         factory.setImplementation(TEE_GAME_TYPE, IDisputeGame(address(implementation)), bytes(""));
@@ -271,15 +276,8 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
         (TeeDisputeGame parent,,) =
             _createGame(proposer, ANCHOR_L2_BLOCK + 5, type(uint32).max, parentEndBlockHash, parentEndStateHash);
 
-        // Wait for challenge window and resolve parent
-        vm.warp(block.timestamp + MAX_CHALLENGE_DURATION + 1);
-        parent.resolve();
-
-        // Wait for parent finality so it can become anchor
-        vm.warp(block.timestamp + 1);
-        parent.claimCredit(proposer);
-
-        // Create child game referencing parent (parentIndex = 0)
+        // Create child game referencing parent BEFORE parent finalizes and advances anchor.
+        // This is the realistic scenario: child is created while parent is still in progress.
         bytes32 childEndBlockHash = keccak256("child-end-block");
         bytes32 childEndStateHash = keccak256("child-end-state");
         (TeeDisputeGame child,,) = _createGame(proposer, ANCHOR_L2_BLOCK + 10, 0, childEndBlockHash, childEndStateHash);
@@ -289,7 +287,7 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
         assertEq(childStartRoot.raw(), computeRootClaim(parentEndBlockHash, parentEndStateHash).raw());
         assertEq(childStartBlock, ANCHOR_L2_BLOCK + 5);
 
-        // Prove and resolve child
+        // Prove child immediately (before any time warp expires its deadline)
         TeeDisputeGame.BatchProof[] memory proofs = new TeeDisputeGame.BatchProof[](1);
         proofs[0] = buildBatchProof(
             BatchInput({
@@ -306,6 +304,15 @@ contract TeeDisputeGameIntegrationTest is TeeTestUtils {
         vm.prank(proposer);
         child.prove(abi.encode(proofs));
 
+        // Now resolve parent (challenge window expires → DEFENDER_WINS)
+        vm.warp(block.timestamp + MAX_CHALLENGE_DURATION + 1);
+        parent.resolve();
+
+        // Wait for parent finality so it can become anchor
+        vm.warp(block.timestamp + 1);
+        parent.claimCredit(proposer);
+
+        // Child can now resolve (parent is resolved as DEFENDER_WINS)
         assertEq(uint8(child.resolve()), uint8(GameStatus.DEFENDER_WINS));
 
         // Wait for finality and claim
