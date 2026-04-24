@@ -274,6 +274,9 @@ func (btx *spanBatchTxs) recoverV(chainID *big.Int) error {
 		case types.AccessListTxType, types.DynamicFeeTxType, types.SetCodeTxType:
 			// For non-legacy tx types, v is just the y-parity bit (0 or 1).
 			v = big.NewInt(int64(bit))
+		case int(xlayerAATxType):
+			// AA txs have no ECDSA signature; V is always 0.
+			v = big.NewInt(0)
 		default:
 			return fmt.Errorf("invalid tx type: %d", txType)
 		}
@@ -346,6 +349,16 @@ func (btx *spanBatchTxs) fullTxs(chainID *big.Int) ([][]byte, error) {
 		if err := stx.UnmarshalBinary(btx.txDatas[idx]); err != nil {
 			return nil, err
 		}
+		// AA txs carry their full payload in txDatas; reconstruct without sig.
+		if stx.Type() == xlayerAATxType {
+			aaTxData := stx.inner.(*spanBatchAATxData)
+			rawTx, err := aaTxData.toRawTx(btx.txNonces[idx], btx.txGases[idx], chainID.Uint64())
+			if err != nil {
+				return nil, fmt.Errorf("failed to reconstruct AA tx at index %d: %w", idx, err)
+			}
+			txs = append(txs, rawTx)
+			continue
+		}
 		nonce := btx.txNonces[idx]
 		gas := btx.txGases[idx]
 		var to *common.Address = nil
@@ -392,6 +405,8 @@ func convertVToYParity(v *big.Int, txType int) (uint, error) {
 		yParityBit = uint(bigs.Uint64Strict(v))
 	case types.SetCodeTxType:
 		yParityBit = uint(bigs.Uint64Strict(v))
+	case int(xlayerAATxType):
+		yParityBit = 0 // AA txs have no ECDSA signature
 	default:
 		return 0, fmt.Errorf("invalid tx type: %d", txType)
 	}
@@ -431,6 +446,36 @@ func (sbtx *spanBatchTxs) AddTxs(txs [][]byte, chainID *big.Int) error {
 	totalBlockTxCount := uint64(len(txs))
 	offset := sbtx.totalBlockTxCount
 	for idx := 0; idx < int(totalBlockTxCount); idx++ {
+		// AA txs cannot be decoded by types.Transaction — handle separately.
+		if len(txs[idx]) > 0 && txs[idx][0] == xlayerAATxType {
+			data, txChainID, nonceSeq, gasLimit, err := decodeAATxToSpanBatchData(txs[idx])
+			if err != nil {
+				return fmt.Errorf("failed to decode AA tx at index %d: %w", idx, err)
+			}
+			if txChainID != chainID.Uint64() {
+				return fmt.Errorf("AA tx chain ID %d != expected chain ID %d", txChainID, chainID.Uint64())
+			}
+			// Zero signature — AA auth is in sender_auth/payer_auth blobs.
+			sbtx.txSigs = append(sbtx.txSigs, spanBatchSignature{
+				v: big.NewInt(0),
+				r: new(uint256.Int),
+				s: new(uint256.Int),
+			})
+			// AA txs always set contractCreationBit=1 (no separate `to` entry).
+			sbtx.contractCreationBits.SetBit(sbtx.contractCreationBits, idx+int(offset), 1)
+			sbtx.yParityBits.SetBit(sbtx.yParityBits, idx+int(offset), 0)
+			sbtx.txNonces = append(sbtx.txNonces, nonceSeq)
+			sbtx.txGases = append(sbtx.txGases, gasLimit)
+			stx := &spanBatchTx{inner: data}
+			txData, err := stx.MarshalBinary()
+			if err != nil {
+				return fmt.Errorf("failed to marshal AA tx data at index %d: %w", idx, err)
+			}
+			sbtx.txDatas = append(sbtx.txDatas, txData)
+			sbtx.txTypes = append(sbtx.txTypes, int(xlayerAATxType))
+			continue
+		}
+
 		tx := &types.Transaction{}
 		if err := tx.UnmarshalBinary(txs[idx]); err != nil {
 			return errors.New("failed to decode tx")

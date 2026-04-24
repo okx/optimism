@@ -186,6 +186,10 @@ func checkSingularBatch(cfg *rollup.Config, log log.Logger, l1Blocks []eth.L1Blo
 			log.Warn("sequencers may not embed any SetCode transactions before Isthmus", "tx_index", i)
 			return BatchDrop
 		}
+		if !cfg.IsXLayerAA(batch.Timestamp) && txBytes[0] == xlayerAATxType {
+			log.Warn("sequencers may not embed XLayerAA transactions before XLayerAA activation", "tx_index", i)
+			return BatchDrop
+		}
 	}
 
 	return BatchAccept
@@ -388,6 +392,10 @@ func checkSpanBatch(ctx context.Context, cfg *rollup.Config, log log.Logger, l1B
 			}
 			if txBytes[0] == types.DepositTxType {
 				log.Warn("sequencers may not embed any deposits into batch data, but found tx that has one", "tx_index", i)
+				return BatchDrop
+			}
+			if !cfg.IsXLayerAA(blockTimestamp) && txBytes[0] == xlayerAATxType {
+				log.Warn("sequencers may not embed XLayerAA transactions before XLayerAA activation", "tx_index", i)
 				return BatchDrop
 			}
 		}

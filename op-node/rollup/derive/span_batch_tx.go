@@ -112,6 +112,13 @@ func (tx *spanBatchTx) decodeTyped(b []byte) (spanBatchTxData, error) {
 			return nil, fmt.Errorf("failed to decode spanBatchSetCodeTxData: %w", err)
 		}
 		return &inner, nil
+	case xlayerAATxType:
+		var inner spanBatchAATxData
+		err := rlp.DecodeBytes(b[1:], &inner)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode spanBatchAATxData: %w", err)
+		}
+		return &inner, nil
 	default:
 		return nil, types.ErrTxTypeNotSupported
 	}
