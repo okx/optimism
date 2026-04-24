@@ -23,6 +23,11 @@
         "internalType": "contract ITeeProofVerifier"
       },
       {
+        "name": "_accessManager",
+        "type": "address",
+        "internalType": "contract IAccessManager"
+      },
+      {
         "name": "_challengerBond",
         "type": "uint256",
         "internalType": "uint256"
@@ -31,11 +36,6 @@
         "name": "_anchorStateRegistry",
         "type": "address",
         "internalType": "contract IAnchorStateRegistry"
-      },
-      {
-        "name": "_accessManager",
-        "type": "address",
-        "internalType": "contract AccessManager"
       }
     ],
     "stateMutability": "nonpayable"
@@ -48,7 +48,7 @@
       {
         "name": "",
         "type": "address",
-        "internalType": "contract AccessManager"
+        "internalType": "contract IAccessManager"
       }
     ],
     "stateMutability": "view"
@@ -65,6 +65,19 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "batchProofTypehash",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -223,6 +236,19 @@
   },
   {
     "type": "function",
+    "name": "domainSeparator",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "extraData",
     "inputs": [],
     "outputs": [
@@ -268,7 +294,7 @@
         "internalType": "bytes"
       }
     ],
-    "stateMutability": "view"
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -294,7 +320,7 @@
         "internalType": "GameType"
       }
     ],
-    "stateMutability": "view"
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -492,6 +518,25 @@
   },
   {
     "type": "function",
+    "name": "rootClaimByChainId",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "rootClaim_",
+        "type": "bytes32",
+        "internalType": "Claim"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
     "name": "startingBlockNumber",
     "inputs": [],
     "outputs": [
@@ -614,6 +659,31 @@
   },
   {
     "type": "event",
+    "name": "CreditClaimed",
+    "inputs": [
+      {
+        "name": "recipient",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "mode",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "enum BondDistributionMode"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "GameClosed",
     "inputs": [
       {
@@ -634,6 +704,12 @@
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      },
+      {
+        "name": "signers",
+        "type": "address[]",
+        "indexed": false,
+        "internalType": "address[]"
       }
     ],
     "anonymous": false
@@ -762,17 +838,17 @@
   },
   {
     "type": "error",
+    "name": "GamePaused",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "IncorrectBondAmount",
     "inputs": []
   },
   {
     "type": "error",
     "name": "IncorrectDisputeGameFactory",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "InvalidBondDistributionMode",
     "inputs": []
   },
   {
