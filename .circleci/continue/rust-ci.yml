@@ -4,7 +4,7 @@ version: 2.1
 # This file contains all Rust CI commands, parameterized jobs, crate-specific jobs, and workflows.
 
 orbs:
-  utils: ethereum-optimism/circleci-utils@1.0.24
+  utils: ethereum-optimism/circleci-utils@1.0.25
   gcp-cli: circleci/gcp-cli@3.0.1
   codecov: codecov/codecov@5.0.3
 
@@ -22,6 +22,9 @@ parameters:
     type: string
     default: "v0.0"
   c-rust_changes_detected:
+    type: boolean
+    default: false
+  c-non_docs_changes:
     type: boolean
     default: false
   # Passthrough declarations for setup config parameters.
@@ -85,18 +88,6 @@ parameters:
   github-event-base64:
     type: string
     default: "__not_set__"
-  devnet-metrics-collect:
-    type: boolean
-    default: false
-  flake-shake-dispatch:
-    type: boolean
-    default: false
-  flake-shake-iterations:
-    type: integer
-    default: 300
-  flake-shake-workers:
-    type: integer
-    default: 50
   go-cache-version:
     type: string
     default: "v0.0"
@@ -131,7 +122,7 @@ commands:
       toolchain_version:
         description: The specific toolchain version for stable channel
         type: string
-        default: "1.92.0"
+        default: "1.94.0"
       target:
         description: A custom target architecture to add to the toolchain
         type: string
@@ -442,7 +433,7 @@ jobs:
         default: "stable"
     docker:
       - image: <<pipeline.parameters.c-default_docker_image>>
-    resource_class: xlarge
+    resource_class: medium
     steps:
       - utils/checkout-with-mise:
           checkout-method: blobless
@@ -570,7 +561,7 @@ jobs:
         default: "just check-no-std"
     docker:
       - image: <<pipeline.parameters.c-default_docker_image>>
-    resource_class: xlarge
+    resource_class: medium
     steps:
       - utils/checkout-with-mise:
           checkout-method: blobless
@@ -702,7 +693,7 @@ jobs:
         default: "just check-udeps"
     docker:
       - image: <<pipeline.parameters.c-default_docker_image>>
-    resource_class: xlarge
+    resource_class: medium
     steps:
       - utils/checkout-with-mise:
           checkout-method: blobless
@@ -741,7 +732,7 @@ jobs:
         default: "--workspace"
     docker:
       - image: <<pipeline.parameters.c-default_docker_image>>
-    resource_class: xlarge
+    resource_class: medium
     steps:
       - utils/checkout-with-mise:
           checkout-method: blobless
@@ -803,6 +794,7 @@ jobs:
   op-reth-compact-codec:
     docker:
       - image: <<pipeline.parameters.c-default_docker_image>>
+    # This job frequently gets killed for smaller resource_class
     resource_class: xlarge
     steps:
       - utils/checkout-with-mise:
@@ -974,66 +966,6 @@ jobs:
           flags: unit
       - rust-save-build-cache: *kona-coverage-cache
 
-  # Unified Rust Docs Build
-  rust-docs-build:
-    docker:
-      - image: <<pipeline.parameters.c-default_docker_image>>
-    resource_class: xlarge
-    steps:
-      - utils/checkout-with-mise:
-          checkout-method: blobless
-      - run:
-          name: Install Node.js and Bun
-          command: |
-            curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
-            sudo apt-get install -y nodejs
-            curl -fsSL https://bun.sh/install | bash
-            echo 'export BUN_INSTALL="$HOME/.bun"' >> $BASH_ENV
-            echo 'export PATH="$BUN_INSTALL/bin:$PATH"' >> $BASH_ENV
-      - run:
-          name: Install dependencies and Playwright browsers
-          working_directory: rust/docs
-          command: |
-            bun i
-            npx playwright install --with-deps chromium
-      - run:
-          name: Build Vocs documentation
-          working_directory: rust/docs
-          no_output_timeout: 60m
-          command: |
-            bun run build
-            echo "Vocs Build Complete"
-      - store_artifacts:
-          path: rust/docs/docs/docs/dist
-          destination: rust-docs
-
-    # OP-Reth docs build
-  op-reth-docs-build:
-    docker:
-      - image: <<pipeline.parameters.c-default_docker_image>>
-    resource_class: xlarge
-    steps:
-      - utils/checkout-with-mise:
-          checkout-method: blobless
-      - run:
-          name: Install Node.js and Bun
-          command: |
-            curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
-            sudo apt-get install -y nodejs
-            curl -fsSL https://bun.sh/install | bash
-            echo 'export BUN_INSTALL="$HOME/.bun"' >> $BASH_ENV
-            echo 'export PATH="$BUN_INSTALL/bin:$PATH"' >> $BASH_ENV
-      - run:
-          name: Build op-reth documentation
-          working_directory: rust/op-reth
-          no_output_timeout: 30m
-          command: |
-            just docs-build
-      - store_artifacts:
-          path: op-reth/docs/vocs/docs/dist
-          destination: op-reth-docs
-
-
   # Kona Link Checker
   kona-link-checker:
     docker:
@@ -1097,7 +1029,7 @@ jobs:
               echo "Publishing commit hash data"
               INFO_FILE=$(mktemp)
               (echo "Commit=<< pipeline.git.revision >>" && echo "Prestate: ${PRESTATE_HASH}") > "${INFO_FILE}"
-              gsutil cp "${INFO_FILE}" "gs://oplabs-network-data/proofs/kona/<<parameters.kind>>/${BRANCH_NAME}-<<parameters.version>>-prestate.bin.gz.txt"
+              gsutil cp "${INFO_FILE}" "gs://oplabs-network-data/proofs/kona/<<parameters.kind>>/${BRANCH_NAME}-<<parameters.version>>.bin.gz.txt"
               rm "${INFO_FILE}"
               PRESTATE_HASH="${BRANCH_NAME}-<<parameters.version>>"
             fi
@@ -1126,6 +1058,7 @@ workflows:
         - and:
             - equal: ["webhook", << pipeline.trigger_source >>]
             - << pipeline.parameters.c-rust_changes_detected >>
+            - << pipeline.parameters.c-non_docs_changes >>
         - and:
             - equal: [true, <<pipeline.parameters.c-rust_ci_dispatch>>]
             - equal: ["api", << pipeline.trigger_source >>]
@@ -1177,11 +1110,6 @@ workflows:
           directory: rust
           context: *rust-ci-context
 
-      # Docs build
-      - rust-docs-build:
-          context:
-            - circleci-repo-readonly-authenticated-github-token
-
       - rust-ci-udeps:
           name: rust-udeps
           directory: rust
@@ -1206,7 +1134,7 @@ workflows:
       - rust-build-binary:
           name: rust-msrv
           directory: rust
-          toolchain: "1.92.0"
+          toolchain: "1.94.0"
           context: *rust-ci-context
 
       # -----------------------------------------------------------------------
@@ -1217,7 +1145,7 @@ workflows:
           directory: rust
           command: |
             just check-no-std
-          toolchain: "1.92.0"
+          toolchain: "1.94.0"
           context: *rust-ci-context
 
       - rust-ci-cargo-hack-build:
@@ -1244,14 +1172,6 @@ workflows:
           name: op-reth-integration-tests
           directory: rust
           command: "--justfile op-reth/justfile test-integration"
-          cache_profile: debug
-          context: *rust-ci-context
-
-      - rust-ci-cargo-tests:
-          name: op-reth-tests-edge
-          directory: rust
-          command: "--justfile op-reth/justfile test"
-          flags: "edge"
           cache_profile: debug
           context: *rust-ci-context
 
@@ -1295,6 +1215,7 @@ workflows:
       and:
         - equal: ["webhook", << pipeline.trigger_source >>]
         - not: << pipeline.parameters.c-rust_changes_detected >>
+        - << pipeline.parameters.c-non_docs_changes >>
     jobs:
       - rust-ci-cargo-tests:
           name: rust-tests
@@ -1308,14 +1229,6 @@ workflows:
           cache_profile: debug
           context: *rust-ci-context
 
-      - rust-ci-cargo-tests:
-          name: op-reth-tests-edge
-          directory: rust
-          command: "--justfile op-reth/justfile test"
-          flags: "edge"
-          cache_profile: debug
-          context: *rust-ci-context
-
       - kona-build-fpvm:
           name: kona-build-fpvm-cannon-client
           target: "cannon-client"
@@ -1325,9 +1238,7 @@ workflows:
           requires:
             - rust-tests
             - op-reth-integration-tests
-            - op-reth-tests-edge
             - kona-build-fpvm-cannon-client
-
 
   # ==========================================================================
   # Kona scheduled workflows
@@ -1346,7 +1257,7 @@ workflows:
       and:
         - equal: ["develop", <<pipeline.git.branch>>]
         - equal: ["webhook", << pipeline.trigger_source >>] # Only trigger on push to develop, not scheduled runs
-        - << pipeline.parameters.c-rust_changes_detected >>  # Only publish when rust paths changed
+        - << pipeline.parameters.c-rust_changes_detected >> # Only publish when rust paths changed
     jobs:
       - kona-publish-prestate-artifacts:
           name: kona-publish-<<matrix.version>>
@@ -1356,4 +1267,3 @@ workflows:
           context:
             - circleci-repo-readonly-authenticated-github-token
             - oplabs-network-optimism-io-bucket
-

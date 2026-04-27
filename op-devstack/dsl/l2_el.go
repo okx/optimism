@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-devstack/stack"
 	"github.com/ethereum-optimism/optimism/op-devstack/sysgo"
 	"github.com/ethereum-optimism/optimism/op-service/apis"
+	"github.com/ethereum-optimism/optimism/op-service/bigs"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/retry"
 	suptypes "github.com/ethereum-optimism/optimism/op-supervisor/supervisor/types"
@@ -234,6 +235,34 @@ func (el *L2ELNode) WaitL1OriginReached(label eth.BlockLabel, l1OriginTarget uin
 	el.require.NoError(el.L1OriginReachedFn(label, l1OriginTarget, attempts)())
 }
 
+// WaitL1OriginHash polls until the L2 chain at the given label references the target L1 block.
+// If the head's L1 origin has advanced past the target number (e.g. due to a large batch),
+// it walks back through L2 blocks to find one with the target L1 origin number and checks its hash.
+func (el *L2ELNode) WaitL1OriginHash(label eth.BlockLabel, target eth.BlockID, attempts int) {
+	logger := el.log.With("name", el.inner.Name(), "chain", el.ChainID(), "label", label, "target", target)
+	logger.Info("Expecting L2EL L1 origin to match")
+	el.require.NoError(retry.Do0(el.ctx, attempts, &retry.FixedStrategy{Dur: 2 * time.Second},
+		func() error {
+			head := el.BlockRefByLabel(label)
+			if head.L1Origin.Number < target.Number {
+				logger.Debug("L2EL L1 origin not yet reached", "head", head.ID(), "l1Origin", head.L1Origin)
+				return fmt.Errorf("L1 origin of %s head has not reached target yet", label)
+			}
+			// Head's L1 origin is at or past the target number. Walk back to find
+			// the L2 block whose L1 origin number matches the target.
+			block := head
+			for block.L1Origin.Number > target.Number && block.Number > 0 {
+				block = el.BlockRefByNumber(block.Number - 1)
+			}
+			if block.L1Origin.Hash == target.Hash {
+				logger.Info("L2EL L1 origin matched", "l2Block", block.ID(), "l1Origin", block.L1Origin)
+				return nil
+			}
+			logger.Debug("L2EL L1 origin hash mismatch", "l2Block", block.ID(), "l1Origin", block.L1Origin)
+			return fmt.Errorf("L1 origin hash of %s head does not match target", label)
+		}))
+}
+
 // VerifyWithdrawalHashChangedIn verifies that the withdrawal hash changed between the parent and current block
 // This is used to verify that the withdrawal hash changed in the block where the withdrawal was initiated
 func (el *L2ELNode) VerifyWithdrawalHashChangedIn(blockHash common.Hash) {
@@ -445,6 +474,10 @@ func (el *L2ELNode) FinalizedHead() *BlockRefResult {
 	return &BlockRefResult{T: el.t, BlockRef: el.BlockRefByLabel(eth.Finalized)}
 }
 
+func (el *L2ELNode) AssertExecMessageNotInBlock(execMessage *ExecMessage) {
+	el.AssertTxNotInBlock(bigs.Uint64Strict(execMessage.BlockNumber()), execMessage.TxHash())
+}
+
 // AssertTxNotInBlock asserts that a transaction with the given hash does not exist in the block at the given number.
 func (el *L2ELNode) AssertTxNotInBlock(blockNumber uint64, txHash common.Hash) {
 	ctx, cancel := context.WithTimeout(el.ctx, DefaultTimeout)
@@ -454,12 +487,26 @@ func (el *L2ELNode) AssertTxNotInBlock(blockNumber uint64, txHash common.Hash) {
 	el.require.NoError(err, "failed to fetch block %d", blockNumber)
 
 	for _, tx := range txs {
-		if tx.Hash() == txHash {
-			el.require.Failf("transaction should not exist in block",
-				"tx_hash=%s found in block %d", txHash, blockNumber)
-		}
+		el.require.NotEqualf(tx.Hash(), txHash, "transaction should not exist in block", "Found tx %v in block %v", tx.Hash(), blockNumber)
 	}
 	el.log.Info("confirmed transaction not in block", "blockNumber", blockNumber, "txHash", txHash)
+}
+
+// AssertTxInBlock asserts that a transaction with the given hash does not exist in the block at the given number.
+func (el *L2ELNode) AssertTxInBlock(blockNumber uint64, txHash common.Hash) {
+	ctx, cancel := context.WithTimeout(el.ctx, DefaultTimeout)
+	defer cancel()
+
+	_, txs, err := el.inner.EthClient().InfoAndTxsByNumber(ctx, blockNumber)
+	el.require.NoError(err, "failed to fetch block %d", blockNumber)
+
+	for _, tx := range txs {
+		if tx.Hash() == txHash {
+			el.log.Info("confirmed transaction in block", "blockNumber", blockNumber, "txHash", txHash)
+			return
+		}
+	}
+	el.require.Fail("transaction should exist in block", "blockNumber", blockNumber, "txHash", txHash)
 }
 
 type BlockRefResult struct {

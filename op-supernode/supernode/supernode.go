@@ -10,6 +10,7 @@ import (
 
 	opnodecfg "github.com/ethereum-optimism/optimism/op-node/config"
 	rollupNode "github.com/ethereum-optimism/optimism/op-node/node"
+	"github.com/ethereum-optimism/optimism/op-service/apis"
 	"github.com/ethereum-optimism/optimism/op-service/client"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/httputil"
@@ -260,8 +261,17 @@ func (s *Supernode) Stop(ctx context.Context) error {
 	}
 
 	s.log.Info("all chain containers stopped, waiting for goroutines to finish")
-	s.wg.Wait()
-	s.log.Info("goroutines finished, closing l1 client")
+	wgDone := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(wgDone)
+	}()
+	select {
+	case <-wgDone:
+		s.log.Info("goroutines finished, closing l1 client")
+	case <-time.After(60 * time.Second):
+		s.log.Error("timed out waiting for chain goroutines to finish after 60s, proceeding with cleanup")
+	}
 
 	if s.l1Client != nil {
 		s.l1Client.Close()
@@ -388,11 +398,18 @@ func (s *Supernode) initBeaconClient(ctx context.Context, cfg *config.CLIConfig)
 	basicClient := client.NewBasicHTTPClient(cfg.L1BeaconAddr, s.log)
 	beaconHTTPClient := sources.NewBeaconHTTPClient(basicClient)
 
+	// Create fallback beacon clients (e.g. blob archiver)
+	var fallbacks []apis.BeaconClient
+	for _, addr := range cfg.L1BeaconFallbackAddrs {
+		fb := client.NewBasicHTTPClient(addr, s.log)
+		fallbacks = append(fallbacks, sources.NewBeaconHTTPClient(fb))
+	}
+
 	// Create L1 Beacon client with default config
 	beaconCfg := sources.L1BeaconClientConfig{
 		FetchAllSidecars: false,
 	}
-	s.beaconClient = sources.NewL1BeaconClient(beaconHTTPClient, beaconCfg)
+	s.beaconClient = sources.NewL1BeaconClient(beaconHTTPClient, beaconCfg, fallbacks...)
 
 	s.log.Info("L1 Beacon client initialized successfully")
 	return nil

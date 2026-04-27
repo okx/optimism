@@ -18,6 +18,7 @@ import { DevFeatures } from "src/libraries/DevFeatures.sol";
 import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
 import { ISuperchainConfig } from "interfaces/L1/ISuperchainConfig.sol";
 import { IResourceMetering } from "interfaces/L1/IResourceMetering.sol";
+import { IAnchorStateRegistry } from "interfaces/dispute/IAnchorStateRegistry.sol";
 import { IDisputeGameFactory } from "interfaces/dispute/IDisputeGameFactory.sol";
 import { ProtocolVersion } from "interfaces/L1/IProtocolVersions.sol";
 import { IOptimismPortal2 } from "interfaces/L1/IOptimismPortal2.sol";
@@ -329,7 +330,7 @@ contract Initializer_Test is CommonTest {
                 name: "AnchorStateRegistryImpl",
                 target: EIP1967Helper.getImplementation(address(anchorStateRegistry)),
                 initCalldata: abi.encodeCall(
-                    anchorStateRegistry.initialize,
+                    IAnchorStateRegistry.initialize,
                     (
                         ISystemConfig(address(0)),
                         IDisputeGameFactory(address(0)),
@@ -345,7 +346,7 @@ contract Initializer_Test is CommonTest {
                 name: "AnchorStateRegistryProxy",
                 target: address(anchorStateRegistry),
                 initCalldata: abi.encodeCall(
-                    anchorStateRegistry.initialize,
+                    IAnchorStateRegistry.initialize,
                     (
                         ISystemConfig(address(0)),
                         IDisputeGameFactory(address(0)),
@@ -382,7 +383,7 @@ contract Initializer_Test is CommonTest {
     function test_cannotReinitialize_succeeds() public {
         // Collect exclusions.
         uint256 j;
-        string[] memory excludes = new string[](11);
+        string[] memory excludes = new string[](10);
         // Contract is currently not being deployed as part of the standard deployment script.
         excludes[j++] = "src/L2/OptimismSuperchainERC20.sol";
         // Periphery contracts don't get deployed as part of the standard deployment script.
@@ -396,9 +397,7 @@ contract Initializer_Test is CommonTest {
         excludes[j++] = "src/dispute/PermissionedDisputeGame.sol";
         excludes[j++] = "src/dispute/SuperFaultDisputeGame.sol";
         excludes[j++] = "src/dispute/SuperPermissionedDisputeGame.sol";
-        excludes[j++] = "src/dispute/zk/OptimisticZkGame.sol";
-        // TODO: Eventually remove this exclusion. Same reason as above dispute contracts.
-        excludes[j++] = "src/L1/OPContractsManager.sol";
+        excludes[j++] = "src/dispute/zk/ZKDisputeGame.sol";
         // TODO: Eventually remove this exclusion. Same reason as above dispute contracts.
         excludes[j++] = "src/L1/OptimismPortalInterop.sol";
         // L2 contract initialization is tested in Predeploys.t.sol

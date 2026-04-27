@@ -25,7 +25,6 @@ compilation_restrictions = [
   { paths = "src/dispute/PermissionedDisputeGame.sol", optimizer_runs = 5000 },
   { paths = "src/dispute/SuperFaultDisputeGame.sol", optimizer_runs = 5000 },
   { paths = "src/dispute/SuperPermissionedDisputeGame.sol", optimizer_runs = 5000 },
-  { paths = "src/L1/OPContractsManager.sol", optimizer_runs = 5000 },
   { paths = "src/L1/OPContractsManagerStandardValidator.sol", optimizer_runs = 5000 },
   { paths = "src/L1/opcm/OPContractsManagerV2.sol", optimizer_runs = 5000 },
   { paths = "src/L1/opcm/OPContractsManagerContainer.sol", optimizer_runs = 5000 },
@@ -61,7 +60,6 @@ fs_permissions = [
   { access='read-write', path='./.resource-metering.csv' },
   { access='read-write', path='./snapshots/' },
   { access='read-write', path='./deployments/' },
-  { access='read', path='./deploy-config/' },
   { access='read', path='./deploy-config-periphery/' },
   { access='read', path='./broadcast/' },
   { access='read', path = './forge-artifacts/' },
@@ -77,7 +75,9 @@ fs_permissions = [
 # 5159 error code is selfdestruct error code
 # 5740 error code is unreachable code warning (caused by intentional revert in bridge functions)
 # 9302 error code is unused return value warning (in test files)
-ignored_error_codes = ["transient-storage", "code-size", "init-code-size", "too-many-warnings", 5159, 5740, 9302]
+# 8429 = virtual modifiers deprecated (solc 0.8.31, triggered by solmate)
+# 2424 = natspec memory-safe-assembly comment deprecated (solc 0.8.31, triggered by forge-std)
+ignored_error_codes = ["transient-storage", "code-size", "init-code-size", "too-many-warnings", 5159, 5740, 9302, 8429, 2424]
 deny_warnings = false
 ffi = true
 
@@ -141,7 +141,6 @@ compilation_restrictions = [
   { paths = "src/dispute/PermissionedDisputeGame.sol", optimizer_runs = 0 },
   { paths = "src/dispute/SuperFaultDisputeGame.sol", optimizer_runs = 0 },
   { paths = "src/dispute/SuperPermissionedDisputeGame.sol", optimizer_runs = 0 },
-  { paths = "src/L1/OPContractsManager.sol", optimizer_runs = 0 },
   { paths = "src/L1/OPContractsManagerStandardValidator.sol", optimizer_runs = 0 },
   { paths = "src/L1/opcm/OPContractsManagerV2.sol", optimizer_runs = 0 },
   { paths = "src/L1/opcm/OPContractsManagerContainer.sol", optimizer_runs = 0 },
@@ -183,7 +182,6 @@ compilation_restrictions = [
   { paths = "src/dispute/PermissionedDisputeGame.sol", optimizer_runs = 0 },
   { paths = "src/dispute/SuperFaultDisputeGame.sol", optimizer_runs = 0 },
   { paths = "src/dispute/SuperPermissionedDisputeGame.sol", optimizer_runs = 0 },
-  { paths = "src/L1/OPContractsManager.sol", optimizer_runs = 0 },
   { paths = "src/L1/OPContractsManagerStandardValidator.sol", optimizer_runs = 0 },
   { paths = "src/L1/opcm/OPContractsManagerV2.sol", optimizer_runs = 0 },
   { paths = "src/L1/opcm/OPContractsManagerContainer.sol", optimizer_runs = 0 },
@@ -220,7 +218,6 @@ compilation_restrictions = [
   { paths = "src/dispute/PermissionedDisputeGame.sol", optimizer_runs = 0 },
   { paths = "src/dispute/SuperFaultDisputeGame.sol", optimizer_runs = 0 },
   { paths = "src/dispute/SuperPermissionedDisputeGame.sol", optimizer_runs = 0 },
-  { paths = "src/L1/OPContractsManager.sol", optimizer_runs = 0 },
   { paths = "src/L1/OPContractsManagerStandardValidator.sol", optimizer_runs = 0 },
   { paths = "src/L1/opcm/OPContractsManagerV2.sol", optimizer_runs = 0 },
   { paths = "src/L1/opcm/OPContractsManagerContainer.sol", optimizer_runs = 0 },
