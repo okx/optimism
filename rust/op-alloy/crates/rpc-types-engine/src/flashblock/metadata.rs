@@ -2,7 +2,8 @@
 
 use alloc::collections::BTreeMap;
 use alloy_eip7928::BlockAccessList;
-use alloy_primitives::{Address, B256, U256};
+use alloy_primitives::{Address, B256, Bytes, U256};
+use alloy_rlp::Decodable;
 use op_alloy_consensus::OpReceipt;
 
 /// Provides metadata about the block that may be useful for indexing or analysis.
@@ -27,11 +28,41 @@ pub struct OpFlashblockPayloadMetadata {
         )
     )]
     pub receipts: Option<BTreeMap<B256, OpReceipt>>,
-    /// Optional [EIP-7928](https://eips.ethereum.org/EIPS/eip-7928) block access list containing
-    /// per-account changes (storage reads/writes, balance changes, nonce changes, and code
-    /// changes) reads and writes for this flashblock, indexed by transaction position.
+    /// Optional [EIP-7928](https://eips.ethereum.org/EIPS/eip-7928) RLP-encoded block access list
+    /// containing per-account changes (storage reads/writes, balance changes, nonce changes, and
+    /// code changes) reads and writes for this flashblock, indexed by transaction position.
     #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
-    pub access_list: Option<BlockAccessList>,
+    pub access_list: Option<Bytes>,
+}
+
+impl OpFlashblockPayloadMetadata {
+    /// Constructs the new flashblocks payload metadata and, RLP-encoding the flashblock access
+    /// list (if any).
+    pub fn new(
+        block_number: u64,
+        new_account_balances: Option<BTreeMap<Address, U256>>,
+        receipts: Option<BTreeMap<B256, OpReceipt>>,
+        access_list: Option<BlockAccessList>,
+    ) -> Self {
+        Self {
+            block_number,
+            new_account_balances,
+            receipts,
+            access_list: access_list.map(|list| Bytes::from(alloy_rlp::encode(&list))),
+        }
+    }
+
+    /// Decodes the access list from its RLP-encoded form.
+    pub fn block_access_list(&self) -> Option<Result<BlockAccessList, alloy_rlp::Error>> {
+        self.access_list.as_ref().map(|raw| {
+            let mut buf = raw.as_ref();
+            let decoded = BlockAccessList::decode(&mut buf)?;
+            if !buf.is_empty() {
+                return Err(alloy_rlp::Error::UnexpectedLength);
+            }
+            Ok(decoded)
+        })
+    }
 }
 
 #[cfg(feature = "serde")]
@@ -103,51 +134,41 @@ mod tests {
         });
         receipts.insert(B256::ZERO, receipt);
 
-        OpFlashblockPayloadMetadata {
-            block_number: 100,
-            new_account_balances: Some(balances),
-            receipts: Some(receipts),
-            access_list: None,
-        }
+        OpFlashblockPayloadMetadata::new(100, Some(balances), Some(receipts), None)
     }
 
-    fn sample_metadata_access_list() -> OpFlashblockPayloadMetadata {
-        use alloy_primitives::Bytes;
-
-        let access_list = vec![
+    fn sample_block_access_list() -> BlockAccessList {
+        alloc::vec![
             AccountChanges {
                 address: address!("0000000000000000000000000000000000000042"),
-                storage_changes: vec![SlotChanges {
+                storage_changes: alloc::vec![SlotChanges {
                     slot: U256::from(1),
-                    changes: vec![
+                    changes: alloc::vec![
                         StorageChange { block_access_index: 0, new_value: U256::from(100) },
                         StorageChange { block_access_index: 2, new_value: U256::from(200) },
                     ],
                 }],
-                storage_reads: vec![U256::from(5), U256::from(10)],
-                balance_changes: vec![BalanceChange {
+                storage_reads: alloc::vec![U256::from(5), U256::from(10)],
+                balance_changes: alloc::vec![BalanceChange {
                     block_access_index: 0,
                     post_balance: U256::from(500),
                 }],
-                nonce_changes: vec![NonceChange { block_access_index: 0, new_nonce: 7 }],
-                code_changes: vec![CodeChange {
+                nonce_changes: alloc::vec![NonceChange { block_access_index: 0, new_nonce: 7 }],
+                code_changes: alloc::vec![CodeChange {
                     block_access_index: 1,
                     new_code: Bytes::from_static(&[0x60, 0x00, 0x60, 0x00, 0xfd]),
                 }],
             },
             AccountChanges {
                 address: address!("0000000000000000000000000000000000000099"),
-                storage_reads: vec![U256::from(42)],
+                storage_reads: alloc::vec![U256::from(42)],
                 ..Default::default()
             },
-        ];
+        ]
+    }
 
-        OpFlashblockPayloadMetadata {
-            block_number: 42,
-            new_account_balances: None,
-            receipts: None,
-            access_list: Some(access_list),
-        }
+    fn sample_metadata_access_list() -> OpFlashblockPayloadMetadata {
+        OpFlashblockPayloadMetadata::new(42, None, None, Some(sample_block_access_list()))
     }
 
     #[test]
@@ -177,12 +198,7 @@ mod tests {
         balances.insert(address!("0000000000000000000000000000000000000001"), U256::from(1000));
         balances.insert(address!("0000000000000000000000000000000000000002"), U256::from(2000));
 
-        let metadata = OpFlashblockPayloadMetadata {
-            block_number: 1,
-            new_account_balances: Some(balances),
-            receipts: None,
-            access_list: None,
-        };
+        let metadata = OpFlashblockPayloadMetadata::new(1, Some(balances), None, None);
 
         let json = serde_json::to_value(&metadata).unwrap();
         let balances_obj = json.get("new_account_balances").unwrap();
@@ -201,12 +217,7 @@ mod tests {
         });
         receipts.insert(B256::ZERO, receipt1);
 
-        let metadata = OpFlashblockPayloadMetadata {
-            block_number: 1,
-            new_account_balances: None,
-            receipts: Some(receipts),
-            access_list: None,
-        };
+        let metadata = OpFlashblockPayloadMetadata::new(1, None, Some(receipts), None);
 
         let json = serde_json::to_value(&metadata).unwrap();
         let receipts_obj = json.get("receipts").unwrap();
@@ -229,12 +240,7 @@ mod tests {
         });
         receipts.insert(B256::ZERO, receipt);
 
-        let metadata = OpFlashblockPayloadMetadata {
-            block_number: 1,
-            new_account_balances: None,
-            receipts: Some(receipts),
-            access_list: None,
-        };
+        let metadata = OpFlashblockPayloadMetadata::new(1, None, Some(receipts), None);
 
         let json = serde_json::to_value(&metadata).unwrap();
         let receipts_obj = json.get("receipts").unwrap();
@@ -251,6 +257,59 @@ mod tests {
         assert!(metadata.new_account_balances.is_none());
         assert!(metadata.receipts.is_none());
         assert!(metadata.access_list.is_none());
+        assert!(metadata.block_access_list().is_none());
+    }
+
+    #[test]
+    fn test_constructor_encodes_access_list_to_rlp() {
+        let bal = sample_block_access_list();
+        let metadata = OpFlashblockPayloadMetadata::new(42, None, None, Some(bal.clone()));
+
+        // Field is populated with RLP bytes.
+        assert!(metadata.access_list.is_some());
+        let raw = metadata.access_list.as_ref().unwrap();
+        // Sanity: RLP-encoded bytes round-trip back to the original list.
+        let decoded = BlockAccessList::decode(&mut raw.as_ref()).expect("RLP decode succeeds");
+        assert_eq!(decoded, bal);
+
+        // The lazy getter returns the same value.
+        let from_getter = metadata.block_access_list().expect("present").expect("decodes");
+        assert_eq!(from_getter, bal);
+    }
+
+    #[test]
+    fn test_constructor_with_no_access_list_leaves_field_none() {
+        let metadata = OpFlashblockPayloadMetadata::new(1, None, None, None);
+        assert!(metadata.access_list.is_none());
+        assert!(metadata.block_access_list().is_none());
+    }
+
+    #[test]
+    fn test_block_access_list_errors_on_malformed_rlp() {
+        let metadata = OpFlashblockPayloadMetadata {
+            block_number: 1,
+            new_account_balances: None,
+            receipts: None,
+            access_list: Some(Bytes::from_static(&[0xff, 0xff, 0xff])),
+        };
+        let result = metadata.block_access_list().expect("present");
+        assert!(result.is_err(), "malformed RLP must error");
+    }
+
+    #[test]
+    fn test_block_access_list_errors_on_trailing_bytes() {
+        // Encode a valid empty list, then append a junk byte.
+        let empty: BlockAccessList = Vec::new();
+        let mut bytes = alloy_rlp::encode(&empty);
+        bytes.push(0x42);
+        let metadata = OpFlashblockPayloadMetadata {
+            block_number: 1,
+            new_account_balances: None,
+            receipts: None,
+            access_list: Some(Bytes::from(bytes)),
+        };
+        let result = metadata.block_access_list().expect("present");
+        assert!(matches!(result, Err(alloy_rlp::Error::UnexpectedLength)));
     }
 
     #[test]
@@ -262,18 +321,16 @@ mod tests {
         assert!(!json.contains("receipts"), "None receipts must be omitted from JSON");
         assert!(!json.contains("new_account_balances"), "None balances must be omitted from JSON");
 
-        // Ensure access list fields populated
+        // Ensure access_list is present and rendered as a hex string (RLP bytes).
         assert!(json.contains("block_number"));
         assert!(json.contains("access_list"));
-        assert!(json.contains("storageChanges"));
-        assert!(json.contains("storageReads"));
-        assert!(json.contains("balanceChanges"));
-        assert!(json.contains("nonceChanges"));
-        assert!(json.contains("codeChanges"));
+        assert!(json.contains("\"0x"));
 
         let decoded: OpFlashblockPayloadMetadata = serde_json::from_str(&json).unwrap();
-        assert_eq!(metadata, decoded);
-        assert_eq!(decoded.access_list, metadata.access_list);
+        assert_eq!(decoded, metadata);
+        // The structured form decodes cleanly on the receive side.
+        let bal = decoded.block_access_list().expect("present").expect("decodes");
+        assert_eq!(bal, sample_block_access_list());
     }
 
     #[test]
@@ -286,18 +343,7 @@ mod tests {
         assert_eq!(metadata.new_account_balances, Some(BTreeMap::new()));
         assert_eq!(metadata.receipts, Some(BTreeMap::new()));
         assert_eq!(metadata.access_list, None);
-    }
-
-    #[test]
-    #[cfg(feature = "serde")]
-    fn test_backwards_compat_new_payload_without_receipts_and_balances() {
-        // New-style JSON: only block_number and access_list, no receipts or balances
-        let json = r#"{"block_number":42,"access_list":[]}"#;
-        let metadata: OpFlashblockPayloadMetadata = serde_json::from_str(json).unwrap();
-        assert_eq!(metadata.block_number, 42);
-        assert_eq!(metadata.new_account_balances, None);
-        assert_eq!(metadata.receipts, None);
-        assert_eq!(metadata.access_list, Some(vec![]));
+        assert!(metadata.block_access_list().is_none());
     }
 
     #[test]
@@ -315,12 +361,8 @@ mod tests {
     #[test]
     #[cfg(feature = "serde")]
     fn test_metadata_none_access_list_omitted_from_json() {
-        let metadata = OpFlashblockPayloadMetadata {
-            block_number: 1,
-            new_account_balances: Some(BTreeMap::new()),
-            receipts: Some(BTreeMap::new()),
-            access_list: None,
-        };
+        let metadata =
+            OpFlashblockPayloadMetadata::new(1, Some(BTreeMap::new()), Some(BTreeMap::new()), None);
 
         let json = serde_json::to_string(&metadata).unwrap();
         assert!(!json.contains("access_list"), "None access_list must be omitted from JSON");
@@ -334,12 +376,8 @@ mod tests {
     #[test]
     #[cfg(feature = "serde")]
     fn test_metadata_none_balances_and_receipts_omitted_from_json() {
-        let metadata = OpFlashblockPayloadMetadata {
-            block_number: 1,
-            new_account_balances: None,
-            receipts: None,
-            access_list: Some(vec![]),
-        };
+        let metadata =
+            OpFlashblockPayloadMetadata::new(1, None, None, Some(sample_block_access_list()));
 
         let json = serde_json::to_string(&metadata).unwrap();
         assert!(
@@ -347,6 +385,6 @@ mod tests {
             "None new_account_balances must be omitted from JSON"
         );
         assert!(!json.contains("receipts"), "None receipts must be omitted from JSON");
-        assert!(json.contains("access_list"), "None access_list must be included in JSON");
+        assert!(json.contains("access_list"), "Some access_list must be included in JSON");
     }
 }
