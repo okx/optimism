@@ -1,21 +1,15 @@
 //go:build kms
 
-// Build instructions for KMS-enabled binaries (internal network only):
-//
-// Step 1 — add the dependency (one-time, requires internal network access):
+// Build instructions (internal network only):
 //
 //	GOPRIVATE=gitlab.okg.com go get gitlab.okg.com/okcoin-commons/ok-aliyun-kms-go@v1.0.0
-//
-// Step 2 — install the binaries with the kms build tag:
-//
 //	go install -tags kms ./op-proposer/cmd/op-proposer
 //	go install -tags kms ./op-challenger/cmd/op-challenger
 //
-// Runtime prerequisites:
-//   - KMS_REGION env var must be set.
-//   - The host machine must have a RAM role bound that grants KMS access.
-//   - --xlayer-signer.secret-key must be set to the KMS secret name (not the raw key)
-//   - --xlayer-signer.enable-kms=true
+// Runtime: set KMS_REGION, bind a RAM role, and pass:
+//
+//	--xlayer-signer.enable-kms=true
+//	--xlayer-signer.secret-key=<kms-secret-name>
 
 package signer
 
@@ -29,8 +23,6 @@ import (
 // resolveSecretKeyFromKMS initializes Aliyun KMS and fetches the plaintext AES key
 // stored under secretName. The host environment must have KMS_REGION set; the machine
 // role grants access without explicit credentials.
-//
-// Build with -tags kms to enable this implementation.
 func resolveSecretKeyFromKMS(logger log.Logger, secretName string) (string, error) {
 	logger.Info("Initializing Aliyun KMS", "secretName", secretName)
 
