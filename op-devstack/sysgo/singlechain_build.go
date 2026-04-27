@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/urfave/cli/v2"
@@ -153,10 +154,13 @@ func applyConfigPrefundedL2(t devtest.T, keys devkeys.Keys, l1ChainID, l2ChainID
 // startL2ELForKey starts an L2 EL node for the given key, respecting DEVSTACK_L2EL_KIND.
 // This is the single env-aware dispatch point for L2 EL selection.
 func startL2ELForKey(t devtest.T, l2Net *L2Network, jwtPath string, jwtSecret [32]byte, key string, identity *ELNodeIdentity) L2ELNode {
-	switch devstackL2ELKind() {
+	kind := devstackL2ELKind()
+	switch kind {
 	case MixedL2ELOpGeth:
+		fmt.Fprintf(os.Stderr, "[startL2ELForKey] DEVSTACK_L2EL_KIND=%q -> launching op-geth (key=%s)\n", kind, key)
 		return startL2ELNode(t, l2Net, jwtPath, jwtSecret, key, identity)
 	default: // op-reth
+		fmt.Fprintf(os.Stderr, "[startL2ELForKey] DEVSTACK_L2EL_KIND=%q -> launching op-reth (key=%s)\n", kind, key)
 		return startMixedOpRethNode(t, l2Net, key, jwtPath, jwtSecret, nil)
 	}
 }

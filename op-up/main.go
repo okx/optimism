@@ -109,6 +109,17 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 func runOpUp(ctx context.Context, stderr io.Writer, opUpDir string, interop bool) error {
 	fmt.Fprintf(stderr, "%s\n", asciiArt)
 
+	elKind := os.Getenv("DEVSTACK_L2EL_KIND")
+	if elKind == "" {
+		elKind = "(unset, default: op-reth)"
+	}
+	fmt.Fprintf(stderr, "[op-up] DEVSTACK_L2EL_KIND=%s\n", elKind)
+	fmt.Fprintf(stderr, "[op-up] RUST_BINARY_PATH_OP_RETH=%q (this is what rustbin actually reads)\n",
+		os.Getenv("RUST_BINARY_PATH_OP_RETH"))
+	fmt.Fprintf(stderr, "[op-up] OP_RETH_EXEC_PATH=%q (NOTE: this var is NOT read by op-up; use RUST_BINARY_PATH_OP_RETH instead)\n",
+		os.Getenv("OP_RETH_EXEC_PATH"))
+	fmt.Fprintf(stderr, "[op-up] RUST_JIT_BUILD=%q\n", os.Getenv("RUST_JIT_BUILD"))
+
 	if err := os.MkdirAll(opUpDir, 0o755); err != nil {
 		return fmt.Errorf("create the op-up dir: %w", err)
 	}
