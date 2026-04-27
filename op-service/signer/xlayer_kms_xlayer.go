@@ -13,7 +13,7 @@
 //
 // Runtime prerequisites:
 //   - KMS_REGION env var must be set.
-//   - The host machine must have a RAM role bound that grants KMS access
+//   - The host machine must have a RAM role bound that grants KMS access.
 //   - --xlayer-signer.secret-key must be set to the KMS secret name (not the raw key)
 //   - --xlayer-signer.enable-kms=true
 
