@@ -63,7 +63,6 @@ std = [
 	"alloy-rlp/std",
 	"alloy-serde?/std",
 	"alloy-eip7928/std",
-	"derive_more/std",
 	"serde?/std",
 	"sha2/std",
 	"thiserror/std"
