@@ -19,6 +19,7 @@ const (
 	XLayerAccessKeyFlagName     = "xlayer-signer.access-key"
 	XLayerSecretKeyFlagName     = "xlayer-signer.secret-key"
 	XLayerTimeoutFlagName       = "xlayer-signer.timeout"
+	XLayerEnableKMSFlagName     = "xlayer-signer.enable-kms"
 )
 
 // XLayerCLIFlags returns CLI flags for XLayer remote signer configuration
@@ -105,6 +106,13 @@ func XLayerCLIFlags(envPrefix string, category string) []cli.Flag {
 			Category: category,
 			Value:    "30s",
 		},
+		&cli.BoolFlag{
+			Name:     XLayerEnableKMSFlagName,
+			Usage:    "Enable KMS to resolve the secret key. When true, --xlayer-signer.secret-key is treated as the KMS secret name and the plaintext key is fetched at startup.",
+			EnvVars:  opservice.PrefixEnvVar(envPrefix, "ENABLE_KMS"),
+			Category: category,
+			Value:    false,
+		},
 	}
 }
 
@@ -123,5 +131,6 @@ func ReadXLayerCLIConfig(ctx cliiface.Context) XLayerCLIConfig {
 		AccessKey:     ctx.String(XLayerAccessKeyFlagName),
 		SecretKey:     ctx.String(XLayerSecretKeyFlagName),
 		Timeout:       ctx.String(XLayerTimeoutFlagName),
+		EnableKMS:     ctx.Bool(XLayerEnableKMSFlagName),
 	}
 }

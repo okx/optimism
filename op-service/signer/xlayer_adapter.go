@@ -83,6 +83,7 @@ type XLayerCLIConfig struct {
 	AccessKey     string `json:"accessKey"`
 	SecretKey     string `json:"secretKey"`
 	Timeout       string `json:"timeout"`
+	EnableKMS     bool   `json:"enableKms"`
 }
 
 // NewXLayerCLIConfig creates a new XLayer CLI configuration with default values
@@ -147,6 +148,15 @@ func (c XLayerCLIConfig) ToXLayerConfig() (XLayerConfig, error) {
 func NewXLayerSignerClientFromConfig(logger log.Logger, config XLayerCLIConfig) (*XLayerSignerClient, error) {
 	if !config.Enabled {
 		return nil, fmt.Errorf("XLayer signer is not enabled")
+	}
+
+	// SecretKey holds the KMS secret name; replace it with the fetched plaintext value.
+	if config.EnableKMS {
+		resolved, err := resolveSecretKeyFromKMS(logger, config.SecretKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve secret key from KMS: %w", err)
+		}
+		config.SecretKey = resolved
 	}
 
 	xlayerConfig, err := config.ToXLayerConfig()
