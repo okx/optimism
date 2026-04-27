@@ -77,8 +77,7 @@ func startDefaultSingleChainPrimary(
 	jwtSecret [32]byte,
 	cfg PresetConfig,
 ) singleChainPrimaryRuntime {
-	sequencerIdentity := NewELNodeIdentity(0)
-	l2EL := startSequencerEL(t, world.L2Network, jwtPath, jwtSecret, sequencerIdentity)
+	l2EL := startSequencerEL(t, world.L2Network, jwtPath, jwtSecret, NewELNodeIdentity(0))
 	l2CL := startSequencerCL(t, keys, world.L1Network, world.L2Network, l1EL, l1CL, l2EL, jwtSecret, cfg.GlobalL2CLOptions)
 	return singleChainPrimaryRuntime{
 		EL: l2EL,
@@ -101,7 +100,7 @@ func newSingleChainRuntimeWithConfig(t devtest.T, cfg PresetConfig, spec singleC
 		timeTravelClock = clock.NewAdvancingClock(100 * time.Millisecond)
 		l1Clock = timeTravelClock
 	}
-	l1EL, l1CL := startInProcessL1WithClock(t, world.L1Network, jwtPath, l1Clock)
+	l1EL, l1CL := startInProcessL1WithClockConfig(t, world.L1Network, jwtPath, l1Clock, cfg)
 
 	primary := spec.StartPrimary(t, keys, world, l1EL, l1CL, jwtPath, jwtSecret, cfg)
 	primaryNode := newSingleChainNodeRuntime("sequencer", true, primary.EL, primary.CL)
@@ -123,9 +122,7 @@ func newSingleChainRuntimeWithConfig(t devtest.T, cfg PresetConfig, spec singleC
 
 	applyMinimalGameTypeOptions(t, keys, world.L1Network, world.L2Network, l1EL, cfg.AddedGameTypes, cfg.RespectedGameTypes)
 
-	sequencerCL, ok := primary.CL.(*OpNode)
-	require.True(ok, "single-chain runtime primary CL must be op-node for test sequencer")
-	testSequencer := startTestSequencer(t, keys, jwtPath, jwtSecret, world.L1Network, l1EL, l1CL, primary.EL, world.L2Network, sequencerCL)
+	testSequencer := startTestSequencerForRPCs(t, keys, "test-sequencer", jwtPath, jwtSecret, world.L1Network, l1EL, l1CL, world.L2Network.ChainID(), primary.EL.UserRPC(), primary.CL.UserRPC())
 	testSequencerRuntime := newTestSequencerRuntime(testSequencer, spec.TestSequencer)
 	faucetService := startFaucets(t, keys, world.L1Network.ChainID(), world.L2Network.ChainID(), l1EL.UserRPC(), primary.EL.UserRPC())
 
@@ -351,6 +348,7 @@ func startMinimalChallenger(
 		)
 	}
 	cfg, err := sharedchallenger.NewPreInteropChallengerConfig(
+		t.Ctx(),
 		t.TempDir(),
 		l1EL.UserRPC(),
 		l1CL.beaconHTTPAddr,
@@ -402,11 +400,16 @@ func applyMinimalGameTypeOptions(
 	}
 	l1ChainID := l1Net.ChainID()
 
+	// Filter out permissioned game type — it's always included by the V2 upgrade.
+	var filteredGameTypes []gameTypes.GameType
 	for _, gameType := range addedGameTypes {
 		if gameType == gameTypes.PermissionedGameType {
 			continue
 		}
-		addGameTypeForRuntime(t, keys, PrestateForGameType(t, gameType), gameType, l1ChainID, l1EL.UserRPC(), l2Net)
+		filteredGameTypes = append(filteredGameTypes, gameType)
+	}
+	if len(filteredGameTypes) > 0 {
+		addGameTypesForRuntime(t, keys, filteredGameTypes, l1ChainID, l1EL.UserRPC(), l2Net)
 	}
 	for _, gameType := range respectedGameTypes {
 		setRespectedGameTypeForRuntime(t, keys, gameType, l1ChainID, l1EL.UserRPC(), l2Net)
