@@ -8,6 +8,7 @@ import { Preinstalls } from "src/libraries/Preinstalls.sol";
 import { Predeploys } from "src/libraries/Predeploys.sol";
 import { Constants } from "src/libraries/Constants.sol";
 import { DeployUtils } from "scripts/libraries/DeployUtils.sol";
+import { LibString } from "@solady/utils/LibString.sol";
 
 // Interfaces
 import { IProxy } from "interfaces/universal/IProxy.sol";
@@ -23,18 +24,11 @@ library UpgradeUtils {
     /// @notice The number of implementations deployed in every upgrade.
     ///         Includes:
     ///         - 1 StorageSetter
-    ///         - 16 base predeploys
-    ///         - 7 INTEROP predeploys
+    ///         - 17 base predeploys
+    ///         - 4 INTEROP predeploys
     ///         - 2 CGT predeploys (NativeAssetLiquidity, LiquidityController)
     ///         - 2 CGT variants (L1BlockCGT, L2ToL1MessagePasserCGT)
-    ///         Total: 28 implementations
-    uint256 internal constant IMPLEMENTATION_COUNT = 28;
-
-    /// @notice The default gas limit for a deployment transaction.
-    uint64 internal constant DEFAULT_DEPLOYMENT_GAS = 375_000;
-
-    /// @notice The default gas limit for an upgrade transaction.
-    uint64 internal constant DEFAULT_UPGRADE_GAS = 50_000;
+    uint256 internal constant IMPLEMENTATION_COUNT = 26;
 
     /// @notice Gas limits for different types of upgrade transactions.
     /// @param l2cmDeployment Gas for deploying L2ContractsManager
@@ -54,13 +48,13 @@ library UpgradeUtils {
 
     /// @notice Returns the total number of transactions for the current upgrade.
     /// @dev Total count:
-    ///      - 28 implementation deployments
+    ///      - IMPLEMENTATION_COUNT implementation deployments
     ///      - [KARST] 2 ConditionalDeployer (deployment + upgrade)
     ///      - [KARST] 1 ProxyAdmin upgrade
     ///      - 1 L2CM deployment
     ///      - 1 Upgrade Predeploys call
     function getTransactionCount() internal pure returns (uint256 txnCount_) {
-        if (IMPLEMENTATION_COUNT != 28) {
+        if (IMPLEMENTATION_COUNT != 26) {
             revert(
                 "UpgradeUtils: implementation count changed, ensure that the txnCount_ calculation is still correct."
             );
@@ -69,20 +63,17 @@ library UpgradeUtils {
     }
 
     /// @notice Returns the gas limits for all upgrade transaction types.
-    /// @dev Gas limits are chosen to provide sufficient headroom while being
-    ///      conservative enough to fit within the upgrade block gas allocation.
-    ///      Rationale for each limit:
-    ///      - TODO: Add rationale here
+    /// @dev Calibration: see `_buildImplementationDeploymentConfigs` in GenerateNUTBundle.s.sol.
     /// @return Gas limits struct.
     function gasLimits() internal pure returns (GasLimits memory) {
         return GasLimits({
             // Fixed
-            l2cmDeployment: DEFAULT_DEPLOYMENT_GAS,
-            upgradeExecution: type(uint64).max,
+            l2cmDeployment: 4_942_996,
+            upgradeExecution: 2_115_000,
             // Karst
-            conditionalDeployerDeployment: DEFAULT_DEPLOYMENT_GAS,
-            conditionalDeployerUpgrade: DEFAULT_UPGRADE_GAS,
-            proxyAdminUpgrade: DEFAULT_UPGRADE_GAS
+            conditionalDeployerDeployment: 580_000,
+            conditionalDeployerUpgrade: 77_000,
+            proxyAdminUpgrade: 49_711
         });
     }
 
@@ -111,22 +102,72 @@ library UpgradeUtils {
         implementations_[13] = "OperatorFeeVault";
         implementations_[14] = "SchemaRegistry";
         implementations_[15] = "EAS";
-        implementations_[16] = "FeeSplitter";
+        implementations_[16] = "ConditionalDeployer";
+        implementations_[17] = "L2DevFeatureFlags";
 
         // INTEROP predeploys
-        implementations_[17] = "CrossL2Inbox";
-        implementations_[18] = "L2ToL2CrossDomainMessenger";
-        implementations_[19] = "SuperchainETHBridge";
-        implementations_[20] = "OptimismSuperchainERC20Factory";
-        implementations_[21] = "OptimismSuperchainERC20Beacon";
-        implementations_[22] = "SuperchainTokenBridge";
-        implementations_[23] = "ETHLiquidity";
+        implementations_[18] = "CrossL2Inbox";
+        implementations_[19] = "L2ToL2CrossDomainMessenger";
+        implementations_[20] = "SuperchainETHBridge";
+        implementations_[21] = "ETHLiquidity";
 
         // CGT predeploys
-        implementations_[24] = "L1BlockCGT";
-        implementations_[25] = "L2ToL1MessagePasserCGT";
-        implementations_[26] = "LiquidityController";
-        implementations_[27] = "NativeAssetLiquidity";
+        implementations_[22] = "L1BlockCGT";
+        implementations_[23] = "L2ToL1MessagePasserCGT";
+        implementations_[24] = "LiquidityController";
+        implementations_[25] = "NativeAssetLiquidity";
+    }
+
+    /// @notice Computes the intrinsic gas cost for a NUT bundle transaction.
+    /// @dev Replicates op-geth's IntrinsicGas formula (core/state_transition.go) for
+    ///      non-contract-creation transactions post-EIP-2028:
+    ///      21,000 base + 16 gas per non-zero byte + 4 gas per zero byte.
+    ///      NUT bundle entries are never contract creations (all have a non-zero `to` address),
+    ///      so the contract-creation base cost and EIP-3860 init code cost are not included.
+    /// @param _data The transaction calldata.
+    /// @return gas_ The intrinsic gas cost.
+    function computeIntrinsicGas(bytes memory _data) internal pure returns (uint64 gas_) {
+        gas_ = 21_000;
+        for (uint256 i = 0; i < _data.length; i++) {
+            gas_ += _data[i] == 0 ? 4 : 16;
+        }
+    }
+
+    /// @notice Computes the recommended gas limit for a transaction.
+    /// @dev Recommended gas limit = 1.5x max(intrinsic + body, EIP-7623 floor). The EIP-7623
+    ///      floor dominates when execution is cheap relative to calldata,
+    ///      since op-geth charges the floor as gasUsed.
+    /// @param _intrinsicGas The intrinsic gas cost.
+    /// @param _bodyGasUsed The body gas used.
+    /// @param _floorGas The EIP-7623 floor gas.
+    /// @return gas_ The recommended gas limit.
+    function computeRecommendedGasLimit(
+        uint64 _intrinsicGas,
+        uint64 _bodyGasUsed,
+        uint64 _floorGas
+    )
+        internal
+        pure
+        returns (uint64 gas_)
+    {
+        uint64 exec = _intrinsicGas + _bodyGasUsed;
+        uint64 effective = exec > _floorGas ? exec : _floorGas;
+        gas_ = uint64((uint256(effective) * 150) / 100); // 1.5x
+    }
+
+    /// @notice Computes the EIP-7623 floor gas for a transaction.
+    /// @dev Replicates op-geth's FloorDataGas (core/state_transition.go) active on Prague/Isthmus+:
+    ///      floor = 21_000 + 10 * tokens, where tokens = zero_bytes + 4 * non_zero_bytes.
+    ///      op-geth applies this twice: pre-execution it rejects the tx (ErrFloorDataGas) when
+    ///      gasLimit < floor; post-execution it sets receipt.gasUsed = max(execution_gas, floor).
+    /// @param _data The transaction calldata.
+    /// @return gas_ The EIP-7623 floor gas (includes the 21_000 base).
+    function computeFloorDataGas(bytes memory _data) internal pure returns (uint64 gas_) {
+        uint64 tokens;
+        for (uint256 i = 0; i < _data.length; i++) {
+            tokens += _data[i] == 0 ? 1 : 4;
+        }
+        gas_ = 21_000 + tokens * 10;
     }
 
     /// @notice Uses vm.computeCreate2Address to compute the CREATE2 address for given initcode and salt.
@@ -187,6 +228,34 @@ library UpgradeUtils {
             gasLimit: _gasLimit,
             data: abi.encodeCall(ConditionalDeployer.deploy, (_salt, code))
         });
+    }
+
+    /// @notice Extracts a revert reason from return data.
+    /// @param _returnData The return data from a failed call.
+    /// @return reason_ The revert reason string, or a default message if unavailable.
+    function getRevertReason(bytes memory _returnData) internal pure returns (string memory reason_) {
+        // If the return data is at least 68 bytes, it might contain a revert reason
+        // 4 bytes for Error(string) selector + 32 bytes for offset + 32 bytes for length
+        if (_returnData.length >= 68) {
+            // Check if it's an Error(string) revert
+            bytes4 errorSelector = bytes4(_returnData);
+            if (errorSelector == 0x08c379a0) {
+                // Decode the string
+                assembly {
+                    // Skip the first 68 bytes (4 byte selector + 32 byte offset + 32 byte length)
+                    // to get to the actual string data
+                    reason_ := add(_returnData, 0x44)
+                }
+                return reason_;
+            }
+        }
+
+        // If we can't decode a revert reason, return hex representation
+        if (_returnData.length > 0) {
+            return string(abi.encodePacked(LibString.toHexString(_returnData)));
+        }
+
+        return "Unknown error";
     }
 
     /// @notice Creates an upgrade transaction for a proxy contract.

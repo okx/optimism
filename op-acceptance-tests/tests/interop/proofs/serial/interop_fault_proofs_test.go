@@ -6,18 +6,105 @@ import (
 	sfp "github.com/ethereum-optimism/optimism/op-acceptance-tests/tests/superfaultproofs"
 	"github.com/ethereum-optimism/optimism/op-devstack/devtest"
 	"github.com/ethereum-optimism/optimism/op-devstack/presets"
+	"github.com/ethereum-optimism/optimism/op-devstack/sysgo"
+	"github.com/ethereum-optimism/optimism/op-service/eth"
 )
 
 func TestInteropFaultProofs(gt *testing.T) {
-	t := devtest.SerialT(gt)
-	// TODO(#19180): Unskip this once supernode is updated.
-	t.Skip("Supernode does not yet return optimistic blocks until blocks are fully validated")
+	t := devtest.ParallelT(gt)
 	sys := presets.NewSimpleInteropSupernodeProofs(t, presets.WithChallengerCannonKonaEnabled())
 	sfp.RunSuperFaultProofTest(t, sys)
 }
 
-func TestInteropFaultProofs_ConsolidateValidCrossChainMessage(gt *testing.T) {
+func TestInteropFaultProofs_PreForkActivation(gt *testing.T) {
 	t := devtest.SerialT(gt)
+	sys := presets.NewSimpleInteropSupernodeProofs(t, presets.WithChallengerCannonKonaEnabled(), presets.WithSuggestedInteropActivationOffset(365*24*60*60))
+	sfp.RunPreForkActivationTest(t, sys)
+}
+
+func TestInteropFaultProofs_ActivationBoundary(gt *testing.T) {
+	t := devtest.SerialT(gt)
+	// Set interop activation ~6s (3 blocks) after genesis. A small offset keeps
+	// the fork reachable within CI timeouts while still having pre-interop blocks.
+	sys := presets.NewSimpleInteropSupernodeProofs(t,
+		presets.WithChallengerCannonKonaEnabled(),
+		presets.WithSuggestedInteropActivationOffset(6),
+	)
+	sfp.RunInteropActivationBoundaryTest(t, sys)
+}
+
+func TestInteropFaultProofs_ConsolidateValidCrossChainMessage(gt *testing.T) {
+	t := devtest.ParallelT(gt)
 	sys := presets.NewSimpleInteropSupernodeProofs(t, presets.WithChallengerCannonKonaEnabled())
 	sfp.RunConsolidateValidCrossChainMessageTest(t, sys)
+}
+
+func TestInteropFaultProofs_DepositMessage(gt *testing.T) {
+	t := devtest.SerialT(gt)
+	sys := presets.NewSimpleInteropSupernodeProofs(t, presets.WithChallengerCannonKonaEnabled())
+	sfp.RunDepositMessageTest(t, sys)
+}
+
+func TestInteropFaultProofs_VariedBlockTimes(gt *testing.T) {
+	t := devtest.SerialT(gt)
+	// TODO(#19828): endTimestamp may align with a no-op transition for the slower chain,
+	// causing kona to skip the L1 data sufficiency check.
+	t.MarkFlaky("ethereum-optimism/optimism#19828")
+	sys := presets.NewSimpleInteropSupernodeProofs(
+		t,
+		presets.WithChallengerCannonKonaEnabled(),
+		presets.WithL2BlockTimes(map[eth.ChainID]uint64{
+			sysgo.DefaultL2AID: 1,
+			sysgo.DefaultL2BID: 2,
+		}),
+	)
+	sfp.RunVariedBlockTimesTest(t, sys)
+}
+
+func TestInteropFaultProofs_VariedBlockTimes_FasterChainB(gt *testing.T) {
+	t := devtest.SerialT(gt)
+	// TODO(#19828): endTimestamp may align with a no-op transition for the slower chain,
+	// causing kona to skip the L1 data sufficiency check.
+	t.MarkFlaky("ethereum-optimism/optimism#19828")
+	sys := presets.NewSimpleInteropSupernodeProofs(
+		t,
+		presets.WithChallengerCannonKonaEnabled(),
+		presets.WithL2BlockTimes(map[eth.ChainID]uint64{
+			sysgo.DefaultL2AID: 2,
+			sysgo.DefaultL2BID: 1,
+		}),
+	)
+	sfp.RunVariedBlockTimesTest(t, sys)
+}
+
+func TestInteropFaultProofs_InvalidBlock(gt *testing.T) {
+	t := devtest.SerialT(gt)
+	sys := presets.NewSimpleInteropSupernodeProofs(t, presets.WithChallengerCannonKonaEnabled())
+	sfp.RunInvalidBlockTest(t, sys)
+}
+
+func TestInteropFaultProofs_IntraBlock(gt *testing.T) {
+	for _, tc := range sfp.IntraBlockCases() {
+		gt.Run(tc.Name, func(gt *testing.T) {
+			t := devtest.SerialT(gt)
+			sys := presets.NewSimpleInteropSupernodeProofs(t, presets.WithChallengerCannonKonaEnabled())
+			sfp.RunIntraBlockConsolidationTest(t, sys, tc)
+		})
+	}
+}
+
+func TestInteropFaultProofs_DepositMessage_InvalidExecution(gt *testing.T) {
+	t := devtest.SerialT(gt)
+	sys := presets.NewSimpleInteropSupernodeProofs(t, presets.WithChallengerCannonKonaEnabled())
+	sfp.RunDepositMessageInvalidExecutionTest(t, sys)
+}
+
+func TestInteropFaultProofs_MessageExpiry(gt *testing.T) {
+	t := devtest.SerialT(gt)
+	const messageExpiryWindow = uint64(12) // 12 seconds for fast test
+	sys := presets.NewSimpleInteropSupernodeProofs(t,
+		presets.WithChallengerCannonKonaEnabled(),
+		presets.WithMessageExpiryWindow(messageExpiryWindow),
+	)
+	sfp.RunMessageExpiryTest(t, sys, messageExpiryWindow)
 }

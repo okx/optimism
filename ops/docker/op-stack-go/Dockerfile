@@ -10,7 +10,7 @@
 ARG TARGET_BASE_IMAGE=alpine:3.20
 
 # The ubuntu target base image is used for the op-challenger build with kona.
-ARG UBUNTU_TARGET_BASE_IMAGE=ubuntu:22.04
+ARG UBUNTU_TARGET_BASE_IMAGE=ubuntu:24.04
 
 # builder_foundry does not need to be built on $BUILDPLATFORM, as foundry produces static binaries.
 FROM alpine:3.21 AS builder_foundry
@@ -49,7 +49,7 @@ EOF
 RUN forge --version
 
 # We may be cross-building for another platform. Specify which platform we need as builder.
-FROM --platform=$BUILDPLATFORM golang:1.24.10-alpine3.21 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.24.13-alpine3.22 AS builder
 
 RUN apk add --no-cache curl tar gzip make gcc musl-dev linux-headers git jq yq-go bash just
 
@@ -178,7 +178,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 
 # Compile contracts in a glibc-based image (solc requires glibc, crashes on Alpine musl).
 # Uses BUILDPLATFORM so it runs natively (no QEMU). Contract artifacts are platform-independent.
-FROM --platform=$BUILDPLATFORM golang:1.24.10-bookworm AS op-deployer-contracts
+FROM --platform=$BUILDPLATFORM golang:1.24.13-bookworm AS op-deployer-contracts
 ARG BUILDARCH
 RUN apt-get update && apt-get install -y --no-install-recommends curl jq git && rm -rf /var/lib/apt/lists/*
 COPY ./go.mod /app/go.mod
@@ -233,7 +233,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
   just op-interop-mon/op-interop-mon
 
 # The Rust version must match rust/rust-toolchain.toml. We don't use "latest" to ensure reproducibility
-FROM --platform=$BUILDPLATFORM rust:1.92 AS kona-host-builder
+FROM --platform=$BUILDPLATFORM rust:1.94 AS kona-host-builder
 ARG TARGETARCH
 # Install build dependencies and cross-compilation toolchains
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -10,15 +10,18 @@ import { IOptimismMintableERC20Factory } from "interfaces/universal/IOptimismMin
 import { IOptimismMintableERC721Factory } from "interfaces/L2/IOptimismMintableERC721Factory.sol";
 import { IFeeVault } from "interfaces/L2/IFeeVault.sol";
 import { ILiquidityController } from "interfaces/L2/ILiquidityController.sol";
-import { IFeeSplitter } from "interfaces/L2/IFeeSplitter.sol";
-import { ISharesCalculator } from "interfaces/L2/ISharesCalculator.sol";
 import { IL2CrossDomainMessenger } from "interfaces/L2/IL2CrossDomainMessenger.sol";
 import { IL2StandardBridge } from "interfaces/L2/IL2StandardBridge.sol";
 import { IL2ERC721Bridge } from "interfaces/L2/IL2ERC721Bridge.sol";
 import { IL1Block } from "interfaces/L2/IL1Block.sol";
 
+import { IL2ProxyAdmin } from "interfaces/L2/IL2ProxyAdmin.sol";
+
 // Libraries
+import { Features } from "src/libraries/Features.sol";
 import { Predeploys } from "src/libraries/Predeploys.sol";
+import { DevFeatures } from "src/libraries/DevFeatures.sol";
+import { IL2DevFeatureFlags } from "interfaces/L2/IL2DevFeatureFlags.sol";
 import { L2ContractsManagerTypes } from "src/libraries/L2ContractsManagerTypes.sol";
 import { L2ContractsManagerUtils } from "src/libraries/L2ContractsManagerUtils.sol";
 
@@ -27,10 +30,11 @@ import { L2ContractsManagerUtils } from "src/libraries/L2ContractsManagerUtils.s
 contract L2ContractsManager is ISemver {
     /// @notice Thrown when the upgrade function is called outside of a DELEGATECALL context.
     error L2ContractsManager_OnlyDelegatecall();
+    error L2ContractsManager_FeatureFlagMismatch();
 
     /// @notice The semantic version of the L2ContractsManager contract.
-    /// @custom:semver 1.0.0
-    string public constant version = "1.0.0";
+    /// @custom:semver 1.8.0
+    string public constant version = "1.8.0";
 
     /// @notice The address of this contract. Used to enforce that the upgrade function is only
     ///         called via DELEGATECALL.
@@ -91,20 +95,14 @@ contract L2ContractsManager is ISemver {
     address internal immutable SUPERCHAIN_ETH_BRIDGE_IMPL;
     /// @notice ETHLiquidity implementation.
     address internal immutable ETH_LIQUIDITY_IMPL;
-    /// @notice OptimismSuperchainERC20Factory implementation.
-    address internal immutable OPTIMISM_SUPERCHAIN_ERC20_FACTORY_IMPL;
-    /// @notice OptimismSuperchainERC20Beacon implementation.
-    address internal immutable OPTIMISM_SUPERCHAIN_ERC20_BEACON_IMPL;
-    /// @notice SuperchainTokenBridge implementation.
-    address internal immutable SUPERCHAIN_TOKEN_BRIDGE_IMPL;
     /// @notice NativeAssetLiquidity implementation.
     address internal immutable NATIVE_ASSET_LIQUIDITY_IMPL;
     /// @notice LiquidityController implementation.
     address internal immutable LIQUIDITY_CONTROLLER_IMPL;
-    /// @notice FeeSplitter implementation.
-    address internal immutable FEE_SPLITTER_IMPL;
     /// @notice CONDITIONAL_DEPLOYER implementation.
     address internal immutable CONDITIONAL_DEPLOYER_IMPL;
+    /// @notice L2DevFeatureFlags implementation.
+    address internal immutable L2_DEV_FEATURE_FLAGS_IMPL;
 
     /// @notice Constructor for the L2ContractsManager contract.
     /// @param _implementations The implementation struct containing the new implementation addresses for the L2
@@ -133,19 +131,14 @@ contract L2ContractsManager is ISemver {
         OPERATOR_FEE_VAULT_IMPL = _implementations.operatorFeeVaultImpl;
         SCHEMA_REGISTRY_IMPL = _implementations.schemaRegistryImpl;
         EAS_IMPL = _implementations.easImpl;
-        // TODO(#18838): Add dev flagging for CrossL2Inbox and L2ToL2CrossDomainMessenger once DevFeatures is
-        // implemented for L2.
         CROSS_L2_INBOX_IMPL = _implementations.crossL2InboxImpl;
         L2_TO_L2_CROSS_DOMAIN_MESSENGER_IMPL = _implementations.l2ToL2CrossDomainMessengerImpl;
         SUPERCHAIN_ETH_BRIDGE_IMPL = _implementations.superchainETHBridgeImpl;
         ETH_LIQUIDITY_IMPL = _implementations.ethLiquidityImpl;
-        OPTIMISM_SUPERCHAIN_ERC20_FACTORY_IMPL = _implementations.optimismSuperchainERC20FactoryImpl;
-        OPTIMISM_SUPERCHAIN_ERC20_BEACON_IMPL = _implementations.optimismSuperchainERC20BeaconImpl;
-        SUPERCHAIN_TOKEN_BRIDGE_IMPL = _implementations.superchainTokenBridgeImpl;
         NATIVE_ASSET_LIQUIDITY_IMPL = _implementations.nativeAssetLiquidityImpl;
         LIQUIDITY_CONTROLLER_IMPL = _implementations.liquidityControllerImpl;
-        FEE_SPLITTER_IMPL = _implementations.feeSplitterImpl;
         CONDITIONAL_DEPLOYER_IMPL = _implementations.conditionalDeployerImpl;
+        L2_DEV_FEATURE_FLAGS_IMPL = _implementations.l2DevFeatureFlagsImpl;
     }
 
     /// @notice Executes the upgrade for all predeploys.
@@ -160,36 +153,60 @@ contract L2ContractsManager is ISemver {
     /// @notice Loads the full configuration for the L2 Predeploys.
     /// @return fullConfig_ The full configuration.
     function _loadFullConfig() internal view returns (L2ContractsManagerTypes.FullConfig memory fullConfig_) {
-        // Note: Currently, this is the only way to determine if the network is a custom gas token network.
-        // We need our upgrades be able to determine if the network is a custom gas token network so that we can
-        // apply the appropriate configuration to the LiquidityController predeploy. In networks without custom gas
-        // tokens, the LiquidityController predeploy is not used and points to address(0).
+        // First we read the system customization and dev feature flags from the state.
+        // Because the L2CM's upgrade function does not accept arguments, these values must be set from outside of the
+        // Network Upgrade Transactions bundle. The expectation is that they will be set at the start of a
+        // hard fork block, within the consensus client's code.
+
+        // Read system customization flags from L1Block.
+        // Uses the legacy isCustomGasToken() getter which has existed since custom gas token shipped.
         fullConfig_.isCustomGasToken = IL1Block(Predeploys.L1_BLOCK_ATTRIBUTES).isCustomGasToken();
+
+        // Uses try/catch because isFeatureEnabled() may not exist on pre-upgrade L1Block contracts.
+        // The INTEROP feature is enabled after genesis via a Network Upgrade Transaction (NUT) issued
+        // by the consensus client at the start of the hard fork block.
+        // eip150-safe
+        try IL1Block(Predeploys.L1_BLOCK_ATTRIBUTES).isFeatureEnabled(Features.INTEROP) returns (bool isInterop_) {
+            fullConfig_.isInterop = isInterop_;
+        } catch {
+            fullConfig_.isInterop = false;
+        }
+        // The INTEROP system customization can only be enabled if the dev feature is also enabled.
+        // The dev feature gates whether interop code was deployed; the system customization controls activation.
+        if (fullConfig_.isInterop && !_isDevFeatureEnabled(DevFeatures.OPTIMISM_PORTAL_INTEROP)) {
+            revert L2ContractsManager_FeatureFlagMismatch();
+        }
 
         // L2CrossDomainMessenger
         fullConfig_.crossDomainMessenger = L2ContractsManagerTypes.CrossDomainMessengerConfig({
-            otherMessenger: ICrossDomainMessenger(Predeploys.L2_CROSS_DOMAIN_MESSENGER).otherMessenger()
+            // TODO(#19468): Remove legacy getter after Karst upgrade.
+            otherMessenger: ICrossDomainMessenger(Predeploys.L2_CROSS_DOMAIN_MESSENGER).OTHER_MESSENGER()
         });
 
         // L2StandardBridge
         fullConfig_.standardBridge = L2ContractsManagerTypes.StandardBridgeConfig({
-            otherBridge: IStandardBridge(payable(Predeploys.L2_STANDARD_BRIDGE)).otherBridge()
+            // TODO(#19468): Remove legacy getter after Karst upgrade.
+            otherBridge: IStandardBridge(payable(Predeploys.L2_STANDARD_BRIDGE)).OTHER_BRIDGE()
         });
 
         // L2ERC721Bridge
         fullConfig_.erc721Bridge = L2ContractsManagerTypes.ERC721BridgeConfig({
-            otherBridge: IERC721Bridge(Predeploys.L2_ERC721_BRIDGE).otherBridge()
+            // TODO(#19468): Remove legacy getter after Karst upgrade.
+            otherBridge: IERC721Bridge(Predeploys.L2_ERC721_BRIDGE).OTHER_BRIDGE()
         });
 
         // OptimismMintableERC20Factory
         fullConfig_.mintableERC20Factory = L2ContractsManagerTypes.MintableERC20FactoryConfig({
-            bridge: IOptimismMintableERC20Factory(Predeploys.OPTIMISM_MINTABLE_ERC20_FACTORY).bridge()
+            // TODO(#19468): Remove legacy getter after Karst upgrade.
+            bridge: IOptimismMintableERC20Factory(Predeploys.OPTIMISM_MINTABLE_ERC20_FACTORY).BRIDGE()
         });
 
         // OptimismMintableERC721Factory
         fullConfig_.mintableERC721Factory = L2ContractsManagerTypes.MintableERC721FactoryConfig({
-            bridge: IOptimismMintableERC721Factory(Predeploys.OPTIMISM_MINTABLE_ERC721_FACTORY).bridge(),
-            remoteChainID: IOptimismMintableERC721Factory(Predeploys.OPTIMISM_MINTABLE_ERC721_FACTORY).remoteChainID()
+            // TODO(#19468): Remove legacy getter after Karst upgrade.
+            bridge: IOptimismMintableERC721Factory(Predeploys.OPTIMISM_MINTABLE_ERC721_FACTORY).BRIDGE(),
+            // TODO(#19468): Remove legacy getter after Karst upgrade.
+            remoteChainID: IOptimismMintableERC721Factory(Predeploys.OPTIMISM_MINTABLE_ERC721_FACTORY).REMOTE_CHAIN_ID()
         });
 
         // SequencerFeeVault
@@ -207,17 +224,25 @@ contract L2ContractsManager is ISemver {
         // LiquidityController
         if (fullConfig_.isCustomGasToken) {
             ILiquidityController liquidityController = ILiquidityController(Predeploys.LIQUIDITY_CONTROLLER);
+
+            address _liquidityControllerOwner;
+            // X Layer removed the owner() getter from their LiquidityController fork.
+            // Fall back to ProxyAdmin.owner() so the upgrade can migrate them to the OP Stack
+            // implementation, which restores a standard Ownable owner initialized to that address.
+            // TODO(#19468): Remove the fallback after the Karst upgrade.
+            // eip150-safe
+            try liquidityController.owner() returns (address owner_) {
+                _liquidityControllerOwner = owner_;
+            } catch {
+                _liquidityControllerOwner = IL2ProxyAdmin(Predeploys.PROXY_ADMIN).owner();
+            }
+
             fullConfig_.liquidityController = L2ContractsManagerTypes.LiquidityControllerConfig({
-                owner: liquidityController.owner(),
+                owner: _liquidityControllerOwner,
                 gasPayingTokenName: liquidityController.gasPayingTokenName(),
                 gasPayingTokenSymbol: liquidityController.gasPayingTokenSymbol()
             });
         }
-
-        // FeeSplitter
-        fullConfig_.feeSplitter = L2ContractsManagerTypes.FeeSplitterConfig({
-            sharesCalculator: IFeeSplitter(payable(Predeploys.FEE_SPLITTER)).sharesCalculator()
-        });
     }
 
     /// @notice Upgrades each of the predeploys to its corresponding new implementation. Applies the appropriate
@@ -296,20 +321,7 @@ contract L2ContractsManager is ISemver {
                 INITIALIZABLE_SLOT_OZ_V4,
                 0
             );
-
-            // NativeAssetLiquidity
-            L2ContractsManagerUtils.upgradeTo(Predeploys.NATIVE_ASSET_LIQUIDITY, NATIVE_ASSET_LIQUIDITY_IMPL);
         }
-
-        // FeeSplitter
-        L2ContractsManagerUtils.upgradeToAndCall(
-            Predeploys.FEE_SPLITTER,
-            FEE_SPLITTER_IMPL,
-            STORAGE_SETTER_IMPL,
-            abi.encodeCall(IFeeSplitter.initialize, (ISharesCalculator(_config.feeSplitter.sharesCalculator))),
-            INITIALIZABLE_SLOT_OZ_V4,
-            0
-        );
 
         // SequencerFeeVault
         L2ContractsManagerUtils.upgradeToAndCall(
@@ -385,29 +397,51 @@ contract L2ContractsManager is ISemver {
         L2ContractsManagerUtils.upgradeTo(
             Predeploys.L1_BLOCK_ATTRIBUTES, _config.isCustomGasToken ? L1_BLOCK_CGT_IMPL : L1_BLOCK_IMPL
         );
+        // TODO(#19468): Remove this migration step after Karst. Post-Karst, the feature
+        // mapping will already be populated from the upgrade, making this call unnecessary.
+        // After upgrading L1Block to the CGT impl, populate the feature mapping so that
+        // isCustomGasToken() continues to return true. The new impl reads from the mapping
+        // rather than the legacy storage slot.
+        if (
+            _config.isCustomGasToken
+                && !IL1Block(Predeploys.L1_BLOCK_ATTRIBUTES).isFeatureEnabled(Features.CUSTOM_GAS_TOKEN)
+        ) {
+            IL1Block(Predeploys.L1_BLOCK_ATTRIBUTES).setFeature(Features.CUSTOM_GAS_TOKEN);
+        }
         L2ContractsManagerUtils.upgradeTo(
             Predeploys.L2_TO_L1_MESSAGE_PASSER,
             _config.isCustomGasToken ? L2_TO_L1_MESSAGE_PASSER_CGT_IMPL : L2_TO_L1_MESSAGE_PASSER_IMPL
         );
         L2ContractsManagerUtils.upgradeTo(Predeploys.PROXY_ADMIN, PROXY_ADMIN_IMPL);
-        // TODO(#18838): Add dev flagging for CrossL2Inbox and L2ToL2CrossDomainMessenger once DevFeatures is
-        // implemented for L2.
-        L2ContractsManagerUtils.upgradeTo(Predeploys.CROSS_L2_INBOX, CROSS_L2_INBOX_IMPL);
-        L2ContractsManagerUtils.upgradeTo(
-            Predeploys.L2_TO_L2_CROSS_DOMAIN_MESSENGER, L2_TO_L2_CROSS_DOMAIN_MESSENGER_IMPL
-        );
-        L2ContractsManagerUtils.upgradeTo(Predeploys.SUPERCHAIN_ETH_BRIDGE, SUPERCHAIN_ETH_BRIDGE_IMPL);
-        L2ContractsManagerUtils.upgradeTo(Predeploys.ETH_LIQUIDITY, ETH_LIQUIDITY_IMPL);
-        L2ContractsManagerUtils.upgradeTo(
-            Predeploys.OPTIMISM_SUPERCHAIN_ERC20_FACTORY, OPTIMISM_SUPERCHAIN_ERC20_FACTORY_IMPL
-        );
-        L2ContractsManagerUtils.upgradeTo(
-            Predeploys.OPTIMISM_SUPERCHAIN_ERC20_BEACON, OPTIMISM_SUPERCHAIN_ERC20_BEACON_IMPL
-        );
-        L2ContractsManagerUtils.upgradeTo(Predeploys.SUPERCHAIN_TOKEN_BRIDGE, SUPERCHAIN_TOKEN_BRIDGE_IMPL);
+        L2ContractsManagerUtils.upgradeTo(Predeploys.L2_DEV_FEATURE_FLAGS, L2_DEV_FEATURE_FLAGS_IMPL);
+        if (_config.isCustomGasToken) {
+            L2ContractsManagerUtils.upgradeTo(Predeploys.NATIVE_ASSET_LIQUIDITY, NATIVE_ASSET_LIQUIDITY_IMPL);
+        }
+
+        // Interop predeploys are gated behind the OPTIMISM_PORTAL_INTEROP dev feature flag.
+        if (_config.isInterop) {
+            L2ContractsManagerUtils.upgradeTo(Predeploys.CROSS_L2_INBOX, CROSS_L2_INBOX_IMPL);
+            L2ContractsManagerUtils.upgradeTo(
+                Predeploys.L2_TO_L2_CROSS_DOMAIN_MESSENGER, L2_TO_L2_CROSS_DOMAIN_MESSENGER_IMPL
+            );
+            L2ContractsManagerUtils.upgradeTo(Predeploys.SUPERCHAIN_ETH_BRIDGE, SUPERCHAIN_ETH_BRIDGE_IMPL);
+            L2ContractsManagerUtils.upgradeTo(Predeploys.ETH_LIQUIDITY, ETH_LIQUIDITY_IMPL);
+        }
         L2ContractsManagerUtils.upgradeTo(Predeploys.SCHEMA_REGISTRY, SCHEMA_REGISTRY_IMPL);
         L2ContractsManagerUtils.upgradeTo(Predeploys.EAS, EAS_IMPL);
         L2ContractsManagerUtils.upgradeTo(Predeploys.CONDITIONAL_DEPLOYER, CONDITIONAL_DEPLOYER_IMPL);
+    }
+
+    /// @notice Checks if a development feature is enabled by reading from the L2DevFeatureFlags predeploy.
+    ///         If the L2DevFeatureFlags Predeploy is not available on-chain, i.e. it has no implementation,
+    ///         it defaults to false.
+    /// @param _feature The feature to check.
+    /// @return True if the L2DevFeatureFlags is available and _feature is enabled, false otherwise.
+    function _isDevFeatureEnabled(bytes32 _feature) internal view returns (bool) {
+        address flagsImpl =
+            IL2ProxyAdmin(Predeploys.PROXY_ADMIN).getProxyImplementation(Predeploys.L2_DEV_FEATURE_FLAGS);
+        if (flagsImpl.code.length == 0) return false;
+        return IL2DevFeatureFlags(Predeploys.L2_DEV_FEATURE_FLAGS).isDevFeatureEnabled(_feature);
     }
 
     /// @notice Returns the implementation addresses for each predeploy upgraded by the L2ContractsManager.
@@ -439,12 +473,9 @@ contract L2ContractsManager is ISemver {
         implementations_.l2ToL2CrossDomainMessengerImpl = L2_TO_L2_CROSS_DOMAIN_MESSENGER_IMPL;
         implementations_.superchainETHBridgeImpl = SUPERCHAIN_ETH_BRIDGE_IMPL;
         implementations_.ethLiquidityImpl = ETH_LIQUIDITY_IMPL;
-        implementations_.optimismSuperchainERC20FactoryImpl = OPTIMISM_SUPERCHAIN_ERC20_FACTORY_IMPL;
-        implementations_.optimismSuperchainERC20BeaconImpl = OPTIMISM_SUPERCHAIN_ERC20_BEACON_IMPL;
-        implementations_.superchainTokenBridgeImpl = SUPERCHAIN_TOKEN_BRIDGE_IMPL;
         implementations_.nativeAssetLiquidityImpl = NATIVE_ASSET_LIQUIDITY_IMPL;
         implementations_.liquidityControllerImpl = LIQUIDITY_CONTROLLER_IMPL;
-        implementations_.feeSplitterImpl = FEE_SPLITTER_IMPL;
         implementations_.conditionalDeployerImpl = CONDITIONAL_DEPLOYER_IMPL;
+        implementations_.l2DevFeatureFlagsImpl = L2_DEV_FEATURE_FLAGS_IMPL;
     }
 }
