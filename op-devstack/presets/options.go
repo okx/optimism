@@ -3,6 +3,7 @@ package presets
 import (
 	gameTypes "github.com/ethereum-optimism/optimism/op-challenger/game/types"
 	"github.com/ethereum-optimism/optimism/op-devstack/sysgo"
+	"github.com/ethereum-optimism/optimism/op-service/eth"
 )
 
 type Option interface {
@@ -167,6 +168,16 @@ func WithGlobalSyncTesterELOption(opt sysgo.SyncTesterELOption) Option {
 	}
 }
 
+func WithL1Geth(execPath string) Option {
+	return option{
+		kinds: optionKindL1EL,
+		applyFn: func(cfg *sysgo.PresetConfig) {
+			cfg.L1ELKind = "geth"
+			cfg.L1GethExecPath = execPath
+		},
+	}
+}
+
 func WithProposerOption(opt sysgo.ProposerOption) Option {
 	var kinds optionKinds
 	if opt != nil {
@@ -262,4 +273,24 @@ func WithRequireInteropNotAtGenesis() Option {
 			cfg.RequireInteropNotAtGen = true
 		},
 	}
+}
+
+// WithMessageExpiryWindow configures the message expiry window (in seconds)
+// used by the dependency set. This controls how long cross-chain messages
+// remain valid before they expire.
+func WithMessageExpiryWindow(window uint64) Option {
+	return option{
+		kinds: optionKindMessageExpiryWindow,
+		applyFn: func(cfg *sysgo.PresetConfig) {
+			v := window
+			cfg.MessageExpiryWindow = &v
+		},
+	}
+}
+
+// WithL2BlockTimes configures per-chain L2 block times via the deployer.
+// The blockTimes map keys are L2 chain IDs and values are the desired block
+// time in seconds for that chain.
+func WithL2BlockTimes(blockTimes map[eth.ChainID]uint64) Option {
+	return WithDeployerOptions(sysgo.WithL2BlockTimes(blockTimes))
 }

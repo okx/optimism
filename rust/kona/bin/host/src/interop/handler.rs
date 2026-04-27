@@ -35,8 +35,6 @@ use kona_protocol::{BlockInfo, OutputRoot, Predeploys};
 use kona_providers_alloy::BlobWithCommitmentAndProof;
 use kona_registry::{L1_CONFIGS, ROLLUP_CONFIGS};
 use op_alloy_rpc_types_engine::OpPayloadAttributes;
-use op_revm::OpTransaction;
-use revm::context::TxEnv;
 use std::sync::Arc;
 use tokio::task;
 use tracing::{Instrument, debug, info, info_span, warn};
@@ -536,9 +534,12 @@ impl HintHandler for InteropHintHandler {
                             .map(|header| Sealed::new_unchecked(header, agreed_block_hash))?;
                         let target_block = safe_head.number + 1;
 
+                        // The output root is unused in the host re-execution context,
+                        // which only collects preimages for witness generation.
                         let cursor = new_oracle_pipeline_cursor(
                             rollup_config.as_ref(),
                             safe_head,
+                            B256::ZERO,
                             &mut l1_provider,
                             &mut l2_provider,
                         )
@@ -564,7 +565,7 @@ impl HintHandler for InteropHintHandler {
                             rollup_config.as_ref(),
                             l2_provider.clone(),
                             l2_provider,
-                            OpEvmFactory::<OpTransaction<TxEnv>>::default(),
+                            OpEvmFactory::<alloy_op_evm::OpTx>::default(),
                             None,
                         );
                         let mut driver = Driver::new(cursor, executor, pipeline);

@@ -1,8 +1,10 @@
 package sync
 
 import (
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 type Mode int
@@ -78,9 +80,26 @@ type Config struct {
 	L2FollowSourceEndpoint string `json:"l2_follow_source_endpoint"`
 	NeedInitialResetEngine bool   `json:"need_initial_reset_engine"`
 
+	// OffsetELSafe retracts safe and finalized from the EL-sync tip by floor(OffsetELSafe / L2BlockTime) blocks.
+	// Zero disables (safe and finalized stay at the synced tip when EL sync completes).
+	OffsetELSafe time.Duration `json:"offset_el_safe,omitempty"`
+
 	// XLayer: skip L1 origin verification when following upstream source.
 	// Fully trusts the upstream L2 node and removes L1 RPC dependency.
 	SkipFollowSourceL1Check bool `json:"skip_follow_source_l1_check"`
+}
+
+func (c *Config) Check() error {
+	if c == nil {
+		return nil
+	}
+	if c.OffsetELSafe < 0 {
+		return errors.New("sync.offset-el-safe must be >= 0")
+	}
+	if c.OffsetELSafe > 0 && c.SyncMode != ELSync {
+		return fmt.Errorf("sync.offset-el-safe is only supported with EL sync (syncmode=%s)", ELSyncString)
+	}
+	return nil
 }
 
 func (c *Config) FollowSourceEnabled() bool {

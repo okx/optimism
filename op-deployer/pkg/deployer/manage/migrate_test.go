@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ethereum-optimism/optimism/op-chain-ops/devkeys"
+	"github.com/ethereum-optimism/optimism/op-core/devfeatures"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/broadcaster"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/integration_test/shared"
@@ -53,8 +54,7 @@ func TestInteropMigration(t *testing.T) {
 		name       string
 		devFeature common.Hash
 	}{
-		{"opcm-v1", common.Hash{}},
-		{"opcm-v2", deployer.OPCMV2DevFlag},
+		{"opcm-v2", devfeatures.OPCMV2Flag},
 	}
 
 	for _, tt := range tests {
@@ -63,10 +63,13 @@ func TestInteropMigration(t *testing.T) {
 			intent, st := shared.NewIntent(t, l1ChainID, dk, l2ChainID, loc, loc, 30_000_000)
 
 			// Set dev features for this test
-			devBitmap := deployer.EnableDevFeature(tt.devFeature, deployer.OptimismPortalInteropDevFlag)
+			devBitmap := devfeatures.EnableDevFeature(tt.devFeature, devfeatures.OptimismPortalInteropFlag)
 			intent.GlobalDeployOverrides = map[string]any{
 				"devFeatureBitmap": devBitmap,
 			}
+
+			// Since we are enabling Interop in the bitmap we enable the UseInterop flag
+			intent.UseInterop = true
 
 			err := deployer.ApplyPipeline(ctx, deployer.ApplyPipelineOpts{
 				DeploymentTarget:   deployer.DeploymentTargetLive,
@@ -95,14 +98,14 @@ func TestInteropMigration(t *testing.T) {
 			require.NoError(t, err)
 
 			var opcmAddr common.Address
-			if deployer.IsDevFeatureEnabled(tt.devFeature, deployer.OPCMV2DevFlag) {
+			if devfeatures.IsDevFeatureEnabled(tt.devFeature, devfeatures.OPCMV2Flag) {
 				require.NotEqual(t, common.Address{}, st.ImplementationsDeployment.OpcmV2Impl, "OPCM V2 address should be set")
 				opcmAddr = st.ImplementationsDeployment.OpcmV2Impl
 				t.Logf("OPCM V2: %s", opcmAddr.Hex())
 			} else {
-				require.NotEqual(t, common.Address{}, st.ImplementationsDeployment.OpcmImpl, "OPCM V1 address should be set")
-				opcmAddr = st.ImplementationsDeployment.OpcmImpl
-				t.Logf("OPCM V1: %s", opcmAddr.Hex())
+				require.NotEqual(t, common.Address{}, st.ImplementationsDeployment.OpcmV2Impl, "OPCM V2 address should be set")
+				opcmAddr = st.ImplementationsDeployment.OpcmV2Impl
+				t.Logf("OPCM V2: %s", opcmAddr.Hex())
 			}
 
 			// Deploy DummyCaller at l1ProxyAdminOwner for the OPCM
@@ -121,7 +124,7 @@ func TestInteropMigration(t *testing.T) {
 
 			var input InteropMigrationInput
 
-			if deployer.IsDevFeatureEnabled(tt.devFeature, deployer.OPCMV2DevFlag) {
+			if devfeatures.IsDevFeatureEnabled(tt.devFeature, devfeatures.OPCMV2Flag) {
 				// OPCM V2 path
 				// Note: No need to call upgradeChainV2 since ApplyPipeline already deploys a fully initialized chain
 

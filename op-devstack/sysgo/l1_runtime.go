@@ -36,8 +36,12 @@ func startInProcessL1(t devtest.T, l1Net *L1Network, jwtPath string) (*L1Geth, *
 }
 
 func startInProcessL1WithClock(t devtest.T, l1Net *L1Network, jwtPath string, l1Clock clock.Clock) (*L1Geth, *L1CLNode) {
-	if os.Getenv(DevstackL1ELKindEnvVar) == "geth" {
-		return startSubprocessL1WithClock(t, l1Net, jwtPath, l1Clock)
+	return startInProcessL1WithClockConfig(t, l1Net, jwtPath, l1Clock, PresetConfig{})
+}
+
+func startInProcessL1WithClockConfig(t devtest.T, l1Net *L1Network, jwtPath string, l1Clock clock.Clock, cfg PresetConfig) (*L1Geth, *L1CLNode) {
+	if useSubprocessL1Geth(cfg) {
+		return startSubprocessL1WithClock(t, l1Net, jwtPath, l1Clock, cfg)
 	}
 
 	require := t.Require()
@@ -86,12 +90,16 @@ func startInProcessL1WithClock(t devtest.T, l1Net *L1Network, jwtPath string, l1
 	return l1EL, l1CL
 }
 
-func startSubprocessL1WithClock(t devtest.T, l1Net *L1Network, jwtPath string, l1Clock clock.Clock) (*L1Geth, *L1CLNode) {
+func startSubprocessL1WithClock(t devtest.T, l1Net *L1Network, jwtPath string, l1Clock clock.Clock, cfg PresetConfig) (*L1Geth, *L1CLNode) {
 	require := t.Require()
 	l1ChainID := l1Net.ChainID()
 
-	execPath, ok := os.LookupEnv(GethExecPathEnvVar)
-	require.True(ok, "%s must be set when %s=geth", GethExecPathEnvVar, DevstackL1ELKindEnvVar)
+	execPath := cfg.L1GethExecPath
+	if execPath == "" {
+		var ok bool
+		execPath, ok = os.LookupEnv(GethExecPathEnvVar)
+		require.True(ok, "%s must be set when %s=geth", GethExecPathEnvVar, DevstackL1ELKindEnvVar)
+	}
 	_, err := os.Stat(execPath)
 	require.NotErrorIs(err, os.ErrNotExist, "geth executable must exist")
 
@@ -120,21 +128,21 @@ func startSubprocessL1WithClock(t devtest.T, l1Net *L1Network, jwtPath string, l
 		authProxy.Close()
 	})
 
-	userRPC := "ws://" + userProxy.Addr()
+	userRPC := "http://" + userProxy.Addr() // Kona requires http, not ws.
 	authRPC := "ws://" + authProxy.Addr()
 	userRPCUpstream := make(chan string, 1)
 	authRPCUpstream := make(chan string, 1)
 	onLogEntry := func(e logpipe.LogEntry) {
 		switch e.LogMessage() {
-		case "WebSocket enabled":
-			select {
-			case userRPCUpstream <- e.FieldValue("url").(string):
-			default:
-			}
 		case "HTTP server started":
 			if e.FieldValue("auth").(bool) {
 				select {
 				case authRPCUpstream <- "http://" + e.FieldValue("endpoint").(string):
+				default:
+				}
+			} else {
+				select {
+				case userRPCUpstream <- "http://" + e.FieldValue("endpoint").(string):
 				default:
 				}
 			}
@@ -156,6 +164,7 @@ func startSubprocessL1WithClock(t devtest.T, l1Net *L1Network, jwtPath string, l
 	args := []string{
 		"--log.format", "json",
 		"--datadir", dataDirPath,
+		"--http", "--http.addr", "127.0.0.1", "--http.port", "0", "--http.corsdomain", "*", "--http.api", "admin,debug,eth,net,txpool",
 		"--ws", "--ws.addr", "127.0.0.1", "--ws.port", "0", "--ws.origins", "*", "--ws.api", "admin,debug,eth,net,txpool",
 		"--authrpc.addr", "127.0.0.1", "--authrpc.port", "0", "--authrpc.jwtsecret", jwtPath,
 		"--ipcdisable",
@@ -215,6 +224,14 @@ func startSubprocessL1WithClock(t devtest.T, l1Net *L1Network, jwtPath string, l
 		fakepos:        fp,
 	}
 	return l1EL, l1CL
+}
+
+func useSubprocessL1Geth(cfg PresetConfig) bool {
+	kind := cfg.L1ELKind
+	if kind == "" {
+		kind = os.Getenv(DevstackL1ELKindEnvVar)
+	}
+	return kind == "geth"
 }
 
 func readJWTSecret(t devtest.T, jwtPath string) [32]byte {
