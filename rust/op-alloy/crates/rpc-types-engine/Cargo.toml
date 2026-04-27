@@ -42,8 +42,6 @@ arbitrary = { workspace = true, features = ["derive"], optional = true }
 # hashing
 sha2.workspace = true
 
-derive_more = { workspace = true, features = ["as_ref", "deref_mut"] }
-
 [dev-dependencies]
 arbtest.workspace = true
 serde_json.workspace = true
