@@ -2429,7 +2429,8 @@ mod eip8130_tests {
         REVOKED_VERIFIER, aa_lock_slot, aa_owner_config_slot,
     };
     use crate::{
-        DefaultOp, L1BlockInfo, OpBuilder, OpHaltReason, OpSpecId, OpTransaction,
+        DefaultOp, L1BlockInfo, OpBuilder, OpContext, OpHaltReason, OpSpecId, OpTransaction,
+        api::builder::DefaultOpEvm,
         precompiles_xlayer::{NONCE_MANAGER_ADDRESS, aa_nonce_slot},
         transaction::{
             OpTransactionError,
@@ -2440,6 +2441,7 @@ mod eip8130_tests {
             },
         },
     };
+    use core::convert::Infallible;
     use revm::{
         bytecode::Bytecode,
         context::{BlockEnv, CfgEnv, Context, TxEnv},
@@ -2455,14 +2457,22 @@ mod eip8130_tests {
     };
     use std::vec;
 
+    type TestEvm = DefaultOpEvm<OpContext<InMemoryDB>>;
+
+    type RunResult =
+        Result<ExecutionResult<OpHaltReason>, EVMError<Infallible, OpTransactionError>>;
+
     /// Builds an EVM with EIP-8130 parts and runs the full handler flow,
-    /// returning the execution result.
+    /// returning both the run result and the constructed EVM so tests can
+    /// inspect post-execution state.
     fn run_eip8130_tx(
         sender: Address,
         accounts: &[(Address, Bytecode)],
+        storage: &[(Address, U256, U256)],
+        tx_nonce: u64,
         eip8130: Eip8130Parts,
         gas_limit: u64,
-    ) -> ExecutionResult<OpHaltReason> {
+    ) -> (RunResult, TestEvm) {
         let mut db = InMemoryDB::default();
         db.insert_account_info(
             sender,
@@ -2478,6 +2488,9 @@ mod eip8130_tests {
                 AccountInfo { code: Some(code.clone()), ..Default::default() },
             );
         }
+        for (addr, slot, value) in storage {
+            db.insert_account_storage(*addr, *slot, *value).unwrap();
+        }
 
         let mut tx = OpTransaction::builder()
             .base(
@@ -2489,6 +2502,7 @@ mod eip8130_tests {
             )
             .enveloped_tx(Some(bytes!("7BFACADE")))
             .build_fill();
+        tx.base.nonce = tx_nonce;
         tx.eip8130 = eip8130;
 
         let ctx = Context::op()
@@ -2505,18 +2519,22 @@ mod eip8130_tests {
 
         let mut handler =
             OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
-        handler.run(&mut evm).unwrap()
+        let result = handler.run(&mut evm);
+        (result, evm)
     }
 
     #[test]
     fn test_eip8130_empty_phases_reverts() {
         let sender = Address::from([0x11; 20]);
-        let result = run_eip8130_tx(
+        let (result, _) = run_eip8130_tx(
             sender,
             &[],
+            &[],
+            0,
             Eip8130Parts { sender, payer: sender, ..Default::default() },
             100_000,
         );
+        let result = result.unwrap();
         assert!(!result.is_success(), "empty phases = no successes = tx reverts");
     }
 
@@ -2526,9 +2544,11 @@ mod eip8130_tests {
         let deployed_addr = Address::from([0x99; 20]);
         let bytecode = bytes!("363d3d373d3d3d363d73DEADBEEF5af43d82803e903d91602b57fd5bf3");
 
-        let result = run_eip8130_tx(
+        let (result, _) = run_eip8130_tx(
             sender,
             &[],
+            &[],
+            0,
             Eip8130Parts {
                 sender,
                 payer: sender,
@@ -2541,6 +2561,7 @@ mod eip8130_tests {
             },
             100_000,
         );
+        let result = result.unwrap();
         assert!(result.is_success(), "deploy-only tx should succeed");
 
         let statuses = decode_phase_statuses(result.output().unwrap());
@@ -2552,9 +2573,11 @@ mod eip8130_tests {
         let sender = Address::from([0x11; 20]);
         let target = Address::from([0x22; 20]);
 
-        let result = run_eip8130_tx(
+        let (result, _) = run_eip8130_tx(
             sender,
             &[(target, Bytecode::new_legacy(bytes!("00")))], // STOP
+            &[],
+            0,
             Eip8130Parts {
                 sender,
                 payer: sender,
@@ -2567,6 +2590,7 @@ mod eip8130_tests {
             },
             100_000,
         );
+        let result = result.unwrap();
         assert!(result.is_success(), "single STOP call should succeed");
 
         let statuses = decode_phase_statuses(result.output().unwrap());
@@ -2578,9 +2602,11 @@ mod eip8130_tests {
         let sender = Address::from([0x11; 20]);
         let target = Address::from([0x22; 20]);
 
-        let result = run_eip8130_tx(
+        let (result, _) = run_eip8130_tx(
             sender,
             &[(target, Bytecode::new_legacy(bytes!("60006000FD")))], // REVERT
+            &[],
+            0,
             Eip8130Parts {
                 sender,
                 payer: sender,
@@ -2593,7 +2619,45 @@ mod eip8130_tests {
             },
             100_000,
         );
+        let result = result.unwrap();
         assert!(!result.is_success(), "all phases failed → tx reverts");
+    }
+
+    #[test]
+    fn test_eip8130_single_phase_atomic_batch_failure_reverts_tx() {
+        let sender = Address::from([0x11; 20]);
+        let target_success = Address::from([0x22; 20]);
+        let target_revert = Address::from([0x23; 20]);
+
+        let (result, mut evm) = run_eip8130_tx(
+            sender,
+            &[
+                (target_success, Bytecode::new_legacy(bytes!("00"))), // STOP
+                (target_revert, Bytecode::new_legacy(bytes!("60006000FD"))), // REVERT
+            ],
+            &[],
+            0,
+            Eip8130Parts {
+                sender,
+                payer: sender,
+                call_phases: vec![vec![
+                    Eip8130Call { to: target_success, data: Bytes::new(), value: U256::ONE },
+                    Eip8130Call { to: target_revert, data: Bytes::new(), value: U256::ZERO },
+                ]],
+                ..Default::default()
+            },
+            100_000,
+        );
+        let result = result.unwrap();
+
+        assert!(!result.is_success(), "all phases failed → tx reverts");
+
+        let success_balance =
+            evm.ctx().journal_mut().load_account(target_success).unwrap().info.balance;
+        let revert_balance =
+            evm.ctx().journal_mut().load_account(target_revert).unwrap().info.balance;
+        assert_eq!(success_balance, U256::ZERO, "target_success value transfer not rolled back");
+        assert_eq!(revert_balance, U256::ZERO, "target_revert balance unexpectedly nonzero");
     }
 
     #[test]
@@ -2602,12 +2666,14 @@ mod eip8130_tests {
         let target_ok = Address::from([0x22; 20]);
         let target_fail = Address::from([0x33; 20]);
 
-        let result = run_eip8130_tx(
+        let (result, _) = run_eip8130_tx(
             sender,
             &[
                 (target_ok, Bytecode::new_legacy(bytes!("00"))), // STOP
                 (target_fail, Bytecode::new_legacy(bytes!("60006000FD"))), // REVERT
             ],
+            &[],
+            0,
             Eip8130Parts {
                 sender,
                 payer: sender,
@@ -2619,6 +2685,7 @@ mod eip8130_tests {
             },
             100_000,
         );
+        let result = result.unwrap();
         assert!(result.is_success(), "at least one phase succeeded → tx succeeds");
 
         let statuses = decode_phase_statuses(result.output().unwrap());
@@ -2630,9 +2697,11 @@ mod eip8130_tests {
         let sender = Address::from([0x11; 20]);
         let target_fail = Address::from([0x33; 20]);
 
-        let result = run_eip8130_tx(
+        let (result, _) = run_eip8130_tx(
             sender,
             &[(target_fail, Bytecode::new_legacy(bytes!("60006000FD")))], // REVERT
+            &[],
+            0,
             Eip8130Parts {
                 sender,
                 payer: sender,
@@ -2644,6 +2713,7 @@ mod eip8130_tests {
             },
             100_000,
         );
+        let result = result.unwrap();
         assert!(!result.is_success(), "all phases failed → tx reverts");
     }
 
@@ -2654,9 +2724,11 @@ mod eip8130_tests {
 
         let aa_intrinsic = 25_000u64;
         let gas_limit = 100_000u64;
-        let result = run_eip8130_tx(
+        let (result, _) = run_eip8130_tx(
             sender,
             &[(target, Bytecode::new_legacy(bytes!("00")))], // STOP
+            &[],
+            0,
             Eip8130Parts {
                 sender,
                 payer: sender,
@@ -2670,6 +2742,7 @@ mod eip8130_tests {
             },
             gas_limit,
         );
+        let result = result.unwrap();
         assert!(result.is_success());
         assert!(result.gas_used() >= aa_intrinsic, "at least intrinsic gas should be charged");
         assert!(result.gas_used() <= gas_limit, "cannot spend more than limit");
@@ -2682,63 +2755,29 @@ mod eip8130_tests {
         let nonce_seq: u64 = 5;
         let aa_intrinsic_cold = 40_000u64;
         let gas_limit = 200_000u64;
-
         let nonce_key = U256::ZERO;
         let slot = aa_nonce_slot(sender, nonce_key);
 
-        let mut db = InMemoryDB::default();
-        db.insert_account_info(
+        let (result, _) = run_eip8130_tx(
             sender,
-            AccountInfo { balance: U256::from(10_000_000), ..Default::default() },
-        );
-        db.insert_account_info(
-            NONCE_MANAGER_ADDRESS,
-            AccountInfo { code: Some(Bytecode::new_legacy(bytes!("FE"))), ..Default::default() },
-        );
-        db.insert_account_info(
-            target,
-            AccountInfo { code: Some(Bytecode::new_legacy(bytes!("00"))), ..Default::default() },
-        );
-        db.insert_account_storage(NONCE_MANAGER_ADDRESS, slot, U256::from(nonce_seq)).unwrap();
-
-        let mut tx = OpTransaction::builder()
-            .base(
-                TxEnv::builder()
-                    .tx_type(Some(0x7B))
-                    .caller(sender)
-                    .gas_limit(gas_limit)
-                    .kind(TxKind::Call(sender)),
-            )
-            .enveloped_tx(Some(bytes!("7BFACADE")))
-            .build_fill();
-        tx.base.nonce = nonce_seq;
-        tx.eip8130 = Eip8130Parts {
-            sender,
-            payer: sender,
-            nonce_key,
-            aa_intrinsic_gas: aa_intrinsic_cold,
-            call_phases: vec![vec![Eip8130Call {
-                to: target,
-                data: Bytes::new(),
-                value: U256::ZERO,
-            }]],
-            ..Default::default()
-        };
-
-        let ctx = Context::op()
-            .with_db(db)
-            .with_tx(tx)
-            .with_chain(L1BlockInfo {
-                l2_block: Some(U256::ZERO),
-                operator_fee_scalar: Some(U256::ZERO),
-                operator_fee_constant: Some(U256::ZERO),
+            &[(target, Bytecode::new_legacy(bytes!("00")))],
+            &[(NONCE_MANAGER_ADDRESS, slot, U256::from(nonce_seq))],
+            nonce_seq,
+            Eip8130Parts {
+                sender,
+                payer: sender,
+                nonce_key,
+                aa_intrinsic_gas: aa_intrinsic_cold,
+                call_phases: vec![vec![Eip8130Call {
+                    to: target,
+                    data: Bytes::new(),
+                    value: U256::ZERO,
+                }]],
                 ..Default::default()
-            })
-            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_AA));
-        let mut evm = ctx.build_op();
-        let mut handler =
-            OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
-        let result = handler.run(&mut evm).unwrap();
+            },
+            gas_limit,
+        );
+        let result = result.unwrap();
 
         assert!(result.is_success());
         let warm_intrinsic = aa_intrinsic_cold - NONCE_COLD_WARM_DELTA;
@@ -2762,50 +2801,21 @@ mod eip8130_tests {
         let nonce_key = U256::ZERO;
         let slot = aa_nonce_slot(sender, nonce_key);
 
-        let mut db = InMemoryDB::default();
-        db.insert_account_info(
+        let (result, _) = run_eip8130_tx(
             sender,
-            AccountInfo { balance: U256::from(10_000_000), ..Default::default() },
-        );
-        db.insert_account_info(
-            NONCE_MANAGER_ADDRESS,
-            AccountInfo { code: Some(Bytecode::new_legacy(bytes!("FE"))), ..Default::default() },
-        );
-        db.insert_account_storage(NONCE_MANAGER_ADDRESS, slot, U256::from(3u64)).unwrap();
-
-        let mut tx = OpTransaction::builder()
-            .base(
-                TxEnv::builder()
-                    .tx_type(Some(0x7B))
-                    .caller(sender)
-                    .gas_limit(200_000)
-                    .kind(TxKind::Call(sender)),
-            )
-            .enveloped_tx(Some(bytes!("7BFACADE")))
-            .build_fill();
-        tx.base.nonce = 5; // state has 3, tx says 5 → NonceTooHigh
-        tx.eip8130 = Eip8130Parts {
-            sender,
-            payer: sender,
-            nonce_key,
-            aa_intrinsic_gas: 25_000,
-            ..Default::default()
-        };
-
-        let ctx = Context::op()
-            .with_db(db)
-            .with_tx(tx)
-            .with_chain(L1BlockInfo {
-                l2_block: Some(U256::ZERO),
-                operator_fee_scalar: Some(U256::ZERO),
-                operator_fee_constant: Some(U256::ZERO),
+            &[],
+            &[(NONCE_MANAGER_ADDRESS, slot, U256::from(3u64))],
+            5, // tx_nonce — state has 3, tx says 5 → NonceTooHigh
+            Eip8130Parts {
+                sender,
+                payer: sender,
+                nonce_key,
+                aa_intrinsic_gas: 25_000,
                 ..Default::default()
-            })
-            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_AA));
-        let mut evm = ctx.build_op();
-        let mut handler =
-            OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
-        let result = handler.run(&mut evm);
+            },
+            200_000,
+        );
+
         assert!(result.is_err(), "mismatched nonce should reject the transaction");
     }
 
