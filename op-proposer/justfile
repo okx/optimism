@@ -10,7 +10,9 @@ _LDFLAGSSTRING := "'" + trim(
 BINARY := "./bin/op-proposer"
 
 # Build op-proposer binary
-op-proposer: (go_build BINARY "./cmd" "-ldflags" _LDFLAGSSTRING)
+#   just op-proposer          # standard build
+#   just KMS=1 op-proposer    # internal build with KMS support (-tags kms)
+op-proposer: (go_build_kms BINARY "./cmd" "-ldflags" _LDFLAGSSTRING)
 
 # Clean build artifacts
 clean:

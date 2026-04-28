@@ -12,7 +12,9 @@ _LDFLAGSSTRING := "'" + trim(
 BINARY := "./bin/op-challenger"
 
 # Build op-challenger binary
-op-challenger: (go_build BINARY "./cmd" "-ldflags" _LDFLAGSSTRING)
+#   just op-challenger          # standard build
+#   just KMS=1 op-challenger    # internal build with KMS support (-tags kms)
+op-challenger: (go_build_kms BINARY "./cmd" "-ldflags" _LDFLAGSSTRING)
 
 # Run fuzzing tests
 fuzz: (go_fuzz "FuzzKeccak" "10s" "./game/keccak/matrix")

@@ -15,9 +15,20 @@ GORACE := "0"
 
 _GORACE_FLAG := if GORACE == "1" { "-race " } else { "" }
 
+# Set KMS=1 to build with Aliyun KMS support (internal network only).
+# Requires internal network access to gitlab.okg.com and a bound machine RAM role.
+# Usage: just KMS=1 <recipe>
+KMS := env('KMS', '0')
+_KMS_BUILDTAGS := if KMS == "1" { "-tags kms " } else { "" }
+_KMS_GOPRIVATE := if KMS == "1" { "GOPRIVATE=gitlab.okg.com " } else { "" }
+
 [private]
 go_build BIN PKG *FLAGS:
     env GO111MODULE=on GOOS={{TARGETOS}} GOARCH={{TARGETARCH}} CGO_ENABLED=0 go build -v {{_GORACE_FLAG}} {{FLAGS}} -o {{BIN}} {{PKG}}
+
+[private]
+go_build_kms BIN PKG *FLAGS:
+    env GO111MODULE=on {{_KMS_GOPRIVATE}}GOOS={{TARGETOS}} GOARCH={{TARGETARCH}} CGO_ENABLED=0 go build -v {{_GORACE_FLAG}}{{_KMS_BUILDTAGS}}{{FLAGS}} -o {{BIN}} {{PKG}}
 
 [private]
 go_test SELECTOR *FLAGS:
