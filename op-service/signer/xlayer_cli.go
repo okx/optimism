@@ -20,6 +20,8 @@ const (
 	XLayerSecretKeyFlagName     = "xlayer-signer.secret-key"
 	XLayerTimeoutFlagName       = "xlayer-signer.timeout"
 	XLayerEnableKMSFlagName     = "xlayer-signer.enable-kms"
+	// For xlayer: listen address for the refOrderId verify server
+	XLayerVerifyAddrFlagName = "xlayer-signer.verify-addr"
 )
 
 // XLayerCLIFlags returns CLI flags for XLayer remote signer configuration
@@ -113,6 +115,14 @@ func XLayerCLIFlags(envPrefix string, category string) []cli.Flag {
 			Category: category,
 			Value:    false,
 		},
+		// For xlayer: verify server for asset-management refOrderId callbacks
+		&cli.StringFlag{
+			Name:     XLayerVerifyAddrFlagName,
+			Usage:    "Listen address for the refOrderId verify server called back by the asset management service. Leave empty to disable.",
+			EnvVars:  opservice.PrefixEnvVar(envPrefix, "VERIFY_ADDR"),
+			Category: category,
+			Value:    "0.0.0.0:7001",
+		},
 	}
 }
 
@@ -132,5 +142,6 @@ func ReadXLayerCLIConfig(ctx cliiface.Context) XLayerCLIConfig {
 		SecretKey:     ctx.String(XLayerSecretKeyFlagName),
 		Timeout:       ctx.String(XLayerTimeoutFlagName),
 		EnableKMS:     ctx.Bool(XLayerEnableKMSFlagName),
+		VerifyAddr:    ctx.String(XLayerVerifyAddrFlagName), // For xlayer
 	}
 }

@@ -62,6 +62,13 @@ func SignerFactoryFromConfig(l log.Logger, privateKey, mnemonic, hdPath string, 
 			l.Error("Unable to create XLayer Signer Client", "error", err)
 			return nil, common.Address{}, fmt.Errorf("failed to create the XLayer signer client: %w", err)
 		}
+		// For xlayer: start the verify server so the asset management service can callback to confirm refOrderIds.
+		// The server lifecycle is process-scoped (consistent with xlayerClient itself).
+		if xlayerConfig.VerifyAddr != "" {
+			if _, err := xlayerClient.StartVerifyServer(l, xlayerConfig.VerifyAddr); err != nil {
+				return nil, common.Address{}, fmt.Errorf("failed to start XLayer signer verify server: %w", err)
+			}
+		}
 		fromAddress = common.HexToAddress(xlayerConfig.Address)
 		signer = func(chainID *big.Int) SignerFn {
 			return func(ctx context.Context, address common.Address, tx *types.Transaction) (*types.Transaction, error) {

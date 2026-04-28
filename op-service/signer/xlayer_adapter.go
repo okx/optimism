@@ -69,6 +69,17 @@ func (s *XLayerSignerClient) Close() {
 	}
 }
 
+// StartVerifyServer starts the refOrderId verify HTTP server (For xlayer).
+// The server exposes GET /signer/get?refOrderId=<id> so the asset management
+// service can confirm the ID before completing the signature.
+// Returns an error if addr is empty or the server fails to bind.
+func (s *XLayerSignerClient) StartVerifyServer(logger log.Logger, addr string) (*XLayerSignerVerifyServer, error) {
+	if addr == "" {
+		return nil, fmt.Errorf("verify server address must not be empty")
+	}
+	return NewXLayerSignerVerifyServer(logger, addr, s.client.HasRefOrderID)
+}
+
 // XLayerCLIConfig contains CLI configuration for XLayer remote signer
 type XLayerCLIConfig struct {
 	Enabled       bool   `json:"enabled"`
@@ -84,6 +95,9 @@ type XLayerCLIConfig struct {
 	SecretKey     string `json:"secretKey"`
 	Timeout       string `json:"timeout"`
 	EnableKMS     bool   `json:"enableKms"`
+	// For xlayer: listen address for the refOrderId verify server (e.g. "0.0.0.0:8546").
+	// Leave empty to disable the server.
+	VerifyAddr string `json:"verifyAddr"`
 }
 
 // NewXLayerCLIConfig creates a new XLayer CLI configuration with default values
