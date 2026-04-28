@@ -6,8 +6,17 @@ use alloy_transport::{RpcError, TransportErrorKind};
 use async_trait::async_trait;
 use kona_genesis::RollupConfig;
 use kona_protocol::{BlockInfo, L2BlockInfo};
-use std::{fmt::Debug, sync::Arc};
+use std::{
+    fmt::Debug,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::sync::watch;
+
+/// Minimum interval between repeated `try_fetch_next_origin` RPC calls when the next L1
+/// block is not yet available. L1 block time is ~12s, so retrying every L2 tick (often
+/// every 2s, but can be sub-second on catch-up) wastes RPCs.
+const NEXT_L1_ORIGIN_RETRY_INTERVAL: Duration = Duration::from_millis(2_000);
 
 /// Trait for selecting the next L1 origin block for sequencing.
 ///
@@ -43,6 +52,10 @@ pub struct L1OriginSelector<P: L1OriginSelectorProvider> {
     current: Option<BlockInfo>,
     /// The next L1 origin.
     next: Option<BlockInfo>,
+    /// Timestamp of the most recent unsuccessful attempt to fetch the next L1 origin
+    /// (i.e. the L1 block at `current.number + 1` did not exist yet). Used to throttle
+    /// retries: see [`NEXT_L1_ORIGIN_RETRY_INTERVAL`].
+    last_next_origin_miss: Option<Instant>,
 }
 
 #[async_trait]
@@ -108,7 +121,7 @@ impl<P: L1OriginSelectorProvider + Send + Sync> OriginSelector for L1OriginSelec
 impl<P: L1OriginSelectorProvider> L1OriginSelector<P> {
     /// Creates a new [`L1OriginSelector`].
     pub const fn new(cfg: Arc<RollupConfig>, l1: P) -> Self {
-        Self { cfg, l1, current: None, next: None }
+        Self { cfg, l1, current: None, next: None, last_next_origin_miss: None }
     }
 
     /// Returns the current L1 origin.
@@ -130,6 +143,10 @@ impl<P: L1OriginSelectorProvider> L1OriginSelector<P> {
         if in_recovery_mode {
             self.current = self.l1.get_block_by_hash(unsafe_head.l1_origin.hash).await?;
             self.next = self.l1.get_block_by_number(unsafe_head.l1_origin.number + 1).await?;
+            // `current` was just reassigned; the throttle window applies only to "we
+            // already failed to find the next L1 block of the *previous* current". Clear
+            // it so the new `current`'s next-block search is not artificially suppressed.
+            self.last_next_origin_miss = None;
             return Ok(());
         }
 
@@ -139,12 +156,16 @@ impl<P: L1OriginSelectorProvider> L1OriginSelector<P> {
             // Advance the origin.
             self.current = self.next.take();
             self.next = None;
+            // `current` advanced; reset the next-origin retry throttle (see above).
+            self.last_next_origin_miss = None;
         } else {
             // Find the current origin block, as it is missing.
             let current = self.l1.get_block_by_hash(unsafe_head.l1_origin.hash).await?;
 
             self.current = current;
             self.next = None;
+            // `current` was just refreshed from a hash lookup; reset the throttle.
+            self.last_next_origin_miss = None;
         }
 
         self.try_fetch_next_origin().await
@@ -157,6 +178,17 @@ impl<P: L1OriginSelectorProvider> L1OriginSelector<P> {
         if let Some(current) = self.current.as_ref() {
             // If the next L1 origin is already set, do nothing.
             if self.next.is_some() {
+                self.last_next_origin_miss = None;
+                return Ok(());
+            }
+
+            // Throttle retries when the next L1 block isn't available yet. L1 blocks come
+            // every ~12s, so retrying every L2 tick (every 1-2s, sometimes faster on
+            // catch-up) wastes RPCs and produces no useful update. After a miss we wait
+            // `NEXT_L1_ORIGIN_RETRY_INTERVAL` before trying again.
+            if let Some(last_miss) = self.last_next_origin_miss &&
+                last_miss.elapsed() < NEXT_L1_ORIGIN_RETRY_INTERVAL
+            {
                 return Ok(());
             }
 
@@ -167,6 +199,9 @@ impl<P: L1OriginSelectorProvider> L1OriginSelector<P> {
             let next = self.l1.get_block_by_number(current.number + 1).await?;
             if next.map(|n| n.parent_hash == current.hash).unwrap_or(false) {
                 self.next = next;
+                self.last_next_origin_miss = None;
+            } else {
+                self.last_next_origin_miss = Some(Instant::now());
             }
         }
 

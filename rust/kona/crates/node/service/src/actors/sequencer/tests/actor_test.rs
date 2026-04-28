@@ -39,7 +39,7 @@ async fn test_build_unsealed_payload_prepare_payload_attributes_error(
     actor.engine_client = client;
     actor.attributes_builder = attributes_builder;
 
-    let result = actor.build_unsealed_payload().await;
+    let result = actor.build_unsealed_payload(None).await;
     if expect_err {
         assert!(result.is_err());
         assert!(matches!(

@@ -36,6 +36,10 @@ pub struct AlloyL2ChainProvider {
     rollup_config: Arc<RollupConfig>,
     /// The `block_by_number` LRU cache.
     block_by_number_cache: LruCache<u64, OpBlock>,
+    /// The `system_config_by_number` LRU cache. Seeded by the sequencer from just-sealed
+    /// blocks via [`L2ChainProvider::cache_system_config`] so the upcoming
+    /// `prepare_payload_attributes` call avoids `eth_getBlockByNumber` against the L2 EL.
+    system_config_by_number_cache: LruCache<u64, SystemConfig>,
 }
 
 impl AlloyL2ChainProvider {
@@ -67,6 +71,7 @@ impl AlloyL2ChainProvider {
             trust_rpc,
             rollup_config,
             block_by_number_cache: LruCache::new(NonZeroUsize::new(cache_size).unwrap()),
+            system_config_by_number_cache: LruCache::new(NonZeroUsize::new(cache_size).unwrap()),
         }
     }
 
@@ -261,11 +266,33 @@ impl L2ChainProvider for AlloyL2ChainProvider {
         number: u64,
         rollup_config: Arc<RollupConfig>,
     ) -> Result<SystemConfig, <Self as BatchValidationProvider>::Error> {
+        if let Some(cfg) = self.system_config_by_number_cache.get(&number) {
+            #[cfg(feature = "metrics")]
+            kona_macros::inc!(
+                gauge,
+                Metrics::CHAIN_PROVIDER_CACHE_HITS,
+                "cache" => "system_config_by_number"
+            );
+            return Ok(*cfg);
+        }
+        #[cfg(feature = "metrics")]
+        kona_macros::inc!(
+            gauge,
+            Metrics::CHAIN_PROVIDER_CACHE_MISSES,
+            "cache" => "system_config_by_number"
+        );
+
         let block = self
             .block_by_number(number)
             .await
             .map_err(|_| AlloyL2ChainProviderError::BlockNotFound(number))?;
-        to_system_config(&block, &rollup_config)
-            .map_err(|_| AlloyL2ChainProviderError::SystemConfigConversion(number))
+        let cfg = to_system_config(&block, &rollup_config)
+            .map_err(|_| AlloyL2ChainProviderError::SystemConfigConversion(number))?;
+        self.system_config_by_number_cache.put(number, cfg);
+        Ok(cfg)
+    }
+
+    fn cache_system_config(&mut self, number: u64, system_config: SystemConfig) {
+        self.system_config_by_number_cache.put(number, system_config);
     }
 }

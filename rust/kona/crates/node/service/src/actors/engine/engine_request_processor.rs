@@ -302,13 +302,23 @@ where
                     }
                     EngineProcessingRequest::Seal(seal_request) => {
                         let SealRequest { payload_id, attributes, result_tx } = *seal_request;
-                        let task = EngineTask::Seal(Box::new(SealTask::new(
+                        // Sequencer flow: seal is immediately followed by a `BuildTask`
+                        // whose `engine_forkchoiceUpdated(attributes)` canonicalizes the
+                        // just-imported block on the EL side. Skip the separate
+                        // canonicalize FCU here to remove ~50ms of RPC latency from the
+                        // per-cycle critical path. The sequencer also primes
+                        // `AttributesBuilder::cache_sealed_block` so downstream
+                        // `system_config_by_number` lookups hit a local cache rather
+                        // than `eth_getBlockByNumber`, which would return null until
+                        // canonicalize completes.
+                        let task = EngineTask::Seal(Box::new(SealTask::new_with_options(
                             self.client.clone(),
                             self.rollup.clone(),
                             payload_id,
                             attributes,
                             // The payload is not derived in this case.
                             false,
+                            true, // defer_canonicalize_fcu
                             Some(result_tx),
                         )));
                         self.engine.enqueue(task);

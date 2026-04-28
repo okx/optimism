@@ -7,6 +7,7 @@ use alloc::boxed::Box;
 use alloy_eips::BlockNumHash;
 use async_trait::async_trait;
 use kona_protocol::{L2BlockInfo, OpAttributesWithParent, SingleBatch};
+use op_alloy_consensus::OpBlock;
 use op_alloy_rpc_types_engine::OpPayloadAttributes;
 
 /// [`AttributesProvider`] is a trait abstraction that generalizes the [`BatchQueue`] stage.
@@ -48,4 +49,30 @@ pub trait AttributesBuilder: Debug + Send {
         l2_parent: L2BlockInfo,
         epoch: BlockNumHash,
     ) -> PipelineResult<OpPayloadAttributes>;
+
+    /// Best-effort prefetch of L1 data needed for `prepare_payload_attributes` for the given
+    /// `epoch`. Implementations that internally cache L1 lookups can use this to warm the
+    /// cache concurrently with other CL work (for example, sealing the previous block), so
+    /// the upcoming `prepare_payload_attributes` call hits cache instead of issuing fresh
+    /// L1 RPCs.
+    ///
+    /// `is_new_epoch` should be `true` when the upcoming block starts a new sequencing
+    /// epoch (`epoch.number != parent.l1_origin.number`), in which case L1 receipts are
+    /// also needed; otherwise only the L1 header is fetched.
+    ///
+    /// Errors are intentionally swallowed: a failed prefetch is harmless because the
+    /// authoritative call in `prepare_payload_attributes` will re-fetch and surface the
+    /// error.
+    #[allow(unused_variables)]
+    async fn prefetch_for_epoch(&mut self, epoch: BlockNumHash, is_new_epoch: bool) {}
+
+    /// Best-effort cache-priming for the just-sealed L2 block. Implementations that cache
+    /// `SystemConfig` (or the underlying L2 block) by number can populate it from the
+    /// sealed payload, so the next `prepare_payload_attributes` call avoids the
+    /// `eth_getBlockByNumber` RPC against the L2 EL.
+    ///
+    /// Errors are intentionally swallowed; a failed prime simply means the next
+    /// `prepare_payload_attributes` will pay an RPC.
+    #[allow(unused_variables)]
+    async fn cache_sealed_block(&mut self, block: OpBlock) {}
 }

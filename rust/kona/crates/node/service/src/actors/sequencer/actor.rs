@@ -17,19 +17,69 @@ use crate::{
         },
     },
 };
-use alloy_rpc_types_engine::PayloadId;
+use alloy_eips::{BlockNumHash, eip7685::EMPTY_REQUESTS_HASH};
+use alloy_primitives::B256;
+use alloy_rpc_types_engine::{CancunPayloadFields, PayloadId, PraguePayloadFields};
 use async_trait::async_trait;
 use kona_derive::{AttributesBuilder, PipelineErrorKind};
 use kona_engine::{InsertTaskError, SealTaskError, SynchronizeTaskError};
 use kona_genesis::RollupConfig;
 use kona_protocol::{BlockInfo, L2BlockInfo, OpAttributesWithParent};
-use op_alloy_rpc_types_engine::OpPayloadAttributes;
+use op_alloy_consensus::{OpBlock, OpTxEnvelope};
+use op_alloy_rpc_types_engine::{
+    OpExecutionPayload, OpExecutionPayloadEnvelope, OpExecutionPayloadSidecar, OpPayloadAttributes,
+};
 use std::{
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::{select, sync::mpsc};
 use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
+
+/// Default margin reserved before the target block timestamp for the seal operation
+/// (`engine_getPayload` + import). Mirrors `op-node`'s `defaultSealingDuration` so that
+/// the EL gets the full `block_time - SEALING_DURATION` window to fill transactions
+/// instead of having sealing eat into the next block's build window.
+const DEFAULT_SEALING_DURATION: Duration = Duration::from_millis(50);
+
+/// Reconstruct a best-effort [`L2BlockInfo`] for the in-flight (started-but-not-yet-sealed)
+/// block from the open [`UnsealedPayloadHandle`]. The block hash is unknown until
+/// `engine_getPayload` returns and is therefore left as the default value; every other
+/// field — `number`, `parent_hash`, `timestamp`, `l1_origin`, `seq_num` — is fully
+/// determined by the parent block, the L1 origin used at build time, and the payload
+/// attributes.
+///
+/// Used **only** to drive [`OriginSelector::next_l1_origin`] and
+/// [`AttributesBuilder::prefetch_for_epoch`] in parallel with the seal RPCs. Callers must
+/// NOT pass this into `prepare_payload_attributes` directly: the authoritative call needs
+/// the actual sealed parent (with hash) so the L2 EL can resolve `system_config_by_number`
+/// against canonical chain state.
+fn predict_unsealed_block_info(handle: &UnsealedPayloadHandle) -> L2BlockInfo {
+    let parent = handle.attributes_with_parent.parent();
+    let attrs = handle.attributes_with_parent.attributes();
+    let l1_origin_id =
+        BlockNumHash { number: handle.l1_origin_used.number, hash: handle.l1_origin_used.hash };
+    let seq_num = if l1_origin_id.number == parent.l1_origin.number &&
+        l1_origin_id.hash == parent.l1_origin.hash
+    {
+        parent.seq_num.saturating_add(1)
+    } else {
+        0
+    };
+    L2BlockInfo {
+        block_info: BlockInfo {
+            // Hash unknown until seal completes. None of the consumers we use this for
+            // (`OriginSelector::next_l1_origin`, `AttributesBuilder::prefetch_for_epoch`)
+            // read this field.
+            hash: B256::default(),
+            number: parent.block_info.number.saturating_add(1),
+            parent_hash: parent.block_info.hash,
+            timestamp: attrs.payload_attributes.timestamp,
+        },
+        l1_origin: l1_origin_id,
+        seq_num,
+    }
+}
 
 /// The handle to a block that has been started but not sealed.
 #[derive(Debug)]
@@ -38,6 +88,11 @@ pub(super) struct UnsealedPayloadHandle {
     pub payload_id: PayloadId,
     /// The [`OpAttributesWithParent`] used to start block building.
     pub attributes_with_parent: OpAttributesWithParent,
+    /// L1 origin block selected when this build job was started. Stored so the sequencer
+    /// can ask the [`OriginSelector`] "what is the L1 origin for the block AFTER this
+    /// one?" while sealing this block, without waiting for seal to finish (the answer only
+    /// depends on this block's L1 origin and timestamp, both known here).
+    pub l1_origin_used: BlockInfo,
 }
 
 /// The return payload of the `seal_last_and_start_next` function. This allows the sequencer
@@ -119,65 +174,204 @@ where
         &mut self,
         payload_to_seal: Option<&UnsealedPayloadHandle>,
     ) -> Result<SealLastStartNextResult, SequencerActorError> {
-        let seal_duration = match payload_to_seal {
-            Some(to_seal) => {
-                let seal_start = Instant::now();
-                self.seal_and_commit_payload_if_applicable(to_seal).await?;
-                seal_start.elapsed()
-            }
-            None => Duration::default(),
+        // First-iter / recovery path: nothing to seal, just kick off a build. Read the
+        // parent from the watch (it cannot lag here, since no in-flight seal exists).
+        let Some(to_seal) = payload_to_seal else {
+            let unsealed_payload_handle = self.build_unsealed_payload(None).await?;
+            return Ok(SealLastStartNextResult {
+                unsealed_payload_handle,
+                seal_duration: Duration::ZERO,
+            });
         };
 
-        let unsealed_payload_handle = self.build_unsealed_payload().await?;
+        // Steady-state path:
+        //
+        // 1. Seal + import the previous block (engine_client side).
+        // 2. **In parallel** with (1), warm caches that the upcoming
+        //    `prepare_payload_attributes` will read:
+        //    - Pick the next L1 origin via `origin_selector.next_l1_origin` using the
+        //      *predicted* L2BlockInfo of the in-flight build (origin selection only
+        //      depends on `l1_origin` + `timestamp`, never the unknown block hash).
+        //    - Ask `attributes_builder.prefetch_for_epoch` to populate the L1
+        //      `header_by_hash` / `receipts_by_hash` caches for that epoch.
+        // 3. After both halves complete, prime the L2 SystemConfig cache from the
+        //    just-sealed payload so `system_config_by_number(parent.number)` skips its
+        //    `eth_getBlockByNumber` RPC.
+        // 4. Then call `build_unsealed_payload` as usual. With caches warmed, the L1/L2
+        //    fetches inside `prepare_payload_attributes` are mostly cache hits, shrinking
+        //    per-cycle CL processing and widening the EL's tx-packing window.
+        //
+        // This pipelining is sound because none of the parallel work touches the L2
+        // canonical chain: the predicted L2BlockInfo is only fed to origin selection (uses
+        // `l1_origin` + `timestamp`) and to L1 prefetches keyed by the epoch's L1 hash.
+        // The authoritative `prepare_payload_attributes` still runs with the actual sealed
+        // parent against the canonicalized L2 chain.
+        let predicted_parent = predict_unsealed_block_info(to_seal);
+
+        let (seal_duration, sealed_payload) = {
+            let engine_client = &self.engine_client;
+            let conductor = self.conductor.as_ref();
+            let unsafe_payload_gossip_client = &self.unsafe_payload_gossip_client;
+            let origin_selector = &mut self.origin_selector;
+            let attributes_builder = &mut self.attributes_builder;
+            let in_recovery_mode = self.in_recovery_mode;
+
+            let seal_fut = async move {
+                let seal_request_start = Instant::now();
+
+                let payload = engine_client
+                    .seal_and_canonicalize_block(
+                        to_seal.payload_id,
+                        to_seal.attributes_with_parent.clone(),
+                    )
+                    .await?;
+
+                update_seal_duration_metrics(seal_request_start.elapsed());
+                update_total_transactions_sequenced(
+                    to_seal.attributes_with_parent.count_transactions(),
+                );
+
+                if let Some(conductor) = conductor {
+                    let cc_start = Instant::now();
+                    if let Err(err) = conductor.commit_unsafe_payload(&payload).await {
+                        error!(target: "sequencer", ?err,
+                            "Failed to commit unsafe payload to conductor");
+                    }
+                    update_conductor_commitment_duration_metrics(cc_start.elapsed());
+                }
+
+                // Hand the payload to the gossip client; keep a clone for cache priming.
+                let cache_payload = payload.clone();
+                unsafe_payload_gossip_client
+                    .schedule_execution_payload_gossip(payload)
+                    .await
+                    .map_err(SequencerActorError::from)?;
+
+                Ok::<(Duration, OpExecutionPayloadEnvelope), SequencerActorError>((
+                    seal_request_start.elapsed(),
+                    cache_payload,
+                ))
+            };
+
+            let prefetch_fut = async move {
+                // Best-effort: failures here just mean the authoritative call later will
+                // re-fetch and surface errors. Never propagate.
+                let l1_origin = match origin_selector
+                    .next_l1_origin(predicted_parent, in_recovery_mode)
+                    .await
+                {
+                    Ok(o) => o,
+                    Err(err) => {
+                        warn!(target: "sequencer", ?err,
+                            "Best-effort next-L1-origin pre-selection failed");
+                        return;
+                    }
+                };
+
+                let is_new_epoch = l1_origin.number != predicted_parent.l1_origin.number ||
+                    l1_origin.hash != predicted_parent.l1_origin.hash;
+                attributes_builder
+                    .prefetch_for_epoch(
+                        BlockNumHash { number: l1_origin.number, hash: l1_origin.hash },
+                        is_new_epoch,
+                    )
+                    .await;
+            };
+
+            let (seal_res, _) = tokio::join!(seal_fut, prefetch_fut);
+            seal_res?
+        };
+
+        // Step 3: derive the new unsafe head and prime the L2 SystemConfig cache from
+        // the just-sealed payload.
+        //
+        // Both halves are REQUIRED for correctness in the deferred-canonicalize-FCU
+        // pipeline:
+        //
+        //   * `new_unsafe_head` is fed into `build_unsealed_payload` directly instead
+        //     of re-reading `unsafe_head_rx`. The engine actor publishes the watch
+        //     update from its top-level drain loop AFTER the `response_tx.send` that
+        //     wakes us from `seal_and_canonicalize_block`, and tokio doesn't guarantee
+        //     the engine task continues past that send before this task resumes —
+        //     reading the watch here can return the pre-seal head and silently
+        //     re-build the same block.
+        //
+        //   * `cache_sealed_block` derives `SystemConfig` locally and seeds the cache so
+        //     the upcoming `prepare_payload_attributes` call's
+        //     `system_config_by_number(parent.number)` lookup hits the cache. With the
+        //     canonicalize FCU deferred, the EL's canonical chain is still at
+        //     `parent.number - 1` until the next `FCU(attrs)` runs, so a fall-through
+        //     to `eth_getBlockByNumber` would return null and abort the build.
+        //
+        // Therefore, conversion failures are propagated as
+        // `SealedPayloadConversion` rather than silently falling back. In steady state
+        // these conversions never fail — the EL just sealed the block and we hold the
+        // full payload — so an error here genuinely indicates either a malformed
+        // payload (invalid: should reset) or a programming bug.
+        let parent_beacon_block_root =
+            sealed_payload.parent_beacon_block_root.unwrap_or_default();
+        let block: OpBlock = match sealed_payload.execution_payload {
+            OpExecutionPayload::V4(_) => {
+                let sidecar = OpExecutionPayloadSidecar::v4(
+                    CancunPayloadFields::new(parent_beacon_block_root, Vec::new()),
+                    PraguePayloadFields::new(EMPTY_REQUESTS_HASH),
+                );
+                sealed_payload
+                    .execution_payload
+                    .try_into_block_with_sidecar(&sidecar)
+                    .map_err(|e| SequencerActorError::SealedPayloadConversion(e.to_string()))?
+            }
+            OpExecutionPayload::V3(_) => {
+                let sidecar = OpExecutionPayloadSidecar::v3(CancunPayloadFields::new(
+                    parent_beacon_block_root,
+                    Vec::new(),
+                ));
+                sealed_payload
+                    .execution_payload
+                    .try_into_block_with_sidecar(&sidecar)
+                    .map_err(|e| SequencerActorError::SealedPayloadConversion(e.to_string()))?
+            }
+            OpExecutionPayload::V1(_) | OpExecutionPayload::V2(_) => sealed_payload
+                .execution_payload
+                .try_into_block::<OpTxEnvelope>()
+                .map_err(|e| SequencerActorError::SealedPayloadConversion(e.to_string()))?,
+        };
+
+        let new_unsafe_head = L2BlockInfo::from_block_and_genesis(
+            &block,
+            &self.rollup_config.genesis,
+        )
+        .map_err(|e| SequencerActorError::SealedPayloadConversion(e.to_string()))?;
+
+        // Prime the SystemConfig cache before kicking off the next build.
+        self.attributes_builder.cache_sealed_block(block).await;
+
+        // Step 4: build the next payload, passing the freshly-derived parent so we
+        // don't depend on the engine actor's watch update having propagated yet. With
+        // caches warmed, the L1/L2 fetches inside `prepare_payload_attributes` are
+        // mostly cache hits.
+        let unsealed_payload_handle = self.build_unsealed_payload(Some(new_unsafe_head)).await?;
 
         Ok(SealLastStartNextResult { unsealed_payload_handle, seal_duration })
     }
 
-    /// Sends a seal request to seal the provided [`UnsealedPayloadHandle`], committing and
-    /// gossiping the resulting block, if one is built.
-    async fn seal_and_commit_payload_if_applicable(
-        &self,
-        unsealed_payload_handle: &UnsealedPayloadHandle,
-    ) -> Result<(), SequencerActorError> {
-        let seal_request_start = Instant::now();
-
-        // Send the seal request to the engine to seal the unsealed block.
-        let payload = self
-            .engine_client
-            .seal_and_canonicalize_block(
-                unsealed_payload_handle.payload_id,
-                unsealed_payload_handle.attributes_with_parent.clone(),
-            )
-            .await?;
-
-        update_seal_duration_metrics(seal_request_start.elapsed());
-
-        let payload_transaction_count =
-            unsealed_payload_handle.attributes_with_parent.count_transactions();
-        update_total_transactions_sequenced(payload_transaction_count);
-
-        // If the conductor is available, commit the payload to it.
-        if let Some(conductor) = &self.conductor {
-            let _conductor_commitment_start = Instant::now();
-            if let Err(err) = conductor.commit_unsafe_payload(&payload).await {
-                error!(target: "sequencer", ?err, "Failed to commit unsafe payload to conductor");
-            }
-
-            update_conductor_commitment_duration_metrics(_conductor_commitment_start.elapsed());
-        }
-
-        self.unsafe_payload_gossip_client
-            .schedule_execution_payload_gossip(payload)
-            .await
-            .map_err(Into::into)
-    }
-
     /// Starts building an L2 block by creating and populating payload attributes referencing the
     /// correct L1 origin block and sending them to the block engine.
+    ///
+    /// `unsafe_head` is the parent the new block builds on top of. Pass `None` to read it
+    /// from the engine's watch channel (the safe default whenever the local sync state
+    /// might lag the engine actor — e.g. on cold start). Pass `Some(_)` to bypass the
+    /// watch and use a caller-supplied parent — used in the steady-state path right
+    /// after `engine_client.seal_and_canonicalize_block` returns, where the watch
+    /// channel update from the engine actor's drain loop has not yet propagated.
     pub(super) async fn build_unsealed_payload(
         &mut self,
+        unsafe_head: Option<L2BlockInfo>,
     ) -> Result<Option<UnsealedPayloadHandle>, SequencerActorError> {
-        let unsafe_head = self.engine_client.get_unsafe_head().await?;
+        let unsafe_head = match unsafe_head {
+            Some(h) => h,
+            None => self.engine_client.get_unsafe_head().await?,
+        };
 
         let Some(l1_origin) = self.get_next_payload_l1_origin(unsafe_head).await? else {
             // Temporary error - retry on next tick.
@@ -210,7 +404,11 @@ where
 
         update_block_build_duration_metrics(build_request_start.elapsed());
 
-        Ok(Some(UnsealedPayloadHandle { payload_id, attributes_with_parent }))
+        Ok(Some(UnsealedPayloadHandle {
+            payload_id,
+            attributes_with_parent,
+            l1_origin_used: l1_origin,
+        }))
     }
 
     /// Determines and validates the L1 origin block for the provided L2 unsafe head.
@@ -458,8 +656,18 @@ where
 
                     if let Some(ref payload) = next_payload_to_seal {
                         let next_block_seconds = payload.attributes_with_parent.parent().block_info.timestamp.saturating_add(self.rollup_config.block_time);
-                        // next block time is last + block_time - time it takes to seal.
-                        let next_block_time = UNIX_EPOCH + Duration::from_secs(next_block_seconds) - last_seal_duration;
+                        // Reserve a sealing margin before the target block timestamp so that
+                        // `engine_getPayload` is dispatched in time to complete around the
+                        // target time, leaving the EL the full `block_time - margin` window
+                        // to fill transactions. We adapt to observed seal latency by taking
+                        // the max of the constant default and the last measured seal duration:
+                        // this matches op-node's `payloadTime - sealingDuration` schedule
+                        // while also handling kona's heavier seal task (which includes
+                        // newPayload + canonicalize FCU on top of getPayload).
+                        let sealing_margin = std::cmp::max(DEFAULT_SEALING_DURATION, last_seal_duration);
+                        let next_block_time = UNIX_EPOCH
+                            + Duration::from_secs(next_block_seconds)
+                            - sealing_margin;
                         match next_block_time.duration_since(SystemTime::now()) {
                             Ok(duration) => build_ticker.reset_after(duration),
                             Err(_) => build_ticker.reset_immediately(),

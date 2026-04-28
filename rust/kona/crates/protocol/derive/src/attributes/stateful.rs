@@ -15,7 +15,9 @@ use kona_genesis::{L1ChainConfig, RollupConfig};
 use kona_hardforks::{Hardfork, Hardforks};
 use kona_protocol::{
     DEPOSIT_EVENT_ABI_HASH, L1BlockInfoTx, L2BlockInfo, Predeploys, decode_deposit,
+    to_system_config,
 };
+use op_alloy_consensus::OpBlock;
 use op_alloy_rpc_types_engine::OpPayloadAttributes;
 
 /// A stateful implementation of the [`AttributesBuilder`].
@@ -226,6 +228,66 @@ where
                 .then(|| sys_config.min_base_fee.unwrap_or_default()), /* Default to zero if not
                                                                         * set at Jovian */
         })
+    }
+
+    /// Warm L1-side caches concurrently with other CL work.
+    ///
+    /// `prepare_payload_attributes` always calls `header_by_hash(epoch)`, and for the first
+    /// block of a new epoch additionally calls `receipts_by_hash(epoch)`. Both go through
+    /// `self.receipts_fetcher`, which holds an LRU cache; pre-fetching here populates that
+    /// cache so the upcoming authoritative call returns instantly. Errors are logged and
+    /// swallowed because the real call will re-fetch and propagate any genuine failure.
+    ///
+    /// On a new-epoch prefetch we issue `header_by_hash` and `receipts_by_hash`
+    /// sequentially through `self.receipts_fetcher` because the trait API takes
+    /// `&mut self` and the LRU is owned, not `Arc`-shared, so we can't fire both
+    /// concurrently here without losing cache coherence. The L1 prefetch as a whole is
+    /// already overlapped with the seal RPC by the sequencer (`tokio::join!` of seal_fut
+    /// and prefetch_fut), so the inner two-RPC sequence is hidden from the critical
+    /// path; serializing them at this layer keeps the implementation correct and simple.
+    async fn prefetch_for_epoch(&mut self, epoch: BlockNumHash, is_new_epoch: bool) {
+        if let Err(err) = self.receipts_fetcher.header_by_hash(epoch.hash).await {
+            warn!(
+                target: "attributes",
+                err = %err,
+                epoch_hash = %epoch.hash,
+                "Best-effort L1 header prefetch failed; the authoritative call will retry"
+            );
+        }
+        if is_new_epoch &&
+            let Err(err) = self.receipts_fetcher.receipts_by_hash(epoch.hash).await
+        {
+            warn!(
+                target: "attributes",
+                err = %err,
+                epoch_hash = %epoch.hash,
+                "Best-effort L1 receipts prefetch failed; the authoritative call will retry"
+            );
+        }
+    }
+
+    /// Prime the L2-side cache from a just-sealed block.
+    ///
+    /// Each cycle, `prepare_payload_attributes` calls
+    /// `system_config_by_number(parent.number)` against the L2 EL. The parent IS the block
+    /// we just sealed in this cycle, and we already have its full payload, so we can derive
+    /// the [`SystemConfig`] locally with no RPC and seed `self.config_fetcher`'s cache.
+    ///
+    /// Errors are logged and swallowed.
+    async fn cache_sealed_block(&mut self, block: OpBlock) {
+        match to_system_config(&block, &self.rollup_cfg) {
+            Ok(cfg) => {
+                self.config_fetcher.cache_system_config(block.header.number, cfg);
+            }
+            Err(err) => {
+                warn!(
+                    target: "attributes",
+                    ?err,
+                    number = block.header.number,
+                    "Failed to derive SystemConfig from sealed block; cache not primed"
+                );
+            }
+        }
     }
 }
 

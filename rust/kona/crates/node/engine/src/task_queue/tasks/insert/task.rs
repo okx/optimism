@@ -29,17 +29,53 @@ pub struct InsertTask<EngineClient_: EngineClient> {
     /// If the payload is safe this is true.
     /// A payload is safe if it is derived from a safe block.
     is_payload_safe: bool,
+    /// If `true`, the canonicalize forkchoice-update RPC after `engine_newPayload` is
+    /// skipped. The local engine sync state is still updated; the caller is responsible for
+    /// sending a follow-up forkchoice update (typically a `BuildTask` carrying payload
+    /// attributes) whose `HeadBlockHash` will canonicalize the block on the EL side.
+    ///
+    /// Set in the sequencer flow ([`crate::SealTask`]) where every seal is immediately
+    /// followed by a `BuildTask` for the next block, so the separate canonicalize FCU is
+    /// redundant and adds ~50ms of RPC latency to the build pipeline. **Safe** here only
+    /// because the sequencer also primes
+    /// [`kona_derive::AttributesBuilder::cache_sealed_block`] before the next call to
+    /// `prepare_payload_attributes`, so the `system_config_by_number(parent.number)` lookup
+    /// does not need to fall through to `eth_getBlockByNumber` (which would return null
+    /// until canonicalize completes).
+    defer_canonicalize_fcu: bool,
 }
 
 impl<EngineClient_: EngineClient> InsertTask<EngineClient_> {
-    /// Creates a new insert task.
+    /// Creates a new insert task with the canonicalize forkchoice update sent inline.
     pub const fn new(
         client: Arc<EngineClient_>,
         rollup_config: Arc<RollupConfig>,
         envelope: OpExecutionPayloadEnvelope,
         is_attributes_derived: bool,
     ) -> Self {
-        Self { client, rollup_config, envelope, is_payload_safe: is_attributes_derived }
+        Self::new_with_options(client, rollup_config, envelope, is_attributes_derived, false)
+    }
+
+    /// Creates a new insert task with explicit options.
+    ///
+    /// When `defer_canonicalize_fcu` is `true`, the canonicalize forkchoice update RPC is
+    /// skipped. The local sync state is still updated. The caller MUST send a follow-up
+    /// forkchoice update (e.g. via [`crate::BuildTask`]) before any code path queries the
+    /// EL by canonical-chain block number for the imported block.
+    pub const fn new_with_options(
+        client: Arc<EngineClient_>,
+        rollup_config: Arc<RollupConfig>,
+        envelope: OpExecutionPayloadEnvelope,
+        is_attributes_derived: bool,
+        defer_canonicalize_fcu: bool,
+    ) -> Self {
+        Self {
+            client,
+            rollup_config,
+            envelope,
+            is_payload_safe: is_attributes_derived,
+            defer_canonicalize_fcu,
+        }
     }
 
     /// Checks the response of the `engine_newPayload` call.
@@ -124,20 +160,34 @@ impl<EngineClient_: EngineClient> EngineTaskExt for InsertTask<EngineClient_> {
             L2BlockInfo::from_block_and_genesis(&block, &self.rollup_config.genesis)
                 .map_err(InsertTaskError::L2BlockInfoConstruction)?;
 
-        // Send a FCU to canonicalize the imported block.
-        SynchronizeTask::new(
-            Arc::clone(&self.client),
-            self.rollup_config.clone(),
-            EngineSyncStateUpdate {
-                cross_unsafe_head: Some(new_unsafe_ref),
-                unsafe_head: Some(new_unsafe_ref),
-                local_safe_head: self.is_payload_safe.then_some(new_unsafe_ref),
-                safe_head: self.is_payload_safe.then_some(new_unsafe_ref),
-                ..Default::default()
-            },
-        )
-        .execute(state)
-        .await?;
+        let sync_state_update = EngineSyncStateUpdate {
+            cross_unsafe_head: Some(new_unsafe_ref),
+            unsafe_head: Some(new_unsafe_ref),
+            local_safe_head: self.is_payload_safe.then_some(new_unsafe_ref),
+            safe_head: self.is_payload_safe.then_some(new_unsafe_ref),
+            ..Default::default()
+        };
+
+        if self.defer_canonicalize_fcu {
+            // Skip the FCU RPC; just apply the new sync state locally. The upcoming
+            // `BuildTask`'s `engine_forkchoiceUpdated(attributes)` carries
+            // `HeadBlockHash = new_unsafe_ref` and will canonicalize on the EL side, so
+            // an additional canonicalize FCU here is redundant. The caller is responsible
+            // for ensuring downstream code (e.g. `prepare_payload_attributes`) does not
+            // query the EL by canonical-chain block number for `new_unsafe_ref` between
+            // here and that follow-up FCU — the sequencer handles this by priming
+            // `AttributesBuilder::cache_sealed_block` immediately after this task returns.
+            state.sync_state = state.sync_state.apply_update(sync_state_update);
+        } else {
+            // Send a FCU to canonicalize the imported block.
+            SynchronizeTask::new(
+                Arc::clone(&self.client),
+                self.rollup_config.clone(),
+                sync_state_update,
+            )
+            .execute(state)
+            .await?;
+        }
 
         let total_duration = time_start.elapsed();
 

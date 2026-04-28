@@ -45,6 +45,16 @@ pub trait L2ChainProvider: BatchValidationProviderDerive {
         number: u64,
         rollup_config: Arc<RollupConfig>,
     ) -> Result<SystemConfig, <Self as L2ChainProvider>::Error>;
+
+    /// Best-effort: insert a pre-computed [`SystemConfig`] for a given block number into
+    /// the provider's cache (if any). The default implementation is a no-op for providers
+    /// that don't cache.
+    ///
+    /// Used by the sequencer to seed the cache from a just-sealed block: the next call to
+    /// `system_config_by_number(number)` will then hit cache instead of issuing an
+    /// `eth_getBlockByNumber` RPC.
+    #[allow(unused_variables)]
+    fn cache_system_config(&mut self, number: u64, system_config: SystemConfig) {}
 }
 
 /// A super-trait for [`BatchValidationProvider`] that binds `Self::Error` to have a conversion into

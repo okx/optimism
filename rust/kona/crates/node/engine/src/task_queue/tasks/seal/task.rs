@@ -7,7 +7,6 @@ use crate::{
 };
 use alloy_rpc_types_engine::{ExecutionPayload, PayloadId};
 use async_trait::async_trait;
-use derive_more::Constructor;
 use kona_genesis::RollupConfig;
 use kona_protocol::{L2BlockInfo, OpAttributesWithParent};
 use op_alloy_rpc_types_engine::{OpExecutionPayload, OpExecutionPayloadEnvelope};
@@ -27,7 +26,7 @@ use tokio::sync::mpsc;
 ///
 /// [`InsertTask`]: crate::InsertTask
 /// [`InsertTaskError`]: crate::InsertTaskError
-#[derive(Debug, Clone, Constructor)]
+#[derive(Debug, Clone)]
 pub struct SealTask<EngineClient_: EngineClient> {
     /// The engine API client.
     pub engine: Arc<EngineClient_>,
@@ -39,10 +38,68 @@ pub struct SealTask<EngineClient_: EngineClient> {
     pub attributes: OpAttributesWithParent,
     /// Whether or not the payload was derived, or created by the sequencer.
     pub is_attributes_derived: bool,
+    /// If `true`, the canonicalize forkchoice update RPC inside [`InsertTask`] is
+    /// deferred — the local sync state is updated but no FCU is sent. Set only by the
+    /// sequencer flow, where every `SealTask` is immediately followed by a `BuildTask`
+    /// that canonicalizes the just-imported block as a side effect of starting the next
+    /// build. NOT safe for `build_and_seal` (Holocene deposits-only fallback) or
+    /// derivation-driven inserts where no follow-up FCU is guaranteed.
+    pub defer_canonicalize_fcu: bool,
     /// An optional sender to convey success/failure result of the built
     /// [`OpExecutionPayloadEnvelope`] after the block has been built, imported, and canonicalized
     /// or the [`SealTaskError`] that occurred during processing.
     pub result_tx: Option<mpsc::Sender<Result<OpExecutionPayloadEnvelope, SealTaskError>>>,
+}
+
+impl<EngineClient_: EngineClient> SealTask<EngineClient_> {
+    /// Creates a new [`SealTask`] with the canonicalize FCU sent inline (the safe default
+    /// for non-sequencer callers like the Holocene deposits-only fallback path).
+    pub const fn new(
+        engine: Arc<EngineClient_>,
+        cfg: Arc<RollupConfig>,
+        payload_id: PayloadId,
+        attributes: OpAttributesWithParent,
+        is_attributes_derived: bool,
+        result_tx: Option<mpsc::Sender<Result<OpExecutionPayloadEnvelope, SealTaskError>>>,
+    ) -> Self {
+        Self::new_with_options(
+            engine,
+            cfg,
+            payload_id,
+            attributes,
+            is_attributes_derived,
+            false,
+            result_tx,
+        )
+    }
+
+    /// Creates a new [`SealTask`] with explicit options.
+    ///
+    /// `defer_canonicalize_fcu` should be `true` only when the caller guarantees a
+    /// follow-up `engine_forkchoiceUpdated` (typically a [`crate::BuildTask`] with
+    /// payload attributes) will canonicalize the block on the EL side, and the caller
+    /// has already primed any L2 caches that downstream code paths would otherwise
+    /// query by canonical block number.
+    #[allow(clippy::too_many_arguments)]
+    pub const fn new_with_options(
+        engine: Arc<EngineClient_>,
+        cfg: Arc<RollupConfig>,
+        payload_id: PayloadId,
+        attributes: OpAttributesWithParent,
+        is_attributes_derived: bool,
+        defer_canonicalize_fcu: bool,
+        result_tx: Option<mpsc::Sender<Result<OpExecutionPayloadEnvelope, SealTaskError>>>,
+    ) -> Self {
+        Self {
+            engine,
+            cfg,
+            payload_id,
+            attributes,
+            is_attributes_derived,
+            defer_canonicalize_fcu,
+            result_tx,
+        }
+    }
 }
 
 impl<EngineClient_: EngineClient> SealTask<EngineClient_> {
@@ -128,12 +185,18 @@ impl<EngineClient_: EngineClient> SealTask<EngineClient_> {
         state: &mut EngineState,
         new_payload: OpExecutionPayloadEnvelope,
     ) -> Result<(), SealTaskError> {
-        // Insert the new block into the engine.
-        match InsertTask::new(
+        // Insert the new block into the engine. `defer_canonicalize_fcu` is propagated
+        // from the SealTask: only the sequencer's seal flow sets it, because only that
+        // flow guarantees the immediate follow-up `BuildTask` whose
+        // `engine_forkchoiceUpdated(attributes)` canonicalizes the just-imported block.
+        // Other SealTask callers (`build_and_seal` Holocene fallback, etc.) leave it
+        // false and pay the inline canonicalize FCU.
+        match InsertTask::new_with_options(
             Arc::clone(&self.engine),
             self.cfg.clone(),
             new_payload.clone(),
             self.is_attributes_derived,
+            self.defer_canonicalize_fcu,
         )
         .execute(state)
         .await
