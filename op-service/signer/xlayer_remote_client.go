@@ -3,6 +3,7 @@ package signer
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,7 +21,6 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
-	"github.com/google/uuid"
 )
 
 // Contract method signatures (4-byte selectors)
@@ -169,12 +169,12 @@ type XLayerOtherInfo struct {
 // XLayerRemoteClient is the client for XLayer remote signing service
 // It is safe for concurrent use by multiple goroutines.
 type XLayerRemoteClient struct {
-	logger         log.Logger
-	endpoint       string
-	config         XLayerConfig
-	client         *http.Client
-	mu             sync.Mutex                   // Protects against concurrent signing requests to ensure serialization
-	refOrderCache  *lru.Cache[string, struct{}] // For xlayer: tracks issued refOrderIDs for asset-management callbacks
+	logger        log.Logger
+	endpoint      string
+	config        XLayerConfig
+	client        *http.Client
+	mu            sync.Mutex                   // Protects against concurrent signing requests to ensure serialization
+	refOrderCache *lru.Cache[string, struct{}] // For xlayer: tracks issued refOrderIDs for asset-management callbacks
 }
 
 // XLayerConfig contains configuration for XLayer remote signer
@@ -214,6 +214,29 @@ func NewXLayerRemoteClient(logger log.Logger, config XLayerConfig) *XLayerRemote
 // Used by the signer verify server to respond to asset-management callbacks.
 func (c *XLayerRemoteClient) HasRefOrderID(id string) bool {
 	return c.refOrderCache.Contains(id)
+}
+
+// refOrderIDPrefix returns the refOrderId prefix for the given component role. (For xlayer)
+func refOrderIDPrefix(role ComponentRole) string {
+	switch role {
+	case ComponentRoleProposer:
+		return "PROPOSER_TZ_"
+	case ComponentRoleChallenger:
+		return "CHALLENGER_TZ_"
+	default:
+		return "XL_UNKNOWN_"
+	}
+}
+
+// generateRefOrderID generates a refOrderId with format {prefix}{operateType}_{timestamp}_{random}. (For xlayer)
+// prefix is determined by component role; timestamp is UTC milliseconds; random is 8-character lowercase hex.
+func generateRefOrderID(role ComponentRole, operateType OperateType) (string, error) {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("failed to generate random bytes: %w", err)
+	}
+	timestamp := time.Now().UnixMilli()
+	return fmt.Sprintf("%s%d_%d_%08x", refOrderIDPrefix(role), int(operateType), timestamp, b), nil
 }
 
 // SignTransaction signs a transaction using XLayer remote signing service
@@ -337,8 +360,8 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 
 	fromLower := common.HexToAddress(strings.ToLower(from.Hex()))
 
-	// Generate UUID for order tracking (using NewRandom to avoid potential panic)
-	refOrderID, err := uuid.NewRandom()
+	// For xlayer: generate refOrderId with role-specific prefix + operateType + timestamp + random
+	refOrderID, err := generateRefOrderID(componentType, operateType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate order ID: %w", err)
 	}
@@ -349,7 +372,7 @@ func (c *XLayerRemoteClient) SignTransaction(ctx context.Context, chainId *big.I
 		OperateAddress:  fromLower,
 		Symbol:          c.config.Symbol,
 		ProjectSymbol:   c.config.ProjectSymbol,
-		RefOrderID:      refOrderID.String(),
+		RefOrderID:      refOrderID,
 		OperateSymbol:   c.config.OperateSymbol,
 		OperateAmount:   operateAmount,
 		SysFrom:         c.config.SysFrom,
@@ -524,7 +547,7 @@ func (c *XLayerRemoteClient) detectComponentType(tx *types.Transaction) Componen
 func (c *XLayerRemoteClient) detectProposerMethod(methodSig []byte) ComponentRole {
 	methodSigHex := hexutil.Encode(methodSig)
 	switch methodSigHex {
-	case MethodSigDGFCreate, MethodSigProve:
+	case MethodSigDGFCreate:
 		return ComponentRoleProposer
 	}
 	return ComponentRoleUnknown
@@ -533,7 +556,7 @@ func (c *XLayerRemoteClient) detectProposerMethod(methodSig []byte) ComponentRol
 func (c *XLayerRemoteClient) detectChallengerMethod(methodSig []byte) ComponentRole {
 	methodSigHex := hexutil.Encode(methodSig)
 	switch methodSigHex {
-	case MethodSigResolveClaim, MethodSigResolve, MethodSigClaimCredit, MethodSigChallenge:
+	case MethodSigResolveClaim, MethodSigResolve, MethodSigClaimCredit, MethodSigChallenge, MethodSigProve:
 		return ComponentRoleChallenger
 	}
 	return ComponentRoleUnknown
@@ -918,11 +941,6 @@ func (c *XLayerRemoteClient) sortedMarshal(v interface{}) ([]byte, error) {
 
 // buildProposerOtherInfo builds Proposer's OtherInfo by unpacking ABI-encoded business parameters
 func (c *XLayerRemoteClient) buildProposerOtherInfo(tx *types.Transaction) (string, error) {
-	// Route TEE prove() to its own builder
-	if len(tx.Data()) >= 4 && hexutil.Encode(tx.Data()[:4]) == MethodSigProve {
-		return c.buildProposerTeeProveOtherInfo(tx, c.buildBaseOtherInfo(tx))
-	}
-
 	// Base transaction parameters
 	baseInfo := c.buildBaseOtherInfo(tx)
 
@@ -1100,6 +1118,8 @@ func (c *XLayerRemoteClient) buildChallengerOtherInfo(tx *types.Transaction) (st
 		return c.buildChallengerClaimCreditOtherInfo(tx, baseInfo)
 	case MethodSigChallenge: // challenge
 		return c.buildChallengerTeeChallengOtherInfo(tx, baseInfo)
+	case MethodSigProve: // prove (TEE challenger)
+		return c.buildProposerTeeProveOtherInfo(tx, baseInfo)
 	default:
 		// Unknown method, return base info with method signature
 		c.logger.Warn("Unknown challenger method signature", "signature", methodSigHex)
@@ -1248,14 +1268,8 @@ func (c *XLayerRemoteClient) getBatcherOperateType(tx *types.Transaction) Operat
 	}
 }
 
-// getProposerOperateType returns the operate type for Proposer transactions based on method signature
-func (c *XLayerRemoteClient) getProposerOperateType(tx *types.Transaction) OperateType {
-	if len(tx.Data()) >= 4 {
-		switch hexutil.Encode(tx.Data()[:4]) {
-		case MethodSigProve:
-			return OperateTypeProve
-		}
-	}
+// getProposerOperateType returns the operate type for Proposer transactions
+func (c *XLayerRemoteClient) getProposerOperateType(_ *types.Transaction) OperateType {
 	return OperateTypeProposer
 }
 
@@ -1271,6 +1285,8 @@ func (c *XLayerRemoteClient) getChallengerOperateType(tx *types.Transaction) Ope
 		return OperateTypeChallengerClaimCredit
 	case MethodSigChallenge:
 		return OperateTypeChallenge
+	case MethodSigProve:
+		return OperateTypeProve
 	default:
 		c.logger.Warn("Unknown challenger method, using default operateType", "signature", methodSigHex)
 		return OperateTypeChallengerResolveClaim
