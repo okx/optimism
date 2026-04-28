@@ -28,6 +28,11 @@ go_build BIN PKG *FLAGS:
 
 [private]
 go_build_kms BIN PKG *FLAGS:
+    #!/usr/bin/env sh
+    set -e
+    if [ "{{KMS}}" = "1" ]; then
+        GOPRIVATE=gitlab.okg.com GONOSUMDB=gitlab.okg.com go get gitlab.okg.com/okcoin-commons/ok-aliyun-kms-go@v1.0.0
+    fi
     env GO111MODULE=on {{_KMS_GOPRIVATE}}GOOS={{TARGETOS}} GOARCH={{TARGETARCH}} CGO_ENABLED=0 go build -v {{_GORACE_FLAG}}{{_KMS_BUILDTAGS}}{{FLAGS}} -o {{BIN}} {{PKG}}
 
 [private]
