@@ -6,6 +6,7 @@ use alloy_primitives::bytes;
 use crate::{
     BatchType, SpanBatch, SpanBatchElement, SpanBatchError, SpanBatchPayload, SpanBatchPrefix,
     SpanDecodingError,
+    batch::l2_time_xlayer::get_batch_start_time,
 };
 
 /// Raw Span Batch
@@ -78,7 +79,11 @@ impl RawSpanBatch {
                 });
             acc.push(SpanBatchElement {
                 epoch_num: block_origin_nums[i as usize],
-                timestamp: genesis_time + self.prefix.rel_timestamp + block_time * i,
+                timestamp: get_batch_start_time(
+                    genesis_time,
+                    self.prefix.rel_timestamp,
+                    chain_id,
+                ) + block_time * i,
                 transactions: transactions.into_iter().map(|v| v.into()).collect(),
             });
             acc

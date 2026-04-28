@@ -366,7 +366,10 @@ impl NodeCommand {
                 debug!("Loading l2 config from file: {:?}", path);
                 let file = File::open(path)
                     .map_err(|e| anyhow::anyhow!("Failed to open l2 config file: {e}"))?;
-                from_reader(file).map_err(|e| anyhow::anyhow!("Failed to parse l2 config: {e}"))
+                let mut cfg: RollupConfig = from_reader(file)
+                    .map_err(|e| anyhow::anyhow!("Failed to parse l2 config: {e}"))?;
+                kona_protocol::l2_time_xlayer::fix_xlayer_l2_time(&mut cfg, path);
+                Ok(cfg)
             }
             None => {
                 debug!("Loading l2 config from superchain registry");
