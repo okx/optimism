@@ -50,6 +50,7 @@ arbitrary = { workspace = true, features = ["derive"], optional = true }
 # `serde` feature
 serde = { workspace = true, optional = true }
 alloy-serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 
 # `test-utils` feature
 spin = { workspace = true, optional = true }
@@ -92,6 +93,7 @@ std = [
 	"op-alloy-rpc-types-engine/std",
 	"op-alloy-rpc-types/std",
 	"serde?/std",
+	"serde_json?/std",
 	"spin?/std",
 	"thiserror/std",
 	"tracing/std",
@@ -123,6 +125,7 @@ serde = [
 	"alloy-rpc-types-eth/serde",
 	"dep:alloy-serde",
 	"dep:serde",
+	"dep:serde_json",
 	"kona-genesis/serde",
 	"op-alloy-consensus/serde",
 	"op-alloy-rpc-types-engine/serde",
