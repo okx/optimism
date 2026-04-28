@@ -1,6 +1,7 @@
 //! Contains the `[OpTransaction]` type and its implementation.
 pub mod abstraction;
 pub mod deposit;
+pub mod eip8130;
 pub mod error;
 
 pub use abstraction::{OpTransaction, OpTxTr};

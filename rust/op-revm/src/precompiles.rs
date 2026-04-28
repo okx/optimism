@@ -1,19 +1,26 @@
 //! Contains Optimism specific precompiles.
-use crate::OpSpecId;
+use crate::{
+    OpSpecId,
+    precompiles_xlayer::{
+        AA_PRECOMPILE_INPUT_BUF, EIP8130_TX_TYPE, NONCE_MANAGER_ADDRESS, TX_CONTEXT_ADDRESS,
+        eip8130_precompiles_enabled, run_nonce_manager_precompile, run_tx_context_precompile,
+    },
+    transaction::OpTxTr,
+};
 use revm::{
-    context::Cfg,
-    context_interface::ContextTr,
+    context::{Cfg, LocalContextTr},
+    context_interface::{ContextTr, Transaction},
     handler::{EthPrecompiles, PrecompileProvider},
-    interpreter::{CallInputs, InterpreterResult},
+    interpreter::{CallInput, CallInputs, Gas, InstructionResult, InterpreterResult},
     precompile::{
         self, EthPrecompileResult, Precompile, PrecompileHalt, PrecompileId, Precompiles, bn254,
         eth_precompile_fn, modexp, secp256r1,
     },
-    primitives::{Address, OnceLock, hardfork::SpecId},
+    primitives::{Address, Bytes, OnceLock, hardfork::SpecId},
 };
-use std::{boxed::Box, string::String};
+use std::{boxed::Box, string::String, vec::Vec};
 
-/// Optimism precompile provider
+/// Optimism precompile provider.
 #[derive(Debug, Clone)]
 pub struct OpPrecompiles {
     /// Inner precompile provider is same as Ethereums.
@@ -22,19 +29,22 @@ pub struct OpPrecompiles {
     spec: OpSpecId,
 }
 
+/// Wraps the standard Ethereum precompile set and (for `XLAYER_AA`+ specs)
+/// dispatches the EIP-8130 NonceManager / TxContext addresses to dedicated
+/// handlers.
 impl OpPrecompiles {
     /// Create a new precompile provider with the given `OpSpec`.
     #[inline]
     pub fn new_with_spec(spec: OpSpecId) -> Self {
         let precompiles = match spec {
-            spec @ (OpSpecId::BEDROCK |
-            OpSpecId::REGOLITH |
-            OpSpecId::CANYON |
-            OpSpecId::ECOTONE) => Precompiles::new(spec.into_eth_spec().into()),
+            spec @ (OpSpecId::BEDROCK
+            | OpSpecId::REGOLITH
+            | OpSpecId::CANYON
+            | OpSpecId::ECOTONE) => Precompiles::new(spec.into_eth_spec().into()),
             OpSpecId::FJORD => fjord(),
             OpSpecId::GRANITE | OpSpecId::HOLOCENE => granite(),
             OpSpecId::ISTHMUS => isthmus(),
-            OpSpecId::JOVIAN => jovian(),
+            OpSpecId::JOVIAN | OpSpecId::XLAYER_AA => jovian(),
             OpSpecId::KARST | OpSpecId::INTEROP => karst(),
         };
 
@@ -132,9 +142,37 @@ pub fn jovian() -> &'static Precompiles {
     })
 }
 
+fn map_precompile_output(
+    gas_limit: u64,
+    output: Result<(u64, Bytes), String>,
+) -> InterpreterResult {
+    let mut result = InterpreterResult {
+        result: InstructionResult::Return,
+        gas: Gas::new(gas_limit),
+        output: Bytes::new(),
+    };
+
+    match output {
+        Ok((gas_used, bytes)) => {
+            if gas_limit < gas_used {
+                result.result = InstructionResult::PrecompileOOG;
+            } else {
+                let enough_gas = result.gas.record_cost(gas_used);
+                debug_assert!(enough_gas, "gas should be sufficient after explicit limit check");
+                result.output = bytes;
+            }
+        }
+        Err(_) => {
+            result.result = InstructionResult::PrecompileError;
+        }
+    }
+
+    result
+}
+
 impl<CTX> PrecompileProvider<CTX> for OpPrecompiles
 where
-    CTX: ContextTr<Cfg: Cfg<Spec = OpSpecId>>,
+    CTX: ContextTr<Cfg: Cfg<Spec = OpSpecId>, Tx: OpTxTr>,
 {
     type Output = InterpreterResult;
 
@@ -153,17 +191,59 @@ where
         context: &mut CTX,
         inputs: &CallInputs,
     ) -> Result<Option<Self::Output>, String> {
+        let aa_context = context.tx().tx_type() == EIP8130_TX_TYPE;
+        // Spec-enabled: precompiles are part of the chain surface (callable from
+        // any tx, eth_call, etc.). aa_context: defense-in-depth for AA txs that
+        // reach here despite an inactive spec (validate_env normally rejects).
+        if eip8130_precompiles_enabled(self.spec) || aa_context {
+            let target = inputs.bytecode_address;
+            if target == NONCE_MANAGER_ADDRESS || target == TX_CONTEXT_ADDRESS {
+                // Largest valid AA precompile call is INonceManager.getNonce =
+                // 4 + 32 + 32 = 68 bytes. Anything longer cannot match our
+                // selectors and would fail decode regardless, so truncation
+                // into the stack buffer is safe and avoids a heap allocation.
+                let mut stack_buf = [0u8; AA_PRECOMPILE_INPUT_BUF];
+                let input_slice: &[u8] = match &inputs.input {
+                    CallInput::Bytes(bytes) => bytes.as_ref(),
+                    CallInput::SharedBuffer(range) => {
+                        match context.local().shared_memory_buffer_slice(range.clone()) {
+                            Some(slice) => {
+                                let len = slice.len().min(stack_buf.len());
+                                stack_buf[..len].copy_from_slice(&slice[..len]);
+                                &stack_buf[..len]
+                            }
+                            None => &[],
+                        }
+                    }
+                };
+
+                let output = if target == NONCE_MANAGER_ADDRESS {
+                    run_nonce_manager_precompile(context, input_slice)
+                } else {
+                    run_tx_context_precompile(context, input_slice)
+                };
+                return Ok(Some(map_precompile_output(inputs.gas_limit, output)));
+            }
+        }
+
         self.inner.run(context, inputs)
     }
 
     #[inline]
     fn warm_addresses(&self) -> Box<impl Iterator<Item = Address>> {
-        self.inner.warm_addresses()
+        let mut addresses: Vec<Address> = self.inner.warm_addresses().collect();
+        if eip8130_precompiles_enabled(self.spec) {
+            addresses.push(NONCE_MANAGER_ADDRESS);
+            addresses.push(TX_CONTEXT_ADDRESS);
+        }
+        Box::new(addresses.into_iter())
     }
 
     #[inline]
     fn contains(&self, address: &Address) -> bool {
-        self.inner.contains(address)
+        (eip8130_precompiles_enabled(self.spec)
+            && (*address == NONCE_MANAGER_ADDRESS || *address == TX_CONTEXT_ADDRESS))
+            || self.inner.contains(address)
     }
 }
 

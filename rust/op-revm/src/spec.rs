@@ -27,6 +27,8 @@ pub enum OpSpecId {
     /// Jovian spec id.
     #[default]
     JOVIAN,
+    /// XLayer-AA spec id (activates EIP-8130 phased AA execution).
+    XLAYER_AA,
     /// Karst spec id.
     KARST,
     /// Interop spec id.
@@ -40,7 +42,7 @@ impl OpSpecId {
             Self::BEDROCK | Self::REGOLITH => SpecId::MERGE,
             Self::CANYON => SpecId::SHANGHAI,
             Self::ECOTONE | Self::FJORD | Self::GRANITE | Self::HOLOCENE => SpecId::CANCUN,
-            Self::ISTHMUS | Self::JOVIAN | Self::INTEROP => SpecId::PRAGUE,
+            Self::ISTHMUS | Self::JOVIAN | Self::XLAYER_AA | Self::INTEROP => SpecId::PRAGUE,
             Self::KARST => SpecId::OSAKA,
         }
     }
@@ -71,6 +73,7 @@ impl FromStr for OpSpecId {
             name::HOLOCENE => Ok(Self::HOLOCENE),
             name::ISTHMUS => Ok(Self::ISTHMUS),
             name::JOVIAN => Ok(Self::JOVIAN),
+            name::XLAYER_AA => Ok(Self::XLAYER_AA),
             name::KARST => Ok(Self::KARST),
             name::INTEROP => Ok(Self::INTEROP),
             _ => Err(UnknownHardfork),
@@ -90,6 +93,7 @@ impl From<OpSpecId> for &'static str {
             OpSpecId::HOLOCENE => name::HOLOCENE,
             OpSpecId::ISTHMUS => name::ISTHMUS,
             OpSpecId::JOVIAN => name::JOVIAN,
+            OpSpecId::XLAYER_AA => name::XLAYER_AA,
             OpSpecId::KARST => name::KARST,
             OpSpecId::INTEROP => name::INTEROP,
         }
@@ -116,6 +120,8 @@ pub mod name {
     pub const ISTHMUS: &str = "Isthmus";
     /// Jovian spec name.
     pub const JOVIAN: &str = "Jovian";
+    /// XLayer-AA spec name.
+    pub const XLAYER_AA: &str = "XLayerAA";
     /// Karst spec name.
     pub const KARST: &str = "Karst";
     /// Interop spec name.

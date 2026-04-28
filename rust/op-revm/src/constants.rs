@@ -1,4 +1,5 @@
 //! Optimism constants used in the Optimism EVM.
+use core::sync::atomic::{AtomicU32, Ordering};
 use revm::primitives::{Address, U256, address};
 
 /// The cost of a non-zero byte in the EVM.
@@ -68,3 +69,43 @@ pub const BASE_FEE_RECIPIENT: Address = address!("0x4200000000000000000000000000
 
 /// The address of the `L1Block` contract.
 pub const L1_BLOCK_CONTRACT: Address = address!("0x4200000000000000000000000000000000000015");
+
+// ---------------------------------------------------------------------------
+// EIP-8130 owner scope bitmask
+// ---------------------------------------------------------------------------
+
+/// Owner scope bit: allowed to sign as the sender.
+pub const OWNER_SCOPE_SENDER: u8 = 0x02;
+
+/// Owner scope bit: allowed to sign as the payer.
+pub const OWNER_SCOPE_PAYER: u8 = 0x04;
+
+/// Owner scope bit: allowed to authorize config changes.
+pub const OWNER_SCOPE_CONFIG: u8 = 0x08;
+
+/// Maximum number of calls across all EIP-8130 phases.
+pub const MAX_CALLS_PER_TX: usize = 100;
+
+/// Maximum number of account-change units in one EIP-8130 transaction.
+pub const MAX_ACCOUNT_CHANGES_PER_TX: usize = 10;
+
+/// Delegate verifier contract address (1-hop delegation).
+pub const DELEGATE_VERIFIER_ADDRESS: Address =
+    address!("0x30A76831b27732087561372f6a1bef6Fc391d805");
+
+/// Default cap for aggregate gas spent across custom verifier STATICCALLs.
+/// Use `u32` to support the risv32 non_std target.
+pub const DEFAULT_CUSTOM_VERIFIER_GAS_CAP: u32 = 200_000;
+
+/// Runtime-configurable cap for aggregate custom verifier STATICCALL gas.
+static CUSTOM_VERIFIER_GAS_CAP: AtomicU32 = AtomicU32::new(DEFAULT_CUSTOM_VERIFIER_GAS_CAP);
+
+/// Returns the configured aggregate custom verifier STATICCALL gas cap.
+pub fn custom_verifier_gas_cap() -> u32 {
+    CUSTOM_VERIFIER_GAS_CAP.load(Ordering::Relaxed)
+}
+
+/// Sets the aggregate custom verifier STATICCALL gas cap.
+pub fn set_custom_verifier_gas_cap(gas_cap: u32) {
+    CUSTOM_VERIFIER_GAS_CAP.store(gas_cap, Ordering::Relaxed);
+}
