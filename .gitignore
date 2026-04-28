@@ -7,6 +7,9 @@ coverage.json
 **/lcov-upgrade.info
 **/lcov-all.info
 
+# Rust files
+**/target
+
 yarn-error.log
 .yarn/*
 !.yarn/releases
@@ -74,6 +77,7 @@ test/saved-cannon-data
 
 # ignore local asdf config
 .tool-versions
+<<<<<<< HEAD
 test/l1-geth/execution/genesis.json
 test/tmp
 test-pp-op/testnet.env
@@ -81,3 +85,6 @@ test-pp-op/mainnet.env
 test-pp-op/fakemainnet.env
 
 .tool-versions
+
+# Rust files
+**/target

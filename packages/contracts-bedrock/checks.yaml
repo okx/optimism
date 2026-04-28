@@ -38,9 +38,6 @@ phases:
       - name: semgrep-test-validity
         description: Check semgrep tests are valid
         command: forge fmt ../../.semgrep/tests/sol-rules.t.sol --check
-      - name: deploy-configs
-        description: Validate deploy configurations
-        command: ./scripts/checks/check-deploy-configs.sh
       - name: kontrol-summaries
         description: Check kontrol summaries unchanged
         command: ./scripts/checks/check-kontrol-summaries-unchanged.sh
@@ -82,17 +79,9 @@ phases:
       - name: size-check
         description: Check contract sizes
         command: forge build --sizes --skip "/**/test/**" --skip "/**/scripts/**"
-      - name: opcm-upgrade-checks
-        description: Check OPCM upgrade methods
-        command: go run ./scripts/checks/opcm-upgrade-checks/
-      - name: nut-bundle-gen
-        description: Generate the Network Upgrade Transaction bundle from the source
-        command: forge script ./scripts/upgrade/GenerateNUTBundle.s.sol:GenerateNUTBundle --sig 'run()'
-      - name: nut-bundle-check
-        description: Check the generated Network Upgrade Transaction bundle is up to date
-        command: go run ./scripts/checks/nut-bundle-check
-        depends:
-          - nut-bundle-gen
+      - name: nut-bundle
+        description: Check NUT bundle is up to date
+        command: just nut-bundle-check-no-build
 
   # Phase 4: Dev build checks - needs test artifacts
   - name: dev

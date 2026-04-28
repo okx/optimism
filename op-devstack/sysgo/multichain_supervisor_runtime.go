@@ -11,7 +11,9 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 
 	"github.com/ethereum-optimism/optimism/op-chain-ops/devkeys"
+	"github.com/ethereum-optimism/optimism/op-core/devfeatures"
 	"github.com/ethereum-optimism/optimism/op-devstack/devtest"
+	"github.com/ethereum-optimism/optimism/op-devstack/shared/rustbin"
 	"github.com/ethereum-optimism/optimism/op-node/rollup"
 	"github.com/ethereum-optimism/optimism/op-service/client"
 	"github.com/ethereum-optimism/optimism/op-service/clock"
@@ -37,6 +39,9 @@ func NewSingleChainInteropRuntimeWithConfig(t devtest.T, cfg PresetConfig) *Mult
 	keys, err := devkeys.NewMnemonicDevKeys(devkeys.TestMnemonic)
 	require.NoError(err, "failed to derive dev keys from mnemonic")
 
+	cfg.DeployerOptions = append([]DeployerOption{
+		WithDevFeatureEnabled(devfeatures.OptimismPortalInteropFlag),
+	}, cfg.DeployerOptions...)
 	migration, l1Net, l2Net, depSet, fullCfgSet := buildSingleChainWorldWithInteropAndState(t, keys, true, cfg.LocalContractArtifactsPath, cfg.DeployerOptions...)
 	validateSimpleInteropPresetConfig(t, cfg, l2Net)
 
@@ -47,7 +52,7 @@ func NewSingleChainInteropRuntimeWithConfig(t devtest.T, cfg PresetConfig) *Mult
 		timeTravelClock = clock.NewAdvancingClock(100 * time.Millisecond)
 		l1Clock = timeTravelClock
 	}
-	l1EL, l1CL := startInProcessL1WithClock(t, l1Net, jwtPath, l1Clock)
+	l1EL, l1CL := startInProcessL1WithClockConfig(t, l1Net, jwtPath, l1Clock, cfg)
 	supervisor := startSupervisor(t, "1-primary", l1EL, fullCfgSet, map[eth.ChainID]*rollup.Config{
 		l2Net.ChainID(): l2Net.rollupCfg,
 	})
@@ -107,6 +112,9 @@ func NewSimpleInteropRuntimeWithConfig(t devtest.T, cfg PresetConfig) *MultiChai
 	keys, err := devkeys.NewMnemonicDevKeys(devkeys.TestMnemonic)
 	require.NoError(err, "failed to derive dev keys from mnemonic")
 
+	cfg.DeployerOptions = append([]DeployerOption{
+		WithDevFeatureEnabled(devfeatures.OptimismPortalInteropFlag),
+	}, cfg.DeployerOptions...)
 	migration, l1Net, l2ANet, l2BNet, fullCfgSet := buildTwoL2WorldWithState(t, keys, true, cfg.LocalContractArtifactsPath, cfg.DeployerOptions...)
 	validateSimpleInteropPresetConfig(t, cfg, l2ANet, l2BNet)
 	depSet := fullCfgSet.DependencySet
@@ -118,7 +126,7 @@ func NewSimpleInteropRuntimeWithConfig(t devtest.T, cfg PresetConfig) *MultiChai
 		timeTravelClock = clock.NewAdvancingClock(100 * time.Millisecond)
 		l1Clock = timeTravelClock
 	}
-	l1EL, l1CL := startInProcessL1WithClock(t, l1Net, jwtPath, l1Clock)
+	l1EL, l1CL := startInProcessL1WithClockConfig(t, l1Net, jwtPath, l1Clock, cfg)
 	supervisor := startSupervisor(t, "1-primary", l1EL, fullCfgSet, map[eth.ChainID]*rollup.Config{
 		l2ANet.ChainID(): l2ANet.rollupCfg,
 		l2BNet.ChainID(): l2BNet.rollupCfg,
@@ -374,11 +382,11 @@ func startKonaSupervisor(
 		require.NoError(os.WriteFile(filePath, rollupData, 0o644))
 	}
 
-	execPath, err := EnsureRustBinary(t, RustBinarySpec{
+	execPath, err := rustbin.Spec{
 		SrcDir:  "rust/kona",
 		Package: "kona-supervisor",
 		Binary:  "kona-supervisor",
-	})
+	}.EnsureExists(t.Ctx(), t.Logger())
 	require.NoError(err, "prepare kona-supervisor binary")
 	require.NotEmpty(execPath, "kona-supervisor binary path resolved")
 

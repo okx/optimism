@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum-optimism/optimism/op-core/devfeatures"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/broadcaster"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/integration_test/shared"
@@ -163,6 +164,21 @@ func TestManageAddGameTypeV2_Integration(t *testing.T) {
 					InitBond: big.NewInt(0),
 					GameType: embedded.GameTypeCannonKona,
 				},
+				{
+					Enabled:  false,
+					InitBond: big.NewInt(0),
+					GameType: embedded.GameTypeSuperCannon,
+				},
+				{
+					Enabled:  false,
+					InitBond: big.NewInt(0),
+					GameType: embedded.GameTypeSuperPermCannon,
+				},
+				{
+					Enabled:  false,
+					InitBond: big.NewInt(0),
+					GameType: embedded.GameTypeSuperCannonKona,
+				},
 			},
 			ExtraInstructions: []embedded.ExtraInstruction{
 				{
@@ -273,7 +289,7 @@ func deployDependencies(t *testing.T, runner *CLITestRunner) deployedChain {
 
 	// Ensure we are using OPCM V2
 	intent.GlobalDeployOverrides = map[string]any{
-		"devFeatureBitmap": deployer.OPCMV2DevFlag,
+		"devFeatureBitmap": devfeatures.OPCMV2Flag,
 	}
 
 	// Deploy using ApplyPipeline with live target

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"sort"
 	"strconv"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 
 	"github.com/ethereum-optimism/optimism/op-chain-ops/devkeys"
+	"github.com/ethereum-optimism/optimism/op-core/devfeatures"
 	opforks "github.com/ethereum-optimism/optimism/op-core/forks"
 	"github.com/ethereum-optimism/optimism/op-devstack/devtest"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/intentbuilder"
@@ -97,13 +97,10 @@ func NewTwoL2SupernodeRuntimeWithConfig(t devtest.T, cfg PresetConfig) *MultiCha
 	return runtime
 }
 
-// startSupernodeEL starts an L2 EL node for the supernode runtime.
-// It respects the DEVSTACK_L2EL_KIND env var: "op-geth" uses op-geth, otherwise op-reth is used.
+// startSupernodeEL starts an L2 EL node for the supernode runtime,
+// respecting DEVSTACK_L2EL_KIND (defaults to op-geth when unset).
 func startSupernodeEL(t devtest.T, l2Net *L2Network, jwtPath string, jwtSecret [32]byte) L2ELNode {
-	if os.Getenv("DEVSTACK_L2EL_KIND") == string(MixedL2ELOpGeth) {
-		return startL2ELNode(t, l2Net, jwtPath, jwtSecret, "sequencer", NewELNodeIdentity(0))
-	}
-	return startMixedOpRethNode(t, l2Net, "sequencer", jwtPath, jwtSecret, nil)
+	return startL2ELForKey(t, l2Net, jwtPath, jwtSecret, "sequencer", NewELNodeIdentity(0))
 }
 
 func newSingleChainSupernodeRuntimeWithConfig(t devtest.T, interopAtGenesis bool, cfg PresetConfig) *MultiChainRuntime {
@@ -122,7 +119,7 @@ func newSingleChainSupernodeRuntimeWithConfig(t devtest.T, interopAtGenesis bool
 		timeTravelClock = clock.NewAdvancingClock(100 * time.Millisecond)
 		l1Clock = timeTravelClock
 	}
-	l1EL, l1CL := startInProcessL1WithClock(t, l1Net, jwtPath, l1Clock)
+	l1EL, l1CL := startInProcessL1WithClockConfig(t, l1Net, jwtPath, l1Clock, cfg)
 	l2EL := startSupernodeEL(t, l2Net, jwtPath, jwtSecret)
 
 	var depSetStatic *depset.StaticConfigDependencySet
@@ -132,15 +129,30 @@ func newSingleChainSupernodeRuntimeWithConfig(t devtest.T, interopAtGenesis bool
 		depSetStatic = cast
 	}
 
+	if cfg.MessageExpiryWindow != nil && depSetStatic != nil {
+		var overrideErr error
+		depSetStatic, overrideErr = depset.NewStaticConfigDependencySetWithMessageExpiryOverride(
+			depSetStatic.Dependencies(), *cfg.MessageExpiryWindow)
+		require.NoError(overrideErr, "failed to override message expiry window")
+	}
+
 	supernode, l2CL := startSingleChainSharedSupernode(t, l1Net, l1EL, l1CL, l2Net, l2EL, depSetStatic, jwtSecret, interopAtGenesis)
 	l2Batcher := startMinimalBatcher(t, keys, l2Net, l1EL, l2CL, l2EL, cfg.BatcherOptions...)
 	l2Proposer := startMinimalProposer(t, keys, l2Net, l1EL, l2CL, cfg.ProposerOptions...)
 	faucetService := startFaucets(t, keys, l1Net.ChainID(), l2Net.ChainID(), l1EL.UserRPC(), l2EL.UserRPC())
 
+	// Use the potentially-overridden depSetStatic if available.
+	var runtimeDepSet depset.DependencySet
+	if depSetStatic != nil {
+		runtimeDepSet = depSetStatic
+	} else {
+		runtimeDepSet = depSet
+	}
+
 	return &MultiChainRuntime{
 		Keys:          keys,
 		Migration:     migration,
-		DependencySet: depSet,
+		DependencySet: runtimeDepSet,
 		L1Network:     l1Net,
 		L1EL:          l1EL,
 		L1CL:          l1CL,
@@ -174,7 +186,7 @@ func newTwoL2SupernodeRuntimeWithConfig(t devtest.T, enableInterop bool, delaySe
 		timeTravelClock = clock.NewAdvancingClock(100 * time.Millisecond)
 		l1Clock = timeTravelClock
 	}
-	l1EL, l1CL := startInProcessL1WithClock(t, l1Net, jwtPath, l1Clock)
+	l1EL, l1CL := startInProcessL1WithClockConfig(t, l1Net, jwtPath, l1Clock, cfg)
 
 	l2AEL := startSupernodeEL(t, l2ANet, jwtPath, jwtSecret)
 	l2BEL := startSupernodeEL(t, l2BNet, jwtPath, jwtSecret)
@@ -193,6 +205,13 @@ func newTwoL2SupernodeRuntimeWithConfig(t devtest.T, enableInterop bool, delaySe
 		depSet = cast
 	}
 
+	if cfg.MessageExpiryWindow != nil && depSet != nil {
+		var err error
+		depSet, err = depset.NewStaticConfigDependencySetWithMessageExpiryOverride(
+			depSet.Dependencies(), *cfg.MessageExpiryWindow)
+		require.NoError(err, "failed to override message expiry window")
+	}
+
 	supernode, l2ACL, l2BCL := startTwoL2SharedSupernode(
 		t,
 		l1Net,
@@ -207,9 +226,9 @@ func newTwoL2SupernodeRuntimeWithConfig(t devtest.T, enableInterop bool, delaySe
 		jwtSecret,
 	)
 
-	l2ABatcher := startMinimalBatcher(t, keys, l2ANet, l1EL, l2ACL, l2AEL)
+	l2ABatcher := startMinimalBatcher(t, keys, l2ANet, l1EL, l2ACL, l2AEL, cfg.BatcherOptions...)
 	l2AProposer := startMinimalProposer(t, keys, l2ANet, l1EL, l2ACL)
-	l2BBatcher := startMinimalBatcher(t, keys, l2BNet, l1EL, l2BCL, l2BEL)
+	l2BBatcher := startMinimalBatcher(t, keys, l2BNet, l1EL, l2BCL, l2BEL, cfg.BatcherOptions...)
 	l2BProposer := startMinimalProposer(t, keys, l2BNet, l1EL, l2BCL)
 
 	faucetService := startFaucetsForRPCs(t, keys, map[eth.ChainID]string{
@@ -218,10 +237,19 @@ func newTwoL2SupernodeRuntimeWithConfig(t devtest.T, enableInterop bool, delaySe
 		l2BNet.ChainID(): l2BEL.UserRPC(),
 	})
 
+	// Use the potentially-overridden depSet (e.g. with custom message expiry window)
+	// if available; otherwise fall back to the original from the world builder.
+	var runtimeDepSet depset.DependencySet
+	if depSet != nil {
+		runtimeDepSet = depSet
+	} else {
+		runtimeDepSet = wb.outFullCfgSet.DependencySet
+	}
+
 	return &MultiChainRuntime{
 		Keys:          keys,
 		Migration:     newInteropMigrationState(wb),
-		DependencySet: wb.outFullCfgSet.DependencySet,
+		DependencySet: runtimeDepSet,
 		L1Network:     l1Net,
 		L1EL:          l1EL,
 		L1CL:          l1CL,
@@ -263,6 +291,9 @@ func buildTwoL2RuntimeWorld(t devtest.T, keys devkeys.Keys, enableInterop bool, 
 	applyConfigPrefundedL2(t, keys, DefaultL1ID, DefaultL2AID, wb.builder)
 	applyConfigPrefundedL2(t, keys, DefaultL1ID, DefaultL2BID, wb.builder)
 	if enableInterop {
+		deployerOpts = append([]DeployerOption{
+			WithDevFeatureEnabled(devfeatures.OptimismPortalInteropFlag),
+		}, deployerOpts...)
 		for _, l2Cfg := range wb.builder.L2s() {
 			l2Cfg.WithForkAtGenesis(opforks.Interop)
 		}
@@ -303,7 +334,7 @@ func l2NetworkFromWorldBuilder(t devtest.T, wb *worldBuilder, l1ChainID, l2Chain
 		genesis:    l2Genesis,
 		rollupCfg:  l2RollupCfg,
 		deployment: l2Dep,
-		opcmImpl:   wb.output.ImplementationsDeployment.OpcmImpl,
+		opcmImpl:   wb.output.ImplementationsDeployment.OpcmV2Impl,
 		mipsImpl:   wb.output.ImplementationsDeployment.MipsImpl,
 		keys:       keys,
 	}

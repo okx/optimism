@@ -19,6 +19,9 @@ parameters:
   c-rust_changes_detected:
     type: boolean
     default: false
+  c-non_docs_changes:
+    type: boolean
+    default: false
   # Passthrough declarations for setup config parameters.
   # CircleCI forwards all explicitly-passed pipeline parameters to continuation configs.
   # Without these declarations, manually triggered pipelines fail with "Unexpected argument(s)".
@@ -80,18 +83,6 @@ parameters:
   github-event-base64:
     type: string
     default: "__not_set__"
-  devnet-metrics-collect:
-    type: boolean
-    default: false
-  flake-shake-dispatch:
-    type: boolean
-    default: false
-  flake-shake-iterations:
-    type: integer
-    default: 300
-  flake-shake-workers:
-    type: integer
-    default: 50
   go-cache-version:
     type: string
     default: "v0.0"
@@ -307,6 +298,7 @@ workflows:
         - and:
             - equal: ["webhook", << pipeline.trigger_source >>]
             - << pipeline.parameters.c-rust_changes_detected >>
+            - << pipeline.parameters.c-non_docs_changes >>
         - and:
             - equal: [true, <<pipeline.parameters.c-rust_e2e_dispatch>>]
             - equal: ["api", << pipeline.trigger_source >>]
@@ -391,6 +383,7 @@ workflows:
       and:
         - equal: ["webhook", << pipeline.trigger_source >>]
         - not: << pipeline.parameters.c-rust_changes_detected >>
+        - << pipeline.parameters.c-non_docs_changes >>
     jobs:
       - contracts-bedrock-build:
           build_args: --skip test
@@ -415,5 +408,4 @@ workflows:
       - required-rust-e2e:
           requires:
             - kona-proof-action-single
-
 

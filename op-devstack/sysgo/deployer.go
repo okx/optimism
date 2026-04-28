@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ethereum-optimism/optimism/op-chain-ops/devkeys"
+	"github.com/ethereum-optimism/optimism/op-core/devfeatures"
 	opforks "github.com/ethereum-optimism/optimism/op-core/forks"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/artifacts"
@@ -59,9 +60,29 @@ func WithDefaultBPOBlobSchedule(_ devtest.T, _ devkeys.Keys, builder intentbuild
 	})
 }
 
+func WithKarstAtOffset(offset *uint64) DeployerOption {
+	return func(p devtest.T, _ devkeys.Keys, builder intentbuilder.Builder) {
+		for _, l2Cfg := range builder.L2s() {
+			l2Cfg.WithForkAtOffset(opforks.Karst, offset)
+		}
+	}
+}
+
+func WithKarstAtGenesis(p devtest.T, _ devkeys.Keys, builder intentbuilder.Builder) {
+	for _, l2Cfg := range builder.L2s() {
+		l2Cfg.WithForkAtGenesis(opforks.Karst)
+	}
+}
+
 func WithJovianAtGenesis(p devtest.T, _ devkeys.Keys, builder intentbuilder.Builder) {
 	for _, l2Cfg := range builder.L2s() {
 		l2Cfg.WithForkAtGenesis(opforks.Jovian)
+	}
+}
+
+func WithEcotoneAtGenesis(p devtest.T, _ devkeys.Keys, builder intentbuilder.Builder) {
+	for _, l2Cfg := range builder.L2s() {
+		l2Cfg.WithForkAtGenesis(opforks.Ecotone)
 	}
 }
 
@@ -254,7 +275,10 @@ func WithDevFeatureEnabled(flag common.Hash) DeployerOption {
 		if currentValue != nil {
 			bitmap = currentValue.(common.Hash)
 		}
-		builder.WithGlobalOverride(devFeatureBitmapKey, deployer.EnableDevFeature(bitmap, flag))
+		builder.WithGlobalOverride(devFeatureBitmapKey, devfeatures.EnableDevFeature(bitmap, flag))
+		if flag == devfeatures.OptimismPortalInteropFlag {
+			builder.WithUseInterop(true)
+		}
 	}
 }
 
@@ -311,6 +335,18 @@ func WithDeployerMatchL1PAO() DeployerPipelineOption {
 		deployerKey, err := wb.keys.Secret(devkeys.L1ProxyAdminOwnerRole.Key(l1ChainID))
 		wb.require.NoError(err)
 		cfg.DeployerPrivateKey = deployerKey
+	}
+}
+
+// WithL2BlockTimes sets per-chain L2 block times. The map keys are L2 chain
+// IDs and values are the desired block time in seconds for that chain.
+func WithL2BlockTimes(blockTimes map[eth.ChainID]uint64) DeployerOption {
+	return func(_ devtest.T, _ devkeys.Keys, builder intentbuilder.Builder) {
+		for _, l2Cfg := range builder.L2s() {
+			if bt, ok := blockTimes[l2Cfg.ChainID()]; ok {
+				l2Cfg.WithBlockTime(bt)
+			}
+		}
 	}
 }
 
