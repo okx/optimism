@@ -145,7 +145,6 @@ func newValidConfig(t *testing.T) Config {
 			BatchInboxAddress:       [20]byte{1, 2},
 			DepositContractAddress:  [20]byte{2, 3},
 			L1SystemConfigAddress:   [20]byte{3, 4},
-			ProtocolVersionsAddress: [20]byte{4, 5},
 		},
 	}
 }
