@@ -1,22 +1,25 @@
 //! Overlay Provider for external proofs storage
 
-use crate::{api::OpProofsProviderRO, provider::OpProofsStateProviderRef, BlockStateDiff};
+use crate::{BlockStateDiff, api::OpProofsProviderRO, provider::OpProofsStateProviderRef};
 use alloy_eips::eip1898::BlockWithParent;
-use alloy_primitives::{keccak256, Address, BlockNumber, Bytes, StorageValue, B256};
+use alloy_primitives::{Address, B256, BlockNumber, Bytes, StorageValue, keccak256};
 use reth_primitives_traits::{Account, Bytecode};
 use reth_provider::{
-    AccountReader, BlockHashReader, BytecodeReader, HashedPostStateProvider, StateProofProvider,
-    StateProvider, StateRootProvider, StorageRootProvider, ProviderResult
+    AccountReader, BlockHashReader, BytecodeReader, HashedPostStateProvider, ProviderResult,
+    StateProofProvider, StateProvider, StateRootProvider, StorageRootProvider,
 };
 use reth_revm::db::BundleState;
 use reth_trie::{
-    ExecutionWitnessMode,
-    updates::TrieUpdates, AccountProof, HashedPostState, HashedStorage, MultiProof,
-    MultiProofTargets, StorageMultiProof, TrieInput,
+    AccountProof, ExecutionWitnessMode, HashedPostState, HashedStorage, MultiProof,
+    MultiProofTargets, StorageMultiProof, TrieInput, updates::TrieUpdates,
 };
-use std::{fmt::Debug, sync::{Arc, OnceLock}};
+use std::{
+    fmt::Debug,
+    sync::{Arc, OnceLock},
+};
 
-/// A state provider that overlays in-memory buffered blocks on top of the persistent proofs storage.
+/// A state provider that overlays in-memory buffered blocks on top of the persistent proofs
+/// storage.
 #[derive(Debug)]
 pub struct MemoryOverlayOpProofsStateProviderRef<'a, P>
 where
@@ -107,8 +110,8 @@ where
         }
 
         // Check if account was destroyed in the overlay (implicit storage wipe)
-        if let Some(account) = state.accounts.get(&hashed_address)
-            && account.is_none()
+        if let Some(account) = state.accounts.get(&hashed_address) &&
+            account.is_none()
         {
             return Ok(Some(StorageValue::ZERO));
         }

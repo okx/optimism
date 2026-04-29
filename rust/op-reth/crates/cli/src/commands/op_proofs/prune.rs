@@ -72,12 +72,9 @@ impl<C: ChainSpecParser<ChainSpec = OpChainSpec>> PruneCommand<C> {
             "Current proofs storage block range"
         );
 
-        let pruner = OpProofStoragePruner::new(
-            storage,
-            provider_factory,
-            self.proofs_history_window,
-            self.proofs_history_prune_batch_size,
-        );
+        let pruner =
+            OpProofStoragePruner::new(storage, provider_factory, self.proofs_history_window)
+                .with_batch_size(self.proofs_history_prune_batch_size);
         pruner.run();
         Ok(())
     }

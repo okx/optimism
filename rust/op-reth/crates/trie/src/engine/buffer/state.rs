@@ -1,11 +1,11 @@
 //! State management for the live trie collector.
 
-use crate::{provider::OpProofsStateProviderRef, BlockStateDiff, OpProofsProviderRO};
-use super::overlay::MemoryOverlayOpProofsStateProviderRef;
 #[cfg(feature = "metrics")]
 use super::metrics::BufferMetrics;
-use alloy_eips::{eip1898::BlockWithParent, NumHash};
-use alloy_primitives::{map::HashMap, B256};
+use super::overlay::MemoryOverlayOpProofsStateProviderRef;
+use crate::{BlockStateDiff, OpProofsProviderRO, provider::OpProofsStateProviderRef};
+use alloy_eips::{NumHash, eip1898::BlockWithParent};
+use alloy_primitives::{B256, map::HashMap};
 use parking_lot::RwLock;
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -122,9 +122,7 @@ impl Default for TrieBufferState {
 impl TrieBufferState {
     /// Create a new live trie state manager.
     pub fn new() -> Self {
-        Self {
-            inner: Arc::new(TrieBuffer::new()),
-        }
+        Self { inner: Arc::new(TrieBuffer::new()) }
     }
 
     /// Insert a block into the buffer.
@@ -211,7 +209,11 @@ mod tests {
     /// Build a `(BlockWithParent, BlockStateDiff)` pair with predictable hashes.
     ///
     /// `hash_byte` uniquely identifies the block; `parent_byte` identifies its parent.
-    fn make_block(number: u64, hash_byte: u8, parent_byte: u8) -> (BlockWithParent, BlockStateDiff) {
+    fn make_block(
+        number: u64,
+        hash_byte: u8,
+        parent_byte: u8,
+    ) -> (BlockWithParent, BlockStateDiff) {
         let block = BlockWithParent::new(
             B256::repeat_byte(parent_byte),
             NumHash::new(number, B256::repeat_byte(hash_byte)),
