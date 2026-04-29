@@ -442,6 +442,364 @@ where
         Ok(())
     }
 
+    fn execution(
+        &mut self,
+        evm: &mut Self::Evm,
+        init_and_floor_gas: &InitialAndFloorGas,
+    ) -> Result<FrameResult, Self::Error> {
+        if evm.ctx().tx().tx_type() != crate::constants::EIP8130_TX_TYPE {
+            return self.mainnet.execution(evm, init_and_floor_gas);
+        }
+
+        use revm::context::journaled_state::account::JournaledAccountTr;
+        use revm::interpreter::{
+            CallOutcome, InstructionResult, InterpreterResult, SharedMemory,
+            interpreter_action::{CallInput, CallInputs, CallScheme, CallValue, FrameInput},
+        };
+        use revm::primitives::{Address, B256, Bytes, keccak256};
+
+        let eip8130 = evm.ctx().tx().eip8130_parts().clone();
+        let sender = evm.ctx().tx().caller();
+
+        // In estimation / eth_call mode we skip signature verification and
+        // config validation since dummy (empty) auth blobs are expected.
+        let is_estimation = evm.ctx().cfg().is_base_fee_check_disabled();
+
+        // Determine whether the nonce channel is warm (previously used).
+        // validate_against_state_and_deduct_caller already incremented the
+        // nonce, so the current slot value is `original + 1`. If > 1 the
+        // original was non-zero → warm SSTORE.
+        //
+        // Only adjust for real transactions — during estimation the handler
+        // must stay consistent with validate_initial_tx_gas (which always
+        // uses cold gas) so the binary search doesn't break.
+        let nonce_warm_adjustment = if !is_estimation && eip8130.nonce_key != U256::MAX {
+            let nonce_slot = crate::precompiles::aa_nonce_slot(sender, eip8130.nonce_key);
+            let nonce_value = evm
+                .ctx()
+                .journal_mut()
+                .sload(crate::precompiles::NONCE_MANAGER_ADDRESS, nonce_slot)?
+                .data;
+            if nonce_value > U256::from(1) {
+                crate::handler_aa_helpers::NONCE_COLD_WARM_DELTA
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        // Strip intrinsic and custom verifier cap from the revm gas_limit to
+        // recover the sender's execution-only budget. During estimation, also
+        // reserve calldata gas for auth blobs that will be present in the real tx.
+        let overhead = if is_estimation {
+            crate::handler_aa_helpers::estimation_calldata_overhead(&eip8130)
+        } else {
+            0
+        };
+        let gas_limit = evm
+            .ctx()
+            .tx()
+            .gas_limit()
+            .saturating_sub(eip8130.aa_intrinsic_gas + eip8130.custom_verifier_gas_cap + overhead)
+            .saturating_add(nonce_warm_adjustment);
+
+        let mut gas_remaining = gas_limit;
+        let mut phase_results = Vec::with_capacity(eip8130.call_phases.len());
+
+        // Ensure sender is loaded in the journal state for sub-call transfers.
+        evm.ctx().journal_mut().load_account(sender)?;
+
+        // Track gas used by custom verifier STATICCALLs. This is charged to
+        // the payer separately from the sender's execution budget, capped at
+        // `custom_verifier_gas_cap`.
+        let mut verification_gas_used: u64 = 0;
+
+        if !is_estimation {
+            crate::handler_aa_helpers::validate_config_change_preconditions::<EVM, ERROR>(
+                evm, sender, &eip8130,
+            )?;
+
+            // Validate config-change authorizer chain first against on-chain state.
+            // This yields the pending owner overlay that is considered for
+            // subsequent sender/payer auth checks.
+            let pending_sender_owner_overrides =
+                crate::handler_aa_helpers::validate_authorizer_chain::<EVM, ERROR, FRAME>(
+                    &mut self.mainnet,
+                    evm,
+                    sender,
+                    &eip8130,
+                    &mut verification_gas_used,
+                )?;
+
+            // --- Custom verifier STATICCALL verification ---
+            let verify_calls = [
+                eip8130.sender_verify_call.as_ref(),
+                eip8130.payer_verify_call.as_ref(),
+            ];
+            for verify_call in verify_calls.into_iter().flatten() {
+                let owner_id =
+                    crate::handler_aa_helpers::run_custom_verifier_staticcall::<EVM, ERROR, FRAME>(
+                        &mut self.mainnet,
+                        evm,
+                        verify_call.verifier,
+                        &verify_call.calldata,
+                        sender,
+                        eip8130.custom_verifier_gas_cap,
+                        &mut verification_gas_used,
+                        "custom verifier STATICCALL failed",
+                        "custom verifier returned invalid owner_id (< 32 bytes)",
+                    )?;
+
+                let pending_overrides = if verify_call.account == sender {
+                    Some(&pending_sender_owner_overrides)
+                } else {
+                    None
+                };
+                crate::handler_aa_helpers::validate_owner_config::<EVM, ERROR>(
+                    evm,
+                    verify_call.account,
+                    owner_id,
+                    verify_call.verifier,
+                    verify_call.required_scope,
+                    pending_overrides,
+                )?;
+            }
+
+            // Delegate with nested custom verifier: validate the outer delegate owner
+            // binding on sender/payer account.
+            if eip8130.sender_verify_call.is_some()
+                && eip8130.sender_verifier == crate::constants::DELEGATE_VERIFIER_ADDRESS
+                && eip8130.owner_id != B256::ZERO
+            {
+                crate::handler_aa_helpers::validate_owner_config::<EVM, ERROR>(
+                    evm,
+                    sender,
+                    U256::from_be_bytes(eip8130.owner_id.0),
+                    crate::constants::DELEGATE_VERIFIER_ADDRESS,
+                    crate::constants::OWNER_SCOPE_SENDER,
+                    Some(&pending_sender_owner_overrides),
+                )?;
+            }
+            if eip8130.payer_verify_call.is_some()
+                && eip8130.payer_verifier == crate::constants::DELEGATE_VERIFIER_ADDRESS
+                && eip8130.payer_owner_id != B256::ZERO
+                && eip8130.payer != eip8130.sender
+            {
+                let payer_pending_overrides = if eip8130.payer == sender {
+                    Some(&pending_sender_owner_overrides)
+                } else {
+                    None
+                };
+                crate::handler_aa_helpers::validate_owner_config::<EVM, ERROR>(
+                    evm,
+                    eip8130.payer,
+                    U256::from_be_bytes(eip8130.payer_owner_id.0),
+                    crate::constants::DELEGATE_VERIFIER_ADDRESS,
+                    crate::constants::OWNER_SCOPE_PAYER,
+                    payer_pending_overrides,
+                )?;
+            }
+
+            // --- Native verifier re-validation at inclusion ---
+            if eip8130.sender_verify_call.is_none()
+                && eip8130.sender_verifier != Address::ZERO
+            {
+                crate::handler_aa_helpers::validate_native_verifier_owner::<EVM, ERROR>(
+                    evm,
+                    sender,
+                    eip8130.sender_verifier,
+                    eip8130.owner_id,
+                    crate::constants::OWNER_SCOPE_SENDER,
+                    Some(&pending_sender_owner_overrides),
+                )?;
+            }
+            if eip8130.payer_verify_call.is_none()
+                && eip8130.payer_verifier != Address::ZERO
+                && eip8130.payer != eip8130.sender
+            {
+                let payer_pending_overrides = if eip8130.payer == sender {
+                    Some(&pending_sender_owner_overrides)
+                } else {
+                    None
+                };
+                crate::handler_aa_helpers::validate_native_verifier_owner::<EVM, ERROR>(
+                    evm,
+                    eip8130.payer,
+                    eip8130.payer_verifier,
+                    eip8130.payer_owner_id,
+                    crate::constants::OWNER_SCOPE_PAYER,
+                    payer_pending_overrides,
+                )?;
+            }
+        }
+
+        // --- Apply config change writes + sequence bumps ---
+        if !eip8130.config_writes.is_empty() {
+            for w in &eip8130.config_writes {
+                evm.ctx().journal_mut().load_account(w.address)?;
+                evm.ctx().journal_mut().sstore(w.address, w.slot, w.value)?;
+            }
+        }
+        if !eip8130.sequence_updates.is_empty() {
+            evm.ctx()
+                .journal_mut()
+                .load_account(crate::handler_aa_helpers::ACCOUNT_CONFIG_ADDRESS)?;
+            for upd in &eip8130.sequence_updates {
+                let current = evm
+                    .ctx()
+                    .journal_mut()
+                    .sload(crate::handler_aa_helpers::ACCOUNT_CONFIG_ADDRESS, upd.slot)?
+                    .data;
+                let new_packed = upd.apply(current);
+                evm.ctx().journal_mut().sstore(
+                    crate::handler_aa_helpers::ACCOUNT_CONFIG_ADDRESS,
+                    upd.slot,
+                    new_packed,
+                )?;
+            }
+        }
+
+        // --- Emit AccountConfiguration events for config changes ---
+        for event in &eip8130.config_change_logs {
+            evm.ctx().journal_mut().log(crate::transaction::eip8130::config_log_to_system_log(
+                crate::handler_aa_helpers::ACCOUNT_CONFIG_ADDRESS,
+                event,
+            ));
+        }
+
+        // Refund unused verification gas budget back to the execution gas pool.
+        let unused_verification_gas =
+            eip8130.custom_verifier_gas_cap.saturating_sub(verification_gas_used);
+
+        let mut accumulated_refunds: i64 = 0;
+
+        for phase in &eip8130.call_phases {
+            let checkpoint = evm.ctx().journal_mut().checkpoint();
+            let mut phase_ok = true;
+            let phase_gas_start = gas_remaining;
+            let mut phase_refunds: i64 = 0;
+
+            for call in phase {
+                if gas_remaining == 0 {
+                    phase_ok = false;
+                    break;
+                }
+
+                evm.ctx().journal_mut().load_account(call.to)?;
+
+                let call_gas = gas_remaining;
+
+                // Load callee bytecode so we can populate revm 38's
+                // CallInputs::known_bytecode (now non-optional).
+                let callee_known_bytecode = {
+                    let info = &evm
+                        .ctx()
+                        .journal_mut()
+                        .load_account_with_code(call.to)?
+                        .data
+                        .info;
+                    (info.code_hash(), info.code.clone().unwrap_or_default())
+                };
+
+                let call_inputs = CallInputs {
+                    input: CallInput::Bytes(call.data.clone()),
+                    return_memory_offset: 0..0,
+                    gas_limit: call_gas,
+                    // EIP-8037 reservoir: phased calls do not propagate any
+                    // pre-charged state gas budget into the callee frame.
+                    reservoir: 0,
+                    bytecode_address: call.to,
+                    known_bytecode: callee_known_bytecode,
+                    target_address: call.to,
+                    caller: sender,
+                    value: CallValue::Transfer(call.value),
+                    scheme: CallScheme::Call,
+                    is_static: false,
+                };
+
+                let frame_init = FrameInit {
+                    depth: 0,
+                    memory: {
+                        let ctx = evm.ctx();
+                        let mut mem = SharedMemory::new_with_buffer(
+                            ctx.local().shared_memory_buffer().clone(),
+                        );
+                        mem.set_memory_limit(ctx.cfg().memory_limit());
+                        mem
+                    },
+                    frame_input: FrameInput::Call(Box::new(call_inputs)),
+                };
+
+                let call_result = self.mainnet.run_exec_loop(evm, frame_init)?;
+                let call_gas_used = call_gas.saturating_sub(call_result.gas().remaining());
+                gas_remaining = gas_remaining.saturating_sub(call_gas_used);
+                phase_refunds += call_result.gas().refunded();
+
+                if !call_result.interpreter_result().result.is_ok() {
+                    phase_ok = false;
+                    break;
+                }
+            }
+
+            if phase_ok {
+                accumulated_refunds += phase_refunds;
+            } else {
+                evm.ctx().journal_mut().checkpoint_revert(checkpoint);
+            }
+
+            phase_results.push(crate::transaction::eip8130::Eip8130PhaseResult {
+                success: phase_ok,
+                gas_used: phase_gas_start.saturating_sub(gas_remaining),
+            });
+        }
+
+        let any_phase_succeeded = phase_results.iter().any(|r| r.success);
+
+        // Deploy-only transactions (account creation with no call phases) succeed
+        // when pre-execution code placement completed without error.
+        let deploy_only_success =
+            phase_results.is_empty() && !eip8130.code_placements.is_empty();
+
+        let tx_succeeded = is_estimation || any_phase_succeeded || deploy_only_success;
+
+        // Emit a system log with per-phase statuses so they survive in the receipt's
+        // log list and can be recovered at RPC time.
+        if !phase_results.is_empty() {
+            evm.ctx().journal_mut().log(
+                crate::transaction::eip8130::phase_statuses_system_log(
+                    crate::precompiles::TX_CONTEXT_ADDRESS,
+                    &phase_results,
+                ),
+            );
+        }
+
+        let mut result_gas = Gas::new_spent(evm.ctx().tx().gas_limit());
+        result_gas.erase_cost(gas_remaining + unused_verification_gas);
+        if accumulated_refunds > 0 {
+            result_gas.record_refund(accumulated_refunds);
+        }
+
+        let output = crate::transaction::eip8130::encode_phase_statuses(&phase_results);
+
+        let instruction_result = if tx_succeeded {
+            InstructionResult::Stop
+        } else {
+            InstructionResult::Revert
+        };
+
+        let mut frame_result = FrameResult::Call(CallOutcome::new(
+            InterpreterResult { result: instruction_result, output, gas: result_gas },
+            0..0,
+        ));
+
+        // Silence unused warning when init_and_floor_gas isn't needed in the AA path.
+        let _ = init_and_floor_gas;
+
+        self.last_frame_result(evm, &mut frame_result)?;
+        Ok(frame_result)
+    }
+
     fn last_frame_result(
         &mut self,
         evm: &mut Self::Evm,
@@ -531,6 +889,20 @@ where
         } else {
             U256::ZERO
         };
+
+        // For EIP-8130 sponsored transactions, refund the payer (not tx.caller()).
+        if evm.ctx().tx().tx_type() == crate::constants::EIP8130_TX_TYPE {
+            let payer = evm.ctx().tx().eip8130_parts().payer;
+            let basefee = evm.ctx().block().basefee() as u128;
+            let effective_gas_price = evm.ctx().tx().effective_gas_price(basefee);
+            let gas = frame_result.gas();
+            let refund_amount = U256::from(
+                effective_gas_price
+                    .saturating_mul((gas.remaining() + gas.refunded() as u64) as u128),
+            ) + additional_refund;
+            evm.ctx().journal_mut().load_account_mut(payer)?.incr_balance(refund_amount);
+            return Ok(());
+        }
 
         reimburse_caller(evm.ctx(), frame_result.gas(), additional_refund).map_err(From::from)
     }

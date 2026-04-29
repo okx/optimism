@@ -54,11 +54,11 @@ const ESTIMATION_AUTH_CALLDATA_GAS: u64 = 1_100;
 /// `aa_intrinsic_gas` always uses the cold worst-case (22,100). When the nonce
 /// channel has been used before the SSTORE cost is only 5,000, so the handler
 /// gives back this delta to the call phases at execution time.
-const NONCE_COLD_WARM_DELTA: u64 = 17_100;
+pub(crate) const NONCE_COLD_WARM_DELTA: u64 = 17_100;
 
 /// AccountConfiguration deployed contract address.
 /// Must match the CREATE2 address from `Deploy.s.sol` (salt = 0).
-const ACCOUNT_CONFIG_ADDRESS: Address = Address::new([
+pub(crate) const ACCOUNT_CONFIG_ADDRESS: Address = Address::new([
     0x4F, 0x20, 0x61, 0x8C, 0xf5, 0xc1, 0x60, 0xe7, 0xAA, 0x38, 0x52, 0x68, 0x72, 0x1d, 0xA9, 0x68,
     0xF8, 0x6F, 0x0e, 0x61,
 ]);
@@ -295,7 +295,7 @@ fn eip8130_invalid_tx<ERROR: From<OpTransactionError>>(
 
 /// Validates that `owner_id` is registered in AccountConfig with the expected
 /// verifier address and required scope. Returns `Err` on mismatch.
-fn validate_owner_config<EVM, ERROR>(
+pub(crate) fn validate_owner_config<EVM, ERROR>(
     evm: &mut EVM,
     account: Address,
     owner_id: U256,
@@ -322,7 +322,7 @@ where
 ///
 /// For `DELEGATE` verifiers this requires two SLOADs: one to resolve the
 /// delegation target and another to check the inner verifier's config.
-fn validate_native_verifier_owner<EVM, ERROR>(
+pub(crate) fn validate_native_verifier_owner<EVM, ERROR>(
     evm: &mut EVM,
     account: Address,
     verifier: Address,
@@ -376,7 +376,7 @@ where
 /// - account is not locked
 /// - each config-change sequence matches expected on-chain value, with
 ///   in-tx chaining across multiple entries.
-fn validate_config_change_preconditions<EVM, ERROR>(
+pub(crate) fn validate_config_change_preconditions<EVM, ERROR>(
     evm: &mut EVM,
     sender: Address,
     eip8130: &Eip8130Parts,
@@ -457,7 +457,7 @@ where
 ///
 /// Charges gas against the transaction's custom-verifier budget via
 /// `verification_gas_used`.
-fn run_custom_verifier_staticcall<EVM, ERROR, FRAME>(
+pub(crate) fn run_custom_verifier_staticcall<EVM, ERROR, FRAME>(
     mainnet: &mut MainnetHandler<EVM, ERROR, FRAME>,
     evm: &mut EVM,
     verifier: Address,
@@ -544,7 +544,7 @@ where
 /// Uses the transaction's `custom_verifier_gas_cap` budget for custom
 /// authorizer STATICCALLs. `verification_gas_used` is updated to reflect gas
 /// consumed.
-fn validate_authorizer_chain<EVM, ERROR, FRAME>(
+pub(crate) fn validate_authorizer_chain<EVM, ERROR, FRAME>(
     mainnet: &mut MainnetHandler<EVM, ERROR, FRAME>,
     evm: &mut EVM,
     sender: Address,
