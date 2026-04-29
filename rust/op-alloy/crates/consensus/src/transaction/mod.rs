@@ -5,8 +5,8 @@ pub use deposit::{DepositTransaction, TxDeposit};
 
 mod xlayer;
 pub use xlayer::{
-    AccountChangeEntry, Call, ConfigChangeEntry, CreateEntry, DelegationEntry, Owner, OwnerChange,
-    TxEip8130,
+    AccountChangeEntry, ConfigChangeEntry, CreateEntry, DelegationEntry, Eip8130CallEntry, Owner,
+    OwnerChange, TxEip8130,
 };
 
 pub(crate) mod xlayer_sig;

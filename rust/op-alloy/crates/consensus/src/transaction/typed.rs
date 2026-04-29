@@ -328,7 +328,7 @@ impl SignableTransaction<Signature> for OpTypedTransaction {
             Self::Eip2930(tx) => tx.set_chain_id(chain_id),
             Self::Eip1559(tx) => tx.set_chain_id(chain_id),
             Self::Eip7702(tx) => tx.set_chain_id(chain_id),
-            Self::Eip8130(tx) => tx.chain_id = chain_id,
+            Self::Eip8130(tx) => tx.set_chain_id(chain_id),
             Self::Deposit(_) | Self::PostExec(_) => {}
         }
     }

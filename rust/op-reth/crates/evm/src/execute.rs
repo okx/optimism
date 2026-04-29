@@ -204,7 +204,7 @@ mod xlayer_tests {
     use alloy_consensus::{Block, BlockBody, Header, Sealable};
     use alloy_eips::eip2718::{Decodable2718, Encodable2718};
     use alloy_primitives::{Address, B256, U256};
-    use op_alloy_consensus::{Call, OpTxEnvelope, TxEip8130};
+    use op_alloy_consensus::{Eip8130CallEntry, OpTxEnvelope, TxEip8130};
     use op_revm::{
         constants::L1_BLOCK_CONTRACT,
         precompiles_xlayer::{NONCE_MANAGER_ADDRESS, TX_CONTEXT_ADDRESS},
@@ -252,7 +252,7 @@ mod xlayer_tests {
             max_priority_fee_per_gas: 0,
             max_fee_per_gas: 1,
             gas_limit: 100_000,
-            calls: vec![vec![Call { to: target, data: Default::default() }]],
+            calls: vec![vec![Eip8130CallEntry { to: target, data: Default::default() }]],
             ..Default::default()
         };
 

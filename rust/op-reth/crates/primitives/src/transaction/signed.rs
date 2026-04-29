@@ -66,10 +66,11 @@ impl OpTransactionSigned {
             OpTypedTransaction::Eip2930(tx) => &mut tx.input,
             OpTypedTransaction::Eip1559(tx) => &mut tx.input,
             OpTypedTransaction::Eip7702(tx) => &mut tx.input,
-            // #TODO(xlayer-eip8130): EIP-8130 has no top-level input; execution calldata lives
-            // in calls[*][*].data. This test-only hook uses sender_auth only as a temporary
-            // mutable Bytes placeholder for compact codec parity tests.
-            OpTypedTransaction::Eip8130(tx) => &mut tx.sender_auth,
+            // EIP-8130 has no top-level input. Compact-codec parity tests skip this variant
+            // explicitly via `make_input_large_enough_for_zstd`, so this branch is unreachable.
+            OpTypedTransaction::Eip8130(_) => {
+                unreachable!("EIP-8130 has no top-level input field")
+            }
             OpTypedTransaction::Deposit(tx) => &mut tx.input,
             OpTypedTransaction::PostExec(tx) => &mut tx.input,
         }
@@ -470,7 +471,7 @@ impl PartialEq for OpTransactionSigned {
         let other_signature = match &other.transaction {
             OpTypedTransaction::Deposit(_) => TxDeposit::signature(),
             OpTypedTransaction::PostExec(_) => TxPostExec::signature(),
-            OpTypedTransaction::Eip8130(tx) => Signature::new(U256::ZERO, U256::ZERO, false),
+            OpTypedTransaction::Eip8130(_) => Signature::new(U256::ZERO, U256::ZERO, false),
             _ => other.signature,
         };
 
@@ -485,7 +486,7 @@ impl Hash for OpTransactionSigned {
         match &self.transaction {
             OpTypedTransaction::Deposit(_) => TxDeposit::signature().hash(state),
             OpTypedTransaction::PostExec(_) => TxPostExec::signature().hash(state),
-            OpTypedTransaction::Eip8130(tx) => {
+            OpTypedTransaction::Eip8130(_) => {
                 Signature::new(U256::ZERO, U256::ZERO, false).hash(state)
             }
             _ => self.signature.hash(state),
@@ -632,6 +633,9 @@ mod tests {
                 });
                 assert!(post_exec.input.len() >= 33);
             }
+            // EIP-8130 has no top-level input; `input()` is hard-coded empty so zstd compression
+            // never kicks in for this variant. Skip without touching `input_mut` (which traps).
+            OpTypedTransaction::Eip8130(_) => {}
             _ => *tx.input_mut() = vec![0; 33].into(),
         }
     }

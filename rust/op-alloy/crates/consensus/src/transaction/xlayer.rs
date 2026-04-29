@@ -14,18 +14,22 @@ use alloy_rlp::{BufMut, Decodable, Encodable, Header, length_of_length};
 use crate::transaction::tx_type::{AA_PAYER_TYPE_ID, AA_TX_TYPE_ID};
 
 /// A single call inside an EIP-8130 phase.
+///
+/// Distinct from [`op_revm::transaction::eip8130::Eip8130Call`], which is the EVM-execution form
+/// (carries `value`). This consensus-layer entry has only `to` and `data` because EIP-8130 calls
+/// do not carry a top-level value at the protocol level.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-pub struct Call {
+pub struct Eip8130CallEntry {
     /// Call target.
     pub to: Address,
     /// Calldata.
     pub data: Bytes,
 }
 
-impl Encodable for Call {
+impl Encodable for Eip8130CallEntry {
     fn encode(&self, out: &mut dyn BufMut) {
         let payload = self.to.length() + self.data.length();
         Header { list: true, payload_length: payload }.encode(out);
@@ -39,7 +43,7 @@ impl Encodable for Call {
     }
 }
 
-impl Decodable for Call {
+impl Decodable for Eip8130CallEntry {
     fn decode(buf: &mut &[u8]) -> alloy_rlp::Result<Self> {
         let header = Header::decode(buf)?;
         if !header.list {
@@ -348,7 +352,7 @@ pub struct TxEip8130 {
     /// Account creation and configuration changes.
     pub account_changes: Vec<AccountChangeEntry>,
     /// Phased call batches.
-    pub calls: Vec<Vec<Call>>,
+    pub calls: Vec<Vec<Eip8130CallEntry>>,
     /// Optional payer. `None` means sender pays.
     pub payer: Option<Address>,
     /// Sender authentication data.
@@ -380,9 +384,9 @@ impl TxEip8130 {
         self.payer.unwrap_or_else(|| self.effective_sender())
     }
 
-    /// MVP custom verifier detection.
-    pub fn has_custom_verifier(&self) -> bool {
-        false
+    /// Sets the chain id.
+    pub fn set_chain_id(&mut self, chain_id: u64) {
+        self.chain_id = chain_id;
     }
 
     /// Transaction hash.
@@ -771,7 +775,10 @@ impl Transaction for TxEip8130 {
     }
 
     fn kind(&self) -> TxKind {
-        TxKind::Call(self.effective_sender())
+        // EIP-8130 has no protocol-level `to`; per-call destinations live in `calls[*][*].to`.
+        // Returning `Call(ZERO)` signals "no top-level target" to indexers and gas estimators
+        // without aliasing the sender (which would be actively misleading).
+        TxKind::Call(Address::ZERO)
     }
 
     fn value(&self) -> U256 {
@@ -863,7 +870,7 @@ fn decode_list<T: Decodable>(buf: &mut &[u8]) -> alloy_rlp::Result<Vec<T>> {
     Ok(items)
 }
 
-fn encode_nested_calls(phases: &[Vec<Call>], out: &mut dyn BufMut) {
+fn encode_nested_calls(phases: &[Vec<Eip8130CallEntry>], out: &mut dyn BufMut) {
     let payload_length: usize = phases.iter().map(|phase| list_len(phase)).sum();
     Header { list: true, payload_length }.encode(out);
     for phase in phases {
@@ -871,12 +878,12 @@ fn encode_nested_calls(phases: &[Vec<Call>], out: &mut dyn BufMut) {
     }
 }
 
-fn nested_calls_len(phases: &[Vec<Call>]) -> usize {
+fn nested_calls_len(phases: &[Vec<Eip8130CallEntry>]) -> usize {
     let payload_length: usize = phases.iter().map(|phase| list_len(phase)).sum();
     payload_length + length_of_length(payload_length)
 }
 
-fn decode_nested_calls(buf: &mut &[u8]) -> alloy_rlp::Result<Vec<Vec<Call>>> {
+fn decode_nested_calls(buf: &mut &[u8]) -> alloy_rlp::Result<Vec<Vec<Eip8130CallEntry>>> {
     let header = Header::decode(buf)?;
     if !header.list {
         return Err(alloy_rlp::Error::UnexpectedString);
@@ -914,7 +921,7 @@ mod tests {
             max_fee_per_gas: 10_000_000_000,
             gas_limit: 100_000,
             account_changes: vec![],
-            calls: vec![vec![Call {
+            calls: vec![vec![Eip8130CallEntry {
                 to: Address::repeat_byte(0xBB),
                 data: Bytes::from_static(&[0xDE, 0xAD]),
             }]],
@@ -1014,7 +1021,7 @@ mod tests {
         assert_eq!(tx.effective_tip_per_gas(10_500_000_000), None);
         assert!(tx.is_dynamic_fee());
         assert!(!tx.is_create());
-        assert_eq!(tx.kind(), TxKind::Call(Address::repeat_byte(0x01)));
+        assert_eq!(tx.kind(), TxKind::Call(Address::ZERO));
         assert_eq!(tx.value(), U256::ZERO);
         assert!(tx.input().is_empty());
         assert!(tx.access_list().is_none());
@@ -1109,10 +1116,10 @@ mod tests {
         let tx = TxEip8130 {
             calls: vec![
                 vec![
-                    Call { to: Address::repeat_byte(1), data: Bytes::from_static(&[0x01]) },
-                    Call { to: Address::repeat_byte(2), data: Bytes::from_static(&[0x02]) },
+                    Eip8130CallEntry { to: Address::repeat_byte(1), data: Bytes::from_static(&[0x01]) },
+                    Eip8130CallEntry { to: Address::repeat_byte(2), data: Bytes::from_static(&[0x02]) },
                 ],
-                vec![Call { to: Address::repeat_byte(3), data: Bytes::from_static(&[0x03]) }],
+                vec![Eip8130CallEntry { to: Address::repeat_byte(3), data: Bytes::from_static(&[0x03]) }],
             ],
             ..sample_tx()
         };

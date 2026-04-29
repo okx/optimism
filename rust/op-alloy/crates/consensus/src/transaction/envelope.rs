@@ -397,10 +397,11 @@ impl OpTxEnvelope {
             Self::Eip2930(tx) => &mut tx.tx_mut().input,
             Self::Legacy(tx) => &mut tx.tx_mut().input,
             Self::Eip7702(tx) => &mut tx.tx_mut().input,
-            // #TODO(xlayer-eip8130): EIP-8130 has no top-level input; execution calldata lives
-            // in calls[*][*].data. Keep this temporary compatibility hook visible so callers do
-            // not treat sender_auth as EVM calldata.
-            Self::Eip8130(tx) => &mut tx.inner_mut().sender_auth,
+            // EIP-8130 has no top-level input field; calldata lives in `calls[*][*].data`. Trip
+            // loudly here rather than aliasing `sender_auth` — silently returning the auth bytes
+            // lets fuzzers and helpers corrupt the AA signature without any visible failure.
+            // Bare `unreachable!()` (no args) keeps this body const-compatible.
+            Self::Eip8130(_) => unreachable!(),
             Self::Deposit(tx) => &mut tx.inner_mut().input,
             Self::PostExec(tx) => &mut tx.inner_mut().input,
         }

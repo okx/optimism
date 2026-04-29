@@ -63,7 +63,7 @@ mod tests {
             max_fee_per_gas: 10_000_000_000,
             gas_limit: 100_000,
             payer: Some(Address::repeat_byte(0x33)),
-            calls: vec![vec![super::super::Call {
+            calls: vec![vec![super::super::Eip8130CallEntry {
                 to: Address::repeat_byte(0xBB),
                 data: Bytes::from_static(&[0xDE, 0xAD]),
             }]],

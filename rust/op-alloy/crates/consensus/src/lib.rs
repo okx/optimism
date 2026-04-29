@@ -27,8 +27,8 @@ pub mod transaction;
 #[cfg(feature = "k256")]
 pub use transaction::xlayer_sig::recover_eip8130_sender;
 pub use transaction::{
-    AA_PAYER_TYPE_ID, AA_TX_TYPE_ID, AccountChangeEntry, Call, DEPOSIT_TX_TYPE_ID,
-    DepositTransaction, OpPooledTransaction, OpTransaction, OpTxEnvelope, OpTxType,
+    AA_PAYER_TYPE_ID, AA_TX_TYPE_ID, AccountChangeEntry, DEPOSIT_TX_TYPE_ID, DepositTransaction,
+    Eip8130CallEntry, OpPooledTransaction, OpTransaction, OpTxEnvelope, OpTxType,
     OpTypedTransaction, TxDeposit, TxEip8130,
 };
 pub use transaction::xlayer_sig::{payer_signature_hash, sender_signature_hash};

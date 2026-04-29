@@ -218,10 +218,11 @@ impl From<OpTxEnvelope> for OpTransactionRequest {
             OpTxEnvelope::Eip7702(tx) => tx.into(),
             OpTxEnvelope::Deposit(tx) => tx.into(),
             OpTxEnvelope::PostExec(tx) => tx.into_inner().into(),
-            // #TODO(xlayer-eip8130): This fallback currently treats unsupported envelope variants,
-            // including EIP-8130, as an empty standard request. That is lossy for EIP-8130 and
-            // should become an explicit AA-aware conversion path instead of silently returning
-            // `default()`.
+            // EIP-8130 carries phased calls, payer, and auth payloads that do not fit the legacy
+            // `TransactionRequest` shape. This lossy default is an intentional MVP placeholder
+            // and should be replaced by an explicit AA-aware conversion path.
+            OpTxEnvelope::Eip8130(_) => Default::default(),
+            // Legacy envelopes have no `From<Signed<TxLegacy>> for OpTransactionRequest` impl.
             _ => Default::default(),
         }
     }
