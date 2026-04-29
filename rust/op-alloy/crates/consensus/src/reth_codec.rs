@@ -13,7 +13,7 @@
 
 use crate::{
     OpReceipt, OpTxEnvelope, OpTxType, OpTypedTransaction, POST_EXEC_TX_TYPE_ID, TxDeposit,
-    TxPostExec,
+    TxEip8130, TxPostExec,
 };
 use alloc::vec::Vec;
 use alloy_consensus::{Receipt, Signed, Transaction};
@@ -40,6 +40,11 @@ impl Compact for OpTxType {
                 buf.put_u8(alloy_consensus::constants::EIP7702_TX_TYPE_ID);
                 COMPACT_EXTENDED_IDENTIFIER_FLAG
             }
+            // XLayer EIP-8130 AA transaction
+            Self::Eip8130 => {
+                buf.put_u8(crate::AA_TX_TYPE_ID);
+                COMPACT_EXTENDED_IDENTIFIER_FLAG
+            }
             Self::Deposit => {
                 buf.put_u8(crate::DEPOSIT_TX_TYPE_ID);
                 COMPACT_EXTENDED_IDENTIFIER_FLAG
@@ -61,6 +66,7 @@ impl Compact for OpTxType {
                 let extended_identifier = buf.get_u8();
                 let ty = match extended_identifier {
                     alloy_consensus::constants::EIP7702_TX_TYPE_ID => Self::Eip7702,
+                    crate::AA_TX_TYPE_ID => Self::Eip8130,
                     crate::DEPOSIT_TX_TYPE_ID => Self::Deposit,
                     POST_EXEC_TX_TYPE_ID => Self::PostExec,
                     _ => panic!("Unsupported OpTxType identifier: {extended_identifier}"),
@@ -173,6 +179,10 @@ impl Compact for OpTypedTransaction {
             Self::Eip7702(tx) => {
                 tx.to_compact(buf);
             }
+            // XLayer EIP-8130 AA transaction
+            Self::Eip8130(tx) => {
+                tx.to_compact(buf);
+            }
             Self::Deposit(tx) => {
                 tx.to_compact(buf);
             }
@@ -202,6 +212,11 @@ impl Compact for OpTypedTransaction {
                 let (tx, buf) = alloy_consensus::TxEip7702::from_compact(buf, buf.len());
                 (Self::Eip7702(tx), buf)
             }
+            // XLayer EIP-8130 AA transaction
+            OpTxType::Eip8130 => {
+                let (tx, buf) = TxEip8130::from_compact(buf, buf.len());
+                (Self::Eip8130(tx), buf)
+            }
             OpTxType::Deposit => {
                 let (tx, buf) = TxDeposit::from_compact(buf, buf.len());
                 (Self::Deposit(tx), buf)
@@ -223,7 +238,7 @@ impl Envelope for OpTxEnvelope {
             Self::Eip2930(tx) => tx.signature(),
             Self::Eip1559(tx) => tx.signature(),
             Self::Eip7702(tx) => tx.signature(),
-            Self::Deposit(_) | Self::PostExec(_) => {
+            Self::Eip8130(_) | Self::Deposit(_) | Self::PostExec(_) => {
                 const DEPOSIT_SIG: Signature = Signature::new(U256::ZERO, U256::ZERO, false);
                 &DEPOSIT_SIG
             }
@@ -251,6 +266,10 @@ impl ToTxCompact for OpTxEnvelope {
             }
             Self::Eip7702(tx) => {
                 tx.tx().to_compact(buf);
+            }
+            // XLayer EIP-8130 AA transaction
+            Self::Eip8130(tx) => {
+                tx.inner().to_compact(buf);
             }
             Self::Deposit(tx) => {
                 tx.inner().to_compact(buf);
@@ -287,6 +306,11 @@ impl FromTxCompact for OpTxEnvelope {
             OpTxType::Eip7702 => {
                 let (tx, buf) = alloy_consensus::TxEip7702::from_compact(buf, buf.len());
                 (Self::Eip7702(Signed::new_unhashed(tx, signature)), buf)
+            }
+            // XLayer EIP-8130 AA transaction
+            OpTxType::Eip8130 => {
+                let (tx, buf) = TxEip8130::from_compact(buf, buf.len());
+                (Self::Eip8130(alloy_consensus::Sealed::new(tx)), buf)
             }
             OpTxType::Deposit => {
                 let (tx, buf) = TxDeposit::from_compact(buf, buf.len());
@@ -376,6 +400,8 @@ impl From<CompactOpReceipt> for OpReceipt {
             OpTxType::Eip2930 => Self::Eip2930(receipt),
             OpTxType::Eip1559 => Self::Eip1559(receipt),
             OpTxType::Eip7702 => Self::Eip7702(receipt),
+            // XLayer EIP-8130 AA transaction
+            OpTxType::Eip8130 => Self::Eip8130(receipt),
             OpTxType::PostExec => Self::PostExec(receipt),
             OpTxType::Deposit => Self::Deposit(crate::OpDepositReceipt {
                 inner: receipt,

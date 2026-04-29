@@ -235,6 +235,9 @@ impl From<OpTransactionReceipt> for OpReceiptEnvelope<alloy_primitives::Log> {
             OpReceiptEnvelope::Eip2930(receipt) => Self::Eip2930(convert_standard_receipt(receipt)),
             OpReceiptEnvelope::Eip1559(receipt) => Self::Eip1559(convert_standard_receipt(receipt)),
             OpReceiptEnvelope::Eip7702(receipt) => Self::Eip7702(convert_standard_receipt(receipt)),
+            // #TODO(xlayer-eip8130): RPC conversion currently drops EIP-8130 extensions required
+            // by eth_getTransactionReceipt: payer and phaseStatuses.
+            OpReceiptEnvelope::Eip8130(receipt) => Self::Eip8130(convert_standard_receipt(receipt)),
             OpReceiptEnvelope::PostExec(receipt) => {
                 Self::PostExec(convert_standard_receipt(receipt))
             }

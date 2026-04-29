@@ -2423,7 +2423,7 @@ mod tests {
 
 /// EIP-8130 handler execution tests
 #[cfg(test)]
-mod eip8130_tests {
+mod xlayer_eip8130_tests {
     use super::{
         ACCOUNT_CONFIG_ADDRESS, K1_VERIFIER_ADDRESS, NONCE_COLD_WARM_DELTA, OpHandler,
         REVOKED_VERIFIER, aa_lock_slot, aa_owner_config_slot,

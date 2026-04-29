@@ -67,6 +67,10 @@ pub(super) mod serde_bincode_compat {
         Eip1559(alloy_consensus::serde_bincode_compat::Receipt<'a, alloy_primitives::Log>),
         /// EIP-7702 receipt
         Eip7702(alloy_consensus::serde_bincode_compat::Receipt<'a, alloy_primitives::Log>),
+        /// EIP-8130 receipt
+        // #TODO(xlayer-eip8130): This bincode placeholder lacks EIP-8130 RPC receipt fields:
+        // payer and phaseStatuses.
+        Eip8130(alloy_consensus::serde_bincode_compat::Receipt<'a, alloy_primitives::Log>),
         /// Post-exec receipt
         PostExec(alloy_consensus::serde_bincode_compat::Receipt<'a, alloy_primitives::Log>),
         /// Deposit receipt
@@ -82,6 +86,8 @@ pub(super) mod serde_bincode_compat {
                 super::OpReceipt::Eip2930(receipt) => Self::Eip2930(receipt.into()),
                 super::OpReceipt::Eip1559(receipt) => Self::Eip1559(receipt.into()),
                 super::OpReceipt::Eip7702(receipt) => Self::Eip7702(receipt.into()),
+                // #TODO(xlayer-eip8130): Preserve EIP-8130 receipt extensions here once modeled.
+                super::OpReceipt::Eip8130(receipt) => Self::Eip8130(receipt.into()),
                 super::OpReceipt::PostExec(receipt) => Self::PostExec(receipt.into()),
                 super::OpReceipt::Deposit(receipt) => Self::Deposit(receipt.into()),
             }
@@ -95,6 +101,8 @@ pub(super) mod serde_bincode_compat {
                 OpReceipt::Eip2930(receipt) => Self::Eip2930(receipt.into()),
                 OpReceipt::Eip1559(receipt) => Self::Eip1559(receipt.into()),
                 OpReceipt::Eip7702(receipt) => Self::Eip7702(receipt.into()),
+                // #TODO(xlayer-eip8130): Restore EIP-8130 receipt extensions here once modeled.
+                OpReceipt::Eip8130(receipt) => Self::Eip8130(receipt.into()),
                 OpReceipt::PostExec(receipt) => Self::PostExec(receipt.into()),
                 OpReceipt::Deposit(receipt) => Self::Deposit(receipt.into()),
             }

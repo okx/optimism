@@ -19,7 +19,7 @@ mod tests {
     use reth_revm::{database::StateProviderDatabase, test_utils::StateProviderTest};
     use std::{collections::HashMap, str::FromStr};
 
-    fn create_op_state_provider() -> StateProviderTest {
+    pub(super) fn create_op_state_provider() -> StateProviderTest {
         let mut db = StateProviderTest::default();
 
         let l1_block_contract_account =
@@ -46,7 +46,7 @@ mod tests {
         db
     }
 
-    fn evm_config(chain_spec: Arc<OpChainSpec>) -> OpEvmConfig {
+    pub(super) fn evm_config(chain_spec: Arc<OpChainSpec>) -> OpEvmConfig {
         OpEvmConfig::new(chain_spec, OpRethReceiptBuilder::default())
     }
 
@@ -194,5 +194,97 @@ mod tests {
 
         // deposit_nonce is present only in deposit transactions
         assert!(deposit_receipt.deposit_nonce.is_some());
+    }
+}
+
+#[cfg(test)]
+mod xlayer_tests {
+    use crate::execute::tests::{create_op_state_provider, evm_config};
+    use alloc::sync::Arc;
+    use alloy_consensus::{Block, BlockBody, Header, Sealable};
+    use alloy_eips::eip2718::{Decodable2718, Encodable2718};
+    use alloy_primitives::{Address, B256, U256};
+    use op_alloy_consensus::{Call, OpTxEnvelope, TxEip8130};
+    use op_revm::{
+        constants::L1_BLOCK_CONTRACT,
+        precompiles_xlayer::{NONCE_MANAGER_ADDRESS, TX_CONTEXT_ADDRESS},
+        transaction::eip8130::phase_statuses_log_topic,
+    };
+    use reth_evm::execute::{BasicBlockExecutor, Executor};
+    use reth_optimism_chainspec::OpChainSpecBuilder;
+    use reth_optimism_primitives::{OpReceipt, OpTransactionSigned};
+    use reth_primitives_traits::{Account, RecoveredBlock};
+    use reth_revm::database::StateProviderDatabase;
+    use std::collections::HashMap;
+
+    #[test]
+    fn single_phase_executes_post_xlayer_aa() {
+        let header = Header {
+            timestamp: 2,
+            number: 1,
+            gas_limit: 1_000_000,
+            base_fee_per_gas: Some(0),
+            parent_beacon_block_root: Some(B256::ZERO),
+            ..Default::default()
+        };
+
+        let mut db = create_op_state_provider();
+        let sender = Address::from([0x11; 20]);
+        let target = Address::from([0x22; 20]);
+
+        db.insert_account(
+            sender,
+            Account { balance: U256::MAX, ..Account::default() },
+            None,
+            HashMap::default(),
+        );
+        db.insert_account(target, Account::default(), None, HashMap::default());
+        db.insert_account(NONCE_MANAGER_ADDRESS, Account::default(), None, HashMap::default());
+
+        let chain_spec = Arc::new(OpChainSpecBuilder::base_mainnet().karst_activated().build());
+
+        let tx = TxEip8130 {
+            chain_id: chain_spec.chain.id(),
+            from: Some(sender),
+            nonce_key: U256::ZERO,
+            nonce_sequence: 0,
+            expiry: 0,
+            max_priority_fee_per_gas: 0,
+            max_fee_per_gas: 1,
+            gas_limit: 100_000,
+            calls: vec![vec![Call { to: target, data: Default::default() }]],
+            ..Default::default()
+        };
+
+        let envelope = OpTxEnvelope::Eip8130(tx.seal_slow());
+        let mut encoded = Vec::new();
+        envelope.encode_2718(&mut encoded);
+        let tx = OpTransactionSigned::decode_2718(&mut encoded.as_slice()).expect("valid 8130 tx");
+
+        let provider = evm_config(chain_spec);
+        let mut executor = BasicBlockExecutor::new(provider, StateProviderDatabase::new(&db));
+
+        // make sure the L1 block contract state is preloaded.
+        executor.with_state_mut(|state| {
+            state.load_cache_account(L1_BLOCK_CONTRACT).unwrap();
+        });
+
+        let output = executor
+            .execute(&RecoveredBlock::new_unhashed(
+                Block { header, body: BlockBody { transactions: vec![tx], ..Default::default() } },
+                vec![sender],
+            ))
+            .expect("executing an EIP-8130 tx after XLayer AA activation should not fail");
+
+        let receipts = &output.receipts;
+        assert_eq!(receipts.len(), 1);
+
+        // #TODO(xlayer-eip8130): This assertion uses the current plain Receipt placeholder.
+        // Update once EIP-8130 payer/phaseStatuses receipt semantics are modeled.
+        let OpReceipt::Eip8130(receipt) = &receipts[0] else { panic!("expected EIP-8130 receipt") };
+        assert!(receipt.status.coerce_status());
+        assert_eq!(receipt.logs.len(), 1);
+        assert_eq!(receipt.logs[0].address, TX_CONTEXT_ADDRESS);
+        assert_eq!(receipt.logs[0].data.topics()[0], phase_statuses_log_topic());
     }
 }

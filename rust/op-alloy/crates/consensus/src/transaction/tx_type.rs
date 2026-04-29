@@ -1,10 +1,14 @@
-//! Contains the transaction type identifier for Optimism.
+//! Contains the transaction type identifier for Optimism and XLayer.
 
 use crate::transaction::envelope::OpTxType;
 use core::fmt::Display;
 
 /// Identifier for an Optimism deposit transaction
 pub const DEPOSIT_TX_TYPE_ID: u8 = 126; // 0x7E
+/// Identifier for a XLayer EIP-8130 AA transaction and domain byte for XLayer EIP-8130 payer signatures.
+pub const AA_TX_TYPE_ID: u8 = 123; // 0x7B
+/// Domain byte for XLayer EIP-8130 payer signatures.
+pub const AA_PAYER_TYPE_ID: u8 = 124; // 0x7C
 
 #[allow(clippy::derivable_impls)]
 impl Default for OpTxType {
@@ -20,6 +24,7 @@ impl Display for OpTxType {
             Self::Eip2930 => write!(f, "eip2930"),
             Self::Eip1559 => write!(f, "eip1559"),
             Self::Eip7702 => write!(f, "eip7702"),
+            Self::Eip8130 => write!(f, "eip8130"),
             Self::Deposit => write!(f, "deposit"),
             Self::PostExec => write!(f, "post-exec"),
         }
@@ -28,8 +33,15 @@ impl Display for OpTxType {
 
 impl OpTxType {
     /// List of all variants.
-    pub const ALL: [Self; 6] =
-        [Self::Legacy, Self::Eip2930, Self::Eip1559, Self::Eip7702, Self::Deposit, Self::PostExec];
+    pub const ALL: [Self; 7] = [
+        Self::Legacy,
+        Self::Eip2930,
+        Self::Eip1559,
+        Self::Eip7702,
+        Self::Eip8130,
+        Self::Deposit,
+        Self::PostExec,
+    ];
 
     /// Returns `true` if the type is [`OpTxType::Deposit`].
     pub const fn is_deposit(&self) -> bool {
@@ -45,12 +57,13 @@ mod tests {
 
     #[test]
     fn test_all_tx_types() {
-        assert_eq!(OpTxType::ALL.len(), 6);
+        assert_eq!(OpTxType::ALL.len(), 7);
         let all = vec![
             OpTxType::Legacy,
             OpTxType::Eip2930,
             OpTxType::Eip1559,
             OpTxType::Eip7702,
+            OpTxType::Eip8130,
             OpTxType::Deposit,
             OpTxType::PostExec,
         ];

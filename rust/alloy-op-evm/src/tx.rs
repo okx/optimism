@@ -8,8 +8,14 @@ use alloy_eips::{Encodable2718, Typed2718, eip7594::Encodable7594};
 use alloy_evm::{FromRecoveredTx, FromTxWithEncoded, IntoTxEnv, TransactionEnvMut};
 use alloy_primitives::{Address, B256, Bytes, TxKind, U256};
 use core::ops::{Deref, DerefMut};
-use op_alloy::consensus::{OpTxEnvelope, TxDeposit, TxPostExec};
-use op_revm::{OpTransaction, transaction::deposit::DepositTransactionParts};
+use op_alloy::consensus::{AA_TX_TYPE_ID, OpTxEnvelope, TxDeposit, TxEip8130, TxPostExec};
+use op_revm::{
+    OpTransaction,
+    transaction::{
+        deposit::DepositTransactionParts,
+        eip8130::{Eip8130Call, Eip8130Parts},
+    },
+};
 use revm::context::TxEnv;
 
 /// Helper to convert a deposit transaction into a [`TxEnv`].
@@ -21,6 +27,49 @@ fn deposit_tx_env(tx: &TxDeposit, caller: Address) -> TxEnv {
         kind: tx.to,
         value: tx.value,
         data: tx.input.clone(),
+        ..Default::default()
+    }
+}
+
+fn eip8130_parts(tx: &TxEip8130, caller: Address) -> Eip8130Parts {
+    Eip8130Parts {
+        expiry: tx.expiry,
+        sender: caller,
+        payer: tx.payer.unwrap_or(caller),
+        nonce_key: tx.nonce_key,
+        call_phases: tx
+            .calls
+            .iter()
+            .map(|phase| {
+                phase
+                    .iter()
+                    .map(|call| Eip8130Call {
+                        to: call.to,
+                        data: call.data.clone(),
+                        value: U256::ZERO,
+                    })
+                    .collect()
+            })
+            .collect(),
+        account_change_units: tx.account_changes.len(),
+        sender_auth_empty: !tx.is_eoa() && tx.sender_auth.is_empty(),
+        payer_auth_empty: !tx.is_self_pay() && tx.payer_auth.is_empty(),
+        ..Default::default()
+    }
+}
+
+fn eip8130_tx_env(tx: &TxEip8130, caller: Address) -> TxEnv {
+    TxEnv {
+        tx_type: AA_TX_TYPE_ID,
+        caller,
+        gas_limit: tx.gas_limit,
+        kind: TxKind::Call(caller),
+        value: U256::ZERO,
+        data: Bytes::new(),
+        nonce: tx.nonce_sequence,
+        chain_id: Some(tx.chain_id),
+        gas_price: tx.max_fee_per_gas,
+        gas_priority_fee: Some(tx.max_priority_fee_per_gas),
         ..Default::default()
     }
 }
@@ -160,6 +209,7 @@ impl FromTxWithEncoded<OpTxEnvelope> for OpTx {
             OpTxEnvelope::Eip1559(tx) => Self::from_encoded_tx(tx, caller, encoded),
             OpTxEnvelope::Eip2930(tx) => Self::from_encoded_tx(tx, caller, encoded),
             OpTxEnvelope::Eip7702(tx) => Self::from_encoded_tx(tx, caller, encoded),
+            OpTxEnvelope::Eip8130(tx) => Self::from_encoded_tx(tx.inner(), caller, encoded),
             OpTxEnvelope::Deposit(tx) => Self::from_encoded_tx(tx.inner(), caller, encoded),
             OpTxEnvelope::PostExec(tx) => Self::from_encoded_tx(tx.inner(), caller, encoded),
         }
@@ -252,6 +302,24 @@ impl FromTxWithEncoded<TxDeposit> for OpTx {
             enveloped_tx: Some(encoded),
             deposit,
             eip8130: Default::default(),
+        })
+    }
+}
+
+impl FromRecoveredTx<TxEip8130> for OpTx {
+    fn from_recovered_tx(tx: &TxEip8130, sender: Address) -> Self {
+        let encoded = tx.encoded_2718();
+        Self::from_encoded_tx(tx, sender, encoded.into())
+    }
+}
+
+impl FromTxWithEncoded<TxEip8130> for OpTx {
+    fn from_encoded_tx(tx: &TxEip8130, caller: Address, encoded: Bytes) -> Self {
+        Self(OpTransaction {
+            base: eip8130_tx_env(tx, caller),
+            enveloped_tx: Some(encoded),
+            deposit: Default::default(),
+            eip8130: eip8130_parts(tx, caller),
         })
     }
 }

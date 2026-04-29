@@ -198,6 +198,12 @@ impl From<OpTypedTransaction> for OpTransactionRequest {
             OpTypedTransaction::Eip2930(tx) => Self(tx.into()),
             OpTypedTransaction::Eip1559(tx) => Self(tx.into()),
             OpTypedTransaction::Eip7702(tx) => Self(tx.into()),
+            // #TODO(xlayer-eip8130): EIP-8130 cannot be faithfully projected into the standard
+            // `TransactionRequest` shape. Returning `default()` is a temporary placeholder for the
+            // MVP closed loop and silently drops AA-specific fields such as phased calls, payer,
+            // and auth payloads. Replace this with an explicit EIP-8130 RPC request type or an
+            // error-bearing conversion.
+            OpTypedTransaction::Eip8130(_) => Self::default(),
             OpTypedTransaction::Deposit(tx) => tx.into(),
             OpTypedTransaction::PostExec(tx) => tx.into(),
         }
@@ -212,6 +218,10 @@ impl From<OpTxEnvelope> for OpTransactionRequest {
             OpTxEnvelope::Eip7702(tx) => tx.into(),
             OpTxEnvelope::Deposit(tx) => tx.into(),
             OpTxEnvelope::PostExec(tx) => tx.into_inner().into(),
+            // #TODO(xlayer-eip8130): This fallback currently treats unsupported envelope variants,
+            // including EIP-8130, as an empty standard request. That is lossy for EIP-8130 and
+            // should become an explicit AA-aware conversion path instead of silently returning
+            // `default()`.
             _ => Default::default(),
         }
     }

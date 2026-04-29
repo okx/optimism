@@ -35,6 +35,9 @@ impl OpReceiptBuilder for OpRethReceiptBuilder {
                     OpTxType::Eip1559 => OpReceipt::Eip1559(receipt),
                     OpTxType::Eip2930 => OpReceipt::Eip2930(receipt),
                     OpTxType::Eip7702 => OpReceipt::Eip7702(receipt),
+                    // #TODO(xlayer-eip8130): This builds a standard Receipt only. Implement
+                    // EIP-8130 receipt semantics: payer, phaseStatuses, and injected logs.
+                    OpTxType::Eip8130 => OpReceipt::Eip8130(receipt),
                     OpTxType::PostExec => OpReceipt::PostExec(receipt),
                     OpTxType::Deposit => unreachable!(),
                 })

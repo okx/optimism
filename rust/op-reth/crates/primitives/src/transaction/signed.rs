@@ -13,7 +13,7 @@ use alloy_eips::{
     eip2930::AccessList,
     eip7702::SignedAuthorization,
 };
-use alloy_primitives::{Address, B256, Bytes, Signature, TxHash, TxKind, Uint, keccak256};
+use alloy_primitives::{Address, B256, Bytes, Signature, TxHash, TxKind, U256, Uint, keccak256};
 use alloy_rlp::Header;
 use core::{
     hash::{Hash, Hasher},
@@ -21,7 +21,8 @@ use core::{
     ops::Deref,
 };
 use op_alloy_consensus::{
-    OpPooledTransaction, OpTxEnvelope, OpTypedTransaction, TxDeposit, TxPostExec,
+    OpPooledTransaction, OpTxEnvelope, OpTypedTransaction, TxDeposit, TxEip8130, TxPostExec,
+    recover_eip8130_sender, sender_signature_hash,
 };
 #[cfg(any(test, feature = "reth-codec"))]
 use reth_primitives_traits::{
@@ -65,6 +66,10 @@ impl OpTransactionSigned {
             OpTypedTransaction::Eip2930(tx) => &mut tx.input,
             OpTypedTransaction::Eip1559(tx) => &mut tx.input,
             OpTypedTransaction::Eip7702(tx) => &mut tx.input,
+            // #TODO(xlayer-eip8130): EIP-8130 has no top-level input; execution calldata lives
+            // in calls[*][*].data. This test-only hook uses sender_auth only as a temporary
+            // mutable Bytes placeholder for compact codec parity tests.
+            OpTypedTransaction::Eip8130(tx) => &mut tx.sender_auth,
             OpTypedTransaction::Deposit(tx) => &mut tx.input,
             OpTypedTransaction::PostExec(tx) => &mut tx.input,
         }
@@ -115,6 +120,7 @@ impl SignerRecoverable for OpTransactionSigned {
             // Post-exec transactions are unsigned synthetic system transactions. They use a
             // canonical zero-address signer rather than a cryptographic signature.
             OpTypedTransaction::PostExec(tx) => Ok(tx.signer_address()),
+            OpTypedTransaction::Eip8130(tx) => recover_eip8130_sender(tx),
             _ => {
                 let Self { transaction, signature, .. } = self;
                 let signature_hash = signature_hash(transaction);
@@ -131,6 +137,7 @@ impl SignerRecoverable for OpTransactionSigned {
             // Post-exec transactions are unsigned synthetic system transactions. They use a
             // canonical zero-address signer rather than a cryptographic signature.
             OpTypedTransaction::PostExec(tx) => Ok(tx.signer_address()),
+            OpTypedTransaction::Eip8130(tx) => recover_eip8130_sender(tx),
             _ => {
                 let Self { transaction, signature, .. } = self;
                 let signature_hash = signature_hash(transaction);
@@ -147,6 +154,7 @@ impl SignerRecoverable for OpTransactionSigned {
             // Post-exec transactions are unsigned synthetic system transactions. They use a
             // canonical zero-address signer rather than a cryptographic signature.
             OpTypedTransaction::PostExec(tx) => Ok(tx.signer_address()),
+            OpTypedTransaction::Eip8130(tx) => recover_eip8130_sender(tx),
             OpTypedTransaction::Legacy(tx) => {
                 tx.encode_for_signing(buf);
                 recover_signer_unchecked(&self.signature, keccak256(buf))
@@ -201,6 +209,7 @@ impl From<OpTxEnvelope> for OpTransactionSigned {
             OpTxEnvelope::Eip2930(tx) => tx.into(),
             OpTxEnvelope::Eip1559(tx) => tx.into(),
             OpTxEnvelope::Eip7702(tx) => tx.into(),
+            OpTxEnvelope::Eip8130(tx) => tx.into(),
             OpTxEnvelope::Deposit(tx) => tx.into(),
             OpTxEnvelope::PostExec(tx) => tx.into(),
         }
@@ -211,6 +220,17 @@ impl From<Sealed<TxDeposit>> for OpTransactionSigned {
     fn from(value: Sealed<TxDeposit>) -> Self {
         let (tx, hash) = value.into_parts();
         Self::new(OpTypedTransaction::Deposit(tx), TxDeposit::signature(), hash)
+    }
+}
+
+impl From<Sealed<TxEip8130>> for OpTransactionSigned {
+    fn from(value: Sealed<TxEip8130>) -> Self {
+        let (tx, hash) = value.into_parts();
+        Self::new(
+            OpTypedTransaction::Eip8130(tx),
+            Signature::new(U256::ZERO, U256::ZERO, false),
+            hash,
+        )
     }
 }
 
@@ -230,6 +250,7 @@ impl From<OpTransactionSigned> for OpTxEnvelope {
             OpTypedTransaction::Eip1559(tx) => Signed::new_unchecked(tx, signature, hash).into(),
             OpTypedTransaction::Deposit(tx) => Sealed::new_unchecked(tx, hash).into(),
             OpTypedTransaction::Eip7702(tx) => Signed::new_unchecked(tx, signature, hash).into(),
+            OpTypedTransaction::Eip8130(tx) => Sealed::new_unchecked(tx, hash).into(),
             OpTypedTransaction::PostExec(tx) => Sealed::new_unchecked(tx, hash).into(),
         }
     }
@@ -282,6 +303,7 @@ impl Encodable2718 for OpTransactionSigned {
             OpTypedTransaction::Eip7702(set_code_tx) => {
                 set_code_tx.eip2718_encoded_length(&self.signature)
             }
+            OpTypedTransaction::Eip8130(tx) => tx.eip2718_encoded_length(),
             OpTypedTransaction::Deposit(deposit_tx) => deposit_tx.eip2718_encoded_length(),
             OpTypedTransaction::PostExec(post_exec_tx) => post_exec_tx.eip2718_encoded_length(),
         }
@@ -302,6 +324,7 @@ impl Encodable2718 for OpTransactionSigned {
                 dynamic_fee_tx.eip2718_encode(signature, out)
             }
             OpTypedTransaction::Eip7702(set_code_tx) => set_code_tx.eip2718_encode(signature, out),
+            OpTypedTransaction::Eip8130(tx) => tx.encode_2718(out),
             OpTypedTransaction::Deposit(deposit_tx) => deposit_tx.encode_2718(out),
             OpTypedTransaction::PostExec(post_exec_tx) => post_exec_tx.encode_2718(out),
         }
@@ -329,6 +352,13 @@ impl Decodable2718 for OpTransactionSigned {
                 let signed_tx = Self::new_unhashed(OpTypedTransaction::Eip7702(tx), signature);
                 signed_tx.hash.get_or_init(|| hash);
                 Ok(signed_tx)
+            }
+            op_alloy_consensus::OpTxType::Eip8130 => {
+                let tx = TxEip8130::rlp_decode(buf)?;
+                Ok(Self::new_unhashed(
+                    OpTypedTransaction::Eip8130(tx),
+                    Signature::new(U256::ZERO, U256::ZERO, false),
+                ))
             }
             op_alloy_consensus::OpTxType::Deposit => Ok(Self::new_unhashed(
                 OpTypedTransaction::Deposit(TxDeposit::rlp_decode(buf)?),
@@ -434,17 +464,19 @@ impl PartialEq for OpTransactionSigned {
         let self_signature = match &self.transaction {
             OpTypedTransaction::Deposit(_) => TxDeposit::signature(),
             OpTypedTransaction::PostExec(_) => TxPostExec::signature(),
+            OpTypedTransaction::Eip8130(_) => Signature::new(U256::ZERO, U256::ZERO, false),
             _ => self.signature,
         };
         let other_signature = match &other.transaction {
             OpTypedTransaction::Deposit(_) => TxDeposit::signature(),
             OpTypedTransaction::PostExec(_) => TxPostExec::signature(),
+            OpTypedTransaction::Eip8130(tx) => Signature::new(U256::ZERO, U256::ZERO, false),
             _ => other.signature,
         };
 
-        self_signature == other_signature &&
-            self.transaction == other.transaction &&
-            self.tx_hash() == other.tx_hash()
+        self_signature == other_signature
+            && self.transaction == other.transaction
+            && self.tx_hash() == other.tx_hash()
     }
 }
 
@@ -453,6 +485,9 @@ impl Hash for OpTransactionSigned {
         match &self.transaction {
             OpTypedTransaction::Deposit(_) => TxDeposit::signature().hash(state),
             OpTypedTransaction::PostExec(_) => TxPostExec::signature().hash(state),
+            OpTypedTransaction::Eip8130(tx) => {
+                Signature::new(U256::ZERO, U256::ZERO, false).hash(state)
+            }
             _ => self.signature.hash(state),
         }
         self.transaction.hash(state);
@@ -474,6 +509,9 @@ impl reth_codecs::Compact for OpTransactionSigned {
         let sig_bit = match &self.transaction {
             OpTypedTransaction::Deposit(_) => TxDeposit::signature().to_compact(buf) as u8,
             OpTypedTransaction::PostExec(_) => TxPostExec::signature().to_compact(buf) as u8,
+            OpTypedTransaction::Eip8130(_) => {
+                Signature::new(U256::ZERO, U256::ZERO, false).to_compact(buf) as u8
+            }
             _ => self.signature.to_compact(buf) as u8,
         };
         let zstd_bit = self.transaction.input().len() >= 32;
@@ -537,9 +575,20 @@ impl<'a> arbitrary::Arbitrary<'a> for OpTransactionSigned {
         )
         .unwrap();
 
-        let signature = match &transaction {
+        let signature = match &mut transaction {
             OpTypedTransaction::Deposit(_) => TxDeposit::signature(),
             OpTypedTransaction::PostExec(_) => TxPostExec::signature(),
+            OpTypedTransaction::Eip8130(tx) => {
+                tx.from = None;
+                tx.sender_auth = Bytes::new();
+                let sender_auth = reth_primitives_traits::crypto::secp256k1::sign_message(
+                    B256::from_slice(&key_pair.secret_bytes()[..]),
+                    sender_signature_hash(tx),
+                )
+                .unwrap();
+                tx.sender_auth = sender_auth.as_bytes().to_vec().into();
+                Signature::new(U256::ZERO, U256::ZERO, false)
+            }
             _ => signature,
         };
 
@@ -554,6 +603,12 @@ fn signature_hash(tx: &OpTypedTransaction) -> B256 {
         OpTypedTransaction::Eip2930(tx) => tx.signature_hash(),
         OpTypedTransaction::Eip1559(tx) => tx.signature_hash(),
         OpTypedTransaction::Eip7702(tx) => tx.signature_hash(),
+        // #TODO(xlayer-eip8130): EIP-8130 does not have a single canonical transaction
+        // signature hash because sender_auth and payer_auth sign different payloads. This local
+        // helper currently returns the sender-side hash only because the remaining call sites in
+        // this legacy compatibility wrapper either bypass EIP-8130 recovery entirely or use it to
+        // synthesize sender_auth in Arbitrary. Do not reuse this helper as a generic 8130 auth API.
+        OpTypedTransaction::Eip8130(tx) => sender_signature_hash(tx),
         OpTypedTransaction::Deposit(_) | OpTypedTransaction::PostExec(_) => B256::ZERO,
     }
 }
@@ -633,5 +688,55 @@ mod tests {
 
             assert_eq!(actual_tx, expected_tx);
         }
+    }
+}
+
+#[cfg(test)]
+mod xlayer_tests {
+    use super::*;
+    use alloy_primitives::keccak256;
+    use proptest::proptest;
+    use proptest_arbitrary_interop::arb;
+    use reth_codecs::Compact;
+
+    fn public_key_to_address(pubkey: secp256k1::PublicKey) -> Address {
+        let hash = keccak256(&pubkey.serialize_uncompressed()[1..]);
+        Address::from_slice(&hash[12..])
+    }
+
+    #[test]
+    fn eip8130_eoa_sender_auth_recovers_signer() {
+        let secp = secp256k1::Secp256k1::new();
+        let key_pair = secp256k1::Keypair::new(&secp, &mut rand::rng());
+        let sender = public_key_to_address(key_pair.public_key());
+
+        let mut tx = TxEip8130 { from: None, sender_auth: Bytes::new(), ..Default::default() };
+        let signature = reth_primitives_traits::crypto::secp256k1::sign_message(
+            B256::from_slice(&key_pair.secret_bytes()[..]),
+            sender_signature_hash(&tx),
+        )
+        .unwrap();
+        tx.sender_auth = signature.as_bytes().to_vec().into();
+
+        let signed = OpTransactionSigned::new_unhashed(OpTypedTransaction::Eip8130(tx), signature);
+        assert_eq!(signed.recover_signer().unwrap(), sender);
+        assert_eq!(signed.recover_signer_unchecked().unwrap(), sender);
+    }
+
+    #[test]
+    fn eip8130_configured_owner_recovers_signer_as_from_field() {
+        use alloy_consensus::transaction::SignerRecoverable;
+
+        let explicit_sender = Address::repeat_byte(0x42);
+        let tx = TxEip8130 {
+            chain_id: 84532,
+            from: Some(explicit_sender),
+            sender_auth: Bytes::from(vec![0xAB; 85]),
+            ..Default::default()
+        };
+        let envelope: OpTxEnvelope = tx.into();
+
+        let recovered = envelope.recover_signer().expect("recovery should succeed");
+        assert_eq!(recovered, explicit_sender);
     }
 }

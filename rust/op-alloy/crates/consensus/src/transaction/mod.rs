@@ -3,8 +3,16 @@
 mod deposit;
 pub use deposit::{DepositTransaction, TxDeposit};
 
+mod xlayer;
+pub use xlayer::{
+    AccountChangeEntry, Call, ConfigChangeEntry, CreateEntry, DelegationEntry, Owner, OwnerChange,
+    TxEip8130,
+};
+
+pub(crate) mod xlayer_sig;
+
 mod tx_type;
-pub use tx_type::DEPOSIT_TX_TYPE_ID;
+pub use tx_type::{AA_PAYER_TYPE_ID, AA_TX_TYPE_ID, DEPOSIT_TX_TYPE_ID};
 
 mod envelope;
 pub use envelope::{OpTransaction, OpTxEnvelope, OpTxType};
