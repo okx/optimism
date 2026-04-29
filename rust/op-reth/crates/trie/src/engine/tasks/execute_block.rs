@@ -1,8 +1,10 @@
 use super::super::state::EngineState;
-use crate::{engine::EngineError, provider::OpProofsStateProviderRef, BlockStateDiff, OpProofsStore};
-use alloy_eips::{eip1898::BlockWithParent, NumHash};
+use crate::{
+    BlockStateDiff, OpProofsStore, engine::EngineError, provider::OpProofsStateProviderRef,
+};
+use alloy_eips::{NumHash, eip1898::BlockWithParent};
 use crossbeam_channel::Sender;
-use reth_evm::{execute::Executor, ConfigureEvm};
+use reth_evm::{ConfigureEvm, execute::Executor};
 use reth_primitives_traits::{AlloyBlockHeader, NodePrimitives, RecoveredBlock};
 use reth_provider::{
     BlockHashReader, BlockReader, DatabaseProviderFactory, HashedPostStateProvider,
@@ -18,10 +20,8 @@ pub(crate) struct ExecuteBlockTask<Block: reth_primitives_traits::Block> {
 }
 
 impl<Block: reth_primitives_traits::Block> ExecuteBlockTask<Block> {
-    pub(crate) fn execute<Evm, Provider, Store>(
-        self,
-        state: &mut EngineState<Evm, Provider, Store>,
-    ) where
+    pub(crate) fn execute<Evm, Provider, Store>(self, state: &mut EngineState<Evm, Provider, Store>)
+    where
         Evm: ConfigureEvm<Primitives: NodePrimitives<Block = Block>>,
         Provider: BlockHashReader
             + StateReader
@@ -72,9 +72,7 @@ where
             tip_number = tip.number,
             "Gap detected, updating sync target",
         );
-        if block.number() > state.sync_target {
-            state.sync_target = block.number();
-        }
+        state.update_sync_target(block.number());
         return Ok(());
     }
 

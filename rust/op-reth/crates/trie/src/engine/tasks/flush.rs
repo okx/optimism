@@ -12,10 +12,8 @@ pub(crate) struct FlushTask {
 }
 
 impl FlushTask {
-    pub(crate) fn execute<Evm, Provider, Store>(
-        self,
-        state: &mut EngineState<Evm, Provider, Store>,
-    ) where
+    pub(crate) fn execute<Evm, Provider, Store>(self, state: &mut EngineState<Evm, Provider, Store>)
+    where
         Evm: ConfigureEvm,
         Provider: BlockHashReader
             + StateReader

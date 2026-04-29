@@ -1,5 +1,5 @@
 use super::super::state::EngineState;
-use crate::{engine::EngineError, OpProofsStore};
+use crate::{OpProofsStore, engine::EngineError};
 use alloy_eips::eip1898::BlockWithParent;
 use crossbeam_channel::Sender;
 use reth_evm::ConfigureEvm;
@@ -15,10 +15,8 @@ pub(crate) struct UnwindTask {
 }
 
 impl UnwindTask {
-    pub(crate) fn execute<Evm, Provider, Store>(
-        self,
-        state: &mut EngineState<Evm, Provider, Store>,
-    ) where
+    pub(crate) fn execute<Evm, Provider, Store>(self, state: &mut EngineState<Evm, Provider, Store>)
+    where
         Evm: ConfigureEvm,
         Provider: BlockHashReader
             + StateReader

@@ -1,20 +1,20 @@
 //! [`EngineHandle`] — the public, clonable, Send + Sync interface.
 
 use super::{
+    DEFAULT_BACKPRESSURE_THRESHOLD, DEFAULT_PERSISTENCE_THRESHOLD, EngineAction,
     engine::Engine,
     error::EngineError,
     tasks::{ExecuteBlockTask, IndexBlockTask, ReorgTask, SyncToTask, UnwindTask},
-    EngineAction, DEFAULT_BACKPRESSURE_THRESHOLD, DEFAULT_PERSISTENCE_THRESHOLD,
 };
 use crate::{OpProofStoragePruner, OpProofsStore};
 use alloy_eips::eip1898::BlockWithParent;
-use crossbeam_channel::{bounded, Sender};
+use crossbeam_channel::{Sender, bounded};
 use reth_evm::ConfigureEvm;
 use reth_primitives_traits::{NodePrimitives, RecoveredBlock};
 use reth_provider::{
     BlockHashReader, BlockReader, DatabaseProviderFactory, StateProviderFactory, StateReader,
 };
-use reth_trie_common::{updates::TrieUpdatesSorted, HashedPostStateSorted};
+use reth_trie_common::{HashedPostStateSorted, updates::TrieUpdatesSorted};
 use std::{panic, sync::Arc, thread};
 use tracing::error;
 
@@ -90,9 +90,7 @@ impl<Block: reth_primitives_traits::Block + Send + 'static> EngineHandle<Block> 
         thread::Builder::new()
             .name("live-trie-collector".into())
             .spawn(move || {
-                if let Err(panic) =
-                    panic::catch_unwind(panic::AssertUnwindSafe(|| engine.run()))
-                {
+                if let Err(panic) = panic::catch_unwind(panic::AssertUnwindSafe(|| engine.run())) {
                     let msg = panic
                         .downcast_ref::<&str>()
                         .copied()
@@ -145,11 +143,7 @@ impl<Block: reth_primitives_traits::Block + Send + 'static> EngineHandle<Block> 
     /// Handle a chain reorg: unwind to the common ancestor then buffer new fork blocks.
     pub fn reorg(
         &self,
-        block_updates: Vec<(
-            BlockWithParent,
-            Arc<TrieUpdatesSorted>,
-            Arc<HashedPostStateSorted>,
-        )>,
+        block_updates: Vec<(BlockWithParent, Arc<TrieUpdatesSorted>, Arc<HashedPostStateSorted>)>,
     ) -> Result<(), EngineError> {
         self.send_and_recv(|reply| EngineAction::Reorg(ReorgTask { block_updates, reply }))
     }

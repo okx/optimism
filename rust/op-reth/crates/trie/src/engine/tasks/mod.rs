@@ -12,7 +12,7 @@ mod reorg;
 mod sync_to;
 mod unwind;
 
-pub(super) use execute_block::{run as execute_block, ExecuteBlockTask};
+pub(super) use execute_block::{ExecuteBlockTask, run as execute_block};
 #[cfg(test)]
 pub(super) use flush::FlushTask;
 pub(super) use index_block::IndexBlockTask;

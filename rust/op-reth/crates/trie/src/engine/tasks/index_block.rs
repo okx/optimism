@@ -1,5 +1,5 @@
 use super::super::state::EngineState;
-use crate::{engine::EngineError, BlockStateDiff, OpProofsStore};
+use crate::{BlockStateDiff, OpProofsStore, engine::EngineError};
 use alloy_eips::eip1898::BlockWithParent;
 use crossbeam_channel::Sender;
 use reth_evm::ConfigureEvm;
@@ -7,7 +7,7 @@ use reth_primitives_traits::BlockTy;
 use reth_provider::{
     BlockHashReader, BlockReader, DatabaseProviderFactory, StateProviderFactory, StateReader,
 };
-use reth_trie_common::{updates::TrieUpdatesSorted, HashedPostStateSorted};
+use reth_trie_common::{HashedPostStateSorted, updates::TrieUpdatesSorted};
 use std::time::Instant;
 use tracing::{debug, info};
 
@@ -19,10 +19,8 @@ pub(crate) struct IndexBlockTask {
 }
 
 impl IndexBlockTask {
-    pub(crate) fn execute<Evm, Provider, Store>(
-        self,
-        state: &mut EngineState<Evm, Provider, Store>,
-    ) where
+    pub(crate) fn execute<Evm, Provider, Store>(self, state: &mut EngineState<Evm, Provider, Store>)
+    where
         Evm: ConfigureEvm,
         Provider: BlockHashReader
             + StateReader

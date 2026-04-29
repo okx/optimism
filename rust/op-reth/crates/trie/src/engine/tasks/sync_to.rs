@@ -12,10 +12,8 @@ pub(crate) struct SyncToTask {
 }
 
 impl SyncToTask {
-    pub(crate) fn execute<Evm, Provider, Store>(
-        self,
-        state: &mut EngineState<Evm, Provider, Store>,
-    ) where
+    pub(crate) fn execute<Evm, Provider, Store>(self, state: &mut EngineState<Evm, Provider, Store>)
+    where
         Evm: ConfigureEvm,
         Provider: BlockHashReader
             + StateReader
@@ -26,9 +24,7 @@ impl SyncToTask {
             + 'static,
         Store: OpProofsStore + Clone + 'static,
     {
-        if self.target > state.sync_target {
-            state.sync_target = self.target;
-            debug!(target: "live-trie::engine", sync_target = self.target, "Sync target updated");
-        }
+        state.update_sync_target(self.target);
+        debug!(target: "live-trie::engine", sync_target = self.target, "Sync target updated");
     }
 }

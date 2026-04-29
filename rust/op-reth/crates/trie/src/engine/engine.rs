@@ -1,19 +1,22 @@
 //! [`Engine`] — the thin event-loop dispatcher.
 
-use super::state::EngineState as State;
-use super::EngineAction;
+use super::{
+    DEFAULT_BACKPRESSURE_THRESHOLD, DEFAULT_PERSISTENCE_THRESHOLD, EngineAction,
+    error::EngineError, state::EngineState as State,
+};
 use crate::{OpProofStoragePruner, OpProofsStore};
-use crossbeam_channel::{Receiver, TryRecvError};
+use crossbeam_channel::Receiver;
 use reth_evm::ConfigureEvm;
 use reth_primitives_traits::BlockTy;
 use reth_provider::{
     BlockHashReader, BlockReader, DatabaseProviderFactory, StateProviderFactory, StateReader,
     TransactionVariant,
 };
-use tracing::{debug, error, info};
-
-/// Number of blocks to process per sync catch-up batch before re-checking for new actions.
-const SYNC_BLOCKS_BATCH_SIZE: u64 = 5;
+use std::{
+    ops::ControlFlow,
+    time::{Duration, Instant},
+};
+use tracing::{debug, error};
 
 /// The engine that runs on a dedicated thread, dispatching [`EngineAction`]
 /// messages to self-contained task structs that operate on [`EngineState`].
@@ -25,6 +28,8 @@ where
 {
     state: State<Evm, Provider, Store>,
     incoming: Receiver<EngineAction<BlockTy<Evm::Primitives>>>,
+    persistence_threshold: u64,
+    backpressure_threshold: u64,
 }
 
 impl<Evm, Provider, Store> Engine<Evm, Provider, Store>
@@ -46,25 +51,22 @@ where
         pruner: OpProofStoragePruner<Store, Provider>,
         incoming: Receiver<EngineAction<BlockTy<Evm::Primitives>>>,
     ) -> Self {
-        Self { state: State::new(evm_config, provider, storage, pruner), incoming }
-    }
-
-    pub(super) fn with_persistence_threshold(mut self, threshold: u64) -> Self {
-        self.state = self.state.with_persistence_threshold(threshold);
-        self
-    }
-
-    pub(super) fn with_backpressure_threshold(mut self, threshold: u64) -> Self {
-        self.state = self.state.with_backpressure_threshold(threshold);
-        self
-    }
-
-    /// Dispatch one action to the appropriate task and advance persistence.
-    fn dispatch_action(&mut self, action: EngineAction<BlockTy<Evm::Primitives>>) {
-        action.execute(&mut self.state);
-        if let Err(e) = self.state.advance_persistence() {
-            error!(target: "live-trie::engine", ?e, "Persistence error after action");
+        Self {
+            state: State::new(evm_config, provider, storage, pruner),
+            incoming,
+            persistence_threshold: DEFAULT_PERSISTENCE_THRESHOLD,
+            backpressure_threshold: DEFAULT_BACKPRESSURE_THRESHOLD,
         }
+    }
+
+    pub(super) const fn with_persistence_threshold(mut self, threshold: u64) -> Self {
+        self.persistence_threshold = threshold;
+        self
+    }
+
+    pub(super) const fn with_backpressure_threshold(mut self, threshold: u64) -> Self {
+        self.backpressure_threshold = threshold;
+        self
     }
 
     /// Returns `true` if the engine is behind its sync target.
@@ -73,90 +75,96 @@ where
         self.state.sync_target > current_tip
     }
 
-    /// Execute one batch of sync catch-up blocks if behind the sync target.
-    ///
-    /// Called by the event loop after every action check so sync work is
-    /// naturally interleaved with incoming actions.
-    fn try_sync_step(&mut self) {
-        let current_tip = match self.state.get_tip() {
-            Ok(tip) => tip.number,
-            Err(e) => {
-                error!(target: "live-trie::engine", ?e, "Failed to get tip during sync");
-                return;
-            }
-        };
+    /// Returns `true` if the buffer is above the backpressure threshold with a save in-flight.
+    fn backpressure_active(&self) -> bool {
+        self.state.persistence.in_flight.is_some() &&
+            self.state.memory.len() as u64 >= self.backpressure_threshold
+    }
 
-        if self.state.sync_target <= current_tip {
-            return;
-        }
-
-        let end = (current_tip + SYNC_BLOCKS_BATCH_SIZE).min(self.state.sync_target);
-        info!(
-            target: "live-trie::engine",
-            start = current_tip + 1,
-            end,
-            "Processing sync catch-up batch"
-        );
-
-        for block_num in (current_tip + 1)..=end {
-            let block = match self
-                .state
-                .provider
-                .recovered_block(block_num.into(), TransactionVariant::NoHash)
-            {
-                Ok(Some(b)) => b,
-                Ok(None) => {
-                    error!(target: "live-trie::engine", block_num, "Block not found during sync");
-                    return;
-                }
-                Err(e) => {
-                    error!(target: "live-trie::engine", ?e, block_num, "Provider error during sync");
-                    return;
-                }
-            };
-
-            if let Err(e) = super::tasks::execute_block(&block, &mut self.state) {
-                error!(target: "live-trie::engine", ?e, block_num, "Block execution failed during sync");
-                return;
-            }
-
-            if let Err(e) = self.state.advance_persistence() {
-                error!(target: "live-trie::engine", ?e, "Persistence error during sync");
-                return;
-            }
+    /// Start a background persistence save if the memory buffer has reached the threshold.
+    fn maybe_start_save(&mut self) {
+        if self.state.memory.len() as u64 >= self.persistence_threshold &&
+            let Err(e) = self.state.advance_persistence()
+        {
+            error!(target: "live-trie::engine", ?e, "Failed to start persistence save");
         }
     }
 
-    /// Runs the main loop of the engine, processing incoming actions.
+    /// Execute the next sequential block (`current_tip + 1`) to advance toward the sync target.
+    fn advance_sync(&mut self) -> Result<(), EngineError> {
+        let current_tip = self.state.get_tip()?.number;
+
+        if self.state.sync_target <= current_tip {
+            return Ok(());
+        }
+
+        let block_num = current_tip + 1;
+        let block = self
+            .state
+            .provider
+            .recovered_block(block_num.into(), TransactionVariant::NoHash)?
+            .ok_or(EngineError::BlockNotFound(block_num))?;
+
+        super::tasks::execute_block(&block, &mut self.state)
+    }
+
+    /// Process one event from the action, persistence, or sync channel.
     ///
-    /// When behind the sync target, actions are checked with a non-blocking
-    /// `try_recv` so sync batches run back-to-back with only an action drain
-    /// between them. When caught up, the engine blocks on `recv` — the sync
-    /// target is only updated by incoming actions, so there is no reason to
-    /// wake up on a timer.
+    /// Three receivers compete in a single `select!`:
+    /// - **action**: a new [`EngineAction`] from a caller, or [`crossbeam_channel::never`] while
+    ///   backpressure is active — callers naturally block in their bounded `send` until the
+    ///   in-flight save completes and memory is pruned.
+    /// - **persistence**: signals a completed background save.
+    /// - **sync**: a zero-duration timer that fires immediately when the engine is behind its sync
+    ///   target and not under backpressure; [`crossbeam_channel::never`] otherwise.
+    ///
+    /// Returns [`ControlFlow::Break`] when the action channel disconnects.
+    fn process_next_event(&mut self) -> ControlFlow<()> {
+        let backpressure = self.backpressure_active();
+
+        let persist_rx =
+            self.state.persistence.in_flight.clone().unwrap_or_else(crossbeam_channel::never);
+
+        // Gate new actions while backpressure is active — don't grow memory while draining it.
+        let incoming_rx: Receiver<EngineAction<BlockTy<Evm::Primitives>>> =
+            if backpressure { crossbeam_channel::never() } else { self.incoming.clone() };
+
+        // Fire immediately when there is sync work to do; block indefinitely otherwise.
+        let sync_rx: Receiver<Instant> = if self.needs_sync() && !backpressure {
+            crossbeam_channel::after(Duration::ZERO)
+        } else {
+            crossbeam_channel::never()
+        };
+
+        crossbeam_channel::select! {
+            recv(incoming_rx) -> msg => match msg {
+                Ok(action) => action.execute(&mut self.state),
+                Err(_) => return ControlFlow::Break(()),
+            },
+            recv(persist_rx) -> result => self.state.persistence.on_complete(result, &self.state.memory),
+            recv(sync_rx) -> _ => if let Err(err) = self.advance_sync() {
+                error!(target: "live-trie::engine", ?err, "Sync step failed");
+            },
+        }
+        ControlFlow::Continue(())
+    }
+
+    /// Runs the main loop of the engine, processing incoming actions.
     pub(super) fn run(mut self) {
         debug_assert!(
-            self.state.persistence.threshold < self.state.persistence.backpressure_threshold,
+            self.persistence_threshold < self.backpressure_threshold,
             "backpressure_threshold ({}) must be greater than persistence_threshold ({})",
-            self.state.persistence.backpressure_threshold,
-            self.state.persistence.threshold,
+            self.backpressure_threshold,
+            self.persistence_threshold,
         );
         debug!(target: "live-trie::engine", "Collector engine started");
 
         loop {
-            if self.needs_sync() {
-                match self.incoming.try_recv() {
-                    Ok(action) => self.dispatch_action(action),
-                    Err(TryRecvError::Empty) => {}
-                    Err(TryRecvError::Disconnected) => break,
-                }
-            } else {
-                match self.incoming.recv() {
-                    Ok(action) => self.dispatch_action(action),
-                    Err(_) => break,
-                }
+            match self.process_next_event() {
+                ControlFlow::Break(()) => break,
+                ControlFlow::Continue(()) => {}
             }
-            self.try_sync_step();
+            self.maybe_start_save();
         }
 
         debug!(target: "live-trie::engine", "Collector engine shutting down, draining in-flight persist");

@@ -1,7 +1,7 @@
 //! Error type for the live trie engine.
 
-use crate::OpProofsStorageError;
 use super::persistence::error::PersistenceError;
+use crate::OpProofsStorageError;
 use alloy_primitives::B256;
 use reth_execution_errors::BlockExecutionError;
 use reth_provider::ProviderError;

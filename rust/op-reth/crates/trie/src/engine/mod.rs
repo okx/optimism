@@ -49,13 +49,11 @@ enum EngineAction<Block: reth_primitives_traits::Block> {
 }
 
 impl<Block: reth_primitives_traits::Block> EngineAction<Block> {
-    fn execute<Evm, Provider, Store>(
-        self,
-        state: &mut state::EngineState<Evm, Provider, Store>,
-    ) where
+    fn execute<Evm, Provider, Store>(self, state: &mut state::EngineState<Evm, Provider, Store>)
+    where
         Evm: reth_evm::ConfigureEvm<
-            Primitives: reth_primitives_traits::NodePrimitives<Block = Block>,
-        >,
+                Primitives: reth_primitives_traits::NodePrimitives<Block = Block>,
+            >,
         Provider: reth_provider::BlockHashReader
             + reth_provider::StateReader
             + reth_provider::DatabaseProviderFactory
