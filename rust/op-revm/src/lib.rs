@@ -7,6 +7,7 @@ extern crate alloc as std;
 
 pub mod api;
 pub mod constants;
+pub mod eip8130_policy;
 pub mod evm;
 pub mod fast_lz;
 pub mod handler;

@@ -31,6 +31,11 @@ pub enum OpSpecId {
     KARST,
     /// Interop spec id.
     INTEROP,
+    /// X Layer V1 spec id — activates EIP-8130 (Account Abstraction).
+    ///
+    /// Mirrors base's BASE_V1 hardfork. Enables transaction type 0x7B with
+    /// multi-phase calls, dual-domain signing, 2D nonces, and AA predeploys.
+    XLAYER_NATIVE_AA,
 }
 
 impl OpSpecId {
@@ -40,7 +45,7 @@ impl OpSpecId {
             Self::BEDROCK | Self::REGOLITH => SpecId::MERGE,
             Self::CANYON => SpecId::SHANGHAI,
             Self::ECOTONE | Self::FJORD | Self::GRANITE | Self::HOLOCENE => SpecId::CANCUN,
-            Self::ISTHMUS | Self::JOVIAN | Self::INTEROP => SpecId::PRAGUE,
+            Self::ISTHMUS | Self::JOVIAN | Self::INTEROP | Self::XLAYER_NATIVE_AA => SpecId::PRAGUE,
             Self::KARST => SpecId::OSAKA,
         }
     }
@@ -73,6 +78,7 @@ impl FromStr for OpSpecId {
             name::JOVIAN => Ok(Self::JOVIAN),
             name::KARST => Ok(Self::KARST),
             name::INTEROP => Ok(Self::INTEROP),
+            name::XLAYER_NATIVE_AA => Ok(Self::XLAYER_NATIVE_AA),
             _ => Err(UnknownHardfork),
         }
     }
@@ -92,6 +98,7 @@ impl From<OpSpecId> for &'static str {
             OpSpecId::JOVIAN => name::JOVIAN,
             OpSpecId::KARST => name::KARST,
             OpSpecId::INTEROP => name::INTEROP,
+            OpSpecId::XLAYER_NATIVE_AA => name::XLAYER_NATIVE_AA,
         }
     }
 }
@@ -120,6 +127,8 @@ pub mod name {
     pub const KARST: &str = "Karst";
     /// Interop spec name.
     pub const INTEROP: &str = "Interop";
+    /// X Layer V1 spec name.
+    pub const XLAYER_NATIVE_AA: &str = "XLayerNativeAA";
 }
 
 #[cfg(test)]

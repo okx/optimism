@@ -52,7 +52,7 @@ where
             OpSpecId::GRANITE | OpSpecId::HOLOCENE => granite(),
             OpSpecId::ISTHMUS => isthmus(),
             OpSpecId::JOVIAN => jovian(),
-            OpSpecId::KARST | OpSpecId::INTEROP => karst(),
+            OpSpecId::KARST | OpSpecId::INTEROP | OpSpecId::XLAYER_NATIVE_AA => karst(),
         };
 
         let accelerated_precompiles = match spec {
@@ -62,7 +62,9 @@ where
             OpSpecId::ECOTONE | OpSpecId::FJORD => accelerated_ecotone::<H, O>(),
             OpSpecId::GRANITE | OpSpecId::HOLOCENE => accelerated_granite::<H, O>(),
             OpSpecId::ISTHMUS => accelerated_isthmus::<H, O>(),
-            OpSpecId::JOVIAN | OpSpecId::KARST | OpSpecId::INTEROP => accelerated_jovian::<H, O>(),
+            OpSpecId::JOVIAN | OpSpecId::KARST | OpSpecId::INTEROP | OpSpecId::XLAYER_NATIVE_AA => {
+                accelerated_jovian::<H, O>()
+            }
         };
 
         Self {

@@ -68,3 +68,6 @@ pub const BASE_FEE_RECIPIENT: Address = address!("0x4200000000000000000000000000
 
 /// The address of the `L1Block` contract.
 pub const L1_BLOCK_CONTRACT: Address = address!("0x4200000000000000000000000000000000000015");
+
+/// EIP-2718 transaction type byte for EIP-8130 account-abstracted transactions.
+pub const EIP8130_TX_TYPE: u8 = 0x7B;
