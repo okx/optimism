@@ -272,7 +272,7 @@ fn read_packed_sequence(slot_value: U256, is_multichain: bool) -> u64 {
 /// Extra gas to reserve during `eth_estimateGas` for auth blob calldata that
 /// will be present in the real transaction but is absent in the estimation
 /// request (which uses empty `senderAuth` / `payerAuth`).
-fn estimation_calldata_overhead(parts: &Eip8130Parts) -> u64 {
+pub(crate) fn estimation_calldata_overhead(parts: &Eip8130Parts) -> u64 {
     let mut overhead = 0;
     if parts.sender_auth_empty {
         overhead += ESTIMATION_AUTH_CALLDATA_GAS;

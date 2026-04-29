@@ -99,7 +99,110 @@ where
             return Err(OpTransactionError::MissingEnvelopedTx.into());
         }
 
+        // AA transactions require XLAYER_NATIVE_AA. Reject if the spec is not active.
+        if tx_type == crate::constants::EIP8130_TX_TYPE {
+            if !evm.ctx().cfg().spec().is_enabled_in(OpSpecId::XLAYER_NATIVE_AA) {
+                return Err(OpTransactionError::Base(InvalidTransaction::Str(
+                    "EIP-8130 AA transactions require XLAYER_NATIVE_AA".into(),
+                ))
+                .into());
+            }
+
+            let ctx = evm.ctx();
+
+            if !ctx.cfg().is_base_fee_check_disabled() {
+                let basefee = ctx.block().basefee() as u128;
+                let max_fee = ctx.tx().max_fee_per_gas();
+                let max_priority = ctx.tx().max_priority_fee_per_gas().unwrap_or(0);
+
+                if max_fee < basefee {
+                    return Err(OpTransactionError::Base(InvalidTransaction::Str(
+                        "EIP-8130: max_fee_per_gas below base fee".into(),
+                    ))
+                    .into());
+                }
+                if max_priority > max_fee {
+                    return Err(OpTransactionError::Base(InvalidTransaction::Str(
+                        "EIP-8130: max_priority_fee_per_gas exceeds max_fee_per_gas".into(),
+                    ))
+                    .into());
+                }
+            }
+
+            // Inclusion-time expiry check (defense-in-depth against bypassing
+            // mempool admission).
+            let expiry = ctx.tx().eip8130_parts().expiry;
+            if expiry != 0 {
+                let block_ts = ctx.block().timestamp().saturating_to::<u64>();
+                if block_ts > expiry {
+                    return Err(OpTransactionError::Base(InvalidTransaction::Str(
+                        format!(
+                            "EIP-8130: transaction expired (expiry={expiry}, current={block_ts})"
+                        )
+                        .into(),
+                    ))
+                    .into());
+                }
+            }
+
+            // Inclusion-time structural guard for phased calls.
+            let total_calls: usize =
+                ctx.tx().eip8130_parts().call_phases.iter().map(Vec::len).sum();
+            if total_calls > crate::constants::MAX_CALLS_PER_TX {
+                return Err(OpTransactionError::Base(InvalidTransaction::Str(
+                    format!(
+                        "EIP-8130: too many calls ({total_calls} > {})",
+                        crate::constants::MAX_CALLS_PER_TX
+                    )
+                    .into(),
+                ))
+                .into());
+            }
+
+            let total_account_changes = ctx.tx().eip8130_parts().account_change_units;
+            if total_account_changes > crate::constants::MAX_ACCOUNT_CHANGES_PER_TX {
+                return Err(OpTransactionError::Base(InvalidTransaction::Str(
+                    format!(
+                        "EIP-8130: too many account changes ({total_account_changes} > {})",
+                        crate::constants::MAX_ACCOUNT_CHANGES_PER_TX
+                    )
+                    .into(),
+                ))
+                .into());
+            }
+
+            return Ok(());
+        }
+
         self.mainnet.validate_env(evm)
+    }
+
+    fn validate_initial_tx_gas(
+        &self,
+        evm: &mut Self::Evm,
+    ) -> Result<InitialAndFloorGas, Self::Error> {
+        if evm.ctx().tx().tx_type() == crate::constants::EIP8130_TX_TYPE {
+            let ctx = evm.ctx();
+            let parts = ctx.tx().eip8130_parts();
+            let aa_gas = parts.aa_intrinsic_gas;
+            let calldata_overhead =
+                crate::handler_aa_helpers::estimation_calldata_overhead(parts);
+            let is_estimation = ctx.cfg().is_base_fee_check_disabled();
+            let gas_limit = ctx.tx().gas_limit();
+
+            let effective_gas =
+                if is_estimation { aa_gas + calldata_overhead } else { aa_gas };
+
+            if effective_gas > gas_limit {
+                return Err(InvalidTransaction::CallGasCostMoreThanGasLimit {
+                    gas_limit,
+                    initial_gas: effective_gas,
+                }
+                .into());
+            }
+            return Ok(InitialAndFloorGas::new(effective_gas, 0));
+        }
+        self.mainnet.validate_initial_tx_gas(evm)
     }
 
     fn validate_against_state_and_deduct_caller(
@@ -147,6 +250,163 @@ where
         // and it will be reloaded from the database if it is not for the current block.
         if chain.l2_block != Some(block.number()) {
             *chain = L1BlockInfo::try_fetch(journal.db_mut(), block.number(), spec)?;
+        }
+
+        // Clear any stale EIP-8130 context from a previous transaction.
+        crate::precompiles::clear_eip8130_tx_context();
+
+        // AA transactions: deduct gas from payer, increment NonceManager nonce,
+        // auto-delegate bare EOAs, and apply pre-execution storage writes.
+        if tx.tx_type() == crate::constants::EIP8130_TX_TYPE {
+            let sender = tx.caller();
+            let nonce_sequence = tx.nonce();
+            let eip8130 = tx.eip8130_parts().clone();
+
+            {
+                let execution_gas_limit = tx.gas_limit().saturating_sub(eip8130.aa_intrinsic_gas);
+                let known_intrinsic =
+                    eip8130.aa_intrinsic_gas.saturating_sub(eip8130.payer_intrinsic_gas);
+                crate::precompiles::set_eip8130_tx_context(
+                    crate::precompiles::Eip8130TxContext::new(
+                        &eip8130,
+                        execution_gas_limit,
+                        known_intrinsic,
+                        U256::from(tx.max_fee_per_gas()),
+                    ),
+                );
+            }
+
+            // --- Gas deduction from payer ---
+            let payer = eip8130.payer;
+            let mut payer_account = journal.load_account_with_code_mut(payer)?.data;
+            let mut balance = payer_account.account().info.balance;
+
+            if !cfg.is_fee_charge_disabled() {
+                let Some(additional_cost) = chain.tx_cost_with_tx(tx, spec) else {
+                    return Err(ERROR::from_string(
+                        "[OPTIMISM] Failed to load enveloped transaction.".into(),
+                    ));
+                };
+                let Some(new_balance) = balance.checked_sub(additional_cost) else {
+                    return Err(InvalidTransaction::LackOfFundForMaxFee {
+                        fee: Box::new(additional_cost),
+                        balance: Box::new(balance),
+                    }
+                    .into());
+                };
+                balance = new_balance;
+            }
+
+            let balance = calculate_caller_fee(balance, tx, block, cfg)?;
+            payer_account.set_balance(balance);
+            drop(payer_account);
+
+            // Check if sender is a bare EOA (no code) for auto-delegation.
+            let sender_account = journal.load_account_with_code_mut(sender)?.data;
+            let sender_has_code =
+                sender_account.account().info.code_hash != revm::primitives::keccak256([]);
+            drop(sender_account);
+
+            // --- Nonce validation and increment in NonceManager ---
+            let nonce_key = eip8130.nonce_key;
+            if nonce_key != revm::primitives::U256::MAX {
+                let slot = crate::precompiles::aa_nonce_slot(sender, nonce_key);
+
+                journal.load_account(crate::precompiles::NONCE_MANAGER_ADDRESS)?;
+                let current_seq =
+                    journal.sload(crate::precompiles::NONCE_MANAGER_ADDRESS, slot)?.data;
+
+                let skip_nonce_check =
+                    cfg.is_nonce_check_disabled() || cfg.is_base_fee_check_disabled();
+
+                if !skip_nonce_check {
+                    let expected = U256::from(nonce_sequence);
+                    if current_seq != expected {
+                        if current_seq > expected {
+                            return Err(InvalidTransaction::NonceTooLow {
+                                tx: nonce_sequence,
+                                state: current_seq.as_limbs()[0],
+                            }
+                            .into());
+                        }
+                        return Err(InvalidTransaction::NonceTooHigh {
+                            tx: nonce_sequence,
+                            state: current_seq.as_limbs()[0],
+                        }
+                        .into());
+                    }
+                }
+                let next_seq = if skip_nonce_check {
+                    current_seq + U256::from(1)
+                } else {
+                    U256::from(nonce_sequence + 1)
+                };
+                journal.sstore(crate::precompiles::NONCE_MANAGER_ADDRESS, slot, next_seq)?;
+            } else {
+                // TODO(eip-8130): Expiring-nonce circular buffer (nonce-free mode).
+                // Reserved for follow-up — first cut requires every AA tx to use 2D nonce.
+                return Err(ERROR::from_string(
+                    "EIP-8130 nonce-free mode not yet supported".into(),
+                ));
+            }
+
+            // --- Delegation ---
+            // Explicit entry (account_changes type 0x02) takes priority.
+            // Otherwise bare EOAs get auto-delegated to DEFAULT_ACCOUNT.
+            if let Some(target) = eip8130.delegation_target {
+                let acc = journal.load_account_with_code_mut(sender)?.data;
+                let current_code = acc.account().info.code.as_ref();
+                let is_empty = current_code.map_or(true, |c| c.is_empty());
+                let is_delegation = current_code.map_or(false, |c| c.is_eip7702());
+                drop(acc);
+
+                if !is_empty && !is_delegation {
+                    return Err(ERROR::from_string(
+                        "delegation entry rejected: sender has non-delegation bytecode".into(),
+                    ));
+                }
+
+                let code = if target.is_zero() {
+                    revm::bytecode::Bytecode::default()
+                } else {
+                    revm::bytecode::Bytecode::new_eip7702(target)
+                };
+                let mut acc = journal.load_account_with_code_mut(sender)?.data;
+                acc.set_code_and_hash_slow(code);
+                drop(acc);
+            } else if !sender_has_code
+                && !eip8130.has_create_entry
+                && eip8130.auto_delegation_code.len() == 23
+            {
+                let target = revm::primitives::Address::from_slice(
+                    &eip8130.auto_delegation_code[3..],
+                );
+                let code = revm::bytecode::Bytecode::new_eip7702(target);
+                let mut acc = journal.load_account_with_code_mut(sender)?.data;
+                acc.set_code_and_hash_slow(code);
+                drop(acc);
+            }
+
+            // --- Apply pre-execution storage writes (account creation only) ---
+            for w in &eip8130.pre_writes {
+                journal.load_account(w.address)?;
+                journal.sstore(w.address, w.slot, w.value)?;
+            }
+
+            // --- Account creation (place runtime bytecode at CREATE2-derived addresses) ---
+            for placement in &eip8130.code_placements {
+                let code = revm::bytecode::Bytecode::new_raw(placement.code.clone());
+                let mut acc = journal.load_account_with_code_mut(placement.address)?.data;
+                acc.set_code_and_hash_slow(code);
+                drop(acc);
+            }
+
+            // TODO(eip-8130): emit AccountConfiguration system logs for account_creation_logs.
+            // Requires porting `config_log_to_system_log` (in base/transaction/eip8130.rs).
+            // First cut leaves account creation events un-emitted; tests that observe these
+            // logs will need the helper before passing.
+
+            return Ok(());
         }
 
         let mut caller_account = journal.load_account_with_code_mut(tx.caller())?.data;
