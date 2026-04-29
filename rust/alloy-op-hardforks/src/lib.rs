@@ -52,6 +52,12 @@ hardfork!(
         Karst,
         /// TODO: add interop hardfork overview when available
         Interop,
+        /// X Layer V1: introduces EIP-8130 (Account Abstraction by Account Configuration).
+        ///
+        /// Adds transaction type 0x7B with multi-phase calls, dual-domain signing
+        /// (sender/payer), 2D nonces, and account-config predeploys. Byte-compatible
+        /// with base's BASE_V1 hardfork.
+        XLayerV1,
     }
 );
 
@@ -240,6 +246,18 @@ pub trait OpHardforks: EthereumHardforks {
     fn is_interop_active_at_timestamp(&self, timestamp: u64) -> bool {
         self.op_fork_activation(OpHardfork::Interop).active_at_timestamp(timestamp)
     }
+
+    /// Returns `true` if [`XLayerV1`](OpHardfork::XLayerV1) is active at given block
+    /// timestamp.
+    fn is_x_layer_v1_active_at_timestamp(&self, timestamp: u64) -> bool {
+        self.op_fork_activation(OpHardfork::XLayerV1).active_at_timestamp(timestamp)
+    }
+
+    /// Returns `true` if EIP-8130 (account-abstracted transactions, type 0x7B) is active
+    /// at the given block timestamp. EIP-8130 activates at [`XLayerV1`](OpHardfork::XLayerV1).
+    fn is_eip8130_active_at_timestamp(&self, timestamp: u64) -> bool {
+        self.is_x_layer_v1_active_at_timestamp(timestamp)
+    }
 }
 
 /// A type allowing to configure activation [`ForkCondition`]s for a given list of
@@ -331,7 +349,7 @@ impl Index<OpHardfork> for OpChainHardforks {
     fn index(&self, hf: OpHardfork) -> &Self::Output {
         use OpHardfork::{
             Bedrock, Canyon, Ecotone, Fjord, Granite, Holocene, Interop, Isthmus, Jovian, Karst,
-            Regolith,
+            Regolith, XLayerV1,
         };
 
         match hf {
@@ -346,6 +364,7 @@ impl Index<OpHardfork> for OpChainHardforks {
             Jovian => &self.forks[Jovian.idx()].1,
             Karst => &self.forks[Karst.idx()].1,
             Interop => &self.forks[Interop.idx()].1,
+            XLayerV1 => &self.forks[XLayerV1.idx()].1,
         }
     }
 }
@@ -398,7 +417,7 @@ mod tests {
     fn check_op_hardfork_from_str() {
         let hardfork_str = [
             "beDrOck", "rEgOlITH", "cAnYoN", "eCoToNe", "FJorD", "GRaNiTe", "hOlOcEnE", "isthMUS",
-            "jOvIaN", "kArSt", "inTerOP",
+            "jOvIaN", "kArSt", "inTerOP", "xLAyErV1",
         ];
         let expected_hardforks = [
             OpHardfork::Bedrock,
@@ -412,6 +431,7 @@ mod tests {
             OpHardfork::Jovian,
             OpHardfork::Karst,
             OpHardfork::Interop,
+            OpHardfork::XLayerV1,
         ];
 
         let hardforks: alloc::vec::Vec<OpHardfork> =
