@@ -11,6 +11,7 @@ pub mod eip8130_policy;
 pub mod evm;
 pub mod fast_lz;
 pub mod handler;
+pub mod handler_aa_helpers;
 pub mod l1block;
 pub mod precompiles;
 pub mod result;

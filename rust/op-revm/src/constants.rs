@@ -71,3 +71,34 @@ pub const L1_BLOCK_CONTRACT: Address = address!("0x42000000000000000000000000000
 
 /// EIP-2718 transaction type byte for EIP-8130 account-abstracted transactions.
 pub const EIP8130_TX_TYPE: u8 = 0x7B;
+
+// ---------------------------------------------------------------------------
+// EIP-8130 owner scope bitmask (mirrors op_alloy_consensus eip8130 OwnerScope)
+// ---------------------------------------------------------------------------
+
+/// Owner scope bit: allowed to sign as the sender.
+pub const OWNER_SCOPE_SENDER: u8 = 0x02;
+
+/// Owner scope bit: allowed to sign as the payer.
+pub const OWNER_SCOPE_PAYER: u8 = 0x04;
+
+/// Owner scope bit: allowed to authorize config changes.
+pub const OWNER_SCOPE_CONFIG: u8 = 0x08;
+
+/// Maximum number of calls across all EIP-8130 phases.
+///
+/// Mirrors op-alloy-consensus eip8130 MAX_CALLS_PER_TX, enforced again at
+/// inclusion time as a defense-in-depth check.
+pub const MAX_CALLS_PER_TX: usize = 100;
+
+/// Maximum number of account-change units in one EIP-8130 transaction.
+pub const MAX_ACCOUNT_CHANGES_PER_TX: usize = 10;
+
+/// Delegate verifier contract address (1-hop delegation).
+///
+/// Mirrors op-alloy-consensus eip8130 DELEGATE_VERIFIER_ADDRESS.
+pub const DELEGATE_VERIFIER_ADDRESS: Address =
+    address!("0x30A76831b27732087561372f6a1bef6Fc391d805");
+
+/// Default cap for aggregate gas spent across custom verifier STATICCALLs.
+pub const DEFAULT_CUSTOM_VERIFIER_GAS_CAP: u64 = 200_000;
