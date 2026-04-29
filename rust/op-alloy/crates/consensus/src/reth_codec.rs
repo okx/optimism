@@ -13,6 +13,8 @@
 
 use crate::{
     OpReceipt, OpTxEnvelope, OpTxType, OpTypedTransaction, POST_EXEC_TX_TYPE_ID, TxDeposit,
+    TxEip8130,
+    transaction::eip8130::AA_TX_TYPE_ID,
     TxPostExec,
 };
 use alloc::vec::Vec;
@@ -48,6 +50,10 @@ impl Compact for OpTxType {
                 buf.put_u8(POST_EXEC_TX_TYPE_ID);
                 COMPACT_EXTENDED_IDENTIFIER_FLAG
             }
+            Self::Eip8130 => {
+                buf.put_u8(AA_TX_TYPE_ID);
+                COMPACT_EXTENDED_IDENTIFIER_FLAG
+            }
         }
     }
 
@@ -63,6 +69,7 @@ impl Compact for OpTxType {
                     alloy_consensus::constants::EIP7702_TX_TYPE_ID => Self::Eip7702,
                     crate::DEPOSIT_TX_TYPE_ID => Self::Deposit,
                     POST_EXEC_TX_TYPE_ID => Self::PostExec,
+                    AA_TX_TYPE_ID => Self::Eip8130,
                     _ => panic!("Unsupported OpTxType identifier: {extended_identifier}"),
                 };
                 (ty, buf)
@@ -179,6 +186,9 @@ impl Compact for OpTypedTransaction {
             Self::PostExec(tx) => {
                 tx.to_compact(buf);
             }
+            Self::Eip8130(tx) => {
+                tx.to_compact(buf);
+            }
         }
         identifier
     }
@@ -210,7 +220,39 @@ impl Compact for OpTypedTransaction {
                 let (tx, buf) = TxPostExec::from_compact(buf, buf.len());
                 (Self::PostExec(tx), buf)
             }
+            OpTxType::Eip8130 => {
+                let (tx, buf) = TxEip8130::from_compact(buf, buf.len());
+                (Self::Eip8130(tx), buf)
+            }
         }
+    }
+}
+
+// --- TxEip8130 Compact ---
+//
+// Stores the full EIP-2718 RLP body. Self-describing length via the leading RLP header.
+// This is suboptimal compared to a hand-rolled reth_codec_derive layout but avoids the
+// complexity of mirror-struct generation for a tx with nested Vec<Vec<Call>> + Vec<AccountChangeEntry>.
+// Byte-level compatibility with base's compact format is a separate concern.
+impl Compact for TxEip8130 {
+    fn to_compact<B>(&self, buf: &mut B) -> usize
+    where
+        B: bytes::BufMut + AsMut<[u8]>,
+    {
+        use alloy_rlp::Encodable;
+        let mut tmp = alloc::vec::Vec::new();
+        self.encode(&mut tmp);
+        let len = tmp.len();
+        buf.put_slice(&tmp);
+        len
+    }
+
+    fn from_compact(buf: &[u8], _len: usize) -> (Self, &[u8]) {
+        use alloy_rlp::Decodable;
+        let mut cursor = buf;
+        let tx = TxEip8130::decode(&mut cursor)
+            .expect("invalid TxEip8130 RLP in compact storage");
+        (tx, cursor)
     }
 }
 
@@ -223,7 +265,7 @@ impl Envelope for OpTxEnvelope {
             Self::Eip2930(tx) => tx.signature(),
             Self::Eip1559(tx) => tx.signature(),
             Self::Eip7702(tx) => tx.signature(),
-            Self::Deposit(_) | Self::PostExec(_) => {
+            Self::Eip8130(_) | Self::Deposit(_) | Self::PostExec(_) => {
                 const DEPOSIT_SIG: Signature = Signature::new(U256::ZERO, U256::ZERO, false);
                 &DEPOSIT_SIG
             }
@@ -256,6 +298,9 @@ impl ToTxCompact for OpTxEnvelope {
                 tx.inner().to_compact(buf);
             }
             Self::PostExec(tx) => {
+                tx.inner().to_compact(buf);
+            }
+            Self::Eip8130(tx) => {
                 tx.inner().to_compact(buf);
             }
         };
@@ -295,6 +340,10 @@ impl FromTxCompact for OpTxEnvelope {
             OpTxType::PostExec => {
                 let (tx, buf) = TxPostExec::from_compact(buf, buf.len());
                 (Self::PostExec(alloy_consensus::Sealed::new(tx)), buf)
+            }
+            OpTxType::Eip8130 => {
+                let (tx, buf) = TxEip8130::from_compact(buf, buf.len());
+                (Self::Eip8130(alloy_consensus::Sealed::new(tx)), buf)
             }
         }
     }
@@ -376,6 +425,7 @@ impl From<CompactOpReceipt> for OpReceipt {
             OpTxType::Eip2930 => Self::Eip2930(receipt),
             OpTxType::Eip1559 => Self::Eip1559(receipt),
             OpTxType::Eip7702 => Self::Eip7702(receipt),
+            OpTxType::Eip8130 => Self::Eip8130(receipt),
             OpTxType::PostExec => Self::PostExec(receipt),
             OpTxType::Deposit => Self::Deposit(crate::OpDepositReceipt {
                 inner: receipt,

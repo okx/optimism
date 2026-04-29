@@ -162,6 +162,13 @@ impl FromTxWithEncoded<OpTxEnvelope> for OpTx {
             OpTxEnvelope::Eip7702(tx) => Self::from_encoded_tx(tx, caller, encoded),
             OpTxEnvelope::Deposit(tx) => Self::from_encoded_tx(tx.inner(), caller, encoded),
             OpTxEnvelope::PostExec(tx) => Self::from_encoded_tx(tx.inner(), caller, encoded),
+            // TODO(eip-8130): EIP-8130 has a multi-phase execution model and cannot be
+            // converted to a plain TxEnv via this path. The dedicated executor must
+            // dispatch directly on `OpTxEnvelope::Eip8130`. Wire it up in task #5
+            // "Port EIP-8130 EVM execution to op-revm/alloy-op-evm".
+            OpTxEnvelope::Eip8130(_) => {
+                unimplemented!("TODO(eip-8130): EIP-8130 requires dedicated executor (not via TxEnv)")
+            }
         }
     }
 }

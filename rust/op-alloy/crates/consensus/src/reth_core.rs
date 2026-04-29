@@ -11,9 +11,21 @@
 
 use crate::{
     OpDepositReceipt, OpPooledTransaction, OpReceipt, OpTxEnvelope, OpTxType, OpTypedTransaction,
-    TxDeposit,
+    TxDeposit, TxEip8130,
 };
 use alloy_consensus::InMemorySize;
+
+impl InMemorySize for TxEip8130 {
+    fn size(&self) -> usize {
+        core::mem::size_of::<Self>()
+            + self.sender_auth.len()
+            + self.payer_auth.len()
+            + self.calls.iter().map(|phase| {
+                phase.iter().map(|c| core::mem::size_of_val(c) + c.data.len()).sum::<usize>()
+            }).sum::<usize>()
+            + self.account_changes.len() * core::mem::size_of::<crate::transaction::eip8130::AccountChangeEntry>()
+    }
+}
 
 impl InMemorySize for OpTxType {
     fn size(&self) -> usize {
@@ -42,6 +54,7 @@ impl InMemorySize for OpReceipt {
             Self::Eip2930(receipt) |
             Self::Eip1559(receipt) |
             Self::Eip7702(receipt) |
+            Self::Eip8130(receipt) |
             Self::PostExec(receipt) => receipt.size(),
             Self::Deposit(receipt) => receipt.size(),
         }
@@ -55,6 +68,7 @@ impl InMemorySize for OpTypedTransaction {
             Self::Eip2930(tx) => tx.size(),
             Self::Eip1559(tx) => tx.size(),
             Self::Eip7702(tx) => tx.size(),
+            Self::Eip8130(tx) => tx.size(),
             Self::Deposit(tx) => tx.size(),
             Self::PostExec(tx) => tx.size(),
         }
@@ -79,6 +93,9 @@ impl InMemorySize for OpTxEnvelope {
             Self::Eip2930(tx) => tx.size(),
             Self::Eip1559(tx) => tx.size(),
             Self::Eip7702(tx) => tx.size(),
+            Self::Eip8130(tx) => {
+                core::mem::size_of::<alloy_primitives::B256>() + tx.inner().size()
+            }
             Self::Deposit(tx) => core::mem::size_of::<alloy_primitives::B256>() + tx.inner().size(),
             Self::PostExec(tx) => {
                 core::mem::size_of::<alloy_primitives::B256>() + tx.inner().size()

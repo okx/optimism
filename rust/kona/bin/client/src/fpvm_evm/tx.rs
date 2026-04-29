@@ -137,6 +137,11 @@ impl FromTxWithEncoded<OpTxEnvelope> for FpvmOpTx {
             OpTxEnvelope::Eip7702(tx) => Self::from_encoded_tx(tx, caller, encoded),
             OpTxEnvelope::Deposit(tx) => Self::from_encoded_tx(tx.inner(), caller, encoded),
             OpTxEnvelope::PostExec(tx) => Self::from_encoded_tx(tx.inner(), caller, encoded),
+            // TODO(eip-8130): EIP-8130 has multi-phase execution and cannot be lowered to a
+            // single TxEnv. Wire up dedicated kona FPVM executor support in task #5.
+            OpTxEnvelope::Eip8130(_) => {
+                unimplemented!("TODO(eip-8130): kona FPVM does not yet support EIP-8130")
+            }
         }
     }
 }

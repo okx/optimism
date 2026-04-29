@@ -33,6 +33,9 @@ pub enum OpReceipt<T = Log> {
     /// EIP-7702 receipt
     #[cfg_attr(feature = "serde", serde(rename = "0x4", alias = "0x04"))]
     Eip7702(Receipt<T>),
+    /// EIP-8130 (account-abstracted) receipt
+    #[cfg_attr(feature = "serde", serde(rename = "0x7b", alias = "0x7B"))]
+    Eip8130(Receipt<T>),
     /// Post-exec receipt
     #[cfg_attr(feature = "serde", serde(rename = "0x7d", alias = "0x7D"))]
     PostExec(Receipt<T>),
@@ -49,6 +52,7 @@ impl<T> OpReceipt<T> {
             Self::Eip2930(_) => OpTxType::Eip2930,
             Self::Eip1559(_) => OpTxType::Eip1559,
             Self::Eip7702(_) => OpTxType::Eip7702,
+            Self::Eip8130(_) => OpTxType::Eip8130,
             Self::PostExec(_) => OpTxType::PostExec,
             Self::Deposit(_) => OpTxType::Deposit,
         }
@@ -61,6 +65,7 @@ impl<T> OpReceipt<T> {
             Self::Eip2930(receipt) |
             Self::Eip1559(receipt) |
             Self::Eip7702(receipt) |
+            Self::Eip8130(receipt) |
             Self::PostExec(receipt) => receipt,
             Self::Deposit(receipt) => &receipt.inner,
         }
@@ -73,6 +78,7 @@ impl<T> OpReceipt<T> {
             Self::Eip2930(receipt) |
             Self::Eip1559(receipt) |
             Self::Eip7702(receipt) |
+            Self::Eip8130(receipt) |
             Self::PostExec(receipt) => receipt,
             Self::Deposit(receipt) => &mut receipt.inner,
         }
@@ -85,6 +91,7 @@ impl<T> OpReceipt<T> {
             Self::Eip2930(receipt) |
             Self::Eip1559(receipt) |
             Self::Eip7702(receipt) |
+            Self::Eip8130(receipt) |
             Self::PostExec(receipt) => receipt,
             Self::Deposit(receipt) => receipt.inner,
         }
@@ -99,6 +106,7 @@ impl<T> OpReceipt<T> {
             Self::Eip2930(receipt) => OpReceipt::Eip2930(receipt.map_logs(f)),
             Self::Eip1559(receipt) => OpReceipt::Eip1559(receipt.map_logs(f)),
             Self::Eip7702(receipt) => OpReceipt::Eip7702(receipt.map_logs(f)),
+            Self::Eip8130(receipt) => OpReceipt::Eip8130(receipt.map_logs(f)),
             Self::PostExec(receipt) => OpReceipt::PostExec(receipt.map_logs(f)),
             Self::Deposit(receipt) => OpReceipt::Deposit(receipt.map_logs(f)),
         }
@@ -114,6 +122,7 @@ impl<T> OpReceipt<T> {
             Self::Eip2930(receipt) |
             Self::Eip1559(receipt) |
             Self::Eip7702(receipt) |
+            Self::Eip8130(receipt) |
             Self::PostExec(receipt) => receipt.rlp_encoded_fields_length_with_bloom(bloom),
             Self::Deposit(receipt) => receipt.rlp_encoded_fields_length_with_bloom(bloom),
         }
@@ -129,6 +138,7 @@ impl<T> OpReceipt<T> {
             Self::Eip2930(receipt) |
             Self::Eip1559(receipt) |
             Self::Eip7702(receipt) |
+            Self::Eip8130(receipt) |
             Self::PostExec(receipt) => receipt.rlp_encode_fields_with_bloom(bloom, out),
             Self::Deposit(receipt) => receipt.rlp_encode_fields_with_bloom(bloom, out),
         }
@@ -180,6 +190,11 @@ impl<T> OpReceipt<T> {
                     RlpDecodableReceipt::rlp_decode_with_bloom(buf)?;
                 Ok(ReceiptWithBloom { receipt: Self::Eip7702(receipt), logs_bloom })
             }
+            OpTxType::Eip8130 => {
+                let ReceiptWithBloom { receipt, logs_bloom } =
+                    RlpDecodableReceipt::rlp_decode_with_bloom(buf)?;
+                Ok(ReceiptWithBloom { receipt: Self::Eip8130(receipt), logs_bloom })
+            }
             OpTxType::PostExec => {
                 let ReceiptWithBloom { receipt, logs_bloom } =
                     RlpDecodableReceipt::rlp_decode_with_bloom(buf)?;
@@ -204,6 +219,7 @@ impl<T> OpReceipt<T> {
             Self::Eip2930(receipt) |
             Self::Eip1559(receipt) |
             Self::Eip7702(receipt) |
+            Self::Eip8130(receipt) |
             Self::PostExec(receipt) => {
                 receipt.status.encode(out);
                 receipt.cumulative_gas_used.encode(out);
@@ -234,6 +250,7 @@ impl<T> OpReceipt<T> {
                 Self::Eip2930(receipt) |
                 Self::Eip1559(receipt) |
                 Self::Eip7702(receipt) |
+                Self::Eip8130(receipt) |
                 Self::PostExec(receipt) => {
                     receipt.status.length() +
                         receipt.cumulative_gas_used.length() +
@@ -275,6 +292,7 @@ impl<T> OpReceipt<T> {
             OpTxType::Eip2930 => Ok(Self::Eip2930(Receipt { status, cumulative_gas_used, logs })),
             OpTxType::Eip1559 => Ok(Self::Eip1559(Receipt { status, cumulative_gas_used, logs })),
             OpTxType::Eip7702 => Ok(Self::Eip7702(Receipt { status, cumulative_gas_used, logs })),
+            OpTxType::Eip8130 => Ok(Self::Eip8130(Receipt { status, cumulative_gas_used, logs })),
             OpTxType::PostExec => Ok(Self::PostExec(Receipt { status, cumulative_gas_used, logs })),
             OpTxType::Deposit => Ok(Self::Deposit(OpDepositReceipt {
                 inner: Receipt { status, cumulative_gas_used, logs },
@@ -421,6 +439,7 @@ impl<T: Send + Sync + Clone + Debug + Eq + AsRef<Log>> TxReceipt for OpReceipt<T
             Self::Eip2930(receipt) |
             Self::Eip1559(receipt) |
             Self::Eip7702(receipt) |
+            Self::Eip8130(receipt) |
             Self::PostExec(receipt) => receipt.logs,
             Self::Deposit(receipt) => receipt.inner.logs,
         }
@@ -462,6 +481,7 @@ impl From<super::OpReceiptEnvelope> for OpReceipt {
             super::OpReceiptEnvelope::Eip2930(receipt) => Self::Eip2930(receipt.receipt),
             super::OpReceiptEnvelope::Eip1559(receipt) => Self::Eip1559(receipt.receipt),
             super::OpReceiptEnvelope::Eip7702(receipt) => Self::Eip7702(receipt.receipt),
+            super::OpReceiptEnvelope::Eip8130(receipt) => Self::Eip8130(receipt.receipt),
             super::OpReceiptEnvelope::PostExec(receipt) => Self::PostExec(receipt.receipt),
             super::OpReceiptEnvelope::Deposit(receipt) => Self::Deposit(OpDepositReceipt {
                 deposit_nonce: receipt.receipt.deposit_nonce,
@@ -480,6 +500,7 @@ impl<T> From<ReceiptWithBloom<OpReceipt<T>>> for OpReceiptEnvelope<T> {
             OpReceipt::Eip2930(receipt) => Self::Eip2930(ReceiptWithBloom { receipt, logs_bloom }),
             OpReceipt::Eip1559(receipt) => Self::Eip1559(ReceiptWithBloom { receipt, logs_bloom }),
             OpReceipt::Eip7702(receipt) => Self::Eip7702(ReceiptWithBloom { receipt, logs_bloom }),
+            OpReceipt::Eip8130(receipt) => Self::Eip8130(ReceiptWithBloom { receipt, logs_bloom }),
             OpReceipt::PostExec(receipt) => {
                 Self::PostExec(ReceiptWithBloom { receipt, logs_bloom })
             }
@@ -521,6 +542,8 @@ pub(crate) mod serde_bincode_compat {
         Eip7702(alloy_consensus::serde_bincode_compat::Receipt<'a, alloy_primitives::Log>),
         /// Post-exec receipt
         PostExec(alloy_consensus::serde_bincode_compat::Receipt<'a, alloy_primitives::Log>),
+        /// EIP-8130 receipt
+        Eip8130(alloy_consensus::serde_bincode_compat::Receipt<'a, alloy_primitives::Log>),
         /// Deposit receipt
         Deposit(crate::serde_bincode_compat::OpDepositReceipt<'a, alloy_primitives::Log>),
     }
@@ -533,6 +556,7 @@ pub(crate) mod serde_bincode_compat {
                 super::OpReceipt::Eip1559(receipt) => Self::Eip1559(receipt.into()),
                 super::OpReceipt::Eip7702(receipt) => Self::Eip7702(receipt.into()),
                 super::OpReceipt::PostExec(receipt) => Self::PostExec(receipt.into()),
+                super::OpReceipt::Eip8130(receipt) => Self::Eip8130(receipt.into()),
                 super::OpReceipt::Deposit(receipt) => Self::Deposit(receipt.into()),
             }
         }
@@ -546,6 +570,7 @@ pub(crate) mod serde_bincode_compat {
                 OpReceipt::Eip1559(receipt) => Self::Eip1559(receipt.into()),
                 OpReceipt::Eip7702(receipt) => Self::Eip7702(receipt.into()),
                 OpReceipt::PostExec(receipt) => Self::PostExec(receipt.into()),
+                OpReceipt::Eip8130(receipt) => Self::Eip8130(receipt.into()),
                 OpReceipt::Deposit(receipt) => Self::Deposit(receipt.into()),
             }
         }

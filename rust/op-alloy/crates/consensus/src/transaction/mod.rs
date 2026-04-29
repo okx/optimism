@@ -6,8 +6,9 @@ pub use deposit::{DepositTransaction, TxDeposit};
 mod tx_type;
 pub use tx_type::DEPOSIT_TX_TYPE_ID;
 
-mod envelope;
-pub use envelope::{OpTransaction, OpTxEnvelope, OpTxType};
+/// The OP Stack transaction envelope (`OpTxEnvelope`) and its variants.
+pub mod envelope;
+pub use envelope::{OpEip8130Transaction, OpTransaction, OpTxEnvelope, OpTxType};
 
 #[cfg(all(feature = "serde", feature = "serde-bincode-compat"))]
 pub use envelope::serde_bincode_compat as envelope_serde_bincode_compat;
@@ -23,6 +24,9 @@ pub use deposit::serde_deposit_tx_rpc;
 
 mod meta;
 pub use meta::{OpDepositInfo, OpTransactionInfo};
+
+pub mod eip8130;
+pub use eip8130::TxEip8130;
 
 /// Bincode-compatible serde implementations for transaction types.
 #[cfg(all(feature = "serde", feature = "serde-bincode-compat"))]

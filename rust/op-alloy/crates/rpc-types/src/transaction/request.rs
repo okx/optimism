@@ -198,6 +198,9 @@ impl From<OpTypedTransaction> for OpTransactionRequest {
             OpTypedTransaction::Eip2930(tx) => Self(tx.into()),
             OpTypedTransaction::Eip1559(tx) => Self(tx.into()),
             OpTypedTransaction::Eip7702(tx) => Self(tx.into()),
+            // TODO(eip-8130): no clean RPC TransactionRequest mapping (multi-sig auth + phased
+            // calls). Wire dedicated AA RPC type in task #4 follow-up.
+            OpTypedTransaction::Eip8130(_) => Self(Default::default()),
             OpTypedTransaction::Deposit(tx) => tx.into(),
             OpTypedTransaction::PostExec(tx) => tx.into(),
         }
@@ -210,6 +213,9 @@ impl From<OpTxEnvelope> for OpTransactionRequest {
             OpTxEnvelope::Eip2930(tx) => tx.into(),
             OpTxEnvelope::Eip1559(tx) => tx.into(),
             OpTxEnvelope::Eip7702(tx) => tx.into(),
+            // TODO(eip-8130): no clean RPC TransactionRequest mapping. See OpTypedTransaction
+            // arm above; same follow-up.
+            OpTxEnvelope::Eip8130(_) => Self(Default::default()),
             OpTxEnvelope::Deposit(tx) => tx.into(),
             OpTxEnvelope::PostExec(tx) => tx.into_inner().into(),
             _ => Default::default(),

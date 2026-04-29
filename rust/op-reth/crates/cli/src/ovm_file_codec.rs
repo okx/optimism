@@ -249,6 +249,7 @@ impl Encodable2718 for OvmTransactionSigned {
             }
             OpTypedTransaction::Deposit(deposit_tx) => deposit_tx.eip2718_encoded_length(),
             OpTypedTransaction::PostExec(post_exec_tx) => post_exec_tx.eip2718_encoded_length(),
+            OpTypedTransaction::Eip8130(eip8130_tx) => eip8130_tx.eip2718_encoded_length(),
         }
     }
 
@@ -281,6 +282,9 @@ impl Decodable2718 for OvmTransactionSigned {
                 OpTypedTransaction::PostExec(TxPostExec::decode_2718(buf)?),
                 TxPostExec::signature(),
             )),
+            // TODO(eip-8130): OVM legacy file codec predates EIP-8130 — type 0x7B should not
+            // appear in OVM-era transaction logs. Reject defensively.
+            OpTxType::Eip8130 => Err(Eip2718Error::UnexpectedType(ty)),
         }
     }
 

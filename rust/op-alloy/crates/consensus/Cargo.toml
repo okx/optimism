@@ -19,6 +19,7 @@ workspace = true
 alloy-rlp.workspace = true
 alloy-eips.workspace = true
 alloy-consensus.workspace = true
+alloy-sol-types.workspace = true
 alloy-primitives = { workspace = true, features = ["rlp"] }
 
 # compat
@@ -43,6 +44,15 @@ reth-codecs-derive = { workspace = true, optional = true }
 reth-zstd-compressors = { workspace = true, optional = true }
 bytes = { workspace = true, optional = true }
 modular-bitfield = { workspace = true, optional = true }
+
+# evm (for EIP-8130 execution integration)
+revm = { workspace = true, optional = true }
+alloy-evm = { workspace = true, optional = true }
+
+# native verifier crypto (for EIP-8130 native signature verification)
+k256 = { workspace = true, optional = true }
+p256 = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
 
 [dev-dependencies]
 rand.workspace = true
@@ -79,6 +89,8 @@ reth-codec = [
 	"dep:modular-bitfield",
 ]
 k256 = ["alloy-primitives/k256", "alloy-consensus/k256"]
+evm = ["dep:alloy-evm", "dep:revm"]
+native-verifier = ["dep:k256", "dep:p256", "dep:sha2"]
 kzg = ["alloy-eips/kzg", "alloy-consensus/kzg", "std"]
 arbitrary = [
 	"std",
