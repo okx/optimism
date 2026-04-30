@@ -210,6 +210,84 @@ where
     }
 }
 
+impl<EngineClient_, DerivationClient> EngineProcessor<EngineClient_, DerivationClient>
+where
+    EngineClient_: EngineClient + 'static,
+    DerivationClient: EngineDerivationClient + 'static,
+{
+    /// Converts an [`EngineProcessingRequest`] into an [`EngineTask`] and enqueues it,
+    /// or handles it immediately if it cannot be deferred (Reset).
+    async fn handle_request(
+        &mut self,
+        request: EngineProcessingRequest,
+    ) -> Result<(), EngineError> {
+        match request {
+            EngineProcessingRequest::Build(build_request) => {
+                let BuildRequest { attributes, result_tx } = *build_request;
+                let task = EngineTask::Build(Box::new(BuildTask::new(
+                    self.client.clone(),
+                    self.rollup.clone(),
+                    attributes,
+                    Some(result_tx),
+                )));
+                self.engine.enqueue(task);
+            }
+            EngineProcessingRequest::ProcessSafeL2Signal(safe_signal) => {
+                let task = EngineTask::Consolidate(Box::new(ConsolidateTask::new(
+                    self.client.clone(),
+                    self.rollup.clone(),
+                    safe_signal,
+                )));
+                self.engine.enqueue(task);
+            }
+            EngineProcessingRequest::ProcessFinalizedL2BlockNumber(
+                finalized_l2_block_number,
+            ) => {
+                let task = EngineTask::Finalize(Box::new(FinalizeTask::new(
+                    self.client.clone(),
+                    self.rollup.clone(),
+                    *finalized_l2_block_number,
+                )));
+                self.engine.enqueue(task);
+            }
+            EngineProcessingRequest::ProcessUnsafeL2Block(envelope) => {
+                let task = EngineTask::Insert(Box::new(InsertTask::new(
+                    self.client.clone(),
+                    self.rollup.clone(),
+                    *envelope,
+                    false,
+                )));
+                self.engine.enqueue(task);
+            }
+            EngineProcessingRequest::Reset(reset_request) => {
+                warn!(target: "engine", "Received reset request");
+                let reset_res = self.reset().await;
+                let response_payload = reset_res
+                    .as_ref()
+                    .map(|_| ())
+                    .map_err(|e| EngineClientError::ResetForkchoiceError(e.to_string()));
+                if reset_request.result_tx.send(response_payload).await.is_err() {
+                    warn!(target: "engine", "Sending reset response failed");
+                    reset_res?;
+                }
+            }
+            EngineProcessingRequest::Seal(seal_request) => {
+                let SealRequest { payload_id, attributes, result_tx } = *seal_request;
+                let task = EngineTask::Seal(Box::new(SealTask::new(
+                    self.client.clone(),
+                    self.rollup.clone(),
+                    payload_id,
+                    attributes,
+                    false,
+                    Some(result_tx),
+                )));
+                self.engine.enqueue(task);
+            }
+        }
+        Ok(())
+    }
+}
+
 impl<EngineClient_, DerivationClient> EngineRequestReceiver
     for EngineProcessor<EngineClient_, DerivationClient>
 where
@@ -236,82 +314,19 @@ where
                     });
                 }
 
-                // Wait for the next processing request.
+                // Block-wait for at least one new request.
                 let Some(request) = request_channel.recv().await else {
                     error!(target: "engine", "Engine processing request receiver closed unexpectedly");
                     return Err(EngineError::ChannelClosed);
                 };
+                self.handle_request(request).await?;
 
-                match request {
-                    EngineProcessingRequest::Build(build_request) => {
-                        let BuildRequest { attributes, result_tx } = *build_request;
-                        let task = EngineTask::Build(Box::new(BuildTask::new(
-                            self.client.clone(),
-                            self.rollup.clone(),
-                            attributes,
-                            Some(result_tx),
-                        )));
-                        self.engine.enqueue(task);
-                    }
-                    EngineProcessingRequest::ProcessSafeL2Signal(safe_signal) => {
-                        let task = EngineTask::Consolidate(Box::new(ConsolidateTask::new(
-                            self.client.clone(),
-                            self.rollup.clone(),
-                            safe_signal,
-                        )));
-                        self.engine.enqueue(task);
-                    }
-                    EngineProcessingRequest::ProcessFinalizedL2BlockNumber(
-                        finalized_l2_block_number,
-                    ) => {
-                        // Finalize the L2 block at the provided block number.
-                        let task = EngineTask::Finalize(Box::new(FinalizeTask::new(
-                            self.client.clone(),
-                            self.rollup.clone(),
-                            *finalized_l2_block_number,
-                        )));
-                        self.engine.enqueue(task);
-                    }
-                    EngineProcessingRequest::ProcessUnsafeL2Block(envelope) => {
-                        let task = EngineTask::Insert(Box::new(InsertTask::new(
-                            self.client.clone(),
-                            self.rollup.clone(),
-                            *envelope,
-                            false, /* The payload is not derived in this case. This is an unsafe
-                                    * block. */
-                        )));
-                        self.engine.enqueue(task);
-                    }
-                    EngineProcessingRequest::Reset(reset_request) => {
-                        warn!(target: "engine", "Received reset request");
-
-                        let reset_res = self.reset().await;
-
-                        // Send the result.
-                        let response_payload = reset_res
-                            .as_ref()
-                            .map(|_| ())
-                            .map_err(|e| EngineClientError::ResetForkchoiceError(e.to_string()));
-                        if reset_request.result_tx.send(response_payload).await.is_err() {
-                            warn!(target: "engine", "Sending reset response failed");
-                            // If there was an error and we couldn't notify the caller to handle it,
-                            // return the error.
-                            reset_res?;
-                        }
-                    }
-                    EngineProcessingRequest::Seal(seal_request) => {
-                        let SealRequest { payload_id, attributes, result_tx } = *seal_request;
-                        let task = EngineTask::Seal(Box::new(SealTask::new(
-                            self.client.clone(),
-                            self.rollup.clone(),
-                            payload_id,
-                            attributes,
-                            // The payload is not derived in this case.
-                            false,
-                            Some(result_tx),
-                        )));
-                        self.engine.enqueue(task);
-                    }
+                // Flush all additional pending requests into the BinaryHeap before the next
+                // drain() call. This is the core fix: any Build/Seal task waiting in the
+                // channel is enqueued now, so BinaryHeap priority ordering runs it before
+                // remaining Consolidate tasks on the next iteration.
+                while let Ok(req) = request_channel.try_recv() {
+                    self.handle_request(req).await?;
                 }
             }
         })

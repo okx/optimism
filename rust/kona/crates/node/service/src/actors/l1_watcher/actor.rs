@@ -13,7 +13,10 @@ use futures::{Stream, StreamExt};
 use kona_genesis::{RollupConfig, SystemConfigLog, SystemConfigUpdate, UnsafeBlockSignerUpdate};
 use kona_protocol::BlockInfo;
 use kona_rpc::{L1State, L1WatcherQueries};
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use tokio::{
     select,
     sync::{
@@ -52,6 +55,12 @@ where
     head_stream: BlockStream,
     /// A stream over the finalized block accepted as canonical.
     finalized_stream: BlockStream,
+    /// Written `true` when a SystemConfig-changing L1 log is observed (GasLimit, Batcher,
+    /// GasConfig, Eip1559, OperatorFee). The sequencer's AlloyL2ChainProvider reads and clears
+    /// this flag before each block build to evict its cached SystemConfig.
+    ///
+    /// Shared via Arc — this actor is the only writer; AlloyL2ChainProvider is the only reader.
+    system_config_changed: Arc<AtomicBool>,
 }
 impl<BlockStream, L1Provider, L1WatcherDerivationClient_>
     L1WatcherActor<BlockStream, L1Provider, L1WatcherDerivationClient_>
@@ -61,6 +70,10 @@ where
     L1WatcherDerivationClient_: L1WatcherDerivationClient,
 {
     /// Instantiate a new [`L1WatcherActor`].
+    ///
+    /// `system_config_changed` must be the same `Arc` passed to the sequencer's
+    /// [`AlloyL2ChainProvider::new_with_invalidation`] so that SystemConfig cache eviction is
+    /// wired end-to-end.
     #[allow(clippy::too_many_arguments)]
     pub const fn new(
         rollup_config: Arc<RollupConfig>,
@@ -72,6 +85,7 @@ where
         cancellation: CancellationToken,
         head_stream: BlockStream,
         finalized_stream: BlockStream,
+        system_config_changed: Arc<AtomicBool>,
     ) -> Self {
         Self {
             rollup_config,
@@ -83,6 +97,7 @@ where
             cancellation,
             head_stream,
             finalized_stream,
+            system_config_changed,
         }
     }
 }
@@ -128,23 +143,36 @@ where
 
                         // For each log, attempt to construct a [`SystemConfigLog`].
                         // Build the [`SystemConfigUpdate`] from the log.
-                        // If the update is an Unsafe block signer update, send the address
-                        // to the block signer sender.
+                        // UnsafeBlockSigner updates are forwarded to the P2P layer.
+                        // All other SystemConfig changes (GasLimit, Batcher, GasConfig, Eip1559,
+                        // OperatorFee) invalidate the sequencer's cached SystemConfig so it
+                        // re-fetches on the very next block build.
                         let filter_address =  self.rollup_config.l1_system_config_address;
                         let logs = self.l1_provider .get_logs(&alloy_rpc_types_eth::Filter::new().address(filter_address).select(head_block_info.hash)).await?;
                         let ecotone_active = self.rollup_config.is_ecotone_active(head_block_info.timestamp);
                         for log in logs {
                             let sys_cfg_log = SystemConfigLog::new(log.into(), ecotone_active);
-                            if let Ok(SystemConfigUpdate::UnsafeBlockSigner(UnsafeBlockSignerUpdate { unsafe_block_signer })) = sys_cfg_log.build() {
-                                info!(
-                                    target: "l1_watcher",
-                                    "Unsafe block signer update: {unsafe_block_signer}"
-                                );
-                                if let Err(e) = self.block_signer_sender.send(unsafe_block_signer).await {
-                                    error!(
+                            match sys_cfg_log.build() {
+                                Ok(SystemConfigUpdate::UnsafeBlockSigner(UnsafeBlockSignerUpdate { unsafe_block_signer })) => {
+                                    info!(
                                         target: "l1_watcher",
-                                        "Error sending unsafe block signer update: {e}"
+                                        "Unsafe block signer update: {unsafe_block_signer}"
                                     );
+                                    if let Err(e) = self.block_signer_sender.send(unsafe_block_signer).await {
+                                        error!(
+                                            target: "l1_watcher",
+                                            "Error sending unsafe block signer update: {e}"
+                                        );
+                                    }
+                                }
+                                Ok(_) => {
+                                    // GasLimit / Batcher / GasConfig / Eip1559 / OperatorFee:
+                                    // signal the sequencer to re-fetch SystemConfig.
+                                    self.system_config_changed.store(true, Ordering::Relaxed);
+                                    info!(target: "l1_watcher", "SystemConfig change on L1 — sequencer cache invalidated");
+                                }
+                                Err(e) => {
+                                    warn!(target: "l1_watcher", "Failed to parse SystemConfigLog: {e}");
                                 }
                             }
                         }

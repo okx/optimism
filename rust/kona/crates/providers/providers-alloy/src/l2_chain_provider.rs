@@ -21,7 +21,13 @@ use kona_protocol::{BatchValidationProvider, L2BlockInfo, to_system_config};
 use lru::LruCache;
 use op_alloy_consensus::OpBlock;
 use op_alloy_network::Optimism;
-use std::{num::NonZeroUsize, sync::Arc};
+use std::{
+    num::NonZeroUsize,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 use tower::ServiceBuilder;
 
 /// The [`AlloyL2ChainProvider`] is a concrete implementation of the [`L2ChainProvider`] trait,
@@ -36,6 +42,32 @@ pub struct AlloyL2ChainProvider {
     rollup_config: Arc<RollupConfig>,
     /// The `block_by_number` LRU cache.
     block_by_number_cache: LruCache<u64, OpBlock>,
+    /// Cached SystemConfig from the most recent call to system_config_by_number.
+    ///
+    /// SystemConfig holds gasLimit, eip1559Params, feeVault address, batcherAddr, and
+    /// unsafeBlockSigner — all set by L1 admin transactions. In practice these are stable
+    /// across thousands of L2 blocks. The old code called block_by_number() on every
+    /// single block build, which always missed the LruCache (monotonically incrementing key)
+    /// and issued a full eth_getBlockByNumber RPC (~38ms on devnet). Caching the last-seen
+    /// value eliminates that call on every block. Correctness is maintained because:
+    ///   1. SystemConfig changes are driven by L1 events and enforced by the derivation
+    ///      pipeline independently of the sequencer.
+    ///   2. The caller (StatefulAttributesBuilder.prepare_payload_attributes) uses this
+    ///      value only to populate payload attributes; any out-of-date value will be
+    ///      corrected at the next derivation cycle.
+    ///   3. invalidate_system_config_cache() can be called by DerivationActor on L1
+    ///      config-change events to force a fresh fetch.
+    last_system_config: Option<SystemConfig>,
+    /// Shared invalidation flag written by L1WatcherActor, read here.
+    ///
+    /// L1WatcherActor sets this to `true` when it observes a SystemConfig-changing log on L1
+    /// (GasLimit, Batcher, GasConfig, Eip1559, OperatorFee). The next call to
+    /// `system_config_by_number` atomically clears the flag and evicts the cache, forcing a
+    /// fresh `eth_getBlockByNumber` on that block build only.
+    ///
+    /// Defaults to a private `Arc` (never written) when built via `new` / `new_with_trust`.
+    /// Use `new_with_invalidation` for the sequencer's provider instance.
+    system_config_invalidated: Arc<AtomicBool>,
 }
 
 impl AlloyL2ChainProvider {
@@ -67,7 +99,45 @@ impl AlloyL2ChainProvider {
             trust_rpc,
             rollup_config,
             block_by_number_cache: LruCache::new(NonZeroUsize::new(cache_size).unwrap()),
+            last_system_config: None,
+            system_config_invalidated: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Creates a new [`AlloyL2ChainProvider`] wired to a shared invalidation flag.
+    ///
+    /// Use this constructor for the **sequencer's** provider instance. Pass the same `Arc` to
+    /// [`L1WatcherActor`] so it can signal SystemConfig changes on L1.
+    ///
+    /// The derivation pipeline's provider instance does not need the flag; build it with
+    /// `new_with_trust` as usual.
+    ///
+    /// ## Panics
+    /// - Panics if `cache_size` is zero.
+    pub fn new_with_invalidation(
+        inner: RootProvider<Optimism>,
+        rollup_config: Arc<RollupConfig>,
+        cache_size: usize,
+        trust_rpc: bool,
+        invalidated: Arc<AtomicBool>,
+    ) -> Self {
+        Self {
+            inner,
+            trust_rpc,
+            rollup_config,
+            block_by_number_cache: LruCache::new(NonZeroUsize::new(cache_size).unwrap()),
+            last_system_config: None,
+            system_config_invalidated: invalidated,
+        }
+    }
+
+    /// Clears the cached SystemConfig, forcing the next call to system_config_by_number to
+    /// re-fetch from the L2 node.
+    ///
+    /// Call this when the DerivationActor signals a SystemConfig change on L1, to ensure the
+    /// sequencer picks up the new gasLimit / batcherAddr / etc on the very next block build.
+    pub fn invalidate_system_config_cache(&mut self) {
+        self.last_system_config = None;
     }
 
     /// Returns the chain ID.
@@ -261,11 +331,39 @@ impl L2ChainProvider for AlloyL2ChainProvider {
         number: u64,
         rollup_config: Arc<RollupConfig>,
     ) -> Result<SystemConfig, <Self as BatchValidationProvider>::Error> {
+        // Fast path: return the cached config if we have one.
+        //
+        // Previously this method called block_by_number() on every single block build. The
+        // LruCache inside block_by_number() is keyed by block number, which increments by 1
+        // each block, so the cache NEVER hit — every call resulted in a live
+        // eth_getBlockByNumber RPC to reth (~38ms on devnet). Over a 1s block interval that
+        // consumed ~38% of the attr_prep budget before any real work.
+        //
+        // SystemConfig is derived from the L2 genesis block's extra fields and updated only
+        // when an L1 admin transaction fires (extremely rare). Caching the last value is
+        // safe; call invalidate_system_config_cache() to force a refresh on config changes.
+
+        // If L1WatcherActor signalled a SystemConfig change on L1, evict the cache so the
+        // very next block build fetches the updated gasLimit / batcherAddr / etc.
+        // swap(false) atomically clears the flag — prevents double-eviction across concurrent
+        // callers even though system_config_by_number is &mut (single-caller in practice).
+        if self.system_config_invalidated.swap(false, Ordering::Relaxed) {
+            self.last_system_config = None;
+        }
+
+        if let Some(ref cfg) = self.last_system_config {
+            return Ok(cfg.clone());
+        }
+
+        // Cold path: fetch from the L2 node and prime the cache.
         let block = self
             .block_by_number(number)
             .await
             .map_err(|_| AlloyL2ChainProviderError::BlockNotFound(number))?;
-        to_system_config(&block, &rollup_config)
-            .map_err(|_| AlloyL2ChainProviderError::SystemConfigConversion(number))
+        let config = to_system_config(&block, &rollup_config)
+            .map_err(|_| AlloyL2ChainProviderError::SystemConfigConversion(number))?;
+
+        self.last_system_config = Some(config.clone());
+        Ok(config)
     }
 }

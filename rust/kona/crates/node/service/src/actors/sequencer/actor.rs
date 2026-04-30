@@ -177,12 +177,23 @@ where
     pub(super) async fn build_unsealed_payload(
         &mut self,
     ) -> Result<Option<UnsealedPayloadHandle>, SequencerActorError> {
-        let unsafe_head = self.engine_client.get_unsafe_head().await?;
+        let build_total_start = Instant::now(); // T0: sequencer decides to build
 
+        // ── attr_prep step A: get_unsafe_head ────────────────────────────
+        // Alias: attr_prep / step A. Hypothesis: may be a live RPC to EL (reth).
+        // If this dominates, cache the value after each sealed block (Opt-3).
+        let t_step_a = Instant::now();
+        let unsafe_head = self.engine_client.get_unsafe_head().await?;
+        let step_a_ms = t_step_a.elapsed().as_millis();
+
+        // ── attr_prep step B: get_next_payload_l1_origin ─────────────────
+        // Cached for 11/12 blocks. Slow on epoch change (L1 geth RPC).
+        let t_step_b = Instant::now();
         let Some(l1_origin) = self.get_next_payload_l1_origin(unsafe_head).await? else {
             // Temporary error - retry on next tick.
             return Ok(None);
         };
+        let step_b_ms = t_step_b.elapsed().as_millis();
 
         info!(
             target: "sequencer",
@@ -191,7 +202,8 @@ where
             "Started sequencing new block"
         );
 
-        // Build the payload attributes for the next block.
+        // ── attr_prep step C: build_attributes (prepare_payload_attributes) ──
+        // Contains sub-steps C1–C4 logged separately in stateful.rs.
         let attributes_build_start = Instant::now();
 
         let Some(attributes_with_parent) = self.build_attributes(unsafe_head, l1_origin).await?
@@ -200,15 +212,28 @@ where
             return Ok(None);
         };
 
+        let step_c_ms = attributes_build_start.elapsed().as_millis();
         update_attributes_build_duration_metrics(attributes_build_start.elapsed());
 
-        // Send the built attributes to the engine to be built.
+        // ── T1: Build{attrs} enters engine channel (Pre-HTTP delay begins) ─
         let build_request_start = Instant::now();
 
         let payload_id =
             self.engine_client.start_build_block(attributes_with_parent.clone()).await?;
 
-        update_block_build_duration_metrics(build_request_start.elapsed());
+        let build_elapsed = build_request_start.elapsed();
+        let total_elapsed = build_total_start.elapsed();
+        update_block_build_duration_metrics(build_elapsed);
+        // attr_prep breakdown: step_a (get_unsafe_head) + step_b (get_l1_origin) + step_c (build_attrs)
+        // step_c sub-breakdown is logged separately as "prepare_payload_attributes timing" in stateful.rs
+        info!(
+            sequencer_build_wait = ?build_elapsed,
+            sequencer_total_wait = ?total_elapsed,
+            attr_step_a_get_head_ms = step_a_ms,
+            attr_step_b_get_origin_ms = step_b_ms,
+            attr_step_c_build_attrs_ms = step_c_ms,
+            "build request completed"
+        );
 
         Ok(Some(UnsealedPayloadHandle { payload_id, attributes_with_parent }))
     }

@@ -22,7 +22,11 @@ use kona_providers_alloy::{
 };
 use kona_rpc::RpcBuilder;
 use op_alloy_network::Optimism;
-use std::{ops::Not as _, sync::Arc, time::Duration};
+use std::{
+    ops::Not as _,
+    sync::{Arc, atomic::AtomicBool},
+    time::Duration,
+};
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
@@ -126,19 +130,25 @@ impl RollupNode {
     }
 
     /// Returns the sequencer builder for the node.
+    ///
+    /// `sys_cfg_invalidated` is the flag shared with [`L1WatcherActor`]. When the watcher
+    /// detects a SystemConfig change on L1, it sets the flag; the sequencer's
+    /// `AlloyL2ChainProvider` clears it and re-fetches on the next block build.
     fn create_attributes_builder(
         &self,
+        sys_cfg_invalidated: Arc<AtomicBool>,
     ) -> StatefulAttributesBuilder<AlloyChainProvider, AlloyL2ChainProvider> {
         let l1_derivation_provider = AlloyChainProvider::new_with_trust(
             self.l1_config.engine_provider.clone(),
             DERIVATION_PROVIDER_CACHE_SIZE,
             self.l1_config.trust_rpc,
         );
-        let l2_derivation_provider = AlloyL2ChainProvider::new_with_trust(
+        let l2_derivation_provider = AlloyL2ChainProvider::new_with_invalidation(
             self.l2_provider.clone(),
             self.config.clone(),
             DERIVATION_PROVIDER_CACHE_SIZE,
             self.l2_trust_rpc,
+            sys_cfg_invalidated,
         );
 
         StatefulAttributesBuilder::new(
@@ -345,6 +355,11 @@ impl RollupNode {
             Duration::from_secs(FINALIZED_STREAM_POLL_INTERVAL),
         )?;
 
+        // Shared flag: L1WatcherActor writes `true` on any non-UnsafeBlockSigner SystemConfig
+        // change; the sequencer's AlloyL2ChainProvider clears it and evicts its cache before
+        // the next block build. Both ends hold a clone of this Arc.
+        let sys_cfg_invalidated = Arc::new(AtomicBool::new(false));
+
         // Create the [`L1WatcherActor`]. Previously known as the DA watcher actor.
         let l1_watcher = L1WatcherActor::new(
             self.config.clone(),
@@ -356,6 +371,7 @@ impl RollupNode {
             cancellation.clone(),
             head_stream,
             finalized_stream,
+            Arc::clone(&sys_cfg_invalidated),
         );
 
         // Create the sequencer if needed
@@ -373,7 +389,7 @@ impl RollupNode {
             (
                 Some(SequencerActor {
                     admin_api_rx: sequencer_admin_api_rx,
-                    attributes_builder: self.create_attributes_builder(),
+                    attributes_builder: self.create_attributes_builder(Arc::clone(&sys_cfg_invalidated)),
                     cancellation_token: cancellation.clone(),
                     conductor,
                     engine_client: sequencer_engine_client,

@@ -146,9 +146,7 @@ impl<EngineClient_: EngineClient> EngineTaskExt for SynchronizeTask<EngineClient
         debug!(
             target: "engine",
             fcu_duration = ?fcu_duration,
-            forkchoice = ?forkchoice,
-            response = ?valid_response,
-            "Forkchoice updated"
+            "FCU ok"
         );
 
         Ok(())
