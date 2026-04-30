@@ -8,6 +8,11 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+pub mod eip8130_invalidation;
+pub use eip8130_invalidation::{
+    Eip8130InvalidationIndex, InvalidationKey, compute_invalidation_keys, process_fal,
+};
+
 mod validator;
 pub use validator::{OpL1BlockInfo, OpTransactionValidator};
 
