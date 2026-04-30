@@ -234,3 +234,167 @@ pub fn process_fal(fal: &[(Address, B256)], index: &Eip8130InvalidationIndex) ->
     }
     result
 }
+
+/// How often (in blocks) the stale-entry pruning pass runs.
+const PRUNE_INTERVAL_BLOCKS: u64 = 16;
+
+/// Maintenance loop that evicts EIP-8130 transactions from the pool when the
+/// storage slots they depend on change.
+///
+/// Listens to [`CanonStateNotification`](reth_provider::CanonStateNotification)
+/// events and, for each committed block, extracts storage changes for the two
+/// AA system contracts ([`ACCOUNT_CONFIG_ADDRESS`] and [`NONCE_MANAGER_ADDRESS`]).
+/// Matching transactions are removed from both the pool and the shared
+/// invalidation index.
+///
+/// When `NONCE_MANAGER_ADDRESS` storage slots change, the 2D nonce pool is
+/// also updated: the affected sequence lanes advance their `next_nonce` and
+/// stale transactions are pruned.
+///
+/// Ported 1:1 from base/crates/txpool/src/eip8130_invalidation.rs lines 256-424.
+/// The `eip8130_pool` parameter (base's dedicated AA `Eip8130Pool`) is not yet
+/// ported — its accessors (`invalidate_tiers_for_lock_slots`, `seq_id_for_slot`,
+/// `update_sequence_nonce`, `sweep_expired`, `remove_transactions`, `contains`)
+/// are stubbed out in this port via `// EIP8130_POOL_TODO:` comments. The
+/// surrounding flow (FAL extraction, process_fal → pool.remove_transactions,
+/// PRUNE_INTERVAL_BLOCKS sweep) is preserved verbatim so the diff against base
+/// remains a mechanical reviewer-friendly patch.
+pub async fn maintain_eip8130_invalidation<P, N>(
+    pool: P,
+    // EIP8130_POOL_TODO: `eip8130_pool: Arc<Eip8130Pool<T>>` parameter dropped
+    // until the dual-pool architecture lands. base lines 273, 278.
+    mut events: tokio_stream::wrappers::BroadcastStream<reth_provider::CanonStateNotification<N>>,
+    index: std::sync::Arc<parking_lot::RwLock<Eip8130InvalidationIndex>>,
+) where
+    P: reth_transaction_pool::TransactionPool + 'static,
+    N: reth_node_api::NodePrimitives,
+{
+    use alloy_consensus::BlockHeader;
+    use futures::StreamExt;
+    use tracing::{debug, trace, warn};
+
+    let mut blocks_since_prune: u64 = 0;
+
+    loop {
+        let notification = match events.next().await {
+            Some(Ok(notification)) => notification,
+            Some(Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(n))) => {
+                warn!(
+                    missed = n,
+                    "canon state stream lagged, some blocks were not checked for AA invalidation"
+                );
+                continue;
+            }
+            None => break,
+        };
+
+        blocks_since_prune += 1;
+
+        let tip = notification.tip();
+        let _block_timestamp = tip.timestamp(); // EIP8130_POOL_TODO: used by sweep_expired
+
+        let committed = notification.committed();
+        let execution_outcome = committed.execution_outcome();
+
+        let mut touched: Vec<(Address, B256)> = Vec::new();
+        let mut _nonce_slot_changes: Vec<(B256, U256)> = Vec::new();
+        let mut _config_slots: Vec<B256> = Vec::new();
+
+        for (addr, acc) in execution_outcome.bundle_accounts_iter() {
+            if addr == NONCE_MANAGER_ADDRESS {
+                for (key, slot) in acc.storage.iter() {
+                    let slot_key = B256::from(*key);
+                    touched.push((addr, slot_key));
+                    _nonce_slot_changes.push((slot_key, slot.present_value));
+                }
+            } else if addr == ACCOUNT_CONFIG_ADDRESS {
+                for (key, _slot) in acc.storage.iter() {
+                    let slot_key = B256::from(*key);
+                    touched.push((addr, slot_key));
+                    _config_slots.push(slot_key);
+                }
+            }
+        }
+
+        // EIP8130_POOL_TODO: invalidate cached throughput tiers when lock slots change.
+        // base lines 324-334:
+        //     if !config_slots.is_empty() {
+        //         let n = eip8130_pool.invalidate_tiers_for_lock_slots(&config_slots);
+        //         ...
+        //     }
+
+        // EIP8130_POOL_TODO: update 2D nonce pool when nonce storage slots change.
+        // base lines 336-356:
+        //     if !nonce_slot_changes.is_empty() {
+        //         for (slot_key, new_value) in &nonce_slot_changes {
+        //             if let Some(seq_id) = eip8130_pool.seq_id_for_slot(slot_key) {
+        //                 let new_nonce: u64 = new_value.try_into().unwrap_or(u64::MAX);
+        //                 let pruned = eip8130_pool.update_sequence_nonce(&seq_id, new_nonce);
+        //                 ...
+        //             }
+        //         }
+        //     }
+
+        // Skip invalidation index lookup when the index is empty.
+        if index.read().is_empty() && touched.is_empty() {
+            continue;
+        }
+
+        if !touched.is_empty() {
+            let invalidated = {
+                let mut idx = index.write();
+                let invalidated = process_fal(&touched, &idx);
+                for tx_hash in &invalidated {
+                    idx.remove(tx_hash);
+                }
+                invalidated
+            };
+
+            if invalidated.is_empty() {
+                trace!(
+                    touched_slots = touched.len(),
+                    "AA storage changes did not match any pending transactions"
+                );
+            } else {
+                debug!(
+                    removal_reason = "state_invalidation",
+                    count = invalidated.len(),
+                    touched_slots = touched.len(),
+                    "removed invalidated AA transactions from mempool"
+                );
+                let _hash_vec: Vec<B256> = invalidated.iter().copied().collect();
+                // EIP8130_POOL_TODO: eip8130_pool.remove_transactions(&_hash_vec);
+                pool.remove_transactions(invalidated.into_iter().collect());
+            }
+        }
+
+        // EIP8130_POOL_TODO: Sweep transactions whose `expiry` timestamp has passed.
+        // base lines 391-401:
+        //     let expired = eip8130_pool.sweep_expired(block_timestamp);
+        //     if !expired.is_empty() {
+        //         pool.remove_transactions(expired);
+        //     }
+
+        // Periodically prune stale index entries for transactions the pool
+        // has already dropped (replaced, capacity eviction, expiry).
+        if blocks_since_prune >= PRUNE_INTERVAL_BLOCKS {
+            blocks_since_prune = 0;
+
+            let idx_guard = index.read();
+            if !idx_guard.is_empty() {
+                let live: HashSet<B256> = idx_guard
+                    .tracked_tx_hashes()
+                    // EIP8130_POOL_TODO: || eip8130_pool.contains(hash) (base line 412)
+                    .filter(|hash| pool.get(hash).is_some())
+                    .copied()
+                    .collect();
+                drop(idx_guard);
+
+                let pruned = index.write().prune_stale(&live);
+                if pruned > 0 {
+                    debug!(pruned, "pruned stale AA invalidation index entries");
+                }
+            }
+        }
+    }
+}

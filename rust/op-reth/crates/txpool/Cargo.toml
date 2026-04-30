@@ -28,6 +28,8 @@ reth-evm.workspace = true
 reth-execution-types.workspace = true
 reth-primitives-traits.workspace = true
 reth-chain-state.workspace = true
+reth-node-api.workspace = true
+reth-provider.workspace = true
 reth-storage-api.workspace = true
 reth-transaction-pool.workspace = true
 
@@ -49,8 +51,10 @@ metrics.workspace = true
 # misc
 c-kzg.workspace = true
 derive_more.workspace = true
+futures.workspace = true
 futures-util.workspace = true
 parking_lot.workspace = true
+tokio-stream.workspace = true
 serde.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
