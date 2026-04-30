@@ -125,10 +125,10 @@ contract DeployOPChain is Script {
             challenger: _input.challenger
         });
 
-        // Build dispute game configs - OPCMV2 requires all 6 game type configs.
+        // Build dispute game configs - OPCMV2 requires all 7 game type configs.
         // Order must match validGameTypes in OPContractsManagerV2._assertValidFullConfig().
         IOPContractsManagerUtils.DisputeGameConfig[] memory disputeGameConfigs =
-            new IOPContractsManagerUtils.DisputeGameConfig[](6);
+            new IOPContractsManagerUtils.DisputeGameConfig[](7);
 
         // Config 0: CANNON (disabled for initial deployment — no prestate exists)
         disputeGameConfigs[0] = IOPContractsManagerUtils.DisputeGameConfig({
@@ -189,6 +189,14 @@ contract DeployOPChain is Script {
             enabled: false,
             initBond: 0,
             gameType: GameTypes.SUPER_CANNON_KONA,
+            gameArgs: bytes("")
+        });
+
+        // Config 6: ZK_DISPUTE_GAME (disabled for initial deployment)
+        disputeGameConfigs[6] = IOPContractsManagerUtils.DisputeGameConfig({
+            enabled: false,
+            initBond: 0,
+            gameType: GameTypes.ZK_DISPUTE_GAME,
             gameArgs: bytes("")
         });
 
@@ -328,7 +336,6 @@ contract DeployOPChain is Script {
         ChainAssertions.checkDisputeGameFactory(
             _o.disputeGameFactoryProxy, _i.opChainProxyAdminOwner, expectedPDGImpl, true, permGameType
         );
-
         ChainAssertions.checkAnchorStateRegistryProxy(_o.anchorStateRegistryProxy, true);
         ChainAssertions.checkL1CrossDomainMessenger(_o.l1CrossDomainMessengerProxy, vm, true);
         ChainAssertions.checkOptimismPortal2({
@@ -440,7 +447,7 @@ contract DeployOPChain is Script {
         // support deploying straight to permissioned games, and the starting root does not
         // matter for that, as long as it is non-zero, since no games will be played. We do not
         // deploy the permissionless game (and therefore do not set a starting root for it here)
-        // because to to update to the permissionless game, we will need to update its starting
+        // because updating to the permissionless game will require updating its starting
         // anchor root and deploy a new permissioned dispute game contract anyway.
         //
         // You can `console.logBytes(abi.encode(ScriptConstants.DEFAULT_OUTPUT_ROOT()))` to get the bytes that

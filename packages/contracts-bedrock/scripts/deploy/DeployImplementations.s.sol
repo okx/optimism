@@ -19,6 +19,7 @@ import { IFaultDisputeGame } from "interfaces/dispute/IFaultDisputeGame.sol";
 import { ISuperFaultDisputeGame } from "interfaces/dispute/ISuperFaultDisputeGame.sol";
 import { ISuperPermissionedDisputeGame } from "interfaces/dispute/ISuperPermissionedDisputeGame.sol";
 import { IPermissionedDisputeGame } from "interfaces/dispute/IPermissionedDisputeGame.sol";
+import { IZKDisputeGame } from "interfaces/dispute/zk/IZKDisputeGame.sol";
 import { Duration, GameType, GameTypes } from "src/dispute/lib/Types.sol";
 import { IOPContractsManagerV2 } from "interfaces/L1/opcm/IOPContractsManagerV2.sol";
 import { IOPContractsManagerContainer } from "interfaces/L1/opcm/IOPContractsManagerContainer.sol";
@@ -34,10 +35,12 @@ import { IOptimismMintableERC20Factory } from "interfaces/universal/IOptimismMin
 import { IProxyAdmin } from "interfaces/universal/IProxyAdmin.sol";
 import { IStorageSetter } from "interfaces/universal/IStorageSetter.sol";
 import { IOPContractsManagerStandardValidator } from "interfaces/L1/IOPContractsManagerStandardValidator.sol";
+import { IOPContractsManagerMigrationValidator } from "interfaces/L1/opcm/IOPContractsManagerMigrationValidator.sol";
 import { DevFeatures } from "src/libraries/DevFeatures.sol";
 import { DeployUtils } from "scripts/libraries/DeployUtils.sol";
 import { Solarray } from "scripts/libraries/Solarray.sol";
 import { ChainAssertions } from "scripts/deploy/ChainAssertions.sol";
+import { IStandardValidatorUtils } from "interfaces/L1/opcm/IStandardValidatorUtils.sol";
 
 contract DeployImplementations is Script {
     struct Input {
@@ -62,14 +65,6 @@ contract DeployImplementations is Script {
     }
 
     struct Output {
-        // Deprecated v1 OPCM fields — kept for Go ABI compatibility, always zero.
-        // Remove these when Go op-deployer drops v1 struct fields.
-        address opcm;
-        address opcmContractsContainer;
-        address opcmGameTypeAdder;
-        address opcmDeployer;
-        address opcmUpgrader;
-        address opcmInteropMigrator;
         IOPContractsManagerStandardValidator opcmStandardValidator;
         IOPContractsManagerUtils opcmUtils;
         IOPContractsManagerMigrator opcmMigrator;
@@ -93,6 +88,7 @@ contract DeployImplementations is Script {
         IPermissionedDisputeGame permissionedDisputeGameImpl;
         ISuperFaultDisputeGame superFaultDisputeGameImpl;
         ISuperPermissionedDisputeGame superPermissionedDisputeGameImpl;
+        IZKDisputeGame zkDisputeGameImpl;
         IStorageSetter storageSetterImpl;
     }
 
@@ -132,6 +128,9 @@ contract DeployImplementations is Script {
         ) {
             deploySuperFaultDisputeGameImpl(_input, output_);
             deploySuperPermissionedDisputeGameImpl(_input, output_);
+        }
+        if (DevFeatures.isDevFeatureEnabled(_input.devFeatureBitmap, DevFeatures.ZK_DISPUTE_GAME)) {
+            deployZKDisputeGameImpl(output_);
         }
         deployStorageSetterImpl(output_);
 
@@ -178,6 +177,7 @@ contract DeployImplementations is Script {
             permissionedDisputeGameImpl: address(_output.permissionedDisputeGameImpl),
             superFaultDisputeGameImpl: address(_output.superFaultDisputeGameImpl),
             superPermissionedDisputeGameImpl: address(_output.superPermissionedDisputeGameImpl),
+            zkDisputeGameImpl: address(_output.zkDisputeGameImpl),
             storageSetterImpl: address(_output.storageSetterImpl)
         });
 
@@ -519,6 +519,18 @@ contract DeployImplementations is Script {
         _output.superPermissionedDisputeGameImpl = impl;
     }
 
+    function deployZKDisputeGameImpl(Output memory _output) private {
+        IZKDisputeGame impl = IZKDisputeGame(
+            DeployUtils.createDeterministic({
+                _name: "ZKDisputeGame",
+                _args: DeployUtils.encodeConstructor(abi.encodeCall(IZKDisputeGame.__constructor__, ())),
+                _salt: _salt
+            })
+        );
+        vm.label(address(impl), "ZKDisputeGameImpl");
+        _output.zkDisputeGameImpl = impl;
+    }
+
     function deployOPCMContainer(
         Input memory _input,
         Output memory _output,
@@ -594,23 +606,43 @@ contract DeployImplementations is Script {
         opcmImplementations.permissionedDisputeGameImpl = _implementations.permissionedDisputeGameImpl;
         opcmImplementations.superFaultDisputeGameImpl = _implementations.superFaultDisputeGameImpl;
         opcmImplementations.superPermissionedDisputeGameImpl = _implementations.superPermissionedDisputeGameImpl;
+        opcmImplementations.zkDisputeGameImpl = _implementations.zkDisputeGameImpl;
 
+        IStandardValidatorUtils standardValidatorUtils = IStandardValidatorUtils(
+            DeployUtils.createDeterministic({
+                _name: "StandardValidatorUtils.sol:StandardValidatorUtils",
+                _args: DeployUtils.encodeConstructor(abi.encodeCall(IStandardValidatorUtils.__constructor__, ())),
+                _salt: _salt
+            })
+        );
+
+        IOPContractsManagerMigrationValidator migrationValidatorImpl = IOPContractsManagerMigrationValidator(
+            DeployUtils.createDeterministic({
+                _name: "OPContractsManagerMigrationValidator.sol:OPContractsManagerMigrationValidator",
+                _args: DeployUtils.encodeConstructor(
+                    abi.encodeCall(IOPContractsManagerMigrationValidator.__constructor__, ())
+                ),
+                _salt: _salt
+            })
+        );
+
+        bytes memory standardValidatorCtorCall = abi.encodeCall(
+            IOPContractsManagerStandardValidator.__constructor__,
+            (
+                standardValidatorUtils,
+                migrationValidatorImpl,
+                opcmImplementations,
+                _input.superchainConfigProxy,
+                _input.l1ProxyAdminOwner,
+                _input.challenger,
+                _input.withdrawalDelaySeconds,
+                _input.devFeatureBitmap
+            )
+        );
         IOPContractsManagerStandardValidator impl = IOPContractsManagerStandardValidator(
             DeployUtils.createDeterministic({
                 _name: "OPContractsManagerStandardValidator.sol:OPContractsManagerStandardValidator",
-                _args: DeployUtils.encodeConstructor(
-                    abi.encodeCall(
-                        IOPContractsManagerStandardValidator.__constructor__,
-                        (
-                            opcmImplementations,
-                            _input.superchainConfigProxy,
-                            _input.l1ProxyAdminOwner,
-                            _input.challenger,
-                            _input.withdrawalDelaySeconds,
-                            _input.devFeatureBitmap
-                        )
-                    )
-                ),
+                _args: DeployUtils.encodeConstructor(standardValidatorCtorCall),
                 _salt: _salt
             })
         );
@@ -734,6 +766,10 @@ contract DeployImplementations is Script {
             addrs2 = Solarray.extend(addrs2, superGameAddrs);
         }
 
+        if (DevFeatures.isDevFeatureEnabled(_input.devFeatureBitmap, DevFeatures.ZK_DISPUTE_GAME)) {
+            addrs2 = Solarray.extend(addrs2, Solarray.addresses(address(_output.zkDisputeGameImpl)));
+        }
+
         DeployUtils.assertValidContractAddresses(Solarray.extend(addrs1, addrs2));
 
         require(address(_output.opcmV2) != address(0), "DeployImplementations: OPCM V2 not deployed");
@@ -749,6 +785,18 @@ contract DeployImplementations is Script {
             require(
                 address(_output.superPermissionedDisputeGameImpl) == address(0),
                 "DeployImplementations: super game flag disabled but SuperPermissionedDisputeGame was deployed"
+            );
+        }
+
+        if (DevFeatures.isDevFeatureEnabled(_input.devFeatureBitmap, DevFeatures.ZK_DISPUTE_GAME)) {
+            require(
+                address(_output.zkDisputeGameImpl) != address(0),
+                "DeployImplementations: ZK_DISPUTE_GAME flag enabled but ZKDisputeGame was not deployed"
+            );
+        } else {
+            require(
+                address(_output.zkDisputeGameImpl) == address(0),
+                "DeployImplementations: ZK_DISPUTE_GAME flag disabled but ZKDisputeGame was deployed"
             );
         }
 
@@ -771,6 +819,10 @@ contract DeployImplementations is Script {
         ChainAssertions.checkL1ERC721BridgeImpl(_output.l1ERC721BridgeImpl);
         ChainAssertions.checkL1StandardBridgeImpl(_output.l1StandardBridgeImpl);
         ChainAssertions.checkMIPS(_output.mipsSingleton, _output.preimageOracleSingleton);
+
+        if (DevFeatures.isDevFeatureEnabled(_input.devFeatureBitmap, DevFeatures.ZK_DISPUTE_GAME)) {
+            ChainAssertions.checkZKDisputeGameImpl(_output.zkDisputeGameImpl);
+        }
 
         ChainAssertions.checkOptimismMintableERC20FactoryImpl(_output.optimismMintableERC20FactoryImpl);
         ChainAssertions.checkOptimismPortal2({

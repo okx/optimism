@@ -3,7 +3,7 @@ pragma solidity 0.8.15;
 
 // Testing
 import { console2 as console } from "forge-std/console2.sol";
-import { Vm } from "forge-std/Vm.sol";
+import { Vm, VmSafe } from "forge-std/Vm.sol";
 import { EIP1967Helper } from "test/mocks/EIP1967Helper.sol";
 import { FeatureFlags } from "test/setup/FeatureFlags.sol";
 import { DisputeGames } from "test/setup/DisputeGames.sol";
@@ -68,9 +68,6 @@ import { ILegacyMessagePasser } from "interfaces/legacy/ILegacyMessagePasser.sol
 import { ICrossL2Inbox } from "interfaces/L2/ICrossL2Inbox.sol";
 import { ILiquidityController } from "interfaces/L2/ILiquidityController.sol";
 import { INativeAssetLiquidity } from "interfaces/L2/INativeAssetLiquidity.sol";
-import { IFeeSplitter } from "interfaces/L2/IFeeSplitter.sol";
-import { IL1Withdrawer } from "interfaces/L2/IL1Withdrawer.sol";
-import { ISuperchainRevSharesCalculator } from "interfaces/L2/ISuperchainRevSharesCalculator.sol";
 import { IOPContractsManagerV2 } from "interfaces/L1/opcm/IOPContractsManagerV2.sol";
 import { IConditionalDeployer } from "interfaces/L2/IConditionalDeployer.sol";
 
@@ -160,9 +157,6 @@ abstract contract Setup is FeatureFlags {
     IETHLiquidity ethLiquidity = IETHLiquidity(Predeploys.ETH_LIQUIDITY);
     ILiquidityController liquidityController = ILiquidityController(Predeploys.LIQUIDITY_CONTROLLER);
     INativeAssetLiquidity nativeAssetLiquidity = INativeAssetLiquidity(Predeploys.NATIVE_ASSET_LIQUIDITY);
-    IFeeSplitter feeSplitter = IFeeSplitter(payable(Predeploys.FEE_SPLITTER));
-    IL1Withdrawer l1Withdrawer;
-    ISuperchainRevSharesCalculator superchainRevSharesCalculator;
     IConditionalDeployer conditionalDeployer = IConditionalDeployer(Predeploys.CONDITIONAL_DEPLOYER);
 
     /// @notice Indicates whether a test is running against a forked production network.
@@ -250,6 +244,18 @@ abstract contract Setup is FeatureFlags {
         }
     }
 
+    /// @dev Skips tests only under coverage mode, where Foundry injects instrumentation
+    ///      opcodes that change deployed bytecode relative to the compiled artifact.
+    ///      Prefer this over skipIfUnoptimized() for tests that compare locally-compiled
+    ///      bytecode to locally-compiled artifacts: both sides move together across
+    ///      optimized/unoptimized profiles, but coverage instrumentation breaks the
+    ///      comparison because the artifact on disk is not instrumented.
+    function skipIfCoverage() public {
+        if (vm.isContext(VmSafe.ForgeContext.Coverage)) {
+            vm.skip(true);
+        }
+    }
+
     /// @dev Mocks getProxyImplementation for DelayedWETH and ETHLockbox proxies when running
     ///      with an unoptimized Foundry profile. These proxies are not re-pointed during OPCM
     ///      upgrades, so their CREATE2 implementation addresses diverge from mainnet when
@@ -270,7 +276,8 @@ abstract contract Setup is FeatureFlags {
         console.log("Setup: mocking unoptimized proxy implementations");
 
         string memory delayedWETHVersion = ISemver(_delayedWETHImpl).version();
-        GameType[3] memory gameTypes = [GameTypes.CANNON, GameTypes.PERMISSIONED_CANNON, GameTypes.CANNON_KONA];
+        GameType[4] memory gameTypes =
+            [GameTypes.CANNON, GameTypes.PERMISSIONED_CANNON, GameTypes.CANNON_KONA, GameTypes.ZK_DISPUTE_GAME];
         for (uint256 i = 0; i < gameTypes.length; i++) {
             IDelayedWETH delayedWETHProxy = DisputeGames.getGameImplDelayedWeth(_dgf, gameTypes[i]);
             if (address(delayedWETHProxy) != address(0)) {
@@ -442,10 +449,7 @@ abstract contract Setup is FeatureFlags {
                 fork: uint256(l2Fork),
                 enableGovernance: deploy.cfg().enableGovernance(),
                 fundDevAccounts: deploy.cfg().fundDevAccounts(),
-                useRevenueShare: deploy.cfg().useRevenueShare(),
                 useInterop: deploy.cfg().useInterop(),
-                chainFeesRecipient: deploy.cfg().chainFeesRecipient(),
-                l1FeesDepositor: deploy.cfg().l1FeesDepositor(),
                 useCustomGasToken: deploy.cfg().useCustomGasToken(),
                 gasPayingTokenName: deploy.cfg().gasPayingTokenName(),
                 gasPayingTokenSymbol: deploy.cfg().gasPayingTokenSymbol(),
@@ -454,13 +458,6 @@ abstract contract Setup is FeatureFlags {
                 devFeatureBitmap: devFeatureBitmap
             })
         );
-
-        if (deploy.cfg().useRevenueShare()) {
-            superchainRevSharesCalculator = ISuperchainRevSharesCalculator(
-                address(IFeeSplitter(payable(Predeploys.FEE_SPLITTER)).sharesCalculator())
-            );
-            l1Withdrawer = IL1Withdrawer(superchainRevSharesCalculator.shareRecipient());
-        }
 
         // Set the governance token's owner to be the final system owner
         address finalSystemOwner = deploy.cfg().finalSystemOwner();
@@ -527,7 +524,6 @@ abstract contract Setup is FeatureFlags {
         labelPredeploy(Predeploys.ETH_LIQUIDITY);
         labelPredeploy(Predeploys.NATIVE_ASSET_LIQUIDITY);
         labelPredeploy(Predeploys.LIQUIDITY_CONTROLLER);
-        labelPredeploy(Predeploys.FEE_SPLITTER);
         labelPredeploy(Predeploys.CONDITIONAL_DEPLOYER);
         labelPredeploy(Predeploys.L2_DEV_FEATURE_FLAGS);
     }
