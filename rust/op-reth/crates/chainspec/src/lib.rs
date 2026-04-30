@@ -214,6 +214,13 @@ impl OpChainSpecBuilder {
         self
     }
 
+    /// Enable NativeAA (EIP-8130) at genesis
+    pub fn native_aa_activated(mut self) -> Self {
+        self = self.interop_activated();
+        self.inner = self.inner.with_fork(OpHardfork::NativeAA, ForkCondition::Timestamp(0));
+        self
+    }
+
     /// Build the resulting [`OpChainSpec`].
     ///
     /// # Panics

@@ -107,23 +107,46 @@ the PR description explaining the categorical cause.
 
 ## 4. General port workflow
 
-### 4.1 Discovery before action
+### 4.1 Discover the port surface by symbol, not by filename
 
-Before porting any file, read its upstream version end-to-end. Map every
-external symbol it references — does the symbol exist at the same path
-in our tree? Different path? Different name? Doesn't exist at all? This
-maps to four actions:
+Do **not** scope the port by file naming convention (e.g. "files matching
+`*eip8130*` or living under feature-named modules"). Upstream wires the
+feature through cross-cutting files whose names don't mention the feature
+at all — chainspec parsing, genesis types, hardfork enums, fork-tracker
+maps, test harnesses, deployer config, devnet stack, RPC types.
+
+Instead, scope by **symbol grep over the upstream tree**:
+
+```bash
+cd <upstream>
+git grep -l "<UpstreamForkName>\|<upstream_snake_name>\|<upstream_const>" \
+  -- '*.rs' '*.go' '*.sol' '*.toml'
+```
+
+Every hit is in the port surface. A file matching the symbol but not
+matching the feature name pattern is exactly the kind of cross-cutting
+wiring that filename-based discovery silently misses.
+
+Repeat the grep with each name the feature touches — the fork name, the
+tx-type byte, the constant identifying the spec, etc. Union the results.
+
+### 4.2 Per-file symbol mapping before edit
+
+For every file in the surface (§4.1), read its upstream version end-to-end.
+Map every external symbol it references — does the symbol exist at the
+same path in our tree? Different path? Different name? Doesn't exist at
+all? This maps to four actions:
 
 | Upstream symbol status here | Action |
 |---|---|
 | Exists at same path | Use as-is |
 | Exists at different path | Adapt the import; consider re-export to flatten |
 | Renamed | Apply the rename mechanically |
-| Doesn't exist (upstream-version drift) | Build a §4.2 cookbook entry |
+| Doesn't exist (upstream-version drift) | Build a §4.3 cookbook entry |
 
 Build the file map and the rename table by surveying, not by guessing.
 
-### 4.2 Upstream-version cookbook
+### 4.3 Upstream-version cookbook
 
 When upstream uses an API that doesn't exist or has changed in our
 dependency versions, the agent maintains a running cookbook of mechanical
@@ -140,20 +163,20 @@ substitutions for the duration of the port. Format each entry:
 Apply each entry uniformly across every file the agent touches. Don't
 ad-hoc translate the same drift twice.
 
-### 4.3 Copy first, deviate when forced
+### 4.4 Copy first, deviate when forced
 
 For each ported file the default action is **byte-copy + apply the rename
 table + apply cookbook substitutions**. Deviation beyond that requires
 written justification (in the file or in a port-notes doc) citing one of:
 
-1. A specific cookbook entry (§4.2)
+1. A specific cookbook entry (§4.3)
 2. A categorical structural difference (file size split, op-only vs
    upstream-only modules, our reth pin's trait API)
 3. A P1–P5 principle that forces it
 
 If you can't cite one of those three, you don't deviate.
 
-### 4.4 Test blocks port too
+### 4.5 Test blocks port too
 
 `#[cfg(test)] mod tests` blocks are part of the file. Port them with the
 same rules. They're how you discover whether your adaptations preserve

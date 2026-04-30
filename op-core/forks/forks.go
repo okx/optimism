@@ -18,6 +18,7 @@ const (
 	Jovian   Name = "jovian"
 	Karst    Name = "karst"
 	Interop  Name = "interop"
+	NativeAA Name = "nativeaa"
 	// ADD NEW MAINLINE FORKS TO [All] BELOW!
 
 	// Optional Forks - not part of mainline
