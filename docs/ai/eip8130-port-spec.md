@@ -1,28 +1,29 @@
 # EIP-8130 Port Specification (AI-Executable)
 
-**Audience**: an AI coding agent tasked with porting EIP-8130 (Account
-Abstraction by Account Configuration) from `base` to this monorepo from
-scratch.
+**Audience**: an AI agent porting a feature from an upstream reference
+implementation to this monorepo.
 
-**Goal**: byte-compatible state roots with base on the same EIP-8130
-transaction.
+**Mission**: produce byte-compatible state roots with the upstream on the
+same input. Discover the file map, the upstream version drift, and the
+required adaptations yourself by reading both codebases.
 
 ---
 
 ## 1. References
 
-| Resource | Path | Status |
-|---|---|---|
-| Base reference impl | `/Users/xzavieryuan/workspace/reth-projects/base` | Branch `eip-8130-v2`, frozen at `a33ab4d` |
-| Base alloy-2.0 rebase (no EIP-8130 yet) | same repo, branch `hh/reth-v2-rebased` | Reference only |
-| Our root | `/Users/xzavieryuan/workspace/op-dev/optimism` | Work in `rust/` |
+| Resource | Path |
+|---|---|
+| Upstream reference | `/Users/xzavieryuan/workspace/reth-projects/base` (branch `eip-8130-v2`, frozen at `a33ab4d`) |
+| Our root | `/Users/xzavieryuan/workspace/op-dev/optimism` |
+
+The agent figures out everything else from these two roots.
 
 ---
 
 ## 2. Five binding principles
 
-Every concrete rule below derives from one of these. When a situation
-isn't covered by a specific section, fall back here.
+Every concrete decision derives from one of these. When a situation isn't
+covered elsewhere in this doc, fall back here.
 
 ### P1. Code state matches reality
 
@@ -36,11 +37,12 @@ suppression goes.
 A single semantic identity gets a single identifier across the codebase.
 No aliases, no decorative prefixes/suffixes that encode no new constraint.
 
-### P3. Mirror base's structure
+### P3. Mirror upstream structure
 
-If base has 2 private copies of a constant to dodge a cyclic dep, mirror
-that. Don't consolidate, don't refactor, don't add abstractions base
-lacks. The byte-alignment metric (§3) is your judge.
+If upstream has 2 private copies of a constant to dodge a cyclic dep,
+mirror that. Don't consolidate, don't refactor, don't add abstractions
+upstream lacks. The byte-alignment metric (§3) is the judge. When in
+doubt: copy.
 
 ### P4. Compiler feedback is signal
 
@@ -51,340 +53,198 @@ no `_unused` prefixes used as escape hatches.
 ### P5. Understand a name before changing it
 
 Two similar names may identify different things. Trace the domain (fork
-name? gas-schedule version? trait method? contract version?) before
-renaming. Rename only within one domain.
+name? schedule version? trait method? contract version?) before renaming.
+Rename only within one domain.
 
-These principles compose. Most anti-patterns violate two or more.
+These compose. Most violations break two or more.
 
 ---
 
 ## 3. Byte-alignment metric
+
+The agent's primary correctness signal alongside compilation.
 
 For each ported file, normalize trivial differences with sed and count
 remaining divergent lines:
 
 ```bash
 normalize() { sed -E '
-  s/base_revm/op_revm/g
-  s/base_alloy_consensus/op_alloy_consensus/g
-  s/base_alloy_evm/alloy_op_evm/g
-  s/BasePrecompiles/OpPrecompiles/g
-  s/BasePooledTransaction/OpPooledTransaction/g
-  s/BASE_V1/NATIVE_AA/g
-  s/base_v1/native_aa/g
-  s/BaseV1/NativeAA/g
-  s/Base /Optimism /g
-  s/`base/`Optimism/g
-  s/base-revm/op-revm/g
-  s/base-alloy-consensus/op-alloy-consensus/g
+  # Crate path renames specific to this codebase
+  s/<upstream_crate_a>/<ours_crate_a>/g
+  s/<upstream_crate_b>/<ours_crate_b>/g
+  # ... etc
+  # Branding renames
+  s/<upstream_brand>/<ours_brand>/g
+  # Hardfork name renames
+  s/<upstream_fork>/<ours_fork>/g
 '; }
 
-normalize < $OURS/path > /tmp/o.rs
-normalize < $BASE/path > /tmp/b.rs
-diff /tmp/o.rs /tmp/b.rs | grep -c '^[<>]'   # divergent lines
+normalize < $OURS/path > /tmp/o
+normalize < $BASE/path > /tmp/b
+diff /tmp/o /tmp/b | grep -c '^[<>]'   # divergent lines
 ```
 
-Tier limits per file (see §5 file map for which tier each file targets):
+The agent constructs the actual sed rules by surveying both codebases for
+the rename patterns in play.
 
-| Tier | Target | Allowed cause |
+### 3.1 Tier targets
+
+Every file you port belongs to one of these tiers. If a file's normalized
+divergence exceeds its tier, you have an unjustified deviation — find and
+remove.
+
+| Tier | Lines | When applicable |
 |---|---|---|
-| 0 | 0 lines | Pure data carrier, no API drift |
-| A | <10 | Trivial path qualification |
-| B | 10-30 | Known structural difference (TransactionPool API drift, file split) |
-| C | 100+ | revm 34→38 API adaptation, op-only modules, base-only modules |
+| 0 | 0 | Pure data carriers, policy modules, no upstream-version drift in their dependencies |
+| A | <10 | Trivial path-qualification differences (e.g. an import that lives at a different module path here) |
+| B | 10-30 | Documented structural differences (file split for size, our reth pin's stricter trait API) |
+| C | 100+ | Known categorical drift: upstream-version API adaptation, modules unique to one side |
 
-Anything outside these tiers is an unjustified deviation. Find and remove.
+Tier C is allowed but each file in it must have a one-sentence note in
+the PR description explaining the categorical cause.
 
 ---
 
-## 4. revm 34→38 / alloy 1.6→2.0 cookbook
+## 4. General port workflow
 
-Base is on revm 34 / alloy 1.6. We are on revm 38 / alloy 2.0. Apply
-these mechanical adaptations whenever base code doesn't compile against
-our deps.
+### 4.1 Discovery before action
 
-### 4.1 Renames
+Before porting any file, read its upstream version end-to-end. Map every
+external symbol it references — does the symbol exist at the same path
+in our tree? Different path? Different name? Doesn't exist at all? This
+maps to four actions:
 
-| revm 34 (base) | revm 38 (ours) |
+| Upstream symbol status here | Action |
 |---|---|
-| `PrecompileError` enum | `PrecompileHalt` |
-| `PrecompileResult` | `EthPrecompileResult` |
-| `Gas::record_cost(n)` | `Gas::record_regular_cost(n)` |
-| `ContextError::take_error(...)` | `context::take_error(...)` (free fn) |
+| Exists at same path | Use as-is |
+| Exists at different path | Adapt the import; consider re-export to flatten |
+| Renamed | Apply the rename mechanically |
+| Doesn't exist (upstream-version drift) | Build a §4.2 cookbook entry |
 
-### 4.2 `CallInputs` field changes
+Build the file map and the rename table by surveying, not by guessing.
 
-```rust
-// revm 38 added `reservoir` (EIP-8037; 0 for sub-EVM STATICCALLs that
-// don't inherit a parent reservoir) and made `known_bytecode` non-Optional.
-let known_bytecode = {
-    let info = &evm.ctx().journal_mut()
-        .load_account_with_code(addr)?      // replaces load_account
-        .data
-        .info;
-    (info.code_hash(), info.code.clone().unwrap_or_default())
-};
-let inputs = CallInputs {
-    // ... base fields ...
-    reservoir: 0,                            // NEW
-    known_bytecode,                          // was Option<...>
-    // ...
-};
+### 4.2 Upstream-version cookbook
+
+When upstream uses an API that doesn't exist or has changed in our
+dependency versions, the agent maintains a running cookbook of mechanical
+substitutions for the duration of the port. Format each entry:
+
+```
+## <Old API> → <New API>
+- Old:        <signature in upstream>
+- New:        <signature in ours>
+- Reason:     <which crate version bump caused this>
+- Adaptation: <how to translate uses>
 ```
 
-### 4.3 Precompile macro
+Apply each entry uniformly across every file the agent touches. Don't
+ad-hoc translate the same drift twice.
 
-revm 38 requires `eth_precompile_fn!` to wrap raw precompile fns before
-registration:
+### 4.3 Copy first, deviate when forced
 
-```rust
-eth_precompile_fn!(granite_precompile, run_pair_granite);
-.with_precompile(addr, Precompile::new(g, granite_precompile));
-```
+For each ported file the default action is **byte-copy + apply the rename
+table + apply cookbook substitutions**. Deviation beyond that requires
+written justification (in the file or in a port-notes doc) citing one of:
 
-### 4.4 `OpSpecId::NATIVE_AA` maps to `SpecId::OSAKA`
+1. A specific cookbook entry (§4.2)
+2. A categorical structural difference (file size split, op-only vs
+   upstream-only modules, our reth pin's trait API)
+3. A P1–P5 principle that forces it
 
-CLZ + OSAKA-priced MODEXP/P256VERIFY are required. Mapping to PRAGUE
-diverges gas accounting — don't.
+If you can't cite one of those three, you don't deviate.
+
+### 4.4 Test blocks port too
+
+`#[cfg(test)] mod tests` blocks are part of the file. Port them with the
+same rules. They're how you discover whether your adaptations preserve
+behavior.
 
 ---
 
-## 5. File map (base → ours)
+## 5. Verification
 
-### 5.1 Consensus (op-alloy)
+### 5.1 Compile loop
 
-| Base | Ours | Tier |
-|---|---|---|
-| `crates/common/consensus/src/transaction/eip8130/` | `rust/op-alloy/crates/consensus/src/transaction/eip8130/` | 0 |
-| `OpTxEnvelope::BaseV1` | `OpTxEnvelope::Eip8130` | — |
-| `OpTxType::BaseV1` (=0x7B) | `OpTxType::Eip8130` | — |
-
-### 5.2 EVM (op-revm + alloy-op-evm)
-
-| Base | Ours | Tier |
-|---|---|---|
-| `crates/execution/revm/src/handler.rs` (3500 LOC) | `rust/op-revm/src/handler.rs` + `handler_aa_helpers.rs` (size split) | C |
-| `crates/execution/revm/src/precompiles.rs` | `rust/op-revm/src/precompiles.rs` | C |
-| `crates/execution/revm/src/constants.rs` | `rust/op-revm/src/constants.rs` (no `EIP8130_TX_TYPE` here — see §6.1) | 0 |
-| `crates/execution/revm/src/spec.rs` | `rust/op-revm/src/spec.rs` | C |
-| `crates/execution/revm/src/eip8130_policy.rs` | `rust/op-revm/src/eip8130_policy.rs` | 0 |
-| `crates/execution/revm/src/transaction/eip8130.rs` | `rust/op-revm/src/transaction/eip8130.rs` | A |
-| `crates/execution/revm/src/transaction/abstraction.rs` | `rust/op-revm/src/transaction/abstraction.rs` | 0 |
-| `base_alloy_consensus::build_eip8130_parts_with_costs` | `alloy_op_evm::build_eip8130_parts_with_costs` | — |
-
-### 5.3 Txpool (op-reth)
-
-| Base | Ours | Tier |
-|---|---|---|
-| `crates/txpool/src/eip8130_pool.rs` (2148 LOC) | `rust/op-reth/crates/txpool/src/eip8130_pool.rs` | A |
-| `crates/txpool/src/base_pool.rs` (569) | `rust/op-reth/crates/txpool/src/base_pool.rs` | B |
-| `crates/txpool/src/best.rs` (281) | `rust/op-reth/crates/txpool/src/best.rs` | A |
-| `crates/txpool/src/eip8130_invalidation.rs` | `rust/op-reth/crates/txpool/src/eip8130_invalidation.rs` | B |
-| `crates/txpool/src/eip8130_validate.rs` | `rust/op-reth/crates/txpool/src/eip8130_validate.rs` | C |
-| `crates/txpool/src/validator.rs` | `rust/op-reth/crates/txpool/src/validator.rs` | C |
-| `crates/txpool/src/transaction.rs` | `rust/op-reth/crates/txpool/src/transaction.rs` | C |
-| `crates/txpool/src/lib.rs` | `rust/op-reth/crates/txpool/src/lib.rs` | C |
-
-### 5.4 Hardforks + Payload + Node
-
-| Base | Ours |
-|---|---|
-| `BaseUpgrade::V1` | `OpHardfork::NativeAA` (no `XLayer` prefix; no `is_eip8130_*` alias) |
-| `is_base_v1_active_at_timestamp` | `is_native_aa_active_at_timestamp` |
-| `crates/common/evm/src/spec_id.rs` | `rust/alloy-op-evm/src/env.rs` (NATIVE_AA arm goes FIRST in resolution macro) |
-| `crates/execution/payload/src/builder.rs` `Eip8130PayloadTransactions` | `rust/op-reth/crates/payload/src/builder.rs` |
-| `crates/execution/node/src/node.rs` pool wire | `rust/op-reth/crates/node/src/node.rs` (layering: `Pool → BaseTransactionPool → OpPool`) |
-
----
-
-## 6. Non-obvious port points
-
-These are the spots where mechanical translation isn't enough.
-
-### 6.1 `EIP8130_TX_TYPE` constant placement
-
-Base has 2 private copies (`handler.rs:43` and `precompiles.rs:208`) to
-avoid a cyclic intra-crate dep. Mirror exactly:
-
-- `op-revm/src/handler_aa_helpers.rs`: `pub(crate) const EIP8130_TX_TYPE: u8 = 0x7B;`
-- `op-revm/src/precompiles.rs`: `const EIP8130_TX_TYPE: u8 = 0x7B;` (private)
-
-External callers use `op_alloy_consensus::transaction::eip8130::AA_TX_TYPE_ID`
-(canonical).
-
-### 6.2 Validator AA routing
-
-```rust
-if transaction.ty() == op_alloy_consensus::transaction::eip8130::AA_TX_TYPE_ID {
-    if !self.chain_spec().is_native_aa_active_at_timestamp(self.block_timestamp()) {
-        return Invalid(transaction, TxTypeNotSupported.into());
-    }
-    // validate via crate::validate_eip8130_transaction(...)
-    // route to self.eip8130_pool.add_transaction(...)
-    // attach_aa_metadata
-    // return Valid { propagate: false, ... }
-}
-```
-
-### 6.3 Node pool layering
-
-```rust
-let inner_pool = TxPoolBuilder::new(ctx).with_validator(validator).build(...);
-let eip8130_pool = inner_pool.validator().validator().eip8130_pool();
-let invalidation_index = inner_pool.validator().validator().invalidation_index();
-let combined = BaseTransactionPool::new(inner_pool, eip8130_pool.clone());
-let transaction_pool = OpPool::new(combined, interop_filter_enabled);
-
-ctx.task_executor().spawn_critical_task(
-    "eip8130-maintenance",
-    maintain_eip8130_invalidation(
-        transaction_pool.clone(),
-        eip8130_pool,
-        BroadcastStream::new(ctx.provider().subscribe_to_canonical_state()),
-        invalidation_index,
-    ),
-);
-```
-
-### 6.4 Type alias
-
-```rust
-pub type OpTransactionPool<Client, S, Evm, T = OpPooledTransaction> = OpPool<
-    BaseTransactionPool<
-        Pool<TransactionValidationTaskExecutor<OpTransactionValidator<Client, T, Evm>>,
-             CoinbaseTipOrdering<T>, S>,
-        T,
-    >,
->;
-```
-
-### 6.5 Cargo.toml feature propagation
-
-When `reth-optimism-txpool` consumes `op-revm`/`alloy-op-evm` via workspace
-deps with `default-features = false`, opt into `std` explicitly — otherwise
-`ToString` isn't in the `no_std` prelude and `to_string()` calls fail:
-
-```toml
-op-revm = { workspace = true, features = ["std"] }
-alloy-op-evm = { workspace = true, features = ["native-verifier", "std"] }
-```
-
-`reth-optimism-node` needs `tokio-stream.workspace = true` for the
-`BroadcastStream` used in the maintenance task.
-
----
-
-## 7. Workflow
-
-### 7.1 Compile loop
+After every meaningful edit:
 
 ```bash
-cargo check --workspace 2>&1 | tail -8
-cargo check -p <crate>           # single-crate iteration
+cargo check --workspace 2>&1 | tail
+cargo check -p <crate>           # tighter feedback during iteration
 ```
 
-### 7.2 Diff loop
+### 5.2 Diff loop
 
-After a file is "done", run §3's normalize+diff and verify the count
-matches the file's tier (§5).
+After each file is "done", run §3 normalize+diff. Confirm the count
+matches the file's tier. Persist the per-file divergence counts somewhere
+(commit message, port-notes doc) so the next porter can verify them
+without re-running.
 
-### 7.3 Suspicious-marker scan
+### 5.3 Suspicious-marker scan
 
-Before declaring any file done:
+Before declaring any file done, grep the touched directories for:
 
-```bash
-grep -rnE "#\[allow\(dead_code|#\[allow\(unused_imports|#!\[allow" \
-  rust/op-revm/src rust/op-reth/crates/txpool/src \
-  rust/op-alloy/crates/consensus/src/transaction/eip8130 rust/alloy-op-evm/src
-# Expected: empty.
+- `#[allow(dead_code)]`, `#[allow(unused_imports)]`, file-level `#![allow(...)]`
+  → P4 violations
+- `let _ = <var>;` patterns where `<var>` is a function parameter or local
+  binding → P4 violations
+- `TODO`, `FIXME`, `NOT YET PORTED`, `stub` markers
+  → P1 violations unless they exist verbatim in upstream
 
-grep -rnE "TODO\b|EIP8130_POOL_TODO|EIP8130_METADATA_TODO|FIXME|NOT YET PORTED|stub\b" \
-  rust/op-revm/src rust/op-reth/crates/txpool/src
-# Expected: only TODOs that exist in base verbatim. Anything else = P1 violation.
-```
+Expected output: empty (or a finite list whose every entry exists verbatim
+in the upstream file at the same logical location).
+
+### 5.4 Tests
+
+Run the project's test suite for the touched crates and the workspace.
+The pre-port test count is the floor. Anything below the floor is a
+regression. Anything not green is a regression.
 
 ---
 
-## 8. Task breakdown
+## 6. Definition of done
 
-Execute in order. Each step is independently verifiable.
-
-| # | Task | Verification |
-|---|---|---|
-| 1 | Port `op-alloy/.../transaction/eip8130/` directory | tier 0 per file |
-| 2 | Add `Eip8130` arm to `OpTxType`, `OpTxEnvelope`, `OpTypedTransaction`, receipt envelope | `cargo check -p op-alloy` |
-| 3 | Add `OpHardfork::NativeAA` + `is_native_aa_active_at_timestamp` (single name) | `cargo check -p alloy-op-hardforks` |
-| 4 | Add `OpSpecId::NATIVE_AA → SpecId::OSAKA` | `cargo check -p op-revm` |
-| 5 | Port `eip8130_policy.rs` | tier 0 |
-| 6 | Port `constants.rs` (no `EIP8130_TX_TYPE`) | tier 0 |
-| 7 | Port `transaction/eip8130.rs` (Eip8130Parts) | tier A |
-| 8 | Port `transaction/abstraction.rs` | tier 0 |
-| 9 | Port `precompiles.rs` (apply §4 cookbook) | compile clean |
-| 10 | Port handler logic — split into `handler.rs` + `handler_aa_helpers.rs`. Apply §4. Include nonce-free path. `EIP8130_TX_TYPE` per §6.1. | compile clean |
-| 11 | Port `alloy-op-evm/src/eip8130_compat.rs` + `build_eip8130_parts_with_costs` | `cargo check -p alloy-op-evm` |
-| 12 | Port `alloy-op-evm/src/tx.rs` Eip8130 dispatch | compile clean |
-| 13 | Port `eip8130_invalidation.rs` + tests | 13 tests pass |
-| 14 | Port `eip8130_validate.rs` (incl. `verify_custom_via_evm`, `compute_account_tier`) + tests | 17 tests pass |
-| 15 | Port `eip8130_pool.rs`, `base_pool.rs`, `best.rs` (~3000 lines mechanical) | compile clean |
-| 16 | Wire validator (§6.2) | tests pass |
-| 17 | Add `Eip8130Metadata` + `attach_aa_metadata`/`get_aa_metadata` on `OpPooledTx` | compile clean |
-| 18 | Update `lib.rs` re-exports + type alias (§6.4) | compile clean |
-| 19 | Wire `payload/builder.rs` `Eip8130PayloadTransactions` | compile clean |
-| 20 | Wire `node/node.rs` (§6.3) | compile clean |
-| 21 | Add Eip8130 receipt arm in primitives, RPC, codec | workspace clean |
-| 22 | Run §3 diff per file. Confirm tier limits met. | all tiers met |
-| 23 | Run §7.3 marker scan. Empty. | clean |
-| 24 | `cargo test --workspace` | ≥92 tests, 0 failures |
-
----
-
-## 9. Definition of done
-
-All five must hold:
+All four must hold simultaneously:
 
 ```bash
-# 1. Workspace compiles cleanly (only the pre-existing alloy_evm warning).
+# 1. Workspace compiles cleanly (no new warnings beyond pre-existing).
 cargo check --workspace 2>&1 | grep -E "^error" | head
 # Expected: empty.
 
-# 2. Tests pass.
-cargo test -p reth-optimism-txpool --lib 2>&1 | tail -3
-# Expected: "test result: ok. 92 passed; 0 failed"
+# 2. Test suite green; count ≥ pre-port floor.
+cargo test --workspace 2>&1 | tail -3
+# Expected: "test result: ok. <N>+ passed; 0 failed"
 
-# 3. Per-file diff within tier limits (§3, §5).
+# 3. Per-file diff within tier limits (§3.1).
 
-# 4. Marker scan empty (§7.3).
-
-# 5. cargo test --workspace returns 0.
+# 4. Suspicious-marker scan empty (§5.3).
 ```
 
-Before submission, the AI must answer:
+Before submitting the agent must answer:
 
-1. Did I run all five checks above? Did they pass?
-2. For every divergence I introduced, can I cite which §4 cookbook rule,
-   §5 file-map note, or §6 non-obvious port point justifies it?
-3. Did I introduce any P1–P5 violations?
+1. Did all four checks pass?
+2. For every divergence I introduced, can I cite which cookbook entry,
+   structural difference, or principle justifies it?
+3. Did I introduce any P1–P5 violation?
 
 If (3) is yes, or (2) is no for any divergence, the work is not done.
 
 ---
 
-## 10. Future re-alignment
+## 7. Future re-alignment
 
-Base may eventually merge `eip-8130-v2` with `hh/reth-v2-rebased` (alloy
-2.0 upgrade), at which point base's revm 34→38 divergence from us
-collapses.
-
-To detect:
+Upstream may evolve after this port lands — bug fixes, version upgrades,
+spec updates. To detect drift:
 
 ```bash
-cd /Users/xzavieryuan/workspace/reth-projects/base
+cd <upstream>
 git fetch origin
-git log a33ab4d..origin/eip-8130-v2 --oneline   # any new commits?
-git log a33ab4d..origin/hh/reth-v2-rebased --oneline -- \
-    crates/txpool crates/execution/revm crates/common/consensus
+git log <last-synced-commit>..origin/<feature-branch> --oneline
+git log <last-synced-commit>..origin/<other-tracked-branch> --oneline -- <relevant paths>
 ```
 
-When new merge lands, re-run §3 against the new commit. The expected
-effect: per-file divergence drops as the revm 38 noise we currently
-absorb becomes alignment.
+When upstream commits arrive, re-run §3 against the new HEAD per file.
+The expected effect of an upstream version upgrade matching ours: per-file
+divergence drops as previously-categorical-C files move to tier B or A.
+
+The "last-synced-commit" must be recorded somewhere stable (commit
+message of the port commit, or a sync-tracking file).
