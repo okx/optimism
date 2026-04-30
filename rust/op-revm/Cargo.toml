@@ -25,6 +25,9 @@ auto_impl.workspace = true
 alloy-primitives = { workspace = true, default-features = false }
 alloy-sol-types = { workspace = true, default-features = false }
 
+# op-alloy
+op-alloy-consensus = { workspace = true, default-features = false }
+
 # Optional
 serde = { workspace = true, features = ["derive", "rc"], optional = true }
 
@@ -41,6 +44,7 @@ std = [
 	"revm/std",
 	"alloy-primitives/std",
 	"alloy-sol-types/std",
+	"op-alloy-consensus/std",
 	"sha2/std",
 	"serde_json/std",
 ]

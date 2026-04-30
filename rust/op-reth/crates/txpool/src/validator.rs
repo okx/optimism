@@ -1,8 +1,13 @@
-use crate::{InvalidCrossTx, OpPooledTx, supervisor::SupervisorClient};
+use crate::{
+    InvalidCrossTx, OpPooledTx,
+    eip8130_xlayer::{Eip8130ValidationError, validate_eip8130_transaction},
+    supervisor::SupervisorClient,
+};
 use alloy_consensus::{BlockHeader, Transaction};
+use op_alloy_consensus::AA_TX_TYPE_ID;
 use op_revm::L1BlockInfo;
 use parking_lot::RwLock;
-use reth_chainspec::ChainSpecProvider;
+use reth_chainspec::{ChainSpecProvider, EthChainSpec};
 use reth_evm::ConfigureEvm;
 use reth_optimism_evm::RethL1BlockInfo;
 use reth_optimism_forks::OpHardforks;
@@ -188,6 +193,112 @@ where
                 transaction,
                 InvalidTransactionError::TxTypeNotSupported.into(),
             );
+        }
+
+        // EIP-8130 (XLayer AA) admission. Branches out before the EthTransactionValidator
+        // delegation because upstream rejects unknown tx types as `TxTypeNotSupported`.
+        // Reasserts chain_id, expiry, structural bounds, and reads the on-chain
+        // NONCE_MANAGER sequence for the lane; deferred items (EOA recovery, sponsored
+        // payer, account_changes, native verifier) are rejected as unsupported until
+        // their dedicated validation slices land.
+        if transaction.ty() == AA_TX_TYPE_ID {
+            if !self
+                .chain_spec()
+                .is_karst_active_at_timestamp(self.block_timestamp())
+            {
+                return TransactionValidationOutcome::Invalid(
+                    transaction,
+                    InvalidTransactionError::TxTypeNotSupported.into(),
+                );
+            }
+
+            let Some(aa_tx) = transaction.as_eip8130() else {
+                // tx-type byte claims AA but the wrapper does not expose the variant —
+                // this should be unreachable for `OpTransactionSigned` and indicates a
+                // misrouted custom tx type.
+                return TransactionValidationOutcome::Invalid(
+                    transaction,
+                    InvalidTransactionError::TxTypeNotSupported.into(),
+                );
+            };
+
+            let chain_id = self.chain_spec().chain().id();
+            let block_ts = self.block_timestamp();
+            let encoded_len = transaction.encoded_2718().len();
+            return match validate_eip8130_transaction(
+                aa_tx,
+                encoded_len,
+                block_ts,
+                chain_id,
+                self.client(),
+            ) {
+                Ok(outcome) => {
+                    // L1 data-gas fee coverage check, mirroring `apply_op_checks` for
+                    // non-AA txs. Must be inlined here because the AA branch
+                    // short-circuits the upstream validator delegation, so
+                    // `apply_op_checks` (which gates on `requires_l1_data_gas_fee`) is
+                    // never invoked. Spec parity with the base reference impl.
+                    if self.requires_l1_data_gas_fee() {
+                        let mut l1_info = self.block_info.l1_block_info.read().clone();
+                        let encoded = transaction.encoded_2718();
+                        match l1_info.l1_tx_data_fee(
+                            self.chain_spec(),
+                            self.block_timestamp(),
+                            &encoded,
+                            false,
+                        ) {
+                            Ok(l1_cost) => {
+                                let total = transaction.cost().saturating_add(l1_cost);
+                                if total > outcome.balance {
+                                    return TransactionValidationOutcome::Invalid(
+                                        transaction,
+                                        InvalidTransactionError::InsufficientFunds(
+                                            GotExpected {
+                                                got: outcome.balance,
+                                                expected: total,
+                                            }
+                                            .into(),
+                                        )
+                                        .into(),
+                                    );
+                                }
+                            }
+                            Err(err) => {
+                                return TransactionValidationOutcome::Error(
+                                    *transaction.hash(),
+                                    Box::new(err),
+                                );
+                            }
+                        }
+                    }
+
+                    TransactionValidationOutcome::Valid {
+                        balance: outcome.balance,
+                        state_nonce: outcome.state_nonce,
+                        transaction: reth_transaction_pool::validate::ValidTransaction::Valid(
+                            transaction,
+                        ),
+                        propagate: matches!(origin, TransactionOrigin::External),
+                        bytecode_hash: None,
+                        authorities: None,
+                    }
+                }
+                Err(err) => {
+                    tracing::debug!(target: "txpool::eip8130", %err, "EIP-8130 mempool validation failed");
+                    if matches!(&err, Eip8130ValidationError::StateError(_)) {
+                        // State-read failure: bubble up as Error so the caller can
+                        // distinguish a node-side problem from a tx-side rejection.
+                        return TransactionValidationOutcome::Error(
+                            *transaction.hash(),
+                            Box::new(err),
+                        );
+                    }
+                    TransactionValidationOutcome::Invalid(
+                        transaction,
+                        InvalidPoolTransactionError::Other(Box::new(err)),
+                    )
+                }
+            };
         }
 
         // Interop cross tx validation

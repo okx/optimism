@@ -4,7 +4,9 @@ use super::{
     deposit::{DEPOSIT_TRANSACTION_TYPE, DepositTransactionParts},
     eip8130::Eip8130Parts,
 };
+use alloy_primitives::Sealed;
 use auto_impl::auto_impl;
+use op_alloy_consensus::{OpTxEnvelope, TxEip8130};
 use revm::{
     context::{
         TxEnv,
@@ -40,6 +42,36 @@ pub trait OpTxTr: Transaction {
     ///
     /// Returns a default (empty) instance for non-AA transactions.
     fn eip8130_parts(&self) -> &Eip8130Parts;
+}
+
+/// Marker for consensus-tx wrappers that may carry an EIP-8130 (AA) inner.
+///
+/// Implementations return `Some(&Sealed<TxEip8130>)` when the underlying transaction is in
+/// the EIP-8130 form, and `None` otherwise. Bound on the txpool side so the validator can
+/// route AA transactions into their dedicated validation path without depending on the
+/// concrete consensus enum at the generic boundary.
+///
+/// Mirrors `base_alloy_consensus::OpEip8130Transaction` (see
+/// `base/crates/common/consensus/src/transaction/envelope.rs`).
+pub trait OpEip8130TxTr {
+    /// Returns `true` if the transaction is an AA transaction.
+    fn is_eip8130(&self) -> bool;
+
+    /// Returns the inner [`TxEip8130`] if this is an AA transaction.
+    fn as_eip8130(&self) -> Option<&Sealed<TxEip8130>>;
+}
+
+impl OpEip8130TxTr for OpTxEnvelope {
+    fn is_eip8130(&self) -> bool {
+        matches!(self, Self::Eip8130(_))
+    }
+
+    fn as_eip8130(&self) -> Option<&Sealed<TxEip8130>> {
+        match self {
+            Self::Eip8130(tx) => Some(tx),
+            _ => None,
+        }
+    }
 }
 
 /// Optimism transaction.

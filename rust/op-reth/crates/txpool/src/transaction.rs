@@ -13,6 +13,8 @@ use alloy_primitives::{Address, B256, Bytes, TxHash, TxKind, U256};
 use alloy_rpc_types_eth::erc4337::TransactionConditional;
 use c_kzg::KzgSettings;
 use core::fmt::Debug;
+use op_alloy_consensus::TxEip8130;
+use op_revm::OpEip8130TxTr;
 use reth_optimism_primitives::OpTransactionSigned;
 use reth_primitives_traits::{InMemorySize, SignedTransaction};
 use reth_transaction_pool::{
@@ -299,16 +301,29 @@ pub trait OpPooledTx:
 {
     /// Returns the EIP-2718 encoded bytes of the transaction.
     fn encoded_2718(&self) -> Cow<'_, Bytes>;
+
+    /// Returns the inner [`TxEip8130`] if this transaction is an EIP-8130 AA transaction.
+    ///
+    /// Returns `None` for any other transaction type, and also for consensus-tx wrappers
+    /// that do not expose the EIP-8130 variant. The mempool AA-validation path uses this to
+    /// pull the structured AA fields without re-decoding the EIP-2718 envelope.
+    fn as_eip8130(&self) -> Option<&TxEip8130> {
+        None
+    }
 }
 
 impl<Cons, Pooled> OpPooledTx for OpPooledTransaction<Cons, Pooled>
 where
-    Cons: SignedTransaction + From<Pooled>,
+    Cons: SignedTransaction + From<Pooled> + OpEip8130TxTr,
     Pooled: SignedTransaction + TryFrom<Cons>,
     <Pooled as TryFrom<Cons>>::Error: core::error::Error,
 {
     fn encoded_2718(&self) -> Cow<'_, Bytes> {
         Cow::Borrowed(self.encoded_2718())
+    }
+
+    fn as_eip8130(&self) -> Option<&TxEip8130> {
+        self.inner.transaction.inner().as_eip8130().map(|sealed| sealed.inner())
     }
 }
 

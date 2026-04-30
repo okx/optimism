@@ -74,7 +74,7 @@ static ACCOUNT_CONFIG_DEPLOYED: AtomicBool = AtomicBool::new(false);
 const LOCK_BASE_SLOT: U256 = uint!(1_U256);
 
 /// Sentinel nonce key that activates nonce-free mode.
-const NONCE_KEY_MAX: U256 = U256::MAX;
+pub const NONCE_KEY_MAX: U256 = U256::MAX;
 
 /// Base storage slot for the expiring-seen mapping in NonceManager.
 const EXPIRING_SEEN_BASE_SLOT: U256 = uint!(2_U256);
@@ -85,10 +85,10 @@ const EXPIRING_RING_PTR_SLOT: U256 = uint!(4_U256);
 /// Capacity of the expiring-nonce ring buffer.
 const EXPIRING_NONCE_SET_CAPACITY: u32 = 300_000;
 /// Maximum allowed expiry-window length for nonce-free transactions.
-const NONCE_FREE_MAX_EXPIRY_WINDOW: u64 = 30;
+pub const NONCE_FREE_MAX_EXPIRY_WINDOW: u64 = 30;
 
 /// Computes the storage slot for `expiringNonceSeen[txHash]`.
-fn aa_expiring_seen_slot(tx_hash: B256) -> U256 {
+pub fn aa_expiring_seen_slot(tx_hash: B256) -> U256 {
     use alloy_sol_types::SolValue;
     U256::from_be_bytes(keccak256((tx_hash, EXPIRING_SEEN_BASE_SLOT).abi_encode()).0)
 }

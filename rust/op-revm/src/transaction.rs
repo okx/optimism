@@ -4,7 +4,7 @@ pub mod deposit;
 pub mod eip8130;
 pub mod error;
 
-pub use abstraction::{OpTransaction, OpTxTr};
+pub use abstraction::{OpEip8130TxTr, OpTransaction, OpTxTr};
 pub use error::OpTransactionError;
 
 use crate::fast_lz::flz_compress_len;

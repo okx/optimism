@@ -35,4 +35,6 @@ pub use evm::OpEvm;
 pub use l1block::L1BlockInfo;
 pub use result::OpHaltReason;
 pub use spec::*;
-pub use transaction::{OpTransaction, OpTxTr, OpTransactionError, estimate_tx_compressed_size};
+pub use transaction::{
+    OpEip8130TxTr, OpTransaction, OpTransactionError, OpTxTr, estimate_tx_compressed_size,
+};

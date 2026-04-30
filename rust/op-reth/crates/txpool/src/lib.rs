@@ -12,6 +12,11 @@ mod validator;
 pub use validator::{OpL1BlockInfo, OpTransactionValidator};
 
 pub mod conditional;
+pub mod eip8130_xlayer;
+pub use eip8130_xlayer::{
+    Eip8130ValidationError, Eip8130ValidationOutcome, MAX_AA_TX_ENCODED_BYTES,
+    validate_eip8130_transaction,
+};
 mod pool;
 pub use pool::OpPool;
 pub mod supervisor;

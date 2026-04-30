@@ -7,7 +7,8 @@ use alloy_consensus::{
 use alloy_eips::Encodable2718;
 use alloy_primitives::{B256, Sealed, Signature};
 use alloy_rlp::BufMut;
-use op_alloy_consensus::{OpTxEnvelope, TxDeposit, TxPostExec};
+use op_alloy_consensus::{OpTxEnvelope, TxDeposit, TxEip8130, TxPostExec};
+use op_revm::OpEip8130TxTr;
 use reth_codecs::{
     Compact,
     alloy::transaction::{CompactEnvelope, FromTxCompact, ToTxCompact},
@@ -86,6 +87,19 @@ impl Compact for CustomTransaction {
 
     fn from_compact(buf: &[u8], len: usize) -> (Self, &[u8]) {
         <Self as CompactEnvelope>::from_compact(buf, len)
+    }
+}
+
+impl OpEip8130TxTr for CustomTransaction {
+    fn is_eip8130(&self) -> bool {
+        matches!(self, CustomTransaction::Op(OpTxEnvelope::Eip8130(_)))
+    }
+
+    fn as_eip8130(&self) -> Option<&Sealed<TxEip8130>> {
+        match self {
+            CustomTransaction::Op(op) => OpEip8130TxTr::as_eip8130(op),
+            CustomTransaction::Payment(_) => None,
+        }
     }
 }
 
