@@ -1,4 +1,10 @@
-use crate::{InvalidCrossTx, OpPooledTx, supervisor::SupervisorClient};
+use crate::{
+    Eip8130InvalidationIndex, Eip8130ValidationError, InvalidCrossTx, OpPooledTx,
+    VerifierAdmissionPolicy, VerifierPurityCache,
+    eip8130_validate::{DEFAULT_CUSTOM_VERIFIER_GAS_LIMIT, validate_eip8130_transaction},
+    supervisor::SupervisorClient,
+};
+use std::collections::HashSet;
 use alloy_consensus::{BlockHeader, Transaction};
 use op_revm::L1BlockInfo;
 use parking_lot::RwLock;
@@ -54,6 +60,18 @@ pub struct OpTransactionValidator<Client, Tx, Evm> {
     supervisor_client: Option<SupervisorClient>,
     /// tracks activated forks relevant for transaction validation
     fork_tracker: Arc<OpForkTracker>,
+    /// Mempool admission policy for EIP-8130 verifiers (defaults to AllowlistOrPure
+    /// with empty allowlist — only pure custom verifiers + native verifiers admitted).
+    eip8130_verifier_policy: Arc<VerifierAdmissionPolicy>,
+    /// Verifier purity verdict cache, keyed by runtime bytecode hash.
+    eip8130_purity_cache: Arc<VerifierPurityCache>,
+    /// Per-storage-slot invalidation index for AA transactions in the pool.
+    eip8130_invalidation_index: Arc<RwLock<Eip8130InvalidationIndex>>,
+    /// Gas limit for custom verifier STATICCALLs in the txpool.
+    eip8130_custom_verifier_gas_limit: u64,
+    /// Trusted payer-account bytecode hashes (currently unused — reserved for the
+    /// trusted-payer optimization base uses to skip on-chain payer auth re-checks).
+    eip8130_trusted_payer_bytecodes: Arc<HashSet<alloy_primitives::B256>>,
 }
 
 impl<Client, Tx, Evm> OpTransactionValidator<Client, Tx, Evm> {
@@ -124,7 +142,32 @@ where
             require_l1_data_gas_fee: true,
             supervisor_client: None,
             fork_tracker: Arc::new(OpForkTracker { interop: AtomicBool::from(false) }),
+            eip8130_verifier_policy: Arc::new(VerifierAdmissionPolicy::default()),
+            eip8130_purity_cache: Arc::new(VerifierPurityCache::default()),
+            eip8130_invalidation_index: Arc::new(RwLock::new(
+                Eip8130InvalidationIndex::default(),
+            )),
+            eip8130_custom_verifier_gas_limit: DEFAULT_CUSTOM_VERIFIER_GAS_LIMIT,
+            eip8130_trusted_payer_bytecodes: Arc::new(HashSet::new()),
         }
+    }
+
+    /// Replace the EIP-8130 verifier admission policy.
+    pub fn with_eip8130_verifier_policy(mut self, policy: VerifierAdmissionPolicy) -> Self {
+        self.eip8130_verifier_policy = Arc::new(policy);
+        self
+    }
+
+    /// Override the EIP-8130 custom-verifier STATICCALL gas limit.
+    pub fn with_eip8130_custom_verifier_gas_limit(mut self, gas_limit: u64) -> Self {
+        self.eip8130_custom_verifier_gas_limit = gas_limit;
+        self
+    }
+
+    /// Returns a handle to the AA invalidation index. The maintenance task
+    /// (canon-state listener) consumes this index to evict stale AA txs.
+    pub fn eip8130_invalidation_index(&self) -> Arc<RwLock<Eip8130InvalidationIndex>> {
+        Arc::clone(&self.eip8130_invalidation_index)
     }
 
     /// Set the supervisor client and safety level
@@ -187,6 +230,70 @@ where
             return TransactionValidationOutcome::Invalid(
                 transaction,
                 InvalidTransactionError::TxTypeNotSupported.into(),
+            );
+        }
+
+        // EIP-8130 (AA, type 0x7B) admission. Gates the AA tx on
+        // XLAYER_NATIVE_AA activation and runs the full mempool validation
+        // pipeline (structural, expiry, sender/payer auth, intrinsic gas,
+        // payer balance, invalidation key recording). Custom verifiers are
+        // not yet supported in the txpool — they get rejected by
+        // `validate_eip8130_transaction` until phase 6c-ii lands.
+        if alloy_eips::Typed2718::ty(&transaction) == op_revm::constants::EIP8130_TX_TYPE {
+            let chain_spec = self.chain_spec();
+            let block_ts = self.block_timestamp();
+            if !(*chain_spec).is_eip8130_active_at_timestamp(block_ts) {
+                return TransactionValidationOutcome::Invalid(
+                    transaction,
+                    InvalidTransactionError::TxTypeNotSupported.into(),
+                );
+            }
+
+            let chain_id = reth_chainspec::EthChainSpec::chain(&*chain_spec).id();
+            let outcome = match validate_eip8130_transaction(
+                &transaction,
+                block_ts,
+                chain_id,
+                self.client(),
+                self.eip8130_verifier_policy.as_ref(),
+                self.eip8130_purity_cache.as_ref(),
+                self.eip8130_custom_verifier_gas_limit,
+                self.eip8130_trusted_payer_bytecodes.as_ref(),
+            ) {
+                Ok(outcome) => outcome,
+                Err(err) => {
+                    return TransactionValidationOutcome::Invalid(
+                        transaction,
+                        InvalidPoolTransactionError::Other(Box::new(err)),
+                    );
+                }
+            };
+
+            // Insert into the invalidation index so the maintenance task can
+            // evict this tx when its watched storage slots change on-chain.
+            let tx_hash = *transaction.hash();
+            self.eip8130_invalidation_index.write().insert(
+                tx_hash,
+                outcome.invalidation_keys.clone(),
+                outcome.sponsored_payer,
+            );
+
+            // TODO(eip-8130 phase 6d-ii): the standard `validate_one_with_state`
+            // path expects an EthPoolTransaction outcome. AA txs need a custom
+            // outcome (state_nonce/balance derived from the validator's payer
+            // checks, not eth-style). For first cut we delegate the remaining
+            // bookkeeping (cost, propagation, blob sidecar=None) to the inner
+            // eth validator with a deposit-style override; this works because
+            // validate_eip8130_transaction has already verified balance + nonce.
+            let _ = origin;
+            let _ = state;
+            return TransactionValidationOutcome::Invalid(
+                transaction,
+                InvalidPoolTransactionError::Other(Box::new(
+                    Eip8130ValidationError::StateError(
+                        "AA tx outcome wiring not complete (phase 6d-ii)".into(),
+                    ),
+                )),
             );
         }
 
