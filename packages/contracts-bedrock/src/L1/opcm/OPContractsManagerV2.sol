@@ -152,9 +152,9 @@ contract OPContractsManagerV2 is ISemver, OPContractsManagerUtilsCaller {
     ///         - Major bump: New required sequential upgrade
     ///         - Minor bump: Replacement OPCM for same upgrade
     ///         - Patch bump: Development changes (expected for normal dev work)
-    /// @custom:semver 7.1.15
+    /// @custom:semver 7.1.17
     function version() public pure returns (string memory) {
-        return "7.1.15";
+        return "7.1.17";
     }
 
     /// @param _standardValidator The standard validator for this OPCM release.
@@ -685,16 +685,17 @@ contract OPContractsManagerV2 is ISemver, OPContractsManagerUtilsCaller {
     /// @notice Validates the deployment/upgrade config.
     /// @param _cfg The full config.
     /// @param _isInitialDeployment Whether or not this is an initial deployment.
-    function _assertValidFullConfig(FullConfig memory _cfg, bool _isInitialDeployment) internal pure {
+    function _assertValidFullConfig(FullConfig memory _cfg, bool _isInitialDeployment) internal view {
         // All valid game types. StandardValidator is responsible for rejecting game types that
         // should not be used in a given mode (e.g., legacy types in super root mode).
-        GameType[] memory validGameTypes = new GameType[](6);
+        GameType[] memory validGameTypes = new GameType[](7);
         validGameTypes[0] = GameTypes.CANNON;
         validGameTypes[1] = GameTypes.PERMISSIONED_CANNON;
         validGameTypes[2] = GameTypes.CANNON_KONA;
         validGameTypes[3] = GameTypes.SUPER_CANNON;
         validGameTypes[4] = GameTypes.SUPER_PERMISSIONED_CANNON;
         validGameTypes[5] = GameTypes.SUPER_CANNON_KONA;
+        validGameTypes[6] = GameTypes.ZK_DISPUTE_GAME;
 
         // We must have a config for each valid game type.
         if (_cfg.disputeGameConfigs.length != validGameTypes.length) {
@@ -721,6 +722,14 @@ contract OPContractsManagerV2 is ISemver, OPContractsManagerUtilsCaller {
             // During initial deployment, only permissioned types can be enabled, because no
             // prestate exists for permissionless games.
             if (_isInitialDeployment && !isPermissioned && _cfg.disputeGameConfigs[i].enabled) {
+                revert OPContractsManagerV2_InvalidGameConfigs();
+            }
+
+            // ZK_DISPUTE_GAME can only be enabled when the dev flag is on (upgrade path).
+            if (
+                validGameTypes[i].raw() == GameTypes.ZK_DISPUTE_GAME.raw() && _cfg.disputeGameConfigs[i].enabled
+                    && !isDevFeatureEnabled(DevFeatures.ZK_DISPUTE_GAME)
+            ) {
                 revert OPContractsManagerV2_InvalidGameConfigs();
             }
         }
@@ -945,7 +954,7 @@ contract OPContractsManagerV2 is ISemver, OPContractsManagerUtilsCaller {
             _cts.systemConfig.setFeature(Features.CUSTOM_GAS_TOKEN, true);
         }
 
-        // If critical transfer is allowed, tranfer ownership of the DisputeGameFactory and
+        // If critical transfer is allowed, transfer ownership of the DisputeGameFactory and
         // ProxyAdmin to the PAO. During deployments, this means transferring ownership from the
         // OPCM contract to the target PAO. During upgrades, this would theoretically mean
         // transferring ownership from the existing PAO to itself, which would be a no-op. In an

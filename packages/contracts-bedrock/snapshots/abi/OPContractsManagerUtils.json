@@ -312,6 +312,11 @@
           },
           {
             "internalType": "address",
+            "name": "zkDisputeGameImpl",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
             "name": "storageSetterImpl",
             "type": "address"
           }
@@ -693,7 +698,7 @@
   },
   {
     "inputs": [],
-    "name": "OPContractsManagerUtils_InitializingDuringUpgrade",
+    "name": "OPContractsManagerUtils_OZv5InitializableUnsupported",
     "type": "error"
   },
   {

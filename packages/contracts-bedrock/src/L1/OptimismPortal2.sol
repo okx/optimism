@@ -147,6 +147,9 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
         IAnchorStateRegistry newAnchorStateRegistry
     );
 
+    /// @notice Migrates the total ETH balance to the ETHLockbox.
+    event ETHMigrated(address indexed lockbox, uint256 balance);
+
     /// @notice Emitted when a transaction is deposited from L1 to L2. The parameters of this event
     ///         are read by the rollup node and used to derive deposit transactions on L2.
     /// @param from       Address that triggered the deposit transaction.
@@ -184,9 +187,6 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
 
     /// @notice Thrown when the portal is paused.
     error OptimismPortal_CallPaused();
-
-    /// @notice Migrates the total ETH balance to the ETHLockbox.
-    event ETHMigrated(address indexed lockbox, uint256 balance);
 
     /// @notice Thrown when a CGT withdrawal is not allowed.
     error OptimismPortal_NotAllowedOnCGTMode();
@@ -248,9 +248,9 @@ contract OptimismPortal2 is Initializable, ResourceMetering, ReinitializableBase
     error OptimismPortal_InsufficientDeposit();
 
     /// @notice Semantic version.
-    /// @custom:semver 5.6.0
+    /// @custom:semver 5.6.1
     function version() public pure virtual returns (string memory) {
-        return "5.6.0";
+        return "5.6.1";
     }
 
     /// @param _proofMaturityDelaySeconds The proof maturity delay in seconds.

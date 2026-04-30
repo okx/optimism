@@ -27,10 +27,6 @@ type SuperchainContracts struct {
 //   - these contracts are shared by all OpChains that are members of the same superchain
 //   - these contracts are not upgradable, but can be replaced by new contract releases/deployments
 type ImplementationsContracts struct {
-	OpcmGameTypeAdderImpl            common.Address
-	OpcmDeployerImpl                 common.Address
-	OpcmUpgraderImpl                 common.Address
-	OpcmInteropMigratorImpl          common.Address
 	OpcmStandardValidatorImpl        common.Address
 	OpcmUtilsImpl                    common.Address
 	OpcmMigratorImpl                 common.Address
@@ -50,6 +46,7 @@ type ImplementationsContracts struct {
 	AnchorStateRegistryImpl          common.Address
 	FaultDisputeGameImpl             common.Address
 	PermissionedDisputeGameImpl      common.Address
+	ZkDisputeGameImpl                common.Address
 	StorageSetterImpl                common.Address
 }
 

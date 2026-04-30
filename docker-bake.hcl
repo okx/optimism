@@ -346,6 +346,9 @@ target "op-rbuilder" {
 target "kona-node" {
   dockerfile = "kona/docker/apps/kona_app_generic.dockerfile"
   context = "rust"
+  contexts = {
+    nuts-bundles = "op-core/nuts/bundles"
+  }
   args = {
     REPO_LOCATION = "local"
     BIN_TARGET = "kona-node"
@@ -358,6 +361,9 @@ target "kona-node" {
 target "kona-host" {
   dockerfile = "kona/docker/apps/kona_app_generic.dockerfile"
   context = "rust"
+  contexts = {
+    nuts-bundles = "op-core/nuts/bundles"
+  }
   args = {
     REPO_LOCATION = "local"
     BIN_TARGET = "kona-host"
@@ -370,6 +376,9 @@ target "kona-host" {
 target "kona-client" {
   dockerfile = "kona/docker/apps/kona_app_generic.dockerfile"
   context = "rust"
+  contexts = {
+    nuts-bundles = "op-core/nuts/bundles"
+  }
   args = {
     REPO_LOCATION = "local"
     BIN_TARGET = "kona-client"
@@ -395,4 +404,11 @@ target "cannon-builder" {
   context = "rust/kona/docker/cannon"
   platforms = split(",", PLATFORMS)
   tags = [for tag in split(",", IMAGE_TAGS) : "${REGISTRY}/${REPOSITORY}/cannon-builder:${tag}"]
+}
+
+target "ci-base-clang" {
+  dockerfile = "Dockerfile"
+  context = "ops/docker/ci-base-clang"
+  platforms = split(",", PLATFORMS)
+  tags = [for tag in split(",", IMAGE_TAGS) : "${REGISTRY}/${REPOSITORY}/ci-base-clang:${tag}"]
 }
