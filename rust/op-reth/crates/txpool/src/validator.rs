@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use alloy_consensus::{BlockHeader, Transaction};
 use op_revm::L1BlockInfo;
 use parking_lot::RwLock;
-use reth_chainspec::ChainSpecProvider;
+use reth_chainspec::{ChainSpecProvider, EthChainSpec};
 use reth_evm::ConfigureEvm;
 use reth_optimism_evm::RethL1BlockInfo;
 use reth_optimism_forks::OpHardforks;
@@ -240,16 +240,15 @@ where
         // not yet supported in the txpool — they get rejected by
         // `validate_eip8130_transaction` until phase 6c-ii lands.
         if alloy_eips::Typed2718::ty(&transaction) == op_revm::constants::EIP8130_TX_TYPE {
-            let chain_spec = self.chain_spec();
             let block_ts = self.block_timestamp();
-            if !(*chain_spec).is_eip8130_active_at_timestamp(block_ts) {
+            if !self.chain_spec().is_eip8130_active_at_timestamp(block_ts) {
                 return TransactionValidationOutcome::Invalid(
                     transaction,
                     InvalidTransactionError::TxTypeNotSupported.into(),
                 );
             }
 
-            let chain_id = reth_chainspec::EthChainSpec::chain(&*chain_spec).id();
+            let chain_id = self.chain_spec().chain().id();
             let outcome = match validate_eip8130_transaction(
                 &transaction,
                 block_ts,
