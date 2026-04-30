@@ -299,6 +299,16 @@ pub trait OpPooledTx:
 {
     /// Returns the EIP-2718 encoded bytes of the transaction.
     fn encoded_2718(&self) -> Cow<'_, Bytes>;
+
+    /// Returns the inner [`TxEip8130`] if this transaction is an AA (EIP-8130)
+    /// transaction. Default impl returns `None` — concrete types that wrap an
+    /// `OpTxEnvelope` (or any [`OpEip8130Transaction`](op_alloy_consensus::OpEip8130Transaction)
+    /// implementor) should override.
+    fn as_eip8130(
+        &self,
+    ) -> Option<&op_alloy_consensus::transaction::eip8130::TxEip8130> {
+        None
+    }
 }
 
 impl<Cons, Pooled> OpPooledTx for OpPooledTransaction<Cons, Pooled>
@@ -309,6 +319,37 @@ where
 {
     fn encoded_2718(&self) -> Cow<'_, Bytes> {
         Cow::Borrowed(self.encoded_2718())
+    }
+
+    // Default `as_eip8130` returns None. The eip8130-aware override lives on
+    // the concrete `OpPooledTransaction<OpTxEnvelope, _>` instantiation via a
+    // sealed extension below — we can't make the blanket impl require
+    // OpEip8130Transaction without breaking custom-node consumers whose
+    // `Cons` doesn't impl that trait.
+}
+
+/// Concrete-type override of [`OpPooledTx::as_eip8130`] for `OpTxEnvelope`-backed
+/// pooled transactions. Reaches through `OpPooledTransaction → Recovered<Cons> →
+/// Cons → Sealed<TxEip8130>` via [`op_alloy_consensus::OpEip8130Transaction`].
+///
+/// Hosted as an inherent method to avoid Rust's lack of trait impl
+/// specialization (a blanket `impl<Cons: OpEip8130Transaction> OpPooledTx for
+/// OpPooledTransaction<Cons, _> { fn as_eip8130(...) }` would conflict with the
+/// blanket impl above). Callers in op-reth's txpool (e.g.
+/// `validate_eip8130_transaction`) accept `&dyn OpPooledTx` and rely on the
+/// trait-level default; for the AA mempool path we build the wrapper from a
+/// concrete `OpPooledTransaction<OpTxEnvelope, _>` and call this helper.
+impl<Cons, Pooled> OpPooledTransaction<Cons, Pooled>
+where
+    Cons: SignedTransaction + op_alloy_consensus::OpEip8130Transaction,
+{
+    /// Returns the inner [`TxEip8130`] when this pooled transaction wraps an
+    /// AA-typed envelope.
+    pub fn as_eip8130(
+        &self,
+    ) -> Option<&op_alloy_consensus::transaction::eip8130::TxEip8130> {
+        op_alloy_consensus::OpEip8130Transaction::as_eip8130(self.inner.transaction().inner())
+            .map(|sealed| sealed.inner())
     }
 }
 

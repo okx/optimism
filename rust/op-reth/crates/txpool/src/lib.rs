@@ -13,6 +13,13 @@ pub use eip8130_invalidation::{
     Eip8130InvalidationIndex, InvalidationKey, compute_invalidation_keys, process_fal,
 };
 
+pub mod eip8130_validate;
+pub use eip8130_validate::{
+    CustomVerifierPolicy, Eip8130ValidationError, Eip8130ValidationOutcome,
+    VerifierAdmissionPolicy, VerifierAllowlist, VerifierPurityCache,
+    validate_eip8130_transaction,
+};
+
 mod validator;
 pub use validator::{OpL1BlockInfo, OpTransactionValidator};
 
