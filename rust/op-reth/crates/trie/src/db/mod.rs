@@ -11,6 +11,9 @@ pub use models::*;
 mod store;
 pub use store::{MdbxProofsProvider, MdbxProofsStorage};
 
+/// Placeholder alias for V2 storage format (full implementation deferred to a later PR).
+pub type MdbxProofsStorageV2 = MdbxProofsStorage;
+
 mod cursor;
 pub use cursor::{
     BlockNumberVersionedCursor, MdbxAccountCursor, MdbxStorageCursor, MdbxTrieCursor,

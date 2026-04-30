@@ -28,7 +28,6 @@ pub async fn launch_node_with_proof_history(
     let RollupArgs {
         proofs_history,
         proofs_history_window,
-        proofs_history_prune_interval,
         proofs_history_verification_interval,
         ..
     } = args;
@@ -63,7 +62,6 @@ pub async fn launch_node_with_proof_history(
             .install_exex("proofs-history", async move |exex_context| {
                 Ok(OpProofsExEx::builder(exex_context, storage_exec)
                     .with_proofs_history_window(proofs_history_window)
-                    .with_proofs_history_prune_interval(proofs_history_prune_interval)
                     .with_verification_interval(proofs_history_verification_interval)
                     .build()
                     .run()

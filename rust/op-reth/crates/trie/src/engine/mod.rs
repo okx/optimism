@@ -42,7 +42,7 @@ enum EngineAction<Block: reth_primitives_traits::Block> {
     /// Unwind indexed data back to a given block.
     Unwind(tasks::UnwindTask),
     /// Block the caller until any in-flight persistence completes.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     Flush(tasks::FlushTask),
     /// Update the sync catch-up target (fire-and-forget).
     SyncTo(tasks::SyncToTask),
@@ -68,7 +68,7 @@ impl<Block: reth_primitives_traits::Block> EngineAction<Block> {
             Self::IndexBlock(task) => task.execute(state),
             Self::Reorg(task) => task.execute(state),
             Self::Unwind(task) => task.execute(state),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-utils"))]
             Self::Flush(task) => task.execute(state),
             Self::SyncTo(task) => task.execute(state),
         }

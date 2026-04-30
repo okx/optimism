@@ -30,7 +30,9 @@ pub use in_memory::{
 };
 
 pub mod db;
-pub use db::{MdbxAccountCursor, MdbxProofsStorage, MdbxStorageCursor, MdbxTrieCursor};
+pub use db::{
+    MdbxAccountCursor, MdbxProofsStorage, MdbxProofsStorageV2, MdbxStorageCursor, MdbxTrieCursor,
+};
 
 #[cfg(feature = "metrics")]
 pub mod metrics;
@@ -47,8 +49,6 @@ pub type OpProofsStorage<S> = S;
 pub mod proof;
 
 pub mod provider;
-
-pub mod live;
 
 pub mod engine;
 pub use engine::EngineHandle;
