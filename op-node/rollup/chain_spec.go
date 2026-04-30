@@ -151,6 +151,9 @@ func (s *ChainSpec) CheckForkActivation(log log.Logger, block eth.L2BlockRef) {
 		if s.config.IsInterop(block.Time) {
 			s.currentFork = forks.Interop
 		}
+		if s.config.IsNativeAA(block.Time) {
+			s.currentFork = forks.NativeAA
+		}
 		log.Info("Current hardfork version detected", "forkName", s.currentFork)
 		return
 	}
@@ -180,6 +183,8 @@ func (s *ChainSpec) CheckForkActivation(log log.Logger, block eth.L2BlockRef) {
 		foundActivationBlock = s.config.IsKarstActivationBlock(block.Time)
 	case forks.Interop:
 		foundActivationBlock = s.config.IsInteropActivationBlock(block.Time)
+	case forks.NativeAA:
+		foundActivationBlock = s.config.IsNativeAAActivationBlock(block.Time)
 	}
 
 	if foundActivationBlock {

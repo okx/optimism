@@ -599,6 +599,12 @@ func (d *Sequencer) startBuildingBlock() {
 		d.log.Info("Sequencing Interop upgrade block")
 	}
 
+	// For the Native AA (EIP-8130) activation block we must not include any sequencer transactions.
+	if d.rollupCfg.IsNativeAAActivationBlock(uint64(attrs.Timestamp)) {
+		attrs.NoTxPool = true
+		d.log.Info("Sequencing Native AA upgrade block")
+	}
+
 	if recoverMode {
 		attrs.NoTxPool = true
 		d.log.Warn("Sequencing temporarily without user transactions, in recover mode")

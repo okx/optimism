@@ -184,6 +184,26 @@ func (ba *FetchingAttributesBuilder) PreparePayloadAttributes(ctx context.Contex
 		}
 	}
 
+	// Native AA (EIP-8130) activation: deploys K1Verifier, P256Verifier,
+	// WebAuthnVerifier, AccountConfiguration, DelegateVerifier, and
+	// DefaultAccount via deposit transactions (mirrors base's BaseV1 at
+	// base/crates/consensus/upgrades/src/base_v1.rs).
+	//
+	// TODO(eip-8130): NUT bundle for NativeAA is not yet generated. The hook
+	// is registered so the chain boots; without the bundle, EIP-8130 txs that
+	// rely on these system contracts will revert until the bundle is added.
+	if ba.rollupCfg.IsNativeAAActivationBlock(nextL2Time) {
+		nutTxs, nutGas, err := UpgradeTransactions(forks.NativeAA)
+		if err == nil {
+			upgradeTxs = append(upgradeTxs, nutTxs...)
+			upgradeGas += nutGas
+		}
+		// Errors are tolerated here while the NativeAA NUT bundle is still
+		// pending — the activation block will simply contain no system-contract
+		// deposits, leaving downstream contracts undeployed but allowing the
+		// chain to advance past the fork boundary.
+	}
+
 	l1InfoTx, err := L1InfoDepositBytes(ba.rollupCfg, ba.l1ChainConfig, sysConfig, seqNumber, l1Info, nextL2Time)
 	if err != nil {
 		return nil, NewCriticalError(fmt.Errorf("failed to create l1InfoTx: %w", err))

@@ -137,6 +137,10 @@ type Config struct {
 	// Active if InteropTime != nil && L2 block timestamp >= *InteropTime, inactive otherwise.
 	InteropTime *uint64 `json:"interop_time,omitempty"`
 
+	// NativeAATime sets the activation time of the Native AA (EIP-8130) network upgrade.
+	// Active if NativeAATime != nil && L2 block timestamp >= *NativeAATime, inactive otherwise.
+	NativeAATime *uint64 `json:"native_aa_time,omitempty"`
+
 	// Note: below addresses are part of the block-derivation process,
 	// and required to be the same network-wide to stay in consensus.
 
@@ -503,6 +507,11 @@ func (c *Config) IsInterop(timestamp uint64) bool {
 	return c.IsForkActive(forks.Interop, timestamp)
 }
 
+// IsNativeAA returns true if the Native AA (EIP-8130) hardfork is active at or past the given timestamp.
+func (c *Config) IsNativeAA(timestamp uint64) bool {
+	return c.IsForkActive(forks.NativeAA, timestamp)
+}
+
 func (c *Config) IsRegolithActivationBlock(l2BlockTime uint64) bool {
 	return c.IsRegolith(l2BlockTime) &&
 		l2BlockTime >= c.BlockTime &&
@@ -583,9 +592,17 @@ func (c *Config) IsInteropActivationBlock(l2BlockTime uint64) bool {
 		!c.IsInterop(l2BlockTime-c.BlockTime)
 }
 
+func (c *Config) IsNativeAAActivationBlock(l2BlockTime uint64) bool {
+	return c.IsNativeAA(l2BlockTime) &&
+		l2BlockTime >= c.BlockTime &&
+		!c.IsNativeAA(l2BlockTime-c.BlockTime)
+}
+
 func (c *Config) ActivationTime(fork ForkName) *uint64 {
 	// NEW FORKS MUST BE ADDED HERE
 	switch fork {
+	case forks.NativeAA:
+		return c.NativeAATime
 	case forks.Interop:
 		return c.InteropTime
 	case forks.Karst:
@@ -621,6 +638,8 @@ func (c *Config) ActivationTime(fork ForkName) *uint64 {
 func (c *Config) SetActivationTime(fork ForkName, timestamp *uint64) {
 	// NEW FORKS MUST BE ADDED HERE
 	switch fork {
+	case forks.NativeAA:
+		c.NativeAATime = timestamp
 	case forks.Interop:
 		c.InteropTime = timestamp
 	case forks.Karst:
@@ -870,6 +889,7 @@ func (c *Config) forEachFork(callback func(name string, logName string, time *ui
 	callback("Jovian", "jovian_time", c.JovianTime)
 	callback("Karst", "karst_time", c.KarstTime)
 	callback("Interop", "interop_time", c.InteropTime)
+	callback("NativeAA", "native_aa_time", c.NativeAATime)
 }
 
 func (c *Config) ParseRollupConfig(in io.Reader) error {
