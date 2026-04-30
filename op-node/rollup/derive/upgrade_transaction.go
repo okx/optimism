@@ -101,15 +101,6 @@ func UpgradeTransactions(fork forks.Name) ([]hexutil.Bytes, uint64, error) {
 	switch fork {
 	case forks.Karst:
 		bundleJSON = nuts.KarstNUTBundleJSON
-	case forks.NativeAA:
-		// TODO(eip-8130): NUT bundle for NativeAA pending. Base deploys 6
-		// system contracts (K1Verifier, P256Verifier, WebAuthnVerifier,
-		// AccountConfiguration, DelegateVerifier, DefaultAccount) at this
-		// boundary; mirror the deployer addresses + creation bytecodes from
-		// base/crates/consensus/upgrades/src/base_v1.rs once available.
-		// Returning an empty bundle keeps the activation hook callable so
-		// the chain advances past the fork boundary cleanly.
-		return nil, 0, nil
 	default:
 		return nil, 0, fmt.Errorf("no NUT bundle for fork %s", fork)
 	}
