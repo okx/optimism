@@ -213,6 +213,15 @@ where
         let (block, tx, cfg, journal, chain, _) = evm.ctx().all_mut();
         let spec = cfg.spec();
 
+        // Clear any stale EIP-8130 thread-local context BEFORE any tx-type branch.
+        // Without this, a deposit (or any non-AA tx) following an AA tx would see
+        // the previous AA tx's sender / owner_id / max_cost / call_phases via the
+        // TxContext precompile (0x...aa03), even though the precompile is gated by
+        // `aa_context = (tx.tx_type() == EIP8130_TX_TYPE)` in OpPrecompiles::run.
+        // We still defend in depth here so the thread-local cannot leak across
+        // transaction boundaries.
+        crate::precompiles::clear_eip8130_tx_context();
+
         if tx.tx_type() == DEPOSIT_TRANSACTION_TYPE {
             let basefee = block.basefee() as u128;
             let blob_price = block.blob_gasprice().unwrap_or_default();
@@ -251,9 +260,6 @@ where
         if chain.l2_block != Some(block.number()) {
             *chain = L1BlockInfo::try_fetch(journal.db_mut(), block.number(), spec)?;
         }
-
-        // Clear any stale EIP-8130 context from a previous transaction.
-        crate::precompiles::clear_eip8130_tx_context();
 
         // AA transactions: deduct gas from payer, increment NonceManager nonce,
         // auto-delegate bare EOAs, and apply pre-execution storage writes.
@@ -401,10 +407,18 @@ where
                 drop(acc);
             }
 
-            // TODO(eip-8130): emit AccountConfiguration system logs for account_creation_logs.
-            // Requires porting `config_log_to_system_log` (in base/transaction/eip8130.rs).
-            // First cut leaves account creation events un-emitted; tests that observe these
-            // logs will need the helper before passing.
+            // --- Emit AccountConfiguration events for account creation ---
+            // These logs become part of the receipt's log list, contributing to the
+            // logs bloom and receipt root. Skipping them would diverge the receipt
+            // root from base on any tx with account creation. Each entry is one of
+            // OwnerAuthorized / AccountCreated, emitted in the order they appear in
+            // `eip8130.account_creation_logs` (populated at conversion time).
+            for event in &eip8130.account_creation_logs {
+                journal.log(crate::transaction::eip8130::config_log_to_system_log(
+                    crate::handler_aa_helpers::ACCOUNT_CONFIG_ADDRESS,
+                    event,
+                ));
+            }
 
             return Ok(());
         }
@@ -451,12 +465,11 @@ where
             return self.mainnet.execution(evm, init_and_floor_gas);
         }
 
-        use revm::context::journaled_state::account::JournaledAccountTr;
         use revm::interpreter::{
             CallOutcome, InstructionResult, InterpreterResult, SharedMemory,
             interpreter_action::{CallInput, CallInputs, CallScheme, CallValue, FrameInput},
         };
-        use revm::primitives::{Address, B256, Bytes, keccak256};
+        use revm::primitives::{Address, B256};
 
         let eip8130 = evm.ctx().tx().eip8130_parts().clone();
         let sender = evm.ctx().tx().caller();

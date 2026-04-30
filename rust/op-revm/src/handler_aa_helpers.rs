@@ -4,6 +4,13 @@
 //! to keep semantics byte-compatible with base. Constants are re-declared here
 //! (rather than imported from op-alloy-consensus) to mirror base's intra-crate
 //! dep-cycle avoidance pattern.
+//!
+//! Some constants and helpers (nonce-free expiring-nonce ring buffer, EOA
+//! revoked-verifier sentinel) are intentionally retained even though they are
+//! not yet wired into the handler — they will be needed once the nonce-free
+//! mode path is implemented. `dead_code` is allowed at the file level rather
+//! than per-item to keep diffs against base minimal.
+#![allow(dead_code, unused_imports)]
 use std::{boxed::Box, collections::HashMap};
 
 use revm::{
