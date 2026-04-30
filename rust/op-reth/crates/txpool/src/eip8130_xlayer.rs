@@ -19,7 +19,9 @@
 //! sufficient to prevent the most common spec-violating txs from polluting the pool.
 
 use alloy_primitives::{Address, B256, U256};
-use op_alloy_consensus::{AccountChangeEntry, TxEip8130, sender_signature_hash};
+use op_alloy_consensus::{
+    AccountChangeEntry, TxEip8130, recover_eip8130_sender, sender_signature_hash,
+};
 use op_revm::{
     handler::{NONCE_FREE_MAX_EXPIRY_WINDOW, NONCE_KEY_MAX, aa_expiring_seen_slot},
     precompiles_xlayer::NONCE_MANAGER_ADDRESS,
@@ -286,10 +288,24 @@ where
     }
 
     // Step 3: resolve sender.
-    // [DEFERRED] EOA recovery (`from == None`): requires native sender_auth parsing
-    // and ecrecover; the parse helper from base (`parse_sender_auth`) is not yet
-    // ported. For now only explicit-from txs are admitted.
-    let sender = tx.from.ok_or(Eip8130ValidationError::EoaRecoveryNotSupported)?;
+    //
+    // - Explicit-from (`tx.from = Some(addr)`): trust the field; the execution layer
+    //   re-validates `addr`'s owner_config + sender_auth at inclusion time.
+    // - EOA-recovery (`tx.from = None`): ecrecover from the 65-byte K1 ECDSA
+    //   `sender_auth` over `sender_signature_hash(tx)`. The mempool does not enforce
+    //   the implicit-EOA-owner rule against ACCOUNT_CONFIG (that's
+    //   `validate_sender_authorization`, [DEFERRED] until parse_sender_auth lands);
+    //   a malformed-but-decodable EOA tx may pass mempool admission and fail at
+    //   execution.
+    //
+    // Custom verifier sender_auth blobs (P256 / WebAuthn / custom) are not handled
+    // here yet — `recover_eip8130_sender` is K1-specific. Such txs would fail
+    // recovery and be rejected as `EoaRecoveryNotSupported`.
+    let sender = match tx.from {
+        Some(addr) => addr,
+        None => recover_eip8130_sender(tx)
+            .map_err(|_| Eip8130ValidationError::EoaRecoveryNotSupported)?,
+    };
 
     // Step 10 (early reject): payer resolution.
     // [DEFERRED] sponsored payer (`tx.payer.is_some()`): requires payer-auth parsing

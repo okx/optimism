@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-devstack/devtest"
 	"github.com/ethereum-optimism/optimism/op-devstack/dsl"
 	"github.com/ethereum-optimism/optimism/op-devstack/presets"
+	"github.com/ethereum-optimism/optimism/op-devstack/sysgo"
 	opservice "github.com/ethereum-optimism/optimism/op-service"
 	"github.com/ethereum-optimism/optimism/op-service/cliapp"
 	"github.com/ethereum-optimism/optimism/op-service/client"
@@ -69,6 +71,13 @@ var (
 		Usage:   "start a 2-chain interop devnet backed by op-supernode.",
 		EnvVars: opservice.PrefixEnvVar(envPrefix, "INTEROP"),
 	}
+	forkFlag = &cli.StringFlag{
+		Name: "fork",
+		Usage: "OP hardfork to activate at L2 genesis. " +
+			"Case-insensitive. Supported: ecotone, jovian, karst. " +
+			"Empty = no override (devstack default). Karst is required for EIP-8130 AA txs.",
+		EnvVars: opservice.PrefixEnvVar(envPrefix, "FORK"),
+	}
 )
 
 func main() {
@@ -87,7 +96,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	app.Version = opservice.FormatVersion(Version, GitCommit, GitDate, VersionMeta)
 	app.Name = "op-up"
 	app.Usage = "deploys an in-memory OP Stack devnet."
-	app.Flags = cliapp.ProtectFlags([]cli.Flag{dirFlag, interopFlag})
+	app.Flags = cliapp.ProtectFlags([]cli.Flag{dirFlag, interopFlag, forkFlag})
 	// The default OnUsageError behavior will print the error twice: once in the cli package and
 	// once in our main function.
 	// The function below prints help and returns the error for further handling/error messages.
@@ -98,7 +107,13 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	app.Action = func(cliCtx *cli.Context) error {
-		return runOpUp(cliCtx.Context, cliCtx.App.ErrWriter, cliCtx.String(dirFlag.Name), cliCtx.Bool(interopFlag.Name))
+		return runOpUp(
+			cliCtx.Context,
+			cliCtx.App.ErrWriter,
+			cliCtx.String(dirFlag.Name),
+			cliCtx.Bool(interopFlag.Name),
+			cliCtx.String(forkFlag.Name),
+		)
 	}
 	app.Commands = []*cli.Command{
 		smokeCommand(),
@@ -106,7 +121,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	return app.RunContext(ctx, args)
 }
 
-func runOpUp(ctx context.Context, stderr io.Writer, opUpDir string, interop bool) error {
+func runOpUp(ctx context.Context, stderr io.Writer, opUpDir string, interop bool, fork string) error {
 	fmt.Fprintf(stderr, "%s\n", asciiArt)
 
 	if err := os.MkdirAll(opUpDir, 0o755); err != nil {
@@ -130,7 +145,7 @@ func runOpUp(ctx context.Context, stderr io.Writer, opUpDir string, interop bool
 			return err
 		}
 	} else {
-		sys, err := newMinimalSystem(t)
+		sys, err := newMinimalSystem(t, fork)
 		if err != nil {
 			return err
 		}
@@ -153,7 +168,7 @@ func newLogger(ctx context.Context, stderr io.Writer) log.Logger {
 	return logger
 }
 
-func newMinimalSystem(t *testingT) (sys *presets.Minimal, err error) {
+func newMinimalSystem(t *testingT, fork string) (sys *presets.Minimal, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			var failure testingFailure
@@ -164,7 +179,33 @@ func newMinimalSystem(t *testingT) (sys *presets.Minimal, err error) {
 			panic(recovered)
 		}
 	}()
-	return presets.NewMinimal(t), nil
+	presetOpts, err := forkPresetOptions(fork)
+	if err != nil {
+		return nil, err
+	}
+	return presets.NewMinimal(t, presetOpts...), nil
+}
+
+// forkPresetOptions translates the `--fork` / `OP_UP_FORK` value into preset
+// options that activate the corresponding OP hardfork (and all its predecessors)
+// at L2 genesis. An empty `fork` returns no options (devstack default).
+//
+// Only forks that op-devstack exposes a dedicated `WithXxxAtGenesis` helper for
+// are accepted — keeping the dispatch a one-liner per case. To add more forks,
+// extend `op-devstack/sysgo/deployer.go` with the matching helper first.
+func forkPresetOptions(fork string) ([]presets.Option, error) {
+	switch strings.ToLower(strings.TrimSpace(fork)) {
+	case "":
+		return nil, nil
+	case "ecotone":
+		return []presets.Option{presets.WithDeployerOptions(sysgo.WithEcotoneAtGenesis)}, nil
+	case "jovian":
+		return []presets.Option{presets.WithDeployerOptions(sysgo.WithJovianAtGenesis)}, nil
+	case "karst":
+		return []presets.Option{presets.WithDeployerOptions(sysgo.WithKarstAtGenesis)}, nil
+	default:
+		return nil, fmt.Errorf("unsupported --fork %q (supported: ecotone, jovian, karst)", fork)
+	}
 }
 
 func newSupernodeInteropSystem(t *testingT) (sys *presets.TwoL2SupernodeInterop, err error) {

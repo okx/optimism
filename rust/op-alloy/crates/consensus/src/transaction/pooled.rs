@@ -1,9 +1,9 @@
 //! Defines the exact transaction variants that are allowed to be propagated over the eth p2p
 //! protocol in op.
 
-use crate::OpTxEnvelope;
+use crate::{OpTxEnvelope, TxEip8130};
 use alloy_consensus::{
-    Extended, SignableTransaction, Signed, TransactionEnvelope, TxEip7702, TxEnvelope,
+    Extended, Sealed, SignableTransaction, Signed, TransactionEnvelope, TxEip7702, TxEnvelope,
     error::ValueError,
     transaction::{TxEip1559, TxEip2930, TxHashRef, TxLegacy},
 };
@@ -32,17 +32,30 @@ pub enum OpPooledTransaction {
     /// A [`TxEip7702`] transaction tagged with type 4.
     #[envelope(ty = 4)]
     Eip7702(Signed<TxEip7702>),
+    /// A [`TxEip8130`] account-abstracted transaction tagged with type 0x7B.
+    ///
+    /// Mirrors `base_alloy_consensus::OpPooledTransaction::Eip8130`. Authentication
+    /// material lives inside `tx.sender_auth` / `tx.payer_auth`; the outer envelope has
+    /// no Ethereum-style ECDSA signature, so [`Self::signature`] returns a zeroed
+    /// placeholder for shape-compatibility with the other variants.
+    #[envelope(ty = 123)]
+    Eip8130(Sealed<TxEip8130>),
 }
 
 impl OpPooledTransaction {
     /// Heavy operation that returns the signature hash over rlp encoded transaction. It is only
     /// for signature signing or signer recovery.
+    ///
+    /// For EIP-8130 the "signing hash" of the outer envelope is the EIP-2718 transaction
+    /// hash (i.e. the seal hash); the actual sender / payer signing preimages live on
+    /// the inner `TxEip8130` (`encoded_for_sender_signing` / `encoded_for_payer_signing`).
     pub fn signature_hash(&self) -> B256 {
         match self {
             Self::Legacy(tx) => tx.signature_hash(),
             Self::Eip2930(tx) => tx.signature_hash(),
             Self::Eip1559(tx) => tx.signature_hash(),
             Self::Eip7702(tx) => tx.signature_hash(),
+            Self::Eip8130(tx) => tx.seal(),
         }
     }
 
@@ -53,37 +66,58 @@ impl OpPooledTransaction {
             Self::Eip2930(tx) => tx.hash(),
             Self::Eip1559(tx) => tx.hash(),
             Self::Eip7702(tx) => tx.hash(),
+            Self::Eip8130(tx) => tx.hash_ref(),
         }
     }
 
     /// Returns the signature of the transaction.
-    pub const fn signature(&self) -> &Signature {
+    ///
+    /// For EIP-8130 this returns a fixed all-zeros [`Signature`] placeholder — the AA
+    /// envelope has no ECDSA outer signature; per xlayer-aa.md (2026-04-29 lesson) we
+    /// must NOT reinterpret `sender_auth` bytes as the outer signature.
+    pub fn signature(&self) -> &Signature {
+        static AA_DUMMY_SIG: Signature = Signature::new(
+            alloy_primitives::U256::ZERO,
+            alloy_primitives::U256::ZERO,
+            false,
+        );
         match self {
             Self::Legacy(tx) => tx.signature(),
             Self::Eip2930(tx) => tx.signature(),
             Self::Eip1559(tx) => tx.signature(),
             Self::Eip7702(tx) => tx.signature(),
+            Self::Eip8130(_) => &AA_DUMMY_SIG,
         }
     }
 
     /// This encodes the transaction _without_ the signature, and is only suitable for creating a
     /// hash intended for signing.
+    ///
+    /// EIP-8130 has no outer signing preimage; this falls back to the full EIP-2718
+    /// encoding so callers don't have to special-case AA transactions.
     pub fn encode_for_signing(&self, out: &mut dyn bytes::BufMut) {
         match self {
             Self::Legacy(tx) => tx.tx().encode_for_signing(out),
             Self::Eip2930(tx) => tx.tx().encode_for_signing(out),
             Self::Eip1559(tx) => tx.tx().encode_for_signing(out),
             Self::Eip7702(tx) => tx.tx().encode_for_signing(out),
+            Self::Eip8130(tx) => tx.inner().encode_2718(out),
         }
     }
 
     /// Converts the transaction into the ethereum [`TxEnvelope`].
-    pub fn into_envelope(self) -> TxEnvelope {
+    ///
+    /// Returns `Err` for EIP-8130 AA transactions which have no Ethereum equivalent.
+    pub fn try_into_envelope(self) -> Result<TxEnvelope, ValueError<Self>> {
         match self {
-            Self::Legacy(tx) => tx.into(),
-            Self::Eip2930(tx) => tx.into(),
-            Self::Eip1559(tx) => tx.into(),
-            Self::Eip7702(tx) => tx.into(),
+            Self::Legacy(tx) => Ok(tx.into()),
+            Self::Eip2930(tx) => Ok(tx.into()),
+            Self::Eip1559(tx) => Ok(tx.into()),
+            Self::Eip7702(tx) => Ok(tx.into()),
+            Self::Eip8130(tx) => Err(ValueError::new(
+                Self::Eip8130(tx),
+                "AA transactions cannot be converted to ethereum TxEnvelope",
+            )),
         }
     }
 
@@ -94,6 +128,7 @@ impl OpPooledTransaction {
             Self::Eip2930(tx) => tx.into(),
             Self::Eip1559(tx) => tx.into(),
             Self::Eip7702(tx) => tx.into(),
+            Self::Eip8130(tx) => OpTxEnvelope::Eip8130(tx),
         }
     }
 
@@ -128,6 +163,14 @@ impl OpPooledTransaction {
             _ => None,
         }
     }
+
+    /// Returns the [`TxEip8130`] variant if the transaction is an AA transaction.
+    pub const fn as_eip8130(&self) -> Option<&Sealed<TxEip8130>> {
+        match self {
+            Self::Eip8130(tx) => Some(tx),
+            _ => None,
+        }
+    }
 }
 
 impl From<Signed<TxLegacy>> for OpPooledTransaction {
@@ -154,13 +197,25 @@ impl From<Signed<TxEip7702>> for OpPooledTransaction {
     }
 }
 
-impl From<OpPooledTransaction> for alloy_consensus::transaction::PooledTransaction {
-    fn from(value: OpPooledTransaction) -> Self {
+impl From<Sealed<TxEip8130>> for OpPooledTransaction {
+    fn from(v: Sealed<TxEip8130>) -> Self {
+        Self::Eip8130(v)
+    }
+}
+
+impl TryFrom<OpPooledTransaction> for alloy_consensus::transaction::PooledTransaction {
+    type Error = ValueError<OpPooledTransaction>;
+
+    fn try_from(value: OpPooledTransaction) -> Result<Self, Self::Error> {
         match value {
-            OpPooledTransaction::Legacy(tx) => tx.into(),
-            OpPooledTransaction::Eip2930(tx) => tx.into(),
-            OpPooledTransaction::Eip1559(tx) => tx.into(),
-            OpPooledTransaction::Eip7702(tx) => tx.into(),
+            OpPooledTransaction::Legacy(tx) => Ok(tx.into()),
+            OpPooledTransaction::Eip2930(tx) => Ok(tx.into()),
+            OpPooledTransaction::Eip1559(tx) => Ok(tx.into()),
+            OpPooledTransaction::Eip7702(tx) => Ok(tx.into()),
+            OpPooledTransaction::Eip8130(tx) => Err(ValueError::new(
+                OpPooledTransaction::Eip8130(tx),
+                "AA transactions cannot be converted to ethereum PooledTransaction",
+            )),
         }
     }
 }
@@ -176,6 +231,9 @@ impl alloy_consensus::transaction::SignerRecoverable for OpPooledTransaction {
     fn recover_signer(
         &self,
     ) -> Result<alloy_primitives::Address, alloy_consensus::crypto::RecoveryError> {
+        if let Self::Eip8130(tx) = self {
+            return crate::recover_eip8130_sender(tx.inner());
+        }
         let signature_hash = self.signature_hash();
         alloy_consensus::crypto::secp256k1::recover_signer(self.signature(), signature_hash)
     }
@@ -183,6 +241,9 @@ impl alloy_consensus::transaction::SignerRecoverable for OpPooledTransaction {
     fn recover_signer_unchecked(
         &self,
     ) -> Result<alloy_primitives::Address, alloy_consensus::crypto::RecoveryError> {
+        if let Self::Eip8130(tx) = self {
+            return crate::recover_eip8130_sender(tx.inner());
+        }
         let signature_hash = self.signature_hash();
         alloy_consensus::crypto::secp256k1::recover_signer_unchecked(
             self.signature(),
@@ -207,13 +268,8 @@ impl alloy_consensus::transaction::SignerRecoverable for OpPooledTransaction {
             Self::Eip7702(tx) => {
                 alloy_consensus::transaction::SignerRecoverable::recover_unchecked_with_buf(tx, buf)
             }
+            Self::Eip8130(tx) => crate::recover_eip8130_sender(tx.inner()),
         }
-    }
-}
-
-impl From<OpPooledTransaction> for TxEnvelope {
-    fn from(tx: OpPooledTransaction) -> Self {
-        tx.into_envelope()
     }
 }
 

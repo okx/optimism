@@ -8,6 +8,13 @@
     html_favicon_url = "https://avatars0.githubusercontent.com/u/97369466?s=256",
     issue_tracker_base_url = "https://github.com/paradigmxyz/reth/issues/"
 )]
+// Adding the EIP-8130 variant to `op_alloy_consensus::OpPooledTransaction` widened the
+// transitive type-graph used by `BasicPayloadJob<...>`'s `Unpin` auto-trait check past
+// rustc 1.94's default `recursion_limit = 128`, manifesting as an `is_unpin_raw` ICE in
+// the trait solver. The obligation itself terminates fine — auto-traits stop at concrete
+// types — but the depth of the type-tree walk needs more headroom. 256 is well within the
+// "honest depth" range and matches how alloy/reth handle similar deeply-generic crates.
+#![recursion_limit = "256"]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 

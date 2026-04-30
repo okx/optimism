@@ -298,16 +298,15 @@ impl OpTxEnvelope {
     /// Attempts to convert the envelope into the pooled variant.
     ///
     /// Returns an error if the envelope's variant is incompatible with the pooled format:
-    /// [`TxDeposit`] and [`TxPostExec`].
+    /// [`TxDeposit`] and [`TxPostExec`]. EIP-8130 IS pooled (RPC ingress, RLPx gossip if
+    /// the node opts in) and round-trips through [`OpPooledTransaction::Eip8130`].
     pub fn try_into_pooled(self) -> Result<OpPooledTransaction, ValueError<Self>> {
         match self {
             Self::Legacy(tx) => Ok(tx.into()),
             Self::Eip2930(tx) => Ok(tx.into()),
             Self::Eip1559(tx) => Ok(tx.into()),
             Self::Eip7702(tx) => Ok(tx.into()),
-            tx @ Self::Eip8130(_) => {
-                Err(ValueError::new(tx, "EIP-8130 transactions cannot be pooled"))
-            }
+            Self::Eip8130(tx) => Ok(OpPooledTransaction::Eip8130(tx)),
             tx @ Self::Deposit(_) => {
                 Err(ValueError::new(tx, "Deposit transactions cannot be pooled"))
             }
@@ -320,11 +319,26 @@ impl OpTxEnvelope {
     /// Attempts to convert the envelope into the ethereum pooled variant.
     ///
     /// Returns an error if the envelope's variant is incompatible with the pooled format:
-    /// [`TxDeposit`] and [`TxPostExec`].
+    /// [`TxDeposit`], [`TxPostExec`], and [`TxEip8130`] (no Ethereum equivalent).
     pub fn try_into_eth_pooled(
         self,
     ) -> Result<alloy_consensus::transaction::PooledTransaction, ValueError<Self>> {
-        self.try_into_pooled().map(Into::into)
+        match self {
+            Self::Legacy(tx) => Ok(tx.into()),
+            Self::Eip2930(tx) => Ok(tx.into()),
+            Self::Eip1559(tx) => Ok(tx.into()),
+            Self::Eip7702(tx) => Ok(tx.into()),
+            tx @ Self::Eip8130(_) => Err(ValueError::new(
+                tx,
+                "AA transactions cannot be converted to ethereum PooledTransaction",
+            )),
+            tx @ Self::Deposit(_) => {
+                Err(ValueError::new(tx, "Deposit transactions cannot be pooled"))
+            }
+            tx @ Self::PostExec(_) => {
+                Err(ValueError::new(tx, "PostExec transactions cannot be pooled"))
+            }
+        }
     }
 
     /// Attempts to convert the optimism variant into an ethereum [`TxEnvelope`].
