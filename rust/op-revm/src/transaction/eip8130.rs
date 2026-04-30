@@ -4,13 +4,6 @@
 //! phased call execution, auto-delegation, and pre-execution storage writes.
 //! They use only primitive types to avoid a circular dependency on
 //! `op-alloy-consensus`.
-//!
-//! TODO(eip-8130): the actual handler integration that calls into these types
-//! (sender/payer auth resolution, phased call dispatch, gas refund) lives in
-//! `op_revm::handler` and is NOT yet ported. See base's
-//! `crates/execution/revm/src/handler.rs` (~3500 LOC) for the reference impl.
-//! Wiring it requires adapting from revm 34 → 38 (e.g. context/handler trait
-//! changes) and from alloy-evm 0.27 → 0.33.
 
 use std::vec::Vec;
 

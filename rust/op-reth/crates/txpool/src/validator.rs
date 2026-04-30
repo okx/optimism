@@ -1,8 +1,7 @@
 use crate::{
-    Eip8130InvalidationIndex, Eip8130ValidationError, InvalidCrossTx, OpPooledTx,
-    VerifierAdmissionPolicy, VerifierPurityCache,
-    eip8130_validate::{DEFAULT_CUSTOM_VERIFIER_GAS_LIMIT, validate_eip8130_transaction},
-    supervisor::SupervisorClient,
+    Eip8130InvalidationIndex, Eip8130Pool, Eip8130PoolConfig, Eip8130TxId, InvalidCrossTx,
+    OpPooledTx, SharedEip8130Pool, VerifierAdmissionPolicy, VerifierAllowlist,
+    VerifierPurityCache, supervisor::SupervisorClient,
 };
 use std::collections::HashSet;
 use alloy_consensus::{BlockHeader, Transaction};
@@ -69,9 +68,15 @@ pub struct OpTransactionValidator<Client, Tx, Evm> {
     invalidation_index: Arc<RwLock<Eip8130InvalidationIndex>>,
     /// Gas limit for custom verifier STATICCALLs in the txpool.
     custom_verifier_gas_limit: u64,
-    /// Trusted payer-account bytecode hashes (currently unused — reserved for the
-    /// trusted-payer optimization base uses to skip on-chain payer auth re-checks).
-    trusted_payer_bytecodes: Arc<HashSet<alloy_primitives::B256>>,
+    /// 2D nonce pool for AA transactions. AA txs (regardless of `nonce_key`)
+    /// route here instead of the standard Reth pool to avoid `(sender,
+    /// nonce_sequence)` collisions and to drive expiry-aware ordering.
+    eip8130_pool: SharedEip8130Pool<Tx>,
+    /// Set of keccak256 bytecode hashes considered "trusted". When an account
+    /// (sender or payer) is locked and its deployed bytecode matches one of
+    /// these hashes, it qualifies for the elevated throughput tier in the 2D
+    /// nonce pool.
+    trusted_payer_bytecodes: HashSet<alloy_primitives::B256>,
 }
 
 impl<Client, Tx, Evm> OpTransactionValidator<Client, Tx, Evm> {
@@ -147,27 +152,53 @@ where
             invalidation_index: Arc::new(RwLock::new(
                 Eip8130InvalidationIndex::default(),
             )),
-            custom_verifier_gas_limit: DEFAULT_CUSTOM_VERIFIER_GAS_LIMIT,
-            trusted_payer_bytecodes: Arc::new(HashSet::new()),
+            custom_verifier_gas_limit: crate::DEFAULT_CUSTOM_VERIFIER_GAS_LIMIT,
+            eip8130_pool: Arc::new(Eip8130Pool::new()),
+            trusted_payer_bytecodes: HashSet::new(),
         }
     }
 
-    /// Replace the EIP-8130 verifier admission policy.
-    pub fn with_verifier_policy(mut self, policy: VerifierAdmissionPolicy) -> Self {
-        self.verifier_policy = Arc::new(policy);
-        self
+    /// Sets an allowlist-only EIP-8130 custom verifier policy.
+    pub fn with_verifier_allowlist(self, allowlist: VerifierAllowlist) -> Self {
+        self.with_verifier_admission_policy(VerifierAdmissionPolicy::allowlist_only(allowlist))
     }
 
-    /// Override the EIP-8130 custom-verifier STATICCALL gas limit.
-    pub fn with_custom_verifier_gas_limit(mut self, gas_limit: u64) -> Self {
-        self.custom_verifier_gas_limit = gas_limit;
-        self
+    /// Sets the EIP-8130 custom verifier admission policy.
+    pub fn with_verifier_admission_policy(self, policy: VerifierAdmissionPolicy) -> Self {
+        Self { verifier_policy: Arc::new(policy), ..self }
+    }
+
+    /// Sets the trusted bytecode hashes for elevated throughput tiers.
+    ///
+    /// When an account is locked and its deployed bytecode hash matches one
+    /// of these, it qualifies for the elevated throughput tier in the 2D
+    /// nonce pool.
+    pub fn with_trusted_payer_bytecodes(self, hashes: HashSet<alloy_primitives::B256>) -> Self {
+        Self { trusted_payer_bytecodes: hashes, ..self }
+    }
+
+    /// Sets the gas limit for custom verifier STATICCALL in the txpool EVM.
+    pub fn with_custom_verifier_gas_limit(self, gas_limit: u64) -> Self {
+        Self { custom_verifier_gas_limit: gas_limit, ..self }
+    }
+
+    /// Overrides the EIP-8130 pool configuration (throughput limits, TTL, etc).
+    pub fn with_eip8130_pool_config(self, config: Eip8130PoolConfig) -> Self {
+        Self { eip8130_pool: Arc::new(Eip8130Pool::with_config(config)), ..self }
     }
 
     /// Returns a handle to the AA invalidation index. The maintenance task
     /// (canon-state listener) consumes this index to evict stale AA txs.
     pub fn invalidation_index(&self) -> Arc<RwLock<Eip8130InvalidationIndex>> {
         Arc::clone(&self.invalidation_index)
+    }
+
+    /// Returns a shared reference to the EIP-8130 2D nonce pool.
+    ///
+    /// AA transactions route here instead of the standard Reth pool to avoid
+    /// `(sender, nonce_sequence)` collisions and drive expiry-aware ordering.
+    pub fn eip8130_pool(&self) -> SharedEip8130Pool<Tx> {
+        Arc::clone(&self.eip8130_pool)
     }
 
     /// Set the supervisor client and safety level
@@ -234,7 +265,8 @@ where
         }
 
         if transaction.ty() == op_alloy_consensus::transaction::eip8130::AA_TX_TYPE_ID {
-            if !self.chain_spec().is_eip8130_active_at_timestamp(self.block_timestamp()) {
+            if !self.chain_spec().is_native_aa_active_at_timestamp(self.block_timestamp())
+            {
                 return TransactionValidationOutcome::Invalid(
                     transaction,
                     InvalidTransactionError::TxTypeNotSupported.into(),
@@ -283,13 +315,65 @@ where
                         }
                     }
 
-                    // EIP8130_POOL_TODO: route ALL AA txs to the 2D nonce pool. base
-                    // lines 310-364 — the dedicated `Eip8130Pool` handles expiry,
-                    // invalidation, and 2D ordering. Without that pool ported, AA
-                    // txs sit in the standard reth pool with linear-nonce ordering,
-                    // which is wrong for nonce_key != 0. First cut accepts the
-                    // mismatch; the maintenance task still evicts on state changes
-                    // via the invalidation index.
+                    // Route ALL AA txs to the 2D nonce pool. Even nonce_key == 0
+                    // uses the NONCE_MANAGER contract for nonce management, so the
+                    // standard pool's (sender, account_nonce) tracking is wrong.
+                    // The Eip8130Pool handles expiry, invalidation, and 2D ordering.
+                    let nonce_key = outcome.nonce_key;
+                    {
+                        let sender = transaction.sender();
+                        let payer = outcome.sponsored_payer.unwrap_or(sender);
+                        let nonce_storage_slot =
+                            op_alloy_consensus::transaction::eip8130::nonce_slot(
+                                sender, nonce_key,
+                            );
+                        let id = Eip8130TxId {
+                            sender,
+                            nonce_key,
+                            nonce_sequence: outcome.state_nonce,
+                        };
+                        let client = self.client();
+                        let trusted = &self.trusted_payer_bytecodes;
+                        let block_ts = self.block_timestamp();
+                        let check_tier = |account: alloy_primitives::Address| -> crate::TierCheckResult {
+                            let state = match client.latest() {
+                                Ok(s) => s,
+                                Err(_) => {
+                                    return crate::TierCheckResult {
+                                        tier: crate::ThroughputTier::Default,
+                                        cache_for: None,
+                                    };
+                                }
+                            };
+                            crate::compute_account_tier(account, &*state, trusted, block_ts)
+                        };
+                        match self.eip8130_pool.add_transaction(
+                            id,
+                            transaction.clone(),
+                            payer,
+                            origin,
+                            nonce_storage_slot,
+                            outcome.expiry,
+                            &check_tier,
+                        ) {
+                            Ok(_) => {}
+                            Err(crate::Eip8130PoolError::DuplicateHash(_)) => {
+                                // Already in the side pool — fall through to the
+                                // standard pool which will return "already known".
+                            }
+                            Err(err) => {
+                                tracing::debug!(
+                                    target: "txpool",
+                                    error = %err,
+                                    "EIP-8130 pool rejected transaction"
+                                );
+                                return TransactionValidationOutcome::Invalid(
+                                    transaction,
+                                    InvalidPoolTransactionError::other(err),
+                                );
+                            }
+                        }
+                    }
 
                     if !outcome.invalidation_keys.is_empty() {
                         let tx_hash = *transaction.hash();
@@ -300,21 +384,19 @@ where
                         );
                     }
 
-                    // EIP8130_METADATA_TODO: base attaches Eip8130Metadata to the
-                    // pooled tx via OpPooledTx::attach_aa_metadata (base lines
-                    // 375-382). We have not yet ported that metadata struct + the
-                    // attach hook on OpPooledTx; downstream consumers (RPC, P2P
-                    // dedup) lose visibility into the resolved sender/payer/keys
-                    // until that lands.
+                    let transaction = transaction.attach_aa_metadata(crate::Eip8130Metadata {
+                        nonce_key: outcome.nonce_key,
+                        nonce_sequence: outcome.state_nonce,
+                        payer: outcome.sponsored_payer,
+                        invalidation_keys: outcome.invalidation_keys,
+                        verifier_passed: true,
+                        expiry: outcome.expiry,
+                    });
 
                     // The standard pool still receives the Valid outcome for
                     // backward-compatible RPC visibility, but `propagate: false`
-                    // prevents it from firing its own P2P gossip. (When the
-                    // Eip8130Pool ports, its broadcast channel will drive gossip
-                    // instead; for now AA tx P2P propagation is suppressed
-                    // entirely — same as base.)
-                    let _ = origin;
-                    let _ = state;
+                    // prevents it from firing its own P2P gossip. The Eip8130Pool's
+                    // broadcast channel drives gossip instead.
                     TransactionValidationOutcome::Valid {
                         balance: outcome.balance,
                         state_nonce: outcome.state_nonce,

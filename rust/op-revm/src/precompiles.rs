@@ -1,7 +1,6 @@
 //! Contains Optimism specific precompiles.
 use crate::{
     OpSpecId,
-    constants::EIP8130_TX_TYPE,
     transaction::{OpTxTr, eip8130::Eip8130Call},
 };
 use revm::{
@@ -19,6 +18,9 @@ use revm::{
 use std::{boxed::Box, cell::RefCell, string::String, vec::Vec};
 
 // ── EIP-8130 system precompile constants ────────────────────────────────────────
+
+/// EIP-8130 AA transaction type byte.
+const EIP8130_TX_TYPE: u8 = 0x7B;
 
 /// NonceManager system precompile address.
 pub const NONCE_MANAGER_ADDRESS: Address =
@@ -112,7 +114,7 @@ impl Eip8130TxContext {
 
 /// Returns `true` when the EIP-8130 system precompiles are active for the given spec.
 fn eip8130_precompiles_enabled(spec: OpSpecId) -> bool {
-    matches!(spec, OpSpecId::XLAYER_NATIVE_AA)
+    matches!(spec, OpSpecId::NATIVE_AA)
 }
 
 /// Computes the 4-byte function selector from a Solidity signature.
@@ -365,12 +367,12 @@ impl OpPrecompiles {
             OpSpecId::ISTHMUS => isthmus(),
             OpSpecId::JOVIAN => jovian(),
             OpSpecId::KARST | OpSpecId::INTEROP => karst(),
-            // XLAYER_NATIVE_AA inherits KARST's standard precompile set. The two EIP-8130
+            // NATIVE_AA inherits KARST's standard precompile set. The two EIP-8130
             // native precompiles (NonceManager at 0x..aa02, TxContext at 0x..aa03) require
             // EVM-database / AA-transaction-context access that revm's static `Precompile`
             // signature cannot carry, so they're dispatched via call interception at the
             // AA execution layer in handler.rs, not registered into this static set.
-            OpSpecId::XLAYER_NATIVE_AA => karst(),
+            OpSpecId::NATIVE_AA => karst(),
         };
 
         Self { inner: EthPrecompiles { precompiles, spec: SpecId::default() }, spec }

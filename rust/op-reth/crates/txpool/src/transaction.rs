@@ -1,7 +1,8 @@
 use crate::{
-    conditional::MaybeConditionalTransaction, estimated_da_size::DataAvailabilitySized,
-    interop::MaybeInteropTransaction,
+    conditional::MaybeConditionalTransaction, eip8130_invalidation::InvalidationKey,
+    estimated_da_size::DataAvailabilitySized, interop::MaybeInteropTransaction,
 };
+use std::collections::HashSet;
 use alloy_consensus::{BlobTransactionValidationError, Typed2718, transaction::Recovered};
 use alloy_eips::{
     eip2718::{Encodable2718, WithEncoded},
@@ -29,6 +30,27 @@ use std::{
 /// Marker for no-interop transactions
 pub(crate) const NO_INTEROP_TX: u64 = 0;
 
+/// Pre-validated EIP-8130 metadata attached to a pool transaction.
+///
+/// Produced by the mempool node's `validate_eip8130_transaction` and
+/// forwarded to the builder so it can skip re-deriving expensive fields
+/// like custom verifier execution and invalidation key computation.
+#[derive(Debug, Clone)]
+pub struct Eip8130Metadata {
+    /// The transaction's `nonce_key` (2D nonce lane identifier).
+    pub nonce_key: U256,
+    /// The sender's current nonce sequence at validation time.
+    pub nonce_sequence: u64,
+    /// Resolved payer address (`None` for self-pay transactions).
+    pub payer: Option<Address>,
+    /// Storage slot dependencies for invalidation tracking.
+    pub invalidation_keys: HashSet<InvalidationKey>,
+    /// Whether the sender's custom verifier execution succeeded.
+    pub verifier_passed: bool,
+    /// Unix timestamp after which this transaction is invalid. `0` = no expiry.
+    pub expiry: u64,
+}
+
 /// Pool transaction for OP.
 ///
 /// This type wraps the actual transaction and caches values that are frequently used by the pool.
@@ -54,6 +76,11 @@ pub struct OpPooledTransaction<
 
     /// Cached EIP-2718 encoded bytes of the transaction, lazily computed.
     encoded_2718: OnceLock<Bytes>,
+
+    /// Pre-validated EIP-8130 metadata from the forwarding mempool node.
+    /// When present, the builder can skip re-running custom verifier execution
+    /// and re-use invalidation keys from the sequencer.
+    aa_metadata: Option<Eip8130Metadata>,
 }
 
 impl<Cons: SignedTransaction, Pooled> OpPooledTransaction<Cons, Pooled> {
@@ -66,7 +93,19 @@ impl<Cons: SignedTransaction, Pooled> OpPooledTransaction<Cons, Pooled> {
             interop: Arc::new(AtomicU64::new(NO_INTEROP_TX)),
             _pd: core::marker::PhantomData,
             encoded_2718: Default::default(),
+            aa_metadata: None,
         }
+    }
+
+    /// Attaches pre-validated EIP-8130 metadata from the forwarding mempool node.
+    pub fn with_aa_metadata(mut self, metadata: Eip8130Metadata) -> Self {
+        self.aa_metadata = Some(metadata);
+        self
+    }
+
+    /// Returns the pre-validated EIP-8130 metadata, if present.
+    pub fn aa_metadata(&self) -> Option<&Eip8130Metadata> {
+        self.aa_metadata.as_ref()
     }
 
     /// Returns the estimated compressed size of a transaction in bytes.
@@ -309,6 +348,20 @@ pub trait OpPooledTx:
     ) -> Option<&op_alloy_consensus::transaction::eip8130::TxEip8130> {
         None
     }
+
+    /// Attaches pre-validated EIP-8130 metadata. Default is a no-op for
+    /// non-AA-aware transaction types.
+    fn attach_aa_metadata(self, _metadata: Eip8130Metadata) -> Self
+    where
+        Self: Sized,
+    {
+        self
+    }
+
+    /// Returns pre-validated EIP-8130 metadata if attached.
+    fn get_aa_metadata(&self) -> Option<&Eip8130Metadata> {
+        None
+    }
 }
 
 impl<Cons, Pooled> OpPooledTx for OpPooledTransaction<Cons, Pooled>
@@ -326,6 +379,14 @@ where
     // sealed extension below — we can't make the blanket impl require
     // OpEip8130Transaction without breaking custom-node consumers whose
     // `Cons` doesn't impl that trait.
+
+    fn attach_aa_metadata(self, metadata: Eip8130Metadata) -> Self {
+        self.with_aa_metadata(metadata)
+    }
+
+    fn get_aa_metadata(&self) -> Option<&Eip8130Metadata> {
+        self.aa_metadata()
+    }
 }
 
 /// Concrete-type override of [`OpPooledTx::as_eip8130`] for `OpTxEnvelope`-backed

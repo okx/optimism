@@ -4,50 +4,38 @@
 //! to keep semantics byte-compatible with base. Constants are re-declared here
 //! (rather than imported from op-alloy-consensus) to mirror base's intra-crate
 //! dep-cycle avoidance pattern.
-//!
-//! Some constants and helpers (nonce-free expiring-nonce ring buffer, EOA
-//! revoked-verifier sentinel) are intentionally retained even though they are
-//! not yet wired into the handler — they will be needed once the nonce-free
-//! mode path is implemented. `dead_code` is allowed at the file level rather
-//! than per-item to keep diffs against base minimal.
-#![allow(dead_code, unused_imports)]
 use std::{boxed::Box, collections::HashMap};
 
 use revm::{
     context::{
-        journaled_state::{JournalCheckpoint, account::JournaledAccountTr},
-        result::InvalidTransaction,
-        LocalContextTr,
+        journaled_state::account::JournaledAccountTr, result::InvalidTransaction, LocalContextTr,
     },
-    context_interface::{Block, Cfg, ContextTr, JournalTr, Transaction},
+    context_interface::{Block, Cfg, ContextTr, JournalTr},
     handler::{
-        EvmTr, FrameResult, Handler, MainnetHandler,
-        evm::FrameTr,
-        handler::EvmTrError,
+        EvmTr, FrameResult, Handler, MainnetHandler, evm::FrameTr, handler::EvmTrError,
     },
     interpreter::{
-        CallOutcome, Gas, InitialAndFloorGas, InstructionResult, InterpreterResult, SharedMemory,
+        SharedMemory,
         interpreter_action::{CallInput, CallInputs, CallScheme, CallValue, FrameInit, FrameInput},
     },
     primitives::{Address, B256, Bytes, U256, keccak256},
 };
 
 use crate::{
-    OpSpecId,
     api::exec::OpContextTr,
-    constants::DELEGATE_VERIFIER_ADDRESS,
     eip8130_policy::{
         PendingOwnerState, PendingOwnerValidationError, pending_owner_state_for_change,
         validate_pending_owner_state,
     },
-    transaction::{
-        OpTransactionError, OpTxTr,
-        eip8130::{Eip8130Parts, Eip8130VerifyCall},
-    },
+    transaction::{OpTransactionError, eip8130::Eip8130Parts},
 };
 
 /// EIP-8130 AA transaction type byte.
-const EIP8130_TX_TYPE: u8 = 0x7B;
+///
+/// Mirrors base/handler.rs:43. `precompiles.rs` keeps a private copy of the
+/// same byte (mirroring base/precompiles.rs:208) to avoid cross-imports
+/// between handler and precompile modules.
+pub(crate) const EIP8130_TX_TYPE: u8 = 0x7B;
 
 /// Estimated calldata gas for a K1 auth blob missing during gas estimation.
 ///
@@ -91,32 +79,38 @@ static ACCOUNT_CONFIG_DEPLOYED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 /// Base storage slot for the nonce mapping in NonceManager (slot index 1).
+///
+/// Mirrors base/handler.rs:87. `precompiles.rs` keeps a public copy of the
+/// same value (`NONCE_BASE_SLOT`) so external callers like alloy-op-evm can
+/// reuse it without importing handler-internal symbols.
 const NONCE_BASE_SLOT: U256 = U256::from_limbs([1, 0, 0, 0]);
 /// Base storage slot for the packed `_accountState` mapping in AccountConfig (slot index 1).
 const LOCK_BASE_SLOT: U256 = U256::from_limbs([1, 0, 0, 0]);
 
 /// Sentinel nonce key that activates nonce-free mode.
 ///
-/// Mirrors [`base_alloy_consensus::NONCE_KEY_MAX`] to avoid a cyclic dependency.
-const NONCE_KEY_MAX: U256 = U256::MAX;
+/// Mirrors [`op_alloy_consensus::NONCE_KEY_MAX`] to avoid a cyclic dependency.
+pub(crate) const NONCE_KEY_MAX: U256 = U256::MAX;
 
-/// Mirrors [`base_alloy_consensus::EXPIRING_SEEN_BASE_SLOT`].
+/// Mirrors [`op_alloy_consensus::EXPIRING_SEEN_BASE_SLOT`].
 const EXPIRING_SEEN_BASE_SLOT: U256 = U256::from_limbs([2, 0, 0, 0]);
-/// Mirrors [`base_alloy_consensus::EXPIRING_RING_BASE_SLOT`].
+/// Mirrors [`op_alloy_consensus::EXPIRING_RING_BASE_SLOT`].
 const EXPIRING_RING_BASE_SLOT: U256 = U256::from_limbs([3, 0, 0, 0]);
-/// Mirrors [`base_alloy_consensus::EXPIRING_RING_PTR_SLOT`].
-const EXPIRING_RING_PTR_SLOT: U256 = U256::from_limbs([4, 0, 0, 0]);
-/// Mirrors [`base_alloy_consensus::EXPIRING_NONCE_SET_CAPACITY`].
-const EXPIRING_NONCE_SET_CAPACITY: u32 = 300_000;
-/// Mirrors [`base_alloy_consensus::NONCE_FREE_MAX_EXPIRY_WINDOW`].
-const NONCE_FREE_MAX_EXPIRY_WINDOW: u64 = 30;
+/// Mirrors [`op_alloy_consensus::EXPIRING_RING_PTR_SLOT`].
+pub(crate) const EXPIRING_RING_PTR_SLOT: U256 = U256::from_limbs([4, 0, 0, 0]);
+/// Mirrors [`op_alloy_consensus::EXPIRING_NONCE_SET_CAPACITY`].
+pub(crate) const EXPIRING_NONCE_SET_CAPACITY: u32 = 300_000;
+/// Mirrors [`op_alloy_consensus::NONCE_FREE_MAX_EXPIRY_WINDOW`].
+pub(crate) const NONCE_FREE_MAX_EXPIRY_WINDOW: u64 = 30;
 
 /// Computes the NonceManager storage slot for `nonce[account][nonce_key]`.
 ///
 /// `keccak256(nonce_key . keccak256(account . NONCE_BASE_SLOT))`
 ///
-/// Mirrors [`base_alloy_consensus::nonce_slot`] to avoid a cyclic dependency.
-fn aa_nonce_slot(account: Address, nonce_key: U256) -> U256 {
+/// Mirrors [`base_alloy_consensus::nonce_slot`] / base/handler.rs:112.
+/// `precompiles.rs` keeps a public copy of the same function for external
+/// callers so handler and precompile modules need not cross-import.
+pub(crate) fn aa_nonce_slot(account: Address, nonce_key: U256) -> U256 {
     let inner = {
         let mut buf = [0u8; 64];
         buf[12..32].copy_from_slice(account.as_slice());
@@ -132,8 +126,8 @@ fn aa_nonce_slot(account: Address, nonce_key: U256) -> U256 {
 
 /// Computes the storage slot for `expiringNonceSeen[txHash]`.
 ///
-/// Mirrors [`base_alloy_consensus::expiring_seen_slot`] to avoid a cyclic dependency.
-fn aa_expiring_seen_slot(tx_hash: B256) -> U256 {
+/// Mirrors [`op_alloy_consensus::expiring_seen_slot`] to avoid a cyclic dependency.
+pub(crate) fn aa_expiring_seen_slot(tx_hash: B256) -> U256 {
     let mut buf = [0u8; 64];
     buf[..32].copy_from_slice(tx_hash.as_slice());
     let base = EXPIRING_SEEN_BASE_SLOT.to_be_bytes::<32>();
@@ -143,8 +137,8 @@ fn aa_expiring_seen_slot(tx_hash: B256) -> U256 {
 
 /// Computes the storage slot for `expiringNonceRing[index]`.
 ///
-/// Mirrors [`base_alloy_consensus::expiring_ring_slot`] to avoid a cyclic dependency.
-fn aa_expiring_ring_slot(index: u32) -> U256 {
+/// Mirrors [`op_alloy_consensus::expiring_ring_slot`] to avoid a cyclic dependency.
+pub(crate) fn aa_expiring_ring_slot(index: u32) -> U256 {
     let mut buf = [0u8; 64];
     buf[28..32].copy_from_slice(&index.to_be_bytes());
     let base = EXPIRING_RING_BASE_SLOT.to_be_bytes::<32>();

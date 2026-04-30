@@ -1,15 +1,16 @@
 //! Optimism constants used in the Optimism EVM.
 use core::sync::atomic::{AtomicU64, Ordering};
-use revm::primitives::{Address, U256, address};
+
+use revm::primitives::{Address, U256, address, uint};
 
 /// The cost of a non-zero byte in the EVM.
 pub const NON_ZERO_BYTE_COST: u64 = 16;
 
-/// The two 4-byte Ecotone fee scalar values are packed into the same storage slot as the 8-byte
-/// sequence number. Byte offset within the storage slot of the 4-byte baseFeeScalar attribute.
+/// The two 4-byte Ecotone fee scalar values are packed into the same storage slot as the 8-byte sequence number.
+/// Byte offset within the storage slot of the 4-byte baseFeeScalar attribute.
 pub const BASE_FEE_SCALAR_OFFSET: usize = 16;
-/// The two 4-byte Ecotone fee scalar values are packed into the same storage slot as the 8-byte
-/// sequence number. Byte offset within the storage slot of the 4-byte blobBaseFeeScalar attribute.
+/// The two 4-byte Ecotone fee scalar values are packed into the same storage slot as the 8-byte sequence number.
+/// Byte offset within the storage slot of the 4-byte blobBaseFeeScalar attribute.
 pub const BLOB_BASE_FEE_SCALAR_OFFSET: usize = 20;
 
 /// The Isthmus operator fee scalar values are similarly packed. Byte offset within
@@ -32,28 +33,26 @@ pub const OPERATOR_FEE_SCALAR_DECIMAL: u64 = 1_000_000;
 pub const OPERATOR_FEE_JOVIAN_MULTIPLIER: u64 = 100;
 
 /// The L1 base fee slot.
-pub const L1_BASE_FEE_SLOT: U256 = U256::from_limbs([1u64, 0, 0, 0]);
+pub const L1_BASE_FEE_SLOT: U256 = uint!(1_U256);
 /// The L1 overhead slot.
-pub const L1_OVERHEAD_SLOT: U256 = U256::from_limbs([5u64, 0, 0, 0]);
+pub const L1_OVERHEAD_SLOT: U256 = uint!(5_U256);
 /// The L1 scalar slot.
-pub const L1_SCALAR_SLOT: U256 = U256::from_limbs([6u64, 0, 0, 0]);
+pub const L1_SCALAR_SLOT: U256 = uint!(6_U256);
 
-/// [`ECOTONE_L1_BLOB_BASE_FEE_SLOT`] was added in the Ecotone upgrade and stores the L1 blobBaseFee
-/// attribute.
-pub const ECOTONE_L1_BLOB_BASE_FEE_SLOT: U256 = U256::from_limbs([7u64, 0, 0, 0]);
+/// [`ECOTONE_L1_BLOB_BASE_FEE_SLOT`] was added in the Ecotone upgrade and stores the L1 blobBaseFee attribute.
+pub const ECOTONE_L1_BLOB_BASE_FEE_SLOT: U256 = uint!(7_U256);
 
-/// As of the ecotone upgrade, this storage slot stores the 32-bit basefeeScalar and
-/// blobBaseFeeScalar attributes at offsets [`BASE_FEE_SCALAR_OFFSET`] and
-/// [`BLOB_BASE_FEE_SCALAR_OFFSET`] respectively.
-pub const ECOTONE_L1_FEE_SCALARS_SLOT: U256 = U256::from_limbs([3u64, 0, 0, 0]);
+/// As of the ecotone upgrade, this storage slot stores the 32-bit basefeeScalar and blobBaseFeeScalar attributes at
+/// offsets [`BASE_FEE_SCALAR_OFFSET`] and [`BLOB_BASE_FEE_SCALAR_OFFSET`] respectively.
+pub const ECOTONE_L1_FEE_SCALARS_SLOT: U256 = uint!(3_U256);
 
 /// This storage slot stores the 32-bit operatorFeeScalar and operatorFeeConstant attributes at
 /// offsets [`OPERATOR_FEE_SCALAR_OFFSET`] and [`OPERATOR_FEE_CONSTANT_OFFSET`] respectively.
-pub const OPERATOR_FEE_SCALARS_SLOT: U256 = U256::from_limbs([8u64, 0, 0, 0]);
+pub const OPERATOR_FEE_SCALARS_SLOT: U256 = uint!(8_U256);
 
 /// As of the Jovian upgrade, this storage slot stores the 16-bit daFootprintGasScalar attribute at
 /// offset [`DA_FOOTPRINT_GAS_SCALAR_OFFSET`].
-pub const DA_FOOTPRINT_GAS_SCALAR_SLOT: U256 = U256::from_limbs([8u64, 0, 0, 0]);
+pub const DA_FOOTPRINT_GAS_SCALAR_SLOT: U256 = uint!(8_U256);
 
 /// An empty 64-bit set of scalar values.
 pub const EMPTY_SCALARS: [u8; 8] = [0u8; 8];
@@ -70,11 +69,8 @@ pub const BASE_FEE_RECIPIENT: Address = address!("0x4200000000000000000000000000
 /// The address of the `L1Block` contract.
 pub const L1_BLOCK_CONTRACT: Address = address!("0x4200000000000000000000000000000000000015");
 
-/// EIP-2718 transaction type byte for EIP-8130 account-abstracted transactions.
-pub const EIP8130_TX_TYPE: u8 = 0x7B;
-
 // ---------------------------------------------------------------------------
-// EIP-8130 owner scope bitmask (mirrors op_alloy_consensus eip8130 OwnerScope)
+// EIP-8130 owner scope bitmask (mirrors op_alloy_consensus::OwnerScope)
 // ---------------------------------------------------------------------------
 
 /// Owner scope bit: allowed to sign as the sender.
@@ -88,16 +84,18 @@ pub const OWNER_SCOPE_CONFIG: u8 = 0x08;
 
 /// Maximum number of calls across all EIP-8130 phases.
 ///
-/// Mirrors op-alloy-consensus eip8130 MAX_CALLS_PER_TX, enforced again at
+/// Mirrors `op_alloy_consensus::MAX_CALLS_PER_TX` and is enforced again at
 /// inclusion time as a defense-in-depth check.
 pub const MAX_CALLS_PER_TX: usize = 100;
 
 /// Maximum number of account-change units in one EIP-8130 transaction.
+///
+/// Mirrors `op_alloy_consensus::MAX_ACCOUNT_CHANGES_PER_TX`.
 pub const MAX_ACCOUNT_CHANGES_PER_TX: usize = 10;
 
 /// Delegate verifier contract address (1-hop delegation).
 ///
-/// Mirrors op-alloy-consensus eip8130 DELEGATE_VERIFIER_ADDRESS.
+/// Mirrors `op_alloy_consensus::DELEGATE_VERIFIER_ADDRESS`.
 pub const DELEGATE_VERIFIER_ADDRESS: Address =
     address!("0x30A76831b27732087561372f6a1bef6Fc391d805");
 
@@ -105,9 +103,6 @@ pub const DELEGATE_VERIFIER_ADDRESS: Address =
 pub const DEFAULT_CUSTOM_VERIFIER_GAS_CAP: u64 = 200_000;
 
 /// Runtime-configurable cap for aggregate custom verifier STATICCALL gas.
-///
-/// Mirrors base's `CUSTOM_VERIFIER_GAS_CAP` runtime-tunable knob — operators can
-/// override the default via [`set_custom_verifier_gas_cap`] without recompiling.
 static CUSTOM_VERIFIER_GAS_CAP: AtomicU64 = AtomicU64::new(DEFAULT_CUSTOM_VERIFIER_GAS_CAP);
 
 /// Returns the configured aggregate custom verifier STATICCALL gas cap.

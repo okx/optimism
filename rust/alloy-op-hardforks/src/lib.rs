@@ -52,12 +52,12 @@ hardfork!(
         Karst,
         /// TODO: add interop hardfork overview when available
         Interop,
-        /// X Layer Native AA: introduces EIP-8130 (Account Abstraction by Account Configuration).
+        /// Native AA: introduces EIP-8130 (Account Abstraction by Account Configuration).
         ///
         /// Adds transaction type 0x7B with multi-phase calls, dual-domain signing
         /// (sender/payer), 2D nonces, and account-config predeploys. Byte-compatible
         /// with base's BASE_V1 hardfork.
-        XLayerNativeAA,
+        NativeAA,
     }
 );
 
@@ -247,16 +247,10 @@ pub trait OpHardforks: EthereumHardforks {
         self.op_fork_activation(OpHardfork::Interop).active_at_timestamp(timestamp)
     }
 
-    /// Returns `true` if [`XLayerNativeAA`](OpHardfork::XLayerNativeAA) is active at given block
+    /// Returns `true` if [`NativeAA`](OpHardfork::NativeAA) is active at given block
     /// timestamp.
-    fn is_x_layer_native_aa_active_at_timestamp(&self, timestamp: u64) -> bool {
-        self.op_fork_activation(OpHardfork::XLayerNativeAA).active_at_timestamp(timestamp)
-    }
-
-    /// Returns `true` if EIP-8130 (account-abstracted transactions, type 0x7B) is active
-    /// at the given block timestamp. EIP-8130 activates at [`XLayerNativeAA`](OpHardfork::XLayerNativeAA).
-    fn is_eip8130_active_at_timestamp(&self, timestamp: u64) -> bool {
-        self.is_x_layer_native_aa_active_at_timestamp(timestamp)
+    fn is_native_aa_active_at_timestamp(&self, timestamp: u64) -> bool {
+        self.op_fork_activation(OpHardfork::NativeAA).active_at_timestamp(timestamp)
     }
 }
 
@@ -349,7 +343,7 @@ impl Index<OpHardfork> for OpChainHardforks {
     fn index(&self, hf: OpHardfork) -> &Self::Output {
         use OpHardfork::{
             Bedrock, Canyon, Ecotone, Fjord, Granite, Holocene, Interop, Isthmus, Jovian, Karst,
-            Regolith, XLayerNativeAA,
+            Regolith, NativeAA,
         };
 
         match hf {
@@ -364,7 +358,7 @@ impl Index<OpHardfork> for OpChainHardforks {
             Jovian => &self.forks[Jovian.idx()].1,
             Karst => &self.forks[Karst.idx()].1,
             Interop => &self.forks[Interop.idx()].1,
-            XLayerNativeAA => &self.forks[XLayerNativeAA.idx()].1,
+            NativeAA => &self.forks[NativeAA.idx()].1,
         }
     }
 }
@@ -431,7 +425,7 @@ mod tests {
             OpHardfork::Jovian,
             OpHardfork::Karst,
             OpHardfork::Interop,
-            OpHardfork::XLayerNativeAA,
+            OpHardfork::NativeAA,
         ];
 
         let hardforks: alloc::vec::Vec<OpHardfork> =

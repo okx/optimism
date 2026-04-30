@@ -1125,10 +1125,40 @@ where
             .with_validator(validator)
             .build(blob_store, final_pool_config.clone());
 
+        // Pull EIP-8130 side-pool + invalidation index out of the validator
+        // before we wrap it. AA transactions live in the side pool, so the
+        // builder needs a handle to drain best-tx from there alongside the
+        // standard pool. The invalidation index drives the maintenance loop.
+        let eip8130_pool = inner_pool.validator().validator().eip8130_pool();
+        let invalidation_index = inner_pool.validator().validator().invalidation_index();
+
+        // Wrap the standard reth pool with BaseTransactionPool so it presents
+        // as a single TransactionPool that internally fans out to both the
+        // standard pool (RPC-visible) and the AA side pool.
+        let combined_pool = reth_optimism_txpool::BaseTransactionPool::new(
+            inner_pool,
+            eip8130_pool.clone(),
+        );
+
         // Enable the interop filter on reorg whenever interop is scheduled or already active
         let interop_filter_enabled =
             ctx.chain_spec().op_fork_activation(OpHardfork::Interop) != ForkCondition::Never;
-        let transaction_pool = OpPool::new(inner_pool, interop_filter_enabled);
+        let transaction_pool = OpPool::new(combined_pool, interop_filter_enabled);
+
+        // Spawn the EIP-8130 invalidation maintenance loop. Drives both pools
+        // off canonical state notifications: invalidates AA txs whose storage
+        // dependencies changed, advances 2D-nonce lanes, sweeps expired txs.
+        ctx.task_executor().spawn_critical_task(
+            "eip8130-maintenance",
+            reth_optimism_txpool::maintain_eip8130_invalidation(
+                transaction_pool.clone(),
+                eip8130_pool,
+                tokio_stream::wrappers::BroadcastStream::new(
+                    ctx.provider().subscribe_to_canonical_state(),
+                ),
+                invalidation_index,
+            ),
+        );
 
         reth_node_builder::components::spawn_maintenance_tasks(
             ctx,

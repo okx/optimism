@@ -8,16 +8,29 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-pub mod eip8130_invalidation;
+mod eip8130_invalidation;
 pub use eip8130_invalidation::{
-    Eip8130InvalidationIndex, InvalidationKey, compute_invalidation_keys, process_fal,
+    Eip8130InvalidationIndex, InvalidationKey, compute_invalidation_keys,
+    maintain_eip8130_invalidation, process_fal,
 };
 
-pub mod eip8130_validate;
+mod eip8130_pool;
+pub use eip8130_pool::{
+    AddOutcome, BestEip8130Transactions, Eip8130Pool, Eip8130PoolConfig, Eip8130PoolError,
+    Eip8130SequenceId, Eip8130TxId, SharedEip8130Pool, ThroughputTier, TierCheckResult,
+};
+
+mod base_pool;
+pub use base_pool::BaseTransactionPool;
+
+mod best;
+pub use best::MergedBestTransactions;
+
+mod eip8130_validate;
 pub use eip8130_validate::{
-    CustomVerifierPolicy, Eip8130ValidationError, Eip8130ValidationOutcome,
-    VerifierAdmissionPolicy, VerifierAllowlist, VerifierPurityCache,
-    validate_eip8130_transaction,
+    CustomVerifierPolicy, DEFAULT_CUSTOM_VERIFIER_GAS_LIMIT, Eip8130ValidationError,
+    Eip8130ValidationOutcome, MAX_AA_TX_ENCODED_BYTES, VerifierAdmissionPolicy, VerifierAllowlist,
+    VerifierPurityCache, compute_account_tier, validate_eip8130_transaction,
 };
 
 mod validator;
@@ -28,7 +41,7 @@ mod pool;
 pub use pool::OpPool;
 pub mod supervisor;
 mod transaction;
-pub use transaction::{OpPooledTransaction, OpPooledTx};
+pub use transaction::{Eip8130Metadata, OpPooledTransaction, OpPooledTx};
 mod error;
 pub mod interop;
 pub mod maintain;
@@ -39,13 +52,20 @@ use reth_transaction_pool::{CoinbaseTipOrdering, Pool, TransactionValidationTask
 
 /// Type alias for default optimism transaction pool.
 ///
-/// The [`OpPool`] wrapper delegates most behavior to the inner [`Pool`] handle,
-/// and overrides only a subset of the functions.
-/// This enables implementing custom behaviors and filtering of the pooled transactions.
+/// Layering:
+/// - [`Pool`] — reth's standard pool, owns the validator (which itself holds
+///   the EIP-8130 side-pool).
+/// - [`BaseTransactionPool`] — fans out reads/writes to both the standard pool
+///   and the EIP-8130 side-pool so the rest of the node sees a single pool
+///   handle that exposes AA transactions alongside everything else.
+/// - [`OpPool`] — adds OP-specific interop reorg filtering on top.
 pub type OpTransactionPool<Client, S, Evm, T = OpPooledTransaction> = OpPool<
-    Pool<
-        TransactionValidationTaskExecutor<OpTransactionValidator<Client, T, Evm>>,
-        CoinbaseTipOrdering<T>,
-        S,
+    BaseTransactionPool<
+        Pool<
+            TransactionValidationTaskExecutor<OpTransactionValidator<Client, T, Evm>>,
+            CoinbaseTipOrdering<T>,
+            S,
+        >,
+        T,
     >,
 >;

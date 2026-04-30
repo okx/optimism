@@ -4,21 +4,9 @@
 //! crypto for K1 and P256 verifiers), and payer balance before accepting
 //! an AA transaction into the pending pool.
 //!
-//! Ported from base/crates/txpool/src/eip8130_validate.rs (1-508 + 668-1411).
-//!
-//! NOT YET PORTED:
-//! - `verify_custom_via_evm` (base lines 509-666): runs custom verifier
-//!   STATICCALL inside a sub-EVM during pool validation. Requires deeper
-//!   wiring to spin up an OpEvm against a state provider, which isn't yet
-//!   plumbed in op-reth's txpool. Custom-verifier paths return
-//!   `VerifierNotAllowed` for now (effectively requires native verifiers
-//!   for mempool admission). Tracked as a follow-up phase 6c-ii.
-//! - `compute_account_tier` (base lines 1413+): depends on the throughput-
-//!   tier types from the dual-pool architecture (Eip8130Pool) we haven't
-//!   ported. Sender throughput tiering is deferred.
-
-#![allow(dead_code, unused_imports)]
-
+//! Custom (non-native) verifiers are verified via an EVM STATICCALL to
+//! the verifier contract. This ensures no unverified transactions enter
+//! the mempool.
 use std::{
     collections::{HashMap, HashSet},
     time::Duration,
@@ -53,7 +41,9 @@ use op_alloy_consensus::transaction::eip8130::{
     validate_structure,
 };
 
-use crate::{InvalidationKey, OpPooledTx, compute_invalidation_keys};
+use crate::{
+    InvalidationKey, OpPooledTx, ThroughputTier, TierCheckResult, compute_invalidation_keys,
+};
 
 /// Controls which verifier contracts the mempool will accept in AA transactions.
 ///
@@ -524,7 +514,7 @@ fn ensure_custom_verifier_admitted(
 /// - base_revm::* paths → op_revm::*
 /// - revm 38: CallInputs gained `reservoir: u64` (set 0); known_bytecode is now
 ///   non-Optional `(B256, Bytecode)` — load via load_account_with_code
-/// - OpSpecId::BASE_V1 → OpSpecId::XLAYER_NATIVE_AA
+/// - OpSpecId::BASE_V1 → OpSpecId::NATIVE_AA
 fn verify_custom_via_evm(
     state: &dyn reth_storage_api::StateProvider,
     tx: &TxEip8130,
@@ -595,7 +585,7 @@ fn verify_custom_via_evm(
     let db = CacheDB::new(StateProviderDatabase::new(state));
     let mut ctx = OpContext::op()
         .with_db(db)
-        .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_NATIVE_AA))
+        .with_cfg(CfgEnv::new_with_spec(OpSpecId::NATIVE_AA))
         .with_tx(op_tx);
     ctx.cfg.disable_nonce_check = true;
     let mut evm = ctx.build_op();
@@ -695,11 +685,8 @@ fn verify_custom_via_evm(
     Ok(owner_id)
 }
 
-/// Executes a custom verifier's `IVerifier.verify(hash, data)` via a
-/// lightweight EVM STATICCALL and validates the returned owner_id against
-/// the on-chain owner_config.
-///
-/// Returns the authenticated `owner_id` on success.
+/// Verifies an auth blob (native first, then custom EVM path) and validates
+/// the resolved owner against effective owner config state.
 fn verify_auth_with_scope(
     state: &dyn reth_storage_api::StateProvider,
     tx: &TxEip8130,
@@ -1433,4 +1420,645 @@ where
         sponsored_payer,
         expiry: tx.expiry,
     })
+}
+
+/// Determines the [`ThroughputTier`] for a single account by checking its
+/// lock state and bytecode against the trusted set.
+///
+/// Called lazily by the pool only when `account` is about to exceed the
+/// default cap. Returns [`ThroughputTier::Default`] on any state-read error
+/// so that failures degrade gracefully to the standard limit.
+///
+/// The returned [`TierCheckResult::cache_for`] is derived from the on-chain
+/// unlock deadline so that the cache entry expires no later than the moment
+/// the account becomes unlockable.
+pub fn compute_account_tier(
+    account: Address,
+    state: &dyn reth_storage_api::StateProvider,
+    trusted_bytecodes: &HashSet<B256>,
+    block_timestamp: u64,
+) -> TierCheckResult {
+    let default_result = TierCheckResult { tier: ThroughputTier::Default, cache_for: None };
+
+    let lock_slot_key = lock_slot(account);
+    let lock_value = match read_storage(state, ACCOUNT_CONFIG_ADDRESS, lock_slot_key) {
+        Ok(v) => v,
+        Err(_) => return default_result,
+    };
+    let unlocks_at = parse_account_state(lock_value).unlocks_at;
+    // `unlocksAt != 0` is a heuristic: any non-zero value means the account
+    // was locked (or is in the process of unlocking). This over-classifies
+    // slightly for accounts that have fully unlocked but haven't cleared
+    // storage yet, which is safe — it only upgrades the throughput tier.
+    if unlocks_at == 0 {
+        return default_result;
+    }
+
+    let cache_for = Some(Duration::from_secs(unlocks_at.saturating_sub(block_timestamp)));
+
+    if trusted_bytecodes.is_empty() {
+        return TierCheckResult { tier: ThroughputTier::Locked, cache_for };
+    }
+
+    let code_hash = match state.account_code(&account) {
+        Ok(Some(code)) => keccak256(code.original_bytes()),
+        _ => return TierCheckResult { tier: ThroughputTier::Locked, cache_for },
+    };
+
+    let tier = if trusted_bytecodes.contains(&code_hash) {
+        ThroughputTier::LockedTrustedBytecode
+    } else {
+        ThroughputTier::Locked
+    };
+
+    TierCheckResult { tier, cache_for }
+}
+
+#[cfg(test)]
+mod tests {
+    use op_alloy_consensus::transaction::eip8130::{
+        ACCOUNT_CONFIG_ADDRESS, AccountChangeEntry, ConfigChangeEntry, DELEGATE_VERIFIER_ADDRESS,
+        NONCE_MANAGER_ADDRESS, OwnerScope, P256_RAW_VERIFIER_ADDRESS,
+        P256_WEBAUTHN_VERIFIER_ADDRESS, TX_CONTEXT_ADDRESS, TxEip8130, VerifierGasCosts,
+        encode_owner_config, implicit_eoa_owner_id, owner_config_slot,
+    };
+    use reth_optimism_primitives::OpPrimitives;
+    use reth_provider::test_utils::{ExtendedAccount, MockEthProvider};
+    use reth_storage_api::StateProviderFactory;
+
+    use super::*;
+
+    fn auth_blob(verifier: Address) -> Bytes {
+        let mut blob = verifier.as_slice().to_vec();
+        blob.push(0x01);
+        Bytes::from(blob)
+    }
+
+    fn return_verifier_bytecode(owner_id: B256) -> Bytes {
+        let mut code = vec![
+            0x7f, // PUSH32 owner_id
+        ];
+        code.extend_from_slice(owner_id.as_slice());
+        code.extend_from_slice(&[
+            0x60, 0x00, // PUSH1 0x00
+            0x52, // MSTORE
+            0x60, 0x20, // PUSH1 0x20
+            0x60, 0x00, // PUSH1 0x00
+            0xf3, // RETURN
+        ]);
+        Bytes::from(code)
+    }
+
+    fn sstore_then_return_verifier_bytecode(owner_id: B256) -> Bytes {
+        let mut code = vec![
+            0x60, 0x01, // PUSH1 0x01 (value)
+            0x60, 0x00, // PUSH1 0x00 (slot)
+            0x55, // SSTORE
+            0x7f, // PUSH32 owner_id
+        ];
+        code.extend_from_slice(owner_id.as_slice());
+        code.extend_from_slice(&[
+            0x60, 0x00, // PUSH1 0x00
+            0x52, // MSTORE
+            0x60, 0x20, // PUSH1 0x20
+            0x60, 0x00, // PUSH1 0x00
+            0xf3, // RETURN
+        ]);
+        Bytes::from(code)
+    }
+
+    fn push_small(code: &mut Vec<u8>, value: usize) {
+        assert!(value <= u16::MAX as usize, "test helper only supports small immediates");
+        if value <= u8::MAX as usize {
+            code.extend_from_slice(&[0x60, value as u8]); // PUSH1
+        } else {
+            code.extend_from_slice(&[0x61, ((value >> 8) & 0xff) as u8, (value & 0xff) as u8]);
+        }
+    }
+
+    fn staticcall_precompile_then_return_verifier_bytecode(
+        target: Address,
+        calldata: &[u8],
+    ) -> Bytes {
+        let mut code = Vec::new();
+
+        for (chunk_index, chunk) in calldata.chunks(32).enumerate() {
+            let mut word = [0u8; 32];
+            word[..chunk.len()].copy_from_slice(chunk);
+            code.push(0x7f); // PUSH32
+            code.extend_from_slice(&word);
+            push_small(&mut code, chunk_index * 32);
+            code.push(0x52); // MSTORE
+        }
+
+        let target_bytes = target.as_slice();
+        assert!(
+            target_bytes[..18].iter().all(|&byte| byte == 0),
+            "test helper expects a low-address precompile target"
+        );
+        let target_word = u16::from_be_bytes([target_bytes[18], target_bytes[19]]) as usize;
+
+        push_small(&mut code, 0x20); // retLength
+        push_small(&mut code, 0x80); // retOffset
+        push_small(&mut code, calldata.len()); // argsLength
+        push_small(&mut code, 0x00); // argsOffset
+        push_small(&mut code, target_word); // precompile address
+        code.push(0x5a); // GAS
+        code.push(0xfa); // STATICCALL
+        code.push(0x50); // POP success flag
+        push_small(&mut code, 0x20); // return length
+        push_small(&mut code, 0x80); // return offset
+        code.push(0xf3); // RETURN
+
+        Bytes::from(code)
+    }
+
+    fn make_custom_sender_tx(sender: Address, verifier: Address, auth_data: Bytes) -> TxEip8130 {
+        let mut sender_auth = verifier.as_slice().to_vec();
+        sender_auth.extend_from_slice(&auth_data);
+        TxEip8130 {
+            chain_id: 8453,
+            from: Some(sender),
+            nonce_key: U256::ZERO,
+            nonce_sequence: 1,
+            max_priority_fee_per_gas: 1,
+            max_fee_per_gas: 1,
+            gas_limit: 21_000,
+            sender_auth: Bytes::from(sender_auth),
+            ..Default::default()
+        }
+    }
+
+    fn delegate_auth_data(
+        delegate_account: Address,
+        nested_verifier: Address,
+        nested_data: Bytes,
+    ) -> Bytes {
+        let mut data = Vec::with_capacity(40 + nested_data.len());
+        data.extend_from_slice(delegate_account.as_slice());
+        data.extend_from_slice(nested_verifier.as_slice());
+        data.extend_from_slice(&nested_data);
+        Bytes::from(data)
+    }
+
+    fn abi_padded_address_owner_id(address: Address) -> B256 {
+        let mut bytes = [0u8; 32];
+        bytes[12..32].copy_from_slice(address.as_slice());
+        B256::from(bytes)
+    }
+
+    fn selector(signature: &[u8]) -> [u8; 4] {
+        let hash = alloy_primitives::keccak256(signature);
+        [hash[0], hash[1], hash[2], hash[3]]
+    }
+
+    fn encode_get_nonce_call(account: Address, nonce_key: U256) -> Bytes {
+        let mut calldata = Vec::with_capacity(4 + 32 + 32);
+        calldata.extend_from_slice(&selector(b"getNonce(address,uint256)"));
+        calldata.extend_from_slice(&[0u8; 12]);
+        calldata.extend_from_slice(account.as_slice());
+        calldata.extend_from_slice(&nonce_key.to_be_bytes::<32>());
+        Bytes::from(calldata)
+    }
+
+    #[test]
+    fn allowlist_includes_native_verifiers() {
+        let allowlist = VerifierAllowlist::new(std::iter::empty());
+        assert!(allowlist.is_allowed(&K1_VERIFIER_ADDRESS));
+        assert!(allowlist.is_allowed(&P256_RAW_VERIFIER_ADDRESS));
+        assert!(allowlist.is_allowed(&P256_WEBAUTHN_VERIFIER_ADDRESS));
+        assert!(allowlist.is_allowed(&DELEGATE_VERIFIER_ADDRESS));
+    }
+
+    #[test]
+    fn allowlist_rejects_unknown_custom() {
+        let allowlist = VerifierAllowlist::new(std::iter::empty());
+        let unknown = Address::repeat_byte(0xAB);
+        assert!(!allowlist.is_allowed(&unknown));
+    }
+
+    #[test]
+    fn allowlist_accepts_configured_custom() {
+        let custom = Address::repeat_byte(0xAB);
+        let allowlist = VerifierAllowlist::new([custom]);
+        assert!(allowlist.is_allowed(&custom));
+    }
+
+    #[test]
+    fn verifier_policy_defaults_to_allowlist_or_pure() {
+        assert_eq!(VerifierAdmissionPolicy::default().mode(), CustomVerifierPolicy::AllowlistOrPure);
+    }
+
+    #[test]
+    fn verifier_policy_accepts_pure_custom_verifier_and_caches_verdict() {
+        let verifier = Address::repeat_byte(0xAB);
+        let owner_id = B256::repeat_byte(0x33);
+        let code = return_verifier_bytecode(owner_id);
+
+        let provider = MockEthProvider::<OpPrimitives>::new();
+        provider.add_account(
+            verifier,
+            ExtendedAccount::new(1, U256::ZERO).with_bytecode(code.clone()),
+        );
+
+        let state = provider.latest().expect("latest state should exist");
+        let policy = VerifierAdmissionPolicy::default();
+        let cache = VerifierPurityCache::default();
+
+        ensure_custom_verifier_admitted(&*state, verifier, &policy, &cache)
+            .expect("pure verifier should be admitted");
+        ensure_custom_verifier_admitted(&*state, verifier, &policy, &cache)
+            .expect("cached pure verifier should still be admitted");
+
+        let code_hash = alloy_primitives::keccak256(code.as_ref());
+        assert!(matches!(
+            cache.by_code_hash.read().get(&code_hash),
+            Some(PurityVerdict::Pure { .. })
+        ));
+        assert_eq!(cache.by_code_hash.read().len(), 1);
+    }
+
+    #[test]
+    fn verifier_policy_rejects_impure_custom_verifier_without_allowlist() {
+        let verifier = Address::repeat_byte(0xAB);
+
+        let provider = MockEthProvider::<OpPrimitives>::new();
+        provider.add_account(
+            verifier,
+            ExtendedAccount::new(1, U256::ZERO)
+                .with_bytecode(sstore_then_return_verifier_bytecode(B256::repeat_byte(0x44))),
+        );
+
+        let state = provider.latest().expect("latest state should exist");
+        let err = ensure_custom_verifier_admitted(
+            &*state,
+            verifier,
+            &VerifierAdmissionPolicy::default(),
+            &VerifierPurityCache::default(),
+        )
+        .expect_err("impure verifier should be rejected");
+
+        assert!(matches!(err, Eip8130ValidationError::VerifierNotAllowed(addr) if addr == verifier));
+    }
+
+    #[test]
+    fn verifier_policy_accepts_allowlisted_impure_custom_verifier() {
+        let verifier = Address::repeat_byte(0xAB);
+
+        let provider = MockEthProvider::<OpPrimitives>::new();
+        provider.add_account(
+            verifier,
+            ExtendedAccount::new(1, U256::ZERO)
+                .with_bytecode(sstore_then_return_verifier_bytecode(B256::repeat_byte(0x44))),
+        );
+
+        let state = provider.latest().expect("latest state should exist");
+        let allowlist = VerifierAllowlist::new([verifier]);
+        let policy = VerifierAdmissionPolicy::allowlist_or_pure(allowlist);
+
+        ensure_custom_verifier_admitted(&*state, verifier, &policy, &VerifierPurityCache::default())
+            .expect("allowlisted verifier should be admitted even if impure");
+    }
+
+    #[test]
+    fn delegate_nested_custom_verifier_is_checked_by_policy() {
+        let sender = Address::repeat_byte(0x11);
+        let delegate_account = Address::repeat_byte(0x22);
+        let nested_verifier = Address::repeat_byte(0xAB);
+        let delegate_owner_id = implicit_eoa_owner_id(delegate_account);
+        let nonce_key = U256::from(7u64);
+        let nonce_value = 9u64;
+        let nested_owner_id = B256::from(U256::from(nonce_value).to_be_bytes::<32>());
+        let sender_owner_slot = owner_config_slot(sender, delegate_owner_id);
+        let delegate_owner_slot = owner_config_slot(delegate_account, nested_owner_id);
+        let nonce_slot_key = nonce_slot(delegate_account, nonce_key);
+        let calldata = encode_get_nonce_call(delegate_account, nonce_key);
+        let tx = make_custom_sender_tx(
+            sender,
+            DELEGATE_VERIFIER_ADDRESS,
+            delegate_auth_data(delegate_account, nested_verifier, Bytes::new()),
+        );
+
+        let provider = MockEthProvider::<OpPrimitives>::new();
+        provider.add_account(
+            nested_verifier,
+            ExtendedAccount::new(1, U256::ZERO).with_bytecode(
+                staticcall_precompile_then_return_verifier_bytecode(NONCE_MANAGER_ADDRESS, &calldata),
+            ),
+        );
+        provider.add_account(
+            NONCE_MANAGER_ADDRESS,
+            ExtendedAccount::new(1, U256::ZERO)
+                .extend_storage([(nonce_slot_key.into(), U256::from(nonce_value).into())]),
+        );
+        provider.add_account(
+            ACCOUNT_CONFIG_ADDRESS,
+            ExtendedAccount::new(1, U256::ZERO).extend_storage([
+                (
+                    sender_owner_slot.into(),
+                    U256::from_be_bytes(
+                        encode_owner_config(DELEGATE_VERIFIER_ADDRESS, OwnerScope::SENDER).0,
+                    )
+                    .into(),
+                ),
+                (
+                    delegate_owner_slot.into(),
+                    U256::from_be_bytes(
+                        encode_owner_config(nested_verifier, OwnerScope::SENDER).0,
+                    )
+                    .into(),
+                ),
+            ]),
+        );
+
+        let state = provider.latest().expect("latest state should exist");
+        let mut remaining_custom_verifier_gas = crate::DEFAULT_CUSTOM_VERIFIER_GAS_LIMIT;
+        let err = validate_sender_authorization(
+            &tx,
+            sender,
+            B256::ZERO,
+            &*state,
+            &VerifierAdmissionPolicy::default(),
+            &VerifierPurityCache::default(),
+            &mut remaining_custom_verifier_gas,
+            None,
+        )
+        .expect_err("nested impure verifier should be rejected by default policy");
+        assert!(
+            matches!(err, Eip8130ValidationError::VerifierNotAllowed(addr) if addr == nested_verifier),
+            "unexpected error: {err:?}"
+        );
+
+        let allowlisted_policy =
+            VerifierAdmissionPolicy::allowlist_or_pure(VerifierAllowlist::new([nested_verifier]));
+        let cache = VerifierPurityCache::default();
+        let mut remaining_custom_verifier_gas = crate::DEFAULT_CUSTOM_VERIFIER_GAS_LIMIT;
+        let owner_id = validate_sender_authorization(
+            &tx,
+            sender,
+            B256::ZERO,
+            &*state,
+            &allowlisted_policy,
+            &cache,
+            &mut remaining_custom_verifier_gas,
+            None,
+        )
+        .expect("allowlisted nested verifier should be admitted");
+        assert_eq!(owner_id, delegate_owner_id);
+    }
+
+    #[test]
+    fn detects_custom_sender_verifier() {
+        let custom = Address::repeat_byte(0xAB);
+        let mut tx = TxEip8130 { from: Some(Address::repeat_byte(0x11)), ..Default::default() };
+        tx.sender_auth = auth_blob(custom);
+
+        assert!(tx.has_custom_verifier());
+    }
+
+    #[test]
+    fn detects_custom_payer_verifier() {
+        let custom = Address::repeat_byte(0xAB);
+        let mut tx = TxEip8130 {
+            from: Some(Address::repeat_byte(0x11)),
+            payer: Some(Address::repeat_byte(0x22)),
+            ..Default::default()
+        };
+        tx.sender_auth = auth_blob(K1_VERIFIER_ADDRESS);
+        tx.payer_auth = auth_blob(custom);
+
+        assert!(tx.has_custom_verifier());
+    }
+
+    #[test]
+    fn detects_custom_authorizer_verifier() {
+        let custom = Address::repeat_byte(0xAB);
+        let mut tx = TxEip8130 { from: Some(Address::repeat_byte(0x11)), ..Default::default() };
+        tx.sender_auth = auth_blob(K1_VERIFIER_ADDRESS);
+        tx.account_changes = vec![AccountChangeEntry::ConfigChange(ConfigChangeEntry {
+            chain_id: 0,
+            sequence: 0,
+            owner_changes: vec![],
+            authorizer_auth: auth_blob(custom),
+        })];
+
+        assert!(tx.has_custom_verifier());
+    }
+
+    #[test]
+    fn ignores_native_verifiers() {
+        let mut tx = TxEip8130 {
+            from: Some(Address::repeat_byte(0x11)),
+            payer: Some(Address::repeat_byte(0x22)),
+            ..Default::default()
+        };
+        tx.sender_auth = auth_blob(K1_VERIFIER_ADDRESS);
+        tx.payer_auth = auth_blob(P256_RAW_VERIFIER_ADDRESS);
+        tx.account_changes = vec![AccountChangeEntry::ConfigChange(ConfigChangeEntry {
+            chain_id: 0,
+            sequence: 0,
+            owner_changes: vec![],
+            authorizer_auth: auth_blob(P256_WEBAUTHN_VERIFIER_ADDRESS),
+        })];
+
+        assert!(!tx.has_custom_verifier());
+    }
+
+    #[test]
+    fn conversion_preserves_native_authorizer_verifier() {
+        let sender = Address::repeat_byte(0x11);
+        let mut tx = TxEip8130 {
+            chain_id: 8453,
+            from: Some(sender),
+            nonce_key: U256::ZERO,
+            nonce_sequence: 1,
+            max_priority_fee_per_gas: 1,
+            max_fee_per_gas: 1,
+            gas_limit: 21_000,
+            ..Default::default()
+        };
+
+        let mut auth = K1_VERIFIER_ADDRESS.as_slice().to_vec();
+        auth.extend_from_slice(&[0u8; 65]);
+        tx.account_changes = vec![AccountChangeEntry::ConfigChange(ConfigChangeEntry {
+            chain_id: 8453,
+            sequence: 0,
+            owner_changes: vec![],
+            authorizer_auth: Bytes::from(auth),
+        })];
+
+        let parts = alloy_op_evm::build_eip8130_parts_with_costs(&tx, sender, &VerifierGasCosts::BASE_V1);
+        assert_eq!(parts.authorizer_validations.len(), 1);
+        assert_eq!(parts.authorizer_validations[0].verifier, K1_VERIFIER_ADDRESS);
+        assert!(parts.authorizer_validations[0].verify_call.is_none());
+    }
+
+    #[test]
+    fn conversion_preserves_custom_authorizer_verifier() {
+        let sender = Address::repeat_byte(0x11);
+        let custom_verifier = Address::repeat_byte(0xAB);
+        let mut tx = TxEip8130 {
+            chain_id: 8453,
+            from: Some(sender),
+            nonce_key: U256::ZERO,
+            nonce_sequence: 1,
+            max_priority_fee_per_gas: 1,
+            max_fee_per_gas: 1,
+            gas_limit: 21_000,
+            ..Default::default()
+        };
+
+        tx.account_changes = vec![AccountChangeEntry::ConfigChange(ConfigChangeEntry {
+            chain_id: 8453,
+            sequence: 0,
+            owner_changes: vec![],
+            authorizer_auth: auth_blob(custom_verifier),
+        })];
+
+        let parts = alloy_op_evm::build_eip8130_parts_with_costs(&tx, sender, &VerifierGasCosts::BASE_V1);
+        assert_eq!(parts.authorizer_validations.len(), 1);
+        assert_eq!(parts.authorizer_validations[0].verifier, custom_verifier);
+        assert!(parts.authorizer_validations[0].verify_call.is_some());
+    }
+
+    #[test]
+    fn custom_verifier_validation_runs_in_staticcall_context() {
+        let verifier = Address::repeat_byte(0xAB);
+        let account = Address::repeat_byte(0x11);
+        let owner_id = B256::repeat_byte(0x33);
+        let owner_slot = owner_config_slot(account, owner_id);
+        let tx = make_custom_sender_tx(account, verifier, Bytes::new());
+
+        let provider = MockEthProvider::<OpPrimitives>::new();
+        provider.add_account(
+            verifier,
+            ExtendedAccount::new(1, U256::ZERO)
+                .with_bytecode(sstore_then_return_verifier_bytecode(owner_id)),
+        );
+
+        provider.add_account(
+            ACCOUNT_CONFIG_ADDRESS,
+            ExtendedAccount::new(1, U256::ZERO).extend_storage([(
+                owner_slot.into(),
+                U256::from_be_bytes(encode_owner_config(verifier, OwnerScope::SENDER).0).into(),
+            )]),
+        );
+
+        let mut remaining_custom_verifier_gas = crate::DEFAULT_CUSTOM_VERIFIER_GAS_LIMIT;
+        let state = provider.latest().expect("latest state should exist");
+        let result = verify_custom_via_evm(
+            &*state,
+            &tx,
+            account,
+            verifier,
+            B256::repeat_byte(0x44),
+            &Bytes::new(),
+            account,
+            account,
+            OwnerScope::SENDER,
+            OwnerRole::Sender,
+            &mut remaining_custom_verifier_gas,
+            None,
+        );
+
+        assert!(matches!(result, Err(Eip8130ValidationError::SenderNotAuthorized(detail)) if detail == "custom verifier STATICCALL reverted"));
+    }
+
+    #[test]
+    fn custom_verifier_validation_can_read_tx_context_precompile() {
+        let verifier = Address::repeat_byte(0xAB);
+        let sender = Address::repeat_byte(0x11);
+        let owner_id = abi_padded_address_owner_id(sender);
+        let owner_slot = owner_config_slot(sender, owner_id);
+        let tx = make_custom_sender_tx(sender, verifier, Bytes::new());
+        let calldata = Bytes::from(selector(b"getSender()").to_vec());
+
+        let provider = MockEthProvider::<OpPrimitives>::new();
+        provider.add_account(
+            verifier,
+            ExtendedAccount::new(1, U256::ZERO).with_bytecode(
+                staticcall_precompile_then_return_verifier_bytecode(TX_CONTEXT_ADDRESS, &calldata),
+            ),
+        );
+        provider.add_account(
+            ACCOUNT_CONFIG_ADDRESS,
+            ExtendedAccount::new(1, U256::ZERO).extend_storage([(
+                owner_slot.into(),
+                U256::from_be_bytes(encode_owner_config(verifier, OwnerScope::SENDER).0).into(),
+            )]),
+        );
+
+        let mut remaining_custom_verifier_gas = crate::DEFAULT_CUSTOM_VERIFIER_GAS_LIMIT;
+        let state = provider.latest().expect("latest state should exist");
+        let owner_id_result = verify_custom_via_evm(
+            &*state,
+            &tx,
+            sender,
+            verifier,
+            B256::repeat_byte(0x44),
+            &Bytes::new(),
+            sender,
+            sender,
+            OwnerScope::SENDER,
+            OwnerRole::Sender,
+            &mut remaining_custom_verifier_gas,
+            None,
+        )
+        .expect("TxContext read should succeed during txpool validation");
+
+        assert_eq!(owner_id_result, owner_id);
+    }
+
+    #[test]
+    fn custom_verifier_validation_can_read_nonce_manager_precompile() {
+        let verifier = Address::repeat_byte(0xAB);
+        let sender = Address::repeat_byte(0x11);
+        let nonce_key = U256::from(7u64);
+        let nonce_value = 9u64;
+        let owner_id = B256::from(U256::from(nonce_value).to_be_bytes::<32>());
+        let owner_slot = owner_config_slot(sender, owner_id);
+        let nonce_slot_key = nonce_slot(sender, nonce_key);
+        let tx = make_custom_sender_tx(sender, verifier, Bytes::new());
+        let calldata = encode_get_nonce_call(sender, nonce_key);
+
+        let provider = MockEthProvider::<OpPrimitives>::new();
+        provider.add_account(
+            verifier,
+            ExtendedAccount::new(1, U256::ZERO).with_bytecode(
+                staticcall_precompile_then_return_verifier_bytecode(NONCE_MANAGER_ADDRESS, &calldata),
+            ),
+        );
+        provider.add_account(
+            NONCE_MANAGER_ADDRESS,
+            ExtendedAccount::new(1, U256::ZERO)
+                .extend_storage([(nonce_slot_key.into(), U256::from(nonce_value).into())]),
+        );
+        provider.add_account(
+            ACCOUNT_CONFIG_ADDRESS,
+            ExtendedAccount::new(1, U256::ZERO).extend_storage([(
+                owner_slot.into(),
+                U256::from_be_bytes(encode_owner_config(verifier, OwnerScope::SENDER).0).into(),
+            )]),
+        );
+
+        let mut remaining_custom_verifier_gas = crate::DEFAULT_CUSTOM_VERIFIER_GAS_LIMIT;
+        let state = provider.latest().expect("latest state should exist");
+        let owner_id_result = verify_custom_via_evm(
+            &*state,
+            &tx,
+            sender,
+            verifier,
+            B256::repeat_byte(0x44),
+            &Bytes::new(),
+            sender,
+            sender,
+            OwnerScope::SENDER,
+            OwnerRole::Sender,
+            &mut remaining_custom_verifier_gas,
+            None,
+        )
+        .expect("NonceManager read should succeed during txpool validation");
+
+        assert_eq!(owner_id_result, owner_id);
+    }
 }

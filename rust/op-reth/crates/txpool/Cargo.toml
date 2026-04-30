@@ -34,8 +34,8 @@ reth-storage-api.workspace = true
 reth-transaction-pool.workspace = true
 
 # revm
-op-revm.workspace = true
-alloy-op-evm = { workspace = true, features = ["native-verifier"] }
+op-revm = { workspace = true, features = ["std"] }
+alloy-op-evm = { workspace = true, features = ["native-verifier", "std"] }
 reth-revm.workspace = true
 revm.workspace = true
 

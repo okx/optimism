@@ -174,7 +174,7 @@ impl FromTxWithEncoded<OpTxEnvelope> for OpTx {
                 // attached `Eip8130Parts` via OpTxTr::eip8130_parts().
                 let inner = sealed.inner();
                 let base = revm::context::TxEnv {
-                    tx_type: op_revm::constants::EIP8130_TX_TYPE,
+                    tx_type: op_alloy::consensus::transaction::eip8130::AA_TX_TYPE_ID,
                     caller,
                     gas_limit: inner.gas_limit,
                     gas_price: inner.max_fee_per_gas,

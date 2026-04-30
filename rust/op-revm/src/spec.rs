@@ -35,7 +35,7 @@ pub enum OpSpecId {
     ///
     /// Mirrors base's BASE_V1 hardfork. Enables transaction type 0x7B with
     /// multi-phase calls, dual-domain signing, 2D nonces, and AA predeploys.
-    XLAYER_NATIVE_AA,
+    NATIVE_AA,
 }
 
 impl OpSpecId {
@@ -50,7 +50,7 @@ impl OpSpecId {
             // OSAKA EVM rules (CLZ opcode, OSAKA-priced MODEXP and P256VERIFY).
             // Mapping to PRAGUE would diverge gas accounting from base for any
             // contract callable from a phased AA call.
-            Self::KARST | Self::XLAYER_NATIVE_AA => SpecId::OSAKA,
+            Self::KARST | Self::NATIVE_AA => SpecId::OSAKA,
         }
     }
 
@@ -82,7 +82,7 @@ impl FromStr for OpSpecId {
             name::JOVIAN => Ok(Self::JOVIAN),
             name::KARST => Ok(Self::KARST),
             name::INTEROP => Ok(Self::INTEROP),
-            name::XLAYER_NATIVE_AA => Ok(Self::XLAYER_NATIVE_AA),
+            name::NATIVE_AA => Ok(Self::NATIVE_AA),
             _ => Err(UnknownHardfork),
         }
     }
@@ -102,7 +102,7 @@ impl From<OpSpecId> for &'static str {
             OpSpecId::JOVIAN => name::JOVIAN,
             OpSpecId::KARST => name::KARST,
             OpSpecId::INTEROP => name::INTEROP,
-            OpSpecId::XLAYER_NATIVE_AA => name::XLAYER_NATIVE_AA,
+            OpSpecId::NATIVE_AA => name::NATIVE_AA,
         }
     }
 }
@@ -132,7 +132,7 @@ pub mod name {
     /// Interop spec name.
     pub const INTEROP: &str = "Interop";
     /// X Layer V1 spec name.
-    pub const XLAYER_NATIVE_AA: &str = "XLayerNativeAA";
+    pub const NATIVE_AA: &str = "NativeAA";
 }
 
 #[cfg(test)]

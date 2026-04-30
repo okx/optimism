@@ -99,11 +99,11 @@ where
             return Err(OpTransactionError::MissingEnvelopedTx.into());
         }
 
-        // AA transactions require XLAYER_NATIVE_AA. Reject if the spec is not active.
-        if tx_type == crate::constants::EIP8130_TX_TYPE {
-            if !evm.ctx().cfg().spec().is_enabled_in(OpSpecId::XLAYER_NATIVE_AA) {
+        // AA transactions require NATIVE_AA. Reject if the spec is not active.
+        if tx_type == crate::handler_aa_helpers::EIP8130_TX_TYPE {
+            if !evm.ctx().cfg().spec().is_enabled_in(OpSpecId::NATIVE_AA) {
                 return Err(OpTransactionError::Base(InvalidTransaction::Str(
-                    "EIP-8130 AA transactions require XLAYER_NATIVE_AA".into(),
+                    "EIP-8130 AA transactions require NATIVE_AA".into(),
                 ))
                 .into());
             }
@@ -181,7 +181,7 @@ where
         &self,
         evm: &mut Self::Evm,
     ) -> Result<InitialAndFloorGas, Self::Error> {
-        if evm.ctx().tx().tx_type() == crate::constants::EIP8130_TX_TYPE {
+        if evm.ctx().tx().tx_type() == crate::handler_aa_helpers::EIP8130_TX_TYPE {
             let ctx = evm.ctx();
             let parts = ctx.tx().eip8130_parts();
             let aa_gas = parts.aa_intrinsic_gas;
@@ -263,7 +263,7 @@ where
 
         // AA transactions: deduct gas from payer, increment NonceManager nonce,
         // auto-delegate bare EOAs, and apply pre-execution storage writes.
-        if tx.tx_type() == crate::constants::EIP8130_TX_TYPE {
+        if tx.tx_type() == crate::handler_aa_helpers::EIP8130_TX_TYPE {
             let sender = tx.caller();
             let nonce_sequence = tx.nonce();
             let eip8130 = tx.eip8130_parts().clone();
@@ -315,8 +315,8 @@ where
 
             // --- Nonce validation and increment in NonceManager ---
             let nonce_key = eip8130.nonce_key;
-            if nonce_key != revm::primitives::U256::MAX {
-                let slot = crate::precompiles::aa_nonce_slot(sender, nonce_key);
+            if nonce_key != crate::handler_aa_helpers::NONCE_KEY_MAX {
+                let slot = crate::handler_aa_helpers::aa_nonce_slot(sender, nonce_key);
 
                 journal.load_account(crate::precompiles::NONCE_MANAGER_ADDRESS)?;
                 let current_seq =
@@ -349,11 +349,103 @@ where
                 };
                 journal.sstore(crate::precompiles::NONCE_MANAGER_ADDRESS, slot, next_seq)?;
             } else {
-                // TODO(eip-8130): Expiring-nonce circular buffer (nonce-free mode).
-                // Reserved for follow-up — first cut requires every AA tx to use 2D nonce.
-                return Err(ERROR::from_string(
-                    "EIP-8130 nonce-free mode not yet supported".into(),
-                ));
+                // --- Expiring-nonce circular buffer (nonce-free mode) ---
+                //
+                // On-chain replay protection: a fixed-capacity ring buffer
+                // stores recent nonce-free tx hashes keyed by expiry. Before
+                // including a new nonce-free tx the handler checks that no
+                // active (unexpired) entry with the same hash exists, evicts
+                // the oldest entry if it has expired, and inserts the new one.
+                let now: u64 = block.timestamp().to();
+                let expiry = eip8130.expiry;
+                let skip_checks = cfg.is_nonce_check_disabled() || cfg.is_base_fee_check_disabled();
+
+                if !skip_checks {
+                    if expiry <= now
+                        || expiry > now + crate::handler_aa_helpers::NONCE_FREE_MAX_EXPIRY_WINDOW
+                    {
+                        return Err(ERROR::from_string(format!(
+                            "nonce-free expiry out of window: expiry={expiry}, now={now}"
+                        )));
+                    }
+                }
+
+                let nf_hash = eip8130.nonce_free_hash.unwrap_or_default();
+                journal.load_account(crate::precompiles::NONCE_MANAGER_ADDRESS)?;
+
+                // Replay check
+                let seen_slot = crate::handler_aa_helpers::aa_expiring_seen_slot(nf_hash);
+                let seen_expiry = journal
+                    .sload(crate::precompiles::NONCE_MANAGER_ADDRESS, seen_slot)?
+                    .data;
+                if !skip_checks && seen_expiry != U256::ZERO && seen_expiry > U256::from(now) {
+                    return Err(ERROR::from_string(
+                        "nonce-free transaction replay: hash already seen".into(),
+                    ));
+                }
+
+                // Read ring buffer pointer
+                let ptr_raw = journal
+                    .sload(
+                        crate::precompiles::NONCE_MANAGER_ADDRESS,
+                        crate::handler_aa_helpers::EXPIRING_RING_PTR_SLOT,
+                    )?
+                    .data;
+                let idx = ptr_raw.as_limbs()[0] as u32
+                    % crate::handler_aa_helpers::EXPIRING_NONCE_SET_CAPACITY;
+
+                // Read existing entry at this ring position
+                let ring_slot = crate::handler_aa_helpers::aa_expiring_ring_slot(idx);
+                let old_hash_raw = journal
+                    .sload(crate::precompiles::NONCE_MANAGER_ADDRESS, ring_slot)?
+                    .data;
+
+                // Evict old entry if present (must be expired)
+                if old_hash_raw != U256::ZERO {
+                    let old_hash = revm::primitives::B256::from(old_hash_raw.to_be_bytes::<32>());
+                    let old_seen_slot = crate::handler_aa_helpers::aa_expiring_seen_slot(old_hash);
+                    let old_expiry = journal
+                        .sload(crate::precompiles::NONCE_MANAGER_ADDRESS, old_seen_slot)?
+                        .data;
+                    if !skip_checks
+                        && old_expiry != U256::ZERO
+                        && old_expiry > U256::from(now)
+                    {
+                        return Err(ERROR::from_string(
+                            "nonce-free buffer full: cannot evict unexpired entry".into(),
+                        ));
+                    }
+                    journal.sstore(
+                        crate::precompiles::NONCE_MANAGER_ADDRESS,
+                        old_seen_slot,
+                        U256::ZERO,
+                    )?;
+                }
+
+                // Insert new entry into ring + seen set
+                journal.sstore(
+                    crate::precompiles::NONCE_MANAGER_ADDRESS,
+                    ring_slot,
+                    U256::from_be_bytes(nf_hash.0),
+                )?;
+                journal.sstore(
+                    crate::precompiles::NONCE_MANAGER_ADDRESS,
+                    seen_slot,
+                    U256::from(expiry),
+                )?;
+
+                // Advance pointer (wraps at capacity)
+                let next_ptr =
+                    if idx + 1 >= crate::handler_aa_helpers::EXPIRING_NONCE_SET_CAPACITY {
+                        U256::ZERO
+                    } else {
+                        U256::from(idx + 1)
+                    };
+                journal.sstore(
+                    crate::precompiles::NONCE_MANAGER_ADDRESS,
+                    crate::handler_aa_helpers::EXPIRING_RING_PTR_SLOT,
+                    next_ptr,
+                )?;
             }
 
             // --- Delegation ---
@@ -461,7 +553,7 @@ where
         evm: &mut Self::Evm,
         init_and_floor_gas: &InitialAndFloorGas,
     ) -> Result<FrameResult, Self::Error> {
-        if evm.ctx().tx().tx_type() != crate::constants::EIP8130_TX_TYPE {
+        if evm.ctx().tx().tx_type() != crate::handler_aa_helpers::EIP8130_TX_TYPE {
             return self.mainnet.execution(evm, init_and_floor_gas);
         }
 
@@ -486,8 +578,10 @@ where
         // Only adjust for real transactions — during estimation the handler
         // must stay consistent with validate_initial_tx_gas (which always
         // uses cold gas) so the binary search doesn't break.
-        let nonce_warm_adjustment = if !is_estimation && eip8130.nonce_key != U256::MAX {
-            let nonce_slot = crate::precompiles::aa_nonce_slot(sender, eip8130.nonce_key);
+        let nonce_warm_adjustment = if !is_estimation
+            && eip8130.nonce_key != crate::handler_aa_helpers::NONCE_KEY_MAX
+        {
+            let nonce_slot = crate::handler_aa_helpers::aa_nonce_slot(sender, eip8130.nonce_key);
             let nonce_value = evm
                 .ctx()
                 .journal_mut()
@@ -806,9 +900,6 @@ where
             0..0,
         ));
 
-        // Silence unused warning when init_and_floor_gas isn't needed in the AA path.
-        let _ = init_and_floor_gas;
-
         self.last_frame_result(evm, &mut frame_result)?;
         Ok(frame_result)
     }
@@ -904,7 +995,7 @@ where
         };
 
         // For EIP-8130 sponsored transactions, refund the payer (not tx.caller()).
-        if evm.ctx().tx().tx_type() == crate::constants::EIP8130_TX_TYPE {
+        if evm.ctx().tx().tx_type() == crate::handler_aa_helpers::EIP8130_TX_TYPE {
             let payer = evm.ctx().tx().eip8130_parts().payer;
             let basefee = evm.ctx().block().basefee() as u128;
             let effective_gas_price = evm.ctx().tx().effective_gas_price(basefee);

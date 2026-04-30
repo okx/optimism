@@ -1,9 +1,6 @@
-//! Optimism transaction abstraction containing the `[OpTxTr]` trait and corresponding
-//! `[OpTransaction]` type.
-use super::{
-    deposit::{DEPOSIT_TRANSACTION_TYPE, DepositTransactionParts},
-    eip8130::Eip8130Parts,
-};
+//! Optimism transaction abstraction containing the `[OpTxTr]` trait and corresponding `[OpTransaction]` type.
+use std::vec;
+
 use auto_impl::auto_impl;
 use revm::{
     context::{
@@ -14,7 +11,11 @@ use revm::{
     handler::SystemCallTx,
     primitives::{Address, B256, Bytes, TxKind, U256},
 };
-use std::vec;
+
+use super::{
+    deposit::{DEPOSIT_TRANSACTION_TYPE, DepositTransactionParts},
+    eip8130::Eip8130Parts,
+};
 
 /// Optimism Transaction trait.
 #[auto_impl(&, &mut, Box, Arc)]
@@ -104,9 +105,7 @@ impl<TX: Transaction + SystemCallTx> SystemCallTx for OpTransaction<TX> {
     ) -> Self {
         let mut tx =
             Self::new(TX::new_system_tx_with_caller(caller, system_contract_address, data));
-
         tx.enveloped_tx = Some(Bytes::default());
-
         tx
     }
 }
@@ -123,10 +122,10 @@ impl<T: Transaction> Transaction for OpTransaction<T> {
 
     fn tx_type(&self) -> u8 {
         // If this is a deposit transaction (has source_hash set), return deposit type
-        if self.deposit.source_hash == B256::ZERO {
-            self.base.tx_type()
-        } else {
+        if self.deposit.source_hash != B256::ZERO {
             DEPOSIT_TRANSACTION_TYPE
+        } else {
+            self.base.tx_type()
         }
     }
 
@@ -313,8 +312,7 @@ impl OpTransactionBuilder {
             // deposit transactions should not carry enveloped bytes
             self.enveloped_tx = None;
         } else if self.enveloped_tx.is_none() {
-            // if type is not set and source hash is not set, set the enveloped transaction to
-            // something.
+            // if type is not set and source hash is not set, set the enveloped transaction to something.
             self.enveloped_tx = Some(vec![0x00].into());
         }
 
@@ -329,6 +327,7 @@ impl OpTransactionBuilder {
     }
 
     /// Build the [`OpTransaction`] instance, return error if the transaction is not valid.
+    ///
     pub fn build(mut self) -> Result<OpTransaction<TxEnv>, OpBuildError> {
         let tx_type = self.base.get_tx_type();
         if tx_type.is_some() {
@@ -380,11 +379,12 @@ impl From<TxEnvBuildError> for OpBuildError {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use revm::{
         context_interface::Transaction,
         primitives::{Address, B256},
     };
+
+    use super::*;
 
     #[test]
     fn test_deposit_transaction_fields() {
@@ -403,8 +403,7 @@ mod tests {
         // Verify common fields access
         assert_eq!(op_tx.gas_limit(), 10);
         assert_eq!(op_tx.kind(), revm::primitives::TxKind::Call(Address::ZERO));
-        // Verify gas related calculations - deposit transactions use gas_price for effective gas
-        // price
+        // Verify gas related calculations - deposit transactions use gas_price for effective gas price
         assert_eq!(op_tx.effective_gas_price(90), 100);
         assert_eq!(op_tx.max_fee_per_gas(), 100);
     }

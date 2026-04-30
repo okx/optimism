@@ -22,7 +22,7 @@ use reth_execution_types::BlockExecutionOutput;
 use reth_optimism_forks::OpHardforks;
 use reth_optimism_primitives::{L2_TO_L1_MESSAGE_PASSER_ADDRESS, transaction::OpTransaction};
 use reth_optimism_txpool::{
-    OpPooledTx,
+    MergedBestTransactions, OpPooledTx, SharedEip8130Pool,
     estimated_da_size::DataAvailabilitySized,
     interop::{MaybeInteropTransaction, is_valid_interop},
 };
@@ -503,6 +503,38 @@ impl<T: PoolTransaction + MaybeInteropTransaction> OpPayloadTransactions<T> for 
         attr: BestTransactionsAttributes,
     ) -> impl PayloadTransactions<Transaction = T> {
         BestPayloadTransactions::new(pool.best_transactions_with_attributes(attr))
+    }
+}
+
+/// Payload transaction source that interleaves the standard reth pool with the
+/// EIP-8130 2D nonce side-pool. AA transactions live in the side-pool because
+/// `(sender, nonce_sequence)` collides for `nonce_key != 0` lanes; this iterator
+/// merges both streams by effective priority and deduplicates by tx hash.
+#[derive(Debug, Clone)]
+pub struct Eip8130PayloadTransactions<T> {
+    /// Shared reference to the 2D nonce pool.
+    eip8130_pool: SharedEip8130Pool<T>,
+}
+
+impl<T> Eip8130PayloadTransactions<T> {
+    /// Creates a new payload transaction source backed by the given 2D pool.
+    pub fn new(eip8130_pool: SharedEip8130Pool<T>) -> Self {
+        Self { eip8130_pool }
+    }
+}
+
+impl<T> OpPayloadTransactions<T> for Eip8130PayloadTransactions<T>
+where
+    T: reth_transaction_pool::EthPoolTransaction + MaybeInteropTransaction + Clone,
+{
+    fn best_transactions<Pool: TransactionPool<Transaction = T>>(
+        &self,
+        pool: Pool,
+        attr: BestTransactionsAttributes,
+    ) -> impl PayloadTransactions<Transaction = T> {
+        let standard = pool.best_transactions_with_attributes(attr);
+        let eip8130 = self.eip8130_pool.best_transactions();
+        BestPayloadTransactions::new(Box::new(MergedBestTransactions::new(standard, eip8130)))
     }
 }
 
