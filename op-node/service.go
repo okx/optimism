@@ -378,9 +378,13 @@ func NewSyncConfig(ctx cliiface.Context, log log.Logger) (*sync.Config, error) {
 		// Sequencer needs a manual initial reset when follow source
 		NeedInitialResetEngine:  ctx.Bool(flags.SequencerEnabledFlag.Name) && l2FollowSourceEndpoint != "",
 		SkipFollowSourceL1Check: skipL1Check,
+		OffsetELSafe:            ctx.Duration(flags.SyncModeOffsetELSafeFlag.Name),
 	}
 	if ctx.Bool(flags.L2EngineSyncEnabled.Name) {
 		cfg.SyncMode = sync.ELSync
+	}
+	if err := cfg.Check(); err != nil {
+		return nil, err
 	}
 	return cfg, nil
 }
