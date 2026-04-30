@@ -1,4 +1,5 @@
 //! Optimism constants used in the Optimism EVM.
+use core::sync::atomic::{AtomicU64, Ordering};
 use revm::primitives::{Address, U256, address};
 
 /// The cost of a non-zero byte in the EVM.
@@ -102,3 +103,19 @@ pub const DELEGATE_VERIFIER_ADDRESS: Address =
 
 /// Default cap for aggregate gas spent across custom verifier STATICCALLs.
 pub const DEFAULT_CUSTOM_VERIFIER_GAS_CAP: u64 = 200_000;
+
+/// Runtime-configurable cap for aggregate custom verifier STATICCALL gas.
+///
+/// Mirrors base's `CUSTOM_VERIFIER_GAS_CAP` runtime-tunable knob — operators can
+/// override the default via [`set_custom_verifier_gas_cap`] without recompiling.
+static CUSTOM_VERIFIER_GAS_CAP: AtomicU64 = AtomicU64::new(DEFAULT_CUSTOM_VERIFIER_GAS_CAP);
+
+/// Returns the configured aggregate custom verifier STATICCALL gas cap.
+pub fn custom_verifier_gas_cap() -> u64 {
+    CUSTOM_VERIFIER_GAS_CAP.load(Ordering::Relaxed)
+}
+
+/// Sets the aggregate custom verifier STATICCALL gas cap.
+pub fn set_custom_verifier_gas_cap(gas_cap: u64) {
+    CUSTOM_VERIFIER_GAS_CAP.store(gas_cap, Ordering::Relaxed);
+}

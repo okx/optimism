@@ -45,8 +45,12 @@ impl OpSpecId {
             Self::BEDROCK | Self::REGOLITH => SpecId::MERGE,
             Self::CANYON => SpecId::SHANGHAI,
             Self::ECOTONE | Self::FJORD | Self::GRANITE | Self::HOLOCENE => SpecId::CANCUN,
-            Self::ISTHMUS | Self::JOVIAN | Self::INTEROP | Self::XLAYER_NATIVE_AA => SpecId::PRAGUE,
-            Self::KARST => SpecId::OSAKA,
+            Self::ISTHMUS | Self::JOVIAN | Self::INTEROP => SpecId::PRAGUE,
+            // Mirrors base's BASE_V1 → SpecId::OSAKA: AA execution must run with
+            // OSAKA EVM rules (CLZ opcode, OSAKA-priced MODEXP and P256VERIFY).
+            // Mapping to PRAGUE would diverge gas accounting from base for any
+            // contract callable from a phased AA call.
+            Self::KARST | Self::XLAYER_NATIVE_AA => SpecId::OSAKA,
         }
     }
 

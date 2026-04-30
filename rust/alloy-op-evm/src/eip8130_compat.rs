@@ -9,9 +9,13 @@
 //! `OpTxEnvelope`.
 
 use alloy_primitives::{Address, B256, Bytes, U256, keccak256};
-use op_revm::transaction::eip8130::{
-    Eip8130AuthorizerValidation, Eip8130Call, Eip8130CodePlacement, Eip8130ConfigLog,
-    Eip8130ConfigOp, Eip8130Parts, Eip8130SequenceUpdate, Eip8130StorageWrite, Eip8130VerifyCall,
+use op_revm::{
+    constants::custom_verifier_gas_cap,
+    transaction::eip8130::{
+        Eip8130AuthorizerValidation, Eip8130Call, Eip8130CodePlacement, Eip8130ConfigLog,
+        Eip8130ConfigOp, Eip8130Parts, Eip8130SequenceUpdate, Eip8130StorageWrite,
+        Eip8130VerifyCall,
+    },
 };
 
 use op_alloy::consensus::transaction::eip8130::{
@@ -28,14 +32,6 @@ use op_alloy::consensus::transaction::eip8130::{
     try_native_verify,
 };
 
-/// Returns the runtime-configurable cap for aggregate custom verifier STATICCALL gas.
-///
-/// Mirrors base's `custom_verifier_gas_cap()`. base uses an `AtomicU64` for runtime
-/// override; we use the compile-time default for now and add a setter when a use case
-/// requires it.
-fn custom_verifier_gas_cap() -> u64 {
-    op_revm::constants::DEFAULT_CUSTOM_VERIFIER_GAS_CAP
-}
 
 #[cfg(feature = "native-verifier")]
 fn derive_sender_owner_id(tx: &TxEip8130) -> B256 {

@@ -62,16 +62,16 @@ pub struct OpTransactionValidator<Client, Tx, Evm> {
     fork_tracker: Arc<OpForkTracker>,
     /// Mempool admission policy for EIP-8130 verifiers (defaults to AllowlistOrPure
     /// with empty allowlist — only pure custom verifiers + native verifiers admitted).
-    eip8130_verifier_policy: Arc<VerifierAdmissionPolicy>,
+    verifier_policy: Arc<VerifierAdmissionPolicy>,
     /// Verifier purity verdict cache, keyed by runtime bytecode hash.
-    eip8130_purity_cache: Arc<VerifierPurityCache>,
+    verifier_purity_cache: Arc<VerifierPurityCache>,
     /// Per-storage-slot invalidation index for AA transactions in the pool.
-    eip8130_invalidation_index: Arc<RwLock<Eip8130InvalidationIndex>>,
+    invalidation_index: Arc<RwLock<Eip8130InvalidationIndex>>,
     /// Gas limit for custom verifier STATICCALLs in the txpool.
-    eip8130_custom_verifier_gas_limit: u64,
+    custom_verifier_gas_limit: u64,
     /// Trusted payer-account bytecode hashes (currently unused — reserved for the
     /// trusted-payer optimization base uses to skip on-chain payer auth re-checks).
-    eip8130_trusted_payer_bytecodes: Arc<HashSet<alloy_primitives::B256>>,
+    trusted_payer_bytecodes: Arc<HashSet<alloy_primitives::B256>>,
 }
 
 impl<Client, Tx, Evm> OpTransactionValidator<Client, Tx, Evm> {
@@ -142,32 +142,32 @@ where
             require_l1_data_gas_fee: true,
             supervisor_client: None,
             fork_tracker: Arc::new(OpForkTracker { interop: AtomicBool::from(false) }),
-            eip8130_verifier_policy: Arc::new(VerifierAdmissionPolicy::default()),
-            eip8130_purity_cache: Arc::new(VerifierPurityCache::default()),
-            eip8130_invalidation_index: Arc::new(RwLock::new(
+            verifier_policy: Arc::new(VerifierAdmissionPolicy::default()),
+            verifier_purity_cache: Arc::new(VerifierPurityCache::default()),
+            invalidation_index: Arc::new(RwLock::new(
                 Eip8130InvalidationIndex::default(),
             )),
-            eip8130_custom_verifier_gas_limit: DEFAULT_CUSTOM_VERIFIER_GAS_LIMIT,
-            eip8130_trusted_payer_bytecodes: Arc::new(HashSet::new()),
+            custom_verifier_gas_limit: DEFAULT_CUSTOM_VERIFIER_GAS_LIMIT,
+            trusted_payer_bytecodes: Arc::new(HashSet::new()),
         }
     }
 
     /// Replace the EIP-8130 verifier admission policy.
-    pub fn with_eip8130_verifier_policy(mut self, policy: VerifierAdmissionPolicy) -> Self {
-        self.eip8130_verifier_policy = Arc::new(policy);
+    pub fn with_verifier_policy(mut self, policy: VerifierAdmissionPolicy) -> Self {
+        self.verifier_policy = Arc::new(policy);
         self
     }
 
     /// Override the EIP-8130 custom-verifier STATICCALL gas limit.
-    pub fn with_eip8130_custom_verifier_gas_limit(mut self, gas_limit: u64) -> Self {
-        self.eip8130_custom_verifier_gas_limit = gas_limit;
+    pub fn with_custom_verifier_gas_limit(mut self, gas_limit: u64) -> Self {
+        self.custom_verifier_gas_limit = gas_limit;
         self
     }
 
     /// Returns a handle to the AA invalidation index. The maintenance task
     /// (canon-state listener) consumes this index to evict stale AA txs.
-    pub fn eip8130_invalidation_index(&self) -> Arc<RwLock<Eip8130InvalidationIndex>> {
-        Arc::clone(&self.eip8130_invalidation_index)
+    pub fn invalidation_index(&self) -> Arc<RwLock<Eip8130InvalidationIndex>> {
+        Arc::clone(&self.invalidation_index)
     }
 
     /// Set the supervisor client and safety level
@@ -246,10 +246,10 @@ where
                 self.block_timestamp(),
                 self.chain_spec().chain().id(),
                 self.client(),
-                self.eip8130_verifier_policy.as_ref(),
-                self.eip8130_purity_cache.as_ref(),
-                self.eip8130_custom_verifier_gas_limit,
-                &self.eip8130_trusted_payer_bytecodes,
+                self.verifier_policy.as_ref(),
+                self.verifier_purity_cache.as_ref(),
+                self.custom_verifier_gas_limit,
+                &self.trusted_payer_bytecodes,
             ) {
                 Ok(outcome) => {
                     if self.requires_l1_data_gas_fee() {
@@ -293,7 +293,7 @@ where
 
                     if !outcome.invalidation_keys.is_empty() {
                         let tx_hash = *transaction.hash();
-                        self.eip8130_invalidation_index.write().insert(
+                        self.invalidation_index.write().insert(
                             tx_hash,
                             outcome.invalidation_keys.clone(),
                             outcome.sponsored_payer,

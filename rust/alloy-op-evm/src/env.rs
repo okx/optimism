@@ -35,6 +35,7 @@ pub fn spec_by_timestamp_after_bedrock(chain_spec: impl OpHardforks, timestamp: 
         };
     }
     check_forks! {
+        is_x_layer_native_aa_active_at_timestamp => XLAYER_NATIVE_AA,
         is_karst_active_at_timestamp => KARST,
         is_interop_active_at_timestamp => INTEROP,
         is_jovian_active_at_timestamp => JOVIAN,
