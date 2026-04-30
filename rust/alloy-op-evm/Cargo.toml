@@ -21,7 +21,7 @@ alloy-consensus = { workspace = true }
 alloy-primitives = { workspace = true }
 
 alloy-op-hardforks.workspace = true
-op-alloy = { workspace = true, features = ["consensus"] }
+op-alloy = { workspace = true, features = ["consensus", "evm", "native-verifier"] }
 
 revm = { workspace = true }
 op-revm = { workspace = true }

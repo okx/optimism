@@ -166,12 +166,32 @@ impl FromTxWithEncoded<OpTxEnvelope> for OpTx {
             OpTxEnvelope::Eip7702(tx) => Self::from_encoded_tx(tx, caller, encoded),
             OpTxEnvelope::Deposit(tx) => Self::from_encoded_tx(tx.inner(), caller, encoded),
             OpTxEnvelope::PostExec(tx) => Self::from_encoded_tx(tx.inner(), caller, encoded),
-            // TODO(eip-8130): EIP-8130 has a multi-phase execution model and cannot be
-            // converted to a plain TxEnv via this path. The dedicated executor must
-            // dispatch directly on `OpTxEnvelope::Eip8130`. Wire it up in task #5
-            // "Port EIP-8130 EVM execution to op-revm/alloy-op-evm".
-            OpTxEnvelope::Eip8130(_) => {
-                unimplemented!("TODO(eip-8130): EIP-8130 requires dedicated executor (not via TxEnv)")
+            OpTxEnvelope::Eip8130(sealed) => {
+                // EIP-8130 multi-phase execution lives in op-revm's OpHandler. The TxEnv
+                // here is the *outer* shell — its base fields drive max_fee_per_gas /
+                // chain_id / nonce / value semantics for handler hooks that consult
+                // `tx.tx_type()` etc. The phased-call execution itself reads the
+                // attached `Eip8130Parts` via OpTxTr::eip8130_parts().
+                let inner = sealed.inner();
+                let base = revm::context::TxEnv {
+                    tx_type: op_revm::constants::EIP8130_TX_TYPE,
+                    caller,
+                    gas_limit: inner.gas_limit,
+                    gas_price: inner.max_fee_per_gas,
+                    gas_priority_fee: Some(inner.max_priority_fee_per_gas),
+                    chain_id: Some(inner.chain_id),
+                    nonce: inner.nonce_sequence,
+                    value: U256::ZERO,
+                    kind: TxKind::Call(inner.effective_sender()),
+                    ..Default::default()
+                };
+                let parts = crate::build_eip8130_parts(inner, caller);
+                Self(op_revm::OpTransaction {
+                    base,
+                    enveloped_tx: Some(encoded),
+                    deposit: Default::default(),
+                    eip8130: parts,
+                })
             }
         }
     }

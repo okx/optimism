@@ -38,6 +38,9 @@ use revm::{
     interpreter::{InterpreterResult, interpreter::EthInterpreter},
 };
 
+pub mod eip8130_compat;
+pub use eip8130_compat::{build_eip8130_parts, build_eip8130_parts_with_costs};
+
 pub mod tx;
 pub use tx::OpTx;
 

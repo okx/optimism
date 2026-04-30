@@ -49,6 +49,18 @@ k256 = [
   "op-alloy-consensus?/k256",
 ]
 
+# Pass-through to op-alloy-consensus's eip8130 EVM-integration helpers
+# (config_change_writes, owner_registration_writes, encode_verify_call, etc.).
+evm = [
+  "op-alloy-consensus?/evm",
+]
+
+# Pass-through to op-alloy-consensus's native-verifier feature (K1 / P256 /
+# WebAuthn / Delegate signature verification in pure Rust).
+native-verifier = [
+  "op-alloy-consensus?/native-verifier",
+]
+
 arbitrary = [
   "op-alloy-consensus?/arbitrary",
   "op-alloy-rpc-types?/arbitrary",
