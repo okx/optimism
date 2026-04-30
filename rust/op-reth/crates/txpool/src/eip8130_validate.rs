@@ -27,12 +27,16 @@ use std::{
 use alloy_consensus::Transaction;
 use alloy_primitives::{Address, B256, Bytes, U256, keccak256};
 use op_revm::{
-    OpSpecId, OpTransaction,
+    DefaultOp, OpBuilder, OpContext, OpSpecId, OpTransaction,
+    api::exec::OpError,
+    api::builder::DefaultOpEvm,
     constants::DEFAULT_CUSTOM_VERIFIER_GAS_CAP,
     eip8130_policy::{
         PendingOwnerState, PendingOwnerValidationError, pending_owner_state_for_change,
         validate_pending_owner_state,
     },
+    handler::OpHandler,
+    precompiles::{Eip8130TxContext, clear_eip8130_tx_context, set_eip8130_tx_context},
 };
 use parking_lot::RwLock;
 use reth_storage_api::StateProviderFactory;
@@ -513,6 +517,186 @@ fn ensure_custom_verifier_admitted(
 
 /// Executes a custom verifier's `IVerifier.verify(hash, data)` via a
 /// lightweight EVM STATICCALL and validates the returned owner_id against
+/// the on-chain owner_config. Returns the authenticated `owner_id` on success.
+///
+/// Ported 1:1 from base/crates/txpool/src/eip8130_validate.rs lines 509-664.
+/// Adaptations:
+/// - base_revm::* paths → op_revm::*
+/// - revm 38: CallInputs gained `reservoir: u64` (set 0); known_bytecode is now
+///   non-Optional `(B256, Bytecode)` — load via load_account_with_code
+/// - OpSpecId::BASE_V1 → OpSpecId::XLAYER_NATIVE_AA
+fn verify_custom_via_evm(
+    state: &dyn reth_storage_api::StateProvider,
+    tx: &TxEip8130,
+    sender: Address,
+    verifier: Address,
+    sig_hash: B256,
+    auth_data: &Bytes,
+    caller: Address,
+    account: Address,
+    required_scope: u8,
+    role: OwnerRole,
+    remaining_custom_verifier_gas: &mut u64,
+    pending_owners: Option<&HashMap<B256, PendingOwnerState>>,
+) -> Result<B256, Eip8130ValidationError> {
+    use reth_revm::database::StateProviderDatabase;
+    use revm::{
+        context::{Cfg, CfgEnv, LocalContextTr, TxEnv},
+        context_interface::ContextTr,
+        context_interface::JournalTr,
+        database::CacheDB,
+        handler::{EthFrame, EvmTr, Handler},
+        interpreter::{
+            SharedMemory,
+            interpreter::EthInterpreter,
+            interpreter_action::{
+                CallInput, CallInputs, CallScheme, CallValue, FrameInit, FrameInput,
+            },
+        },
+        primitives::TxKind,
+    };
+
+    type VerifyDb<'a> = CacheDB<StateProviderDatabase<&'a dyn reth_storage_api::StateProvider>>;
+    type VerifyContext<'a> = OpContext<VerifyDb<'a>>;
+    type VerifyEvm<'a> = DefaultOpEvm<VerifyContext<'a>>;
+
+    struct TxContextGuard;
+
+    impl Drop for TxContextGuard {
+        fn drop(&mut self) {
+            clear_eip8130_tx_context();
+        }
+    }
+
+    let calldata = encode_verify_call(sig_hash, auth_data);
+    let call_gas = *remaining_custom_verifier_gas;
+    let eip8130 =
+        alloy_op_evm::build_eip8130_parts_with_costs(tx, sender, &VerifierGasCosts::BASE_V1);
+    let total_gas_limit = eip8130
+        .aa_intrinsic_gas
+        .saturating_add(eip8130.custom_verifier_gas_cap)
+        .saturating_add(tx.gas_limit);
+
+    let mut op_tx = OpTransaction::builder()
+        .base(
+            TxEnv::builder()
+                .tx_type(Some(AA_TX_TYPE_ID))
+                .caller(sender)
+                .chain_id(Some(tx.chain_id))
+                .gas_limit(total_gas_limit)
+                .max_fee_per_gas(tx.max_fee_per_gas)
+                .gas_priority_fee(Some(tx.max_priority_fee_per_gas))
+                .kind(TxKind::Call(sender))
+                .nonce(tx.nonce_sequence),
+        )
+        .build_fill();
+    op_tx.eip8130 = eip8130.clone();
+
+    let db = CacheDB::new(StateProviderDatabase::new(state));
+    let mut ctx = OpContext::op()
+        .with_db(db)
+        .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_NATIVE_AA))
+        .with_tx(op_tx);
+    ctx.cfg.disable_nonce_check = true;
+    let mut evm = ctx.build_op();
+
+    clear_eip8130_tx_context();
+    let _tx_context_guard = TxContextGuard;
+    let execution_gas_limit = total_gas_limit.saturating_sub(eip8130.aa_intrinsic_gas);
+    let known_intrinsic = eip8130.aa_intrinsic_gas.saturating_sub(eip8130.payer_intrinsic_gas);
+    set_eip8130_tx_context(Eip8130TxContext::new(
+        &eip8130,
+        execution_gas_limit,
+        known_intrinsic,
+        U256::from(tx.max_fee_per_gas),
+    ));
+
+    // revm 38: load_account_with_code so we can populate the now non-Optional
+    // CallInputs::known_bytecode tuple.
+    let verifier_known_bytecode = {
+        let info = &evm
+            .ctx()
+            .journal_mut()
+            .load_account_with_code(verifier)
+            .map_err(|e| Eip8130ValidationError::CustomVerifierCallFailed(format!("{e:?}")))?
+            .data
+            .info;
+        (info.code_hash(), info.code.clone().unwrap_or_default())
+    };
+
+    let call_inputs = CallInputs {
+        input: CallInput::Bytes(calldata),
+        return_memory_offset: 0..0,
+        gas_limit: call_gas,
+        // EIP-8037: 0 for verifier STATICCALL (no parent state-gas reservoir to inherit).
+        reservoir: 0,
+        bytecode_address: verifier,
+        known_bytecode: verifier_known_bytecode,
+        target_address: verifier,
+        caller,
+        value: CallValue::Transfer(U256::ZERO),
+        scheme: CallScheme::StaticCall,
+        is_static: true,
+    };
+    let frame_init = FrameInit {
+        depth: 0,
+        memory: {
+            let ctx = evm.ctx();
+            let mut memory =
+                SharedMemory::new_with_buffer(ctx.local().shared_memory_buffer().clone());
+            memory.set_memory_limit(ctx.cfg().memory_limit());
+            memory
+        },
+        frame_input: FrameInput::Call(Box::new(call_inputs)),
+    };
+    let mut handler: OpHandler<
+        VerifyEvm<'_>,
+        OpError<VerifyContext<'_>>,
+        EthFrame<EthInterpreter>,
+    > = OpHandler::new();
+    let exec_result = match handler.mainnet.run_exec_loop(&mut evm, frame_init) {
+        Ok(result) => result,
+        Err(err) => {
+            return Err(Eip8130ValidationError::CustomVerifierCallFailed(format!("{err:?}")));
+        }
+    };
+    let gas_used = call_gas.saturating_sub(exec_result.gas().remaining());
+    *remaining_custom_verifier_gas = remaining_custom_verifier_gas.saturating_sub(gas_used);
+
+    if !exec_result.interpreter_result().result.is_ok() {
+        return Err(role.not_authorized("custom verifier STATICCALL reverted".into()));
+    }
+
+    let output = exec_result.interpreter_result().output.as_ref();
+
+    if output.len() < 32 {
+        return Err(role.not_authorized(format!(
+            "custom verifier returned {} bytes, expected >= 32",
+            output.len()
+        )));
+    }
+
+    let owner_id = B256::from_slice(&output[..32]);
+
+    if let Some(pending) = pending_owners {
+        check_owner_authorized_with_pending(
+            state,
+            account,
+            owner_id,
+            verifier,
+            required_scope,
+            pending,
+            role,
+        )?;
+    } else {
+        check_owner_authorized(state, account, owner_id, verifier, required_scope, role)?;
+    }
+
+    Ok(owner_id)
+}
+
+/// Executes a custom verifier's `IVerifier.verify(hash, data)` via a
+/// lightweight EVM STATICCALL and validates the returned owner_id against
 /// the on-chain owner_config.
 ///
 /// Returns the authenticated `owner_id` on success.
@@ -569,16 +753,21 @@ fn verify_auth_with_scope(
         }
         NativeVerifyResult::Invalid(e) => Err(role.auth_invalid(e.to_string())),
         NativeVerifyResult::Unsupported => {
-            // TODO(eip-8130 phase 6c-ii): port verify_custom_via_evm (sub-EVM
-            // STATICCALL into custom verifier). For first cut, the txpool only
-            // admits transactions whose verifiers are natively supported (K1 /
-            // P256-raw / P256-WebAuthn / Delegate). Custom verifier paths are
-            // gated here.
             ensure_custom_verifier_admitted(state, verifier, verifier_policy, purity_cache)?;
-            let _ = (tx, caller, sig_hash, data, remaining_custom_verifier_gas, pending_owners);
-            Err(role.auth_invalid(format!(
-                "custom verifier {verifier} not yet supported in txpool (phase 6c-ii)"
-            )))
+            verify_custom_via_evm(
+                state,
+                tx,
+                sender,
+                verifier,
+                sig_hash,
+                data,
+                caller,
+                account,
+                required_scope,
+                role,
+                remaining_custom_verifier_gas,
+                pending_owners,
+            )
         }
     }
 }
@@ -691,14 +880,42 @@ fn verify_delegate_auth_with_scope(
 
     ensure_custom_verifier_admitted(state, nested_verifier, verifier_policy, purity_cache)?;
 
-    // TODO(eip-8130 phase 6c-ii): nested custom verifier under DELEGATE auth
-    // requires verify_custom_via_evm. Reject for now so the txpool only admits
-    // delegate auth where the inner verifier is also native.
-    let _ = (tx, sender, sig_hash, delegate_data, caller, account, required_scope, role,
-        remaining_custom_verifier_gas, pending_owners, &nested_data, delegate_account);
-    Err(role.auth_invalid(format!(
-        "delegate auth with nested custom verifier {nested_verifier} not yet supported (phase 6c-ii)"
-    )))
+    if matches!(role, OwnerRole::Authorizer) {
+        // Keep authorizer delegate-custom parity with execution path.
+        verify_custom_via_evm(
+            state,
+            tx,
+            sender,
+            DELEGATE_VERIFIER_ADDRESS,
+            sig_hash,
+            delegate_data,
+            caller,
+            account,
+            required_scope,
+            role,
+            remaining_custom_verifier_gas,
+            pending_owners,
+        )?;
+    } else {
+        // Nested custom verifier: direct STATICCALL on nested verifier while
+        // keeping delegate resolution native.
+        verify_custom_via_evm(
+            state,
+            tx,
+            sender,
+            nested_verifier,
+            sig_hash,
+            &nested_data,
+            caller,
+            delegate_account,
+            required_scope,
+            role,
+            remaining_custom_verifier_gas,
+            None,
+        )?;
+    }
+
+    Ok(delegate_owner_id)
 }
 
 /// Validates `sender_auth` authorization against on-chain owner_config.

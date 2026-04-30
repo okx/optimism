@@ -233,67 +233,105 @@ where
             );
         }
 
-        // EIP-8130 (AA, type 0x7B) admission. Gates the AA tx on
-        // XLAYER_NATIVE_AA activation and runs the full mempool validation
-        // pipeline (structural, expiry, sender/payer auth, intrinsic gas,
-        // payer balance, invalidation key recording). Custom verifiers are
-        // not yet supported in the txpool — they get rejected by
-        // `validate_eip8130_transaction` until phase 6c-ii lands.
-        if alloy_eips::Typed2718::ty(&transaction) == op_revm::constants::EIP8130_TX_TYPE {
-            let block_ts = self.block_timestamp();
-            if !self.chain_spec().is_eip8130_active_at_timestamp(block_ts) {
+        if transaction.ty() == op_alloy_consensus::transaction::eip8130::AA_TX_TYPE_ID {
+            if !self.chain_spec().is_eip8130_active_at_timestamp(self.block_timestamp()) {
                 return TransactionValidationOutcome::Invalid(
                     transaction,
                     InvalidTransactionError::TxTypeNotSupported.into(),
                 );
             }
 
-            let chain_id = self.chain_spec().chain().id();
-            let outcome = match validate_eip8130_transaction(
+            return match crate::validate_eip8130_transaction(
                 &transaction,
-                block_ts,
-                chain_id,
+                self.block_timestamp(),
+                self.chain_spec().chain().id(),
                 self.client(),
                 self.eip8130_verifier_policy.as_ref(),
                 self.eip8130_purity_cache.as_ref(),
                 self.eip8130_custom_verifier_gas_limit,
-                self.eip8130_trusted_payer_bytecodes.as_ref(),
+                &self.eip8130_trusted_payer_bytecodes,
             ) {
-                Ok(outcome) => outcome,
-                Err(err) => {
-                    return TransactionValidationOutcome::Invalid(
+                Ok(outcome) => {
+                    if self.requires_l1_data_gas_fee() {
+                        let mut l1_info = self.block_info.l1_block_info.read().clone();
+                        let encoded = transaction.encoded_2718();
+                        match l1_info.l1_tx_data_fee(
+                            self.chain_spec(),
+                            self.block_timestamp(),
+                            &encoded,
+                            false,
+                        ) {
+                            Ok(l1_cost) => {
+                                let total = transaction.cost().saturating_add(l1_cost);
+                                if total > outcome.balance {
+                                    return TransactionValidationOutcome::Invalid(
+                                        transaction,
+                                        InvalidTransactionError::InsufficientFunds(
+                                            GotExpected { got: outcome.balance, expected: total }
+                                                .into(),
+                                        )
+                                        .into(),
+                                    );
+                                }
+                            }
+                            Err(err) => {
+                                return TransactionValidationOutcome::Error(
+                                    *transaction.hash(),
+                                    Box::new(err),
+                                );
+                            }
+                        }
+                    }
+
+                    // EIP8130_POOL_TODO: route ALL AA txs to the 2D nonce pool. base
+                    // lines 310-364 — the dedicated `Eip8130Pool` handles expiry,
+                    // invalidation, and 2D ordering. Without that pool ported, AA
+                    // txs sit in the standard reth pool with linear-nonce ordering,
+                    // which is wrong for nonce_key != 0. First cut accepts the
+                    // mismatch; the maintenance task still evicts on state changes
+                    // via the invalidation index.
+
+                    if !outcome.invalidation_keys.is_empty() {
+                        let tx_hash = *transaction.hash();
+                        self.eip8130_invalidation_index.write().insert(
+                            tx_hash,
+                            outcome.invalidation_keys.clone(),
+                            outcome.sponsored_payer,
+                        );
+                    }
+
+                    // EIP8130_METADATA_TODO: base attaches Eip8130Metadata to the
+                    // pooled tx via OpPooledTx::attach_aa_metadata (base lines
+                    // 375-382). We have not yet ported that metadata struct + the
+                    // attach hook on OpPooledTx; downstream consumers (RPC, P2P
+                    // dedup) lose visibility into the resolved sender/payer/keys
+                    // until that lands.
+
+                    // The standard pool still receives the Valid outcome for
+                    // backward-compatible RPC visibility, but `propagate: false`
+                    // prevents it from firing its own P2P gossip. (When the
+                    // Eip8130Pool ports, its broadcast channel will drive gossip
+                    // instead; for now AA tx P2P propagation is suppressed
+                    // entirely — same as base.)
+                    let _ = origin;
+                    let _ = state;
+                    TransactionValidationOutcome::Valid {
+                        balance: outcome.balance,
+                        state_nonce: outcome.state_nonce,
+                        transaction: reth_transaction_pool::validate::ValidTransaction::Valid(transaction),
+                        propagate: false,
+                        bytecode_hash: None,
+                        authorities: None,
+                    }
+                }
+                Err(e) => {
+                    tracing::debug!(target: "txpool", error = %e, "EIP-8130 transaction validation failed");
+                    TransactionValidationOutcome::Invalid(
                         transaction,
-                        InvalidPoolTransactionError::Other(Box::new(err)),
-                    );
+                        InvalidPoolTransactionError::Other(Box::new(e)),
+                    )
                 }
             };
-
-            // Insert into the invalidation index so the maintenance task can
-            // evict this tx when its watched storage slots change on-chain.
-            let tx_hash = *transaction.hash();
-            self.eip8130_invalidation_index.write().insert(
-                tx_hash,
-                outcome.invalidation_keys.clone(),
-                outcome.sponsored_payer,
-            );
-
-            // TODO(eip-8130 phase 6d-ii): the standard `validate_one_with_state`
-            // path expects an EthPoolTransaction outcome. AA txs need a custom
-            // outcome (state_nonce/balance derived from the validator's payer
-            // checks, not eth-style). For first cut we delegate the remaining
-            // bookkeeping (cost, propagation, blob sidecar=None) to the inner
-            // eth validator with a deposit-style override; this works because
-            // validate_eip8130_transaction has already verified balance + nonce.
-            let _ = origin;
-            let _ = state;
-            return TransactionValidationOutcome::Invalid(
-                transaction,
-                InvalidPoolTransactionError::Other(Box::new(
-                    Eip8130ValidationError::StateError(
-                        "AA tx outcome wiring not complete (phase 6d-ii)".into(),
-                    ),
-                )),
-            );
         }
 
         // Interop cross tx validation

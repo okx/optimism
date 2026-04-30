@@ -57,3 +57,8 @@ arbitrary = [
 	"op-alloy/arbitrary",
 	"revm/arbitrary",
 ]
+
+# Pass-through to op-alloy-consensus's native-verifier feature (K1 / P256 /
+# WebAuthn / Delegate signature verification in pure Rust). Required by
+# `eip8130_compat::derive_sender_owner_id` / `derive_payer_owner_id`.
+native-verifier = ["op-alloy/native-verifier"]

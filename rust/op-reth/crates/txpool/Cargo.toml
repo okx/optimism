@@ -35,6 +35,9 @@ reth-transaction-pool.workspace = true
 
 # revm
 op-revm.workspace = true
+alloy-op-evm = { workspace = true, features = ["native-verifier"] }
+reth-revm.workspace = true
+revm.workspace = true
 
 # optimism
 op-alloy-consensus.workspace = true
