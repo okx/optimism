@@ -28,6 +28,7 @@ pub(crate) struct HardforkConfig {
     pub isthmus_time: Option<u64>,
     pub jovian_time: Option<u64>,
     pub karst_time: Option<u64>,
+    pub native_aa_time: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -63,6 +64,8 @@ pub(crate) struct ChainConfigExtraFields {
     pub jovian_time: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub karst_time: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_aa_time: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub optimism: Option<ChainConfigExtraFieldsOptimism>,
 }
@@ -145,6 +148,7 @@ pub(crate) fn to_genesis_chain_config(chain_config: &ChainMetadata) -> ChainConf
         isthmus_time: chain_config.hardforks.isthmus_time,
         jovian_time: chain_config.hardforks.jovian_time,
         karst_time: chain_config.hardforks.karst_time,
+        native_aa_time: chain_config.hardforks.native_aa_time,
         optimism: chain_config.optimism.as_ref().map(|o| o.into()),
     };
     res.extra_fields =

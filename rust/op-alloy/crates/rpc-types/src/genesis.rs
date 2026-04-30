@@ -58,6 +58,8 @@ pub struct OpGenesisInfo {
     pub jovian_time: Option<u64>,
     /// karst hardfork timestamp
     pub karst_time: Option<u64>,
+    /// native AA hardfork timestamp (activates EIP-8130)
+    pub native_aa_time: Option<u64>,
 }
 
 impl OpGenesisInfo {
@@ -139,6 +141,7 @@ mod tests {
                 interop_time: None,
                 jovian_time: None,
                 karst_time: None,
+                native_aa_time: None,
             }
         );
     }
@@ -271,6 +274,7 @@ mod tests {
                     interop_time: None,
                     jovian_time: Some(0),
                     karst_time: None,
+                    native_aa_time: None,
                 }),
                 base_fee_info: None,
             }

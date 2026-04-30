@@ -402,6 +402,7 @@ impl From<Genesis> for OpChainSpec {
             (OpHardfork::Jovian.boxed(), genesis_info.jovian_time),
             (OpHardfork::Karst.boxed(), genesis_info.karst_time),
             (OpHardfork::Interop.boxed(), genesis_info.interop_time),
+            (OpHardfork::NativeAA.boxed(), genesis_info.native_aa_time),
         ];
 
         let mut time_hardforks = time_hardfork_opts
