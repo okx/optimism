@@ -1,14 +1,15 @@
 //! Storage wrapper that records metrics for all operations.
 
 use crate::{
+    BlockStateDiff, OpProofsStorageResult, OpProofsStore,
     api::{
         InitialStateAnchor, OpProofsInitProvider, OpProofsProviderRO, OpProofsProviderRw,
         WriteCounts,
     },
-    cursor, BlockStateDiff, OpProofsStorageResult, OpProofsStore,
+    cursor,
 };
-use alloy_eips::{eip1898::BlockWithParent, BlockNumHash};
-use alloy_primitives::{map::HashMap, B256, U256};
+use alloy_eips::{BlockNumHash, eip1898::BlockWithParent};
+use alloy_primitives::{B256, U256, map::HashMap};
 use derive_more::Constructor;
 use metrics::{Gauge, Histogram};
 use reth_db::DatabaseError;
@@ -129,11 +130,7 @@ impl StorageMetrics {
 
     /// Record a storage operation with timing.
     pub fn record_operation<R>(&self, operation: StorageOperation, f: impl FnOnce() -> R) -> R {
-        if let Some(metrics) = self.operations.get(&operation) {
-            metrics.record(f)
-        } else {
-            f()
-        }
+        if let Some(metrics) = self.operations.get(&operation) { metrics.record(f) } else { f() }
     }
 
     /// Record a storage operation with timing (async version).
@@ -208,7 +205,6 @@ impl OperationMetrics {
         }
     }
 }
-
 
 /// Wrapper for [`TrieCursor`] that records metrics.
 #[derive(Debug, Constructor, Clone)]

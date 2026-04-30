@@ -12,9 +12,9 @@ use reth_evm::{ConfigureEvm, execute::Executor};
 use reth_evm_ethereum::EthEvmConfig;
 use reth_node_api::{NodePrimitives, NodeTypesWithDB};
 use reth_optimism_trie::{
-    MdbxProofsStorage, OpProofStoragePruner, OpProofsStorage,
-    OpProofsStore, initialize::InitializationJob,
-    engine::{EngineHandle, EngineError},
+    MdbxProofsStorage, OpProofStoragePruner, OpProofsStorage, OpProofsStore,
+    engine::{EngineError, EngineHandle},
+    initialize::InitializationJob,
 };
 use reth_primitives_traits::{Block as _, RecoveredBlock};
 use reth_provider::{
@@ -273,8 +273,7 @@ where
     let evm_config = EthEvmConfig::ethereum(chain_spec.clone());
     let blockchain_db = BlockchainProvider::new(provider_factory.clone())?;
     let pruner = OpProofStoragePruner::new(storage.clone(), blockchain_db.clone(), 1000);
-    let engine_handle =
-        EngineHandle::spawn(evm_config, blockchain_db, storage, pruner);
+    let engine_handle = EngineHandle::spawn(evm_config, blockchain_db, storage, pruner);
 
     for (idx, block_spec) in scenario.blocks_after_initialization.iter().enumerate() {
         let block_number = last_block_number + idx as u64 + 1;

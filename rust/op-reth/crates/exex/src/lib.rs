@@ -14,12 +14,11 @@ use futures_util::TryStreamExt;
 use reth_execution_types::Chain;
 use reth_exex::{ExExContext, ExExEvent, ExExNotification};
 use reth_node_api::{FullNodeComponents, NodePrimitives, NodeTypes};
-use reth_provider::BlockNumReader;
 use reth_optimism_trie::{
-    engine::EngineHandle,
-    OpProofsProviderRO, OpProofStoragePruner, OpProofsStore,
+    OpProofStoragePruner, OpProofsProviderRO, OpProofsStore, engine::EngineHandle,
 };
-use reth_trie::{updates::TrieUpdatesSorted, HashedPostStateSorted, SortedTrieData};
+use reth_provider::BlockNumReader;
+use reth_trie::{HashedPostStateSorted, SortedTrieData, updates::TrieUpdatesSorted};
 use std::sync::Arc;
 use tracing::{debug, info};
 
@@ -256,8 +255,8 @@ where
                     "Configuration requires pruning {} blocks, which exceeds the safety threshold of {}. \
                      Huge prune operations can stall the node. \
                      Please run 'op-reth proofs prune' manually before starting the node.",
-                        blocks_to_prune,
-                        MAX_PRUNE_BLOCKS_STARTUP
+                    blocks_to_prune,
+                    MAX_PRUNE_BLOCKS_STARTUP
                 ));
             }
         }
@@ -312,8 +311,8 @@ where
         // `Chain::blocks()` is a BTreeMap so iteration is already ordered oldest → newest.
         for (&block_number, block) in new.blocks() {
             // Fast path: use pre-computed trie data only when verification is not due.
-            let should_verify = self.verification_interval > 0
-                && block_number.is_multiple_of(self.verification_interval);
+            let should_verify = self.verification_interval > 0 &&
+                block_number.is_multiple_of(self.verification_interval);
             let precomputed = (!should_verify).then(|| new.trie_data_at(block_number)).flatten();
 
             if let Some(d) = precomputed {
@@ -324,7 +323,8 @@ where
                     (**hashed_state).clone(),
                 )?;
             } else {
-                // Slow path: execute the block in full (no trie data, or verification interval hit).
+                // Slow path: execute the block in full (no trie data, or verification interval
+                // hit).
                 engine_handle.execute_block(block)?;
             }
         }
@@ -406,16 +406,16 @@ where
 mod tests {
     use super::*;
     use alloy_consensus::private::alloy_primitives::B256;
-    use alloy_eips::{eip1898::BlockWithParent, BlockNumHash, NumHash};
+    use alloy_eips::{BlockNumHash, NumHash, eip1898::BlockWithParent};
     use reth_db::test_utils::tempdir_path;
     use reth_ethereum_primitives::{Block, Receipt};
     use reth_execution_types::{Chain, ExecutionOutcome};
     use reth_optimism_trie::{
-        db::MdbxProofsStorageV2, engine::EngineHandle, BlockStateDiff, OpProofsProviderRO,
-        OpProofsProviderRw, OpProofsStore,
+        BlockStateDiff, OpProofsProviderRO, OpProofsProviderRw, OpProofsStore,
+        db::MdbxProofsStorageV2, engine::EngineHandle,
     };
     use reth_primitives_traits::RecoveredBlock;
-    use reth_trie::{updates::TrieUpdatesSorted, HashedPostStateSorted, LazyTrieData};
+    use reth_trie::{HashedPostStateSorted, LazyTrieData, updates::TrieUpdatesSorted};
     use std::{collections::BTreeMap, default::Default, sync::Arc};
 
     // -------------------------------------------------------------------------
@@ -516,11 +516,7 @@ mod tests {
         let (ctx, _handle) =
             reth_exex_test_utils::test_exex_context().await.expect("exex test context");
 
-        let pruner = OpProofStoragePruner::new(
-            store.clone(),
-            ctx.components.provider.clone(),
-            20,
-        );
+        let pruner = OpProofStoragePruner::new(store.clone(), ctx.components.provider.clone(), 20);
         let engine_handle = EngineHandle::spawn_with_thresholds(
             ctx.components.components.evm_config.clone(),
             ctx.components.provider.clone(),
@@ -538,7 +534,13 @@ mod tests {
         exex.handle_notification(notif, &engine_handle).expect("handle chain commit");
 
         engine_handle.flush();
-        let latest = store.provider_ro().expect("provider ro").get_latest_block_number().expect("get latest block").expect("ok").0;
+        let latest = store
+            .provider_ro()
+            .expect("provider ro")
+            .get_latest_block_number()
+            .expect("get latest block")
+            .expect("ok")
+            .0;
         assert_eq!(latest, 1);
     }
 
@@ -553,11 +555,7 @@ mod tests {
         let (ctx, _handle) =
             reth_exex_test_utils::test_exex_context().await.expect("exex test context");
 
-        let pruner = OpProofStoragePruner::new(
-            store.clone(),
-            ctx.components.provider.clone(),
-            20,
-        );
+        let pruner = OpProofStoragePruner::new(store.clone(), ctx.components.provider.clone(), 20);
         let engine_handle = EngineHandle::spawn_with_thresholds(
             ctx.components.components.evm_config.clone(),
             ctx.components.provider.clone(),
@@ -577,7 +575,13 @@ mod tests {
         }
 
         engine_handle.flush();
-        let latest = store.provider_ro().expect("provider ro").get_latest_block_number().expect("get latest block").expect("ok").0;
+        let latest = store
+            .provider_ro()
+            .expect("provider ro")
+            .get_latest_block_number()
+            .expect("get latest block")
+            .expect("ok")
+            .0;
         assert_eq!(latest, 5);
 
         // Try to handle already processed notification
@@ -585,7 +589,12 @@ mod tests {
         let notif = ExExNotification::ChainCommitted { new: new_chain };
         exex.handle_notification(notif, &engine_handle).expect("handle chain commit");
         engine_handle.flush();
-        let latest = store.provider_ro().expect("provider ro").get_latest_block_number().expect("get latest block").expect("ok");
+        let latest = store
+            .provider_ro()
+            .expect("provider ro")
+            .get_latest_block_number()
+            .expect("get latest block")
+            .expect("ok");
         assert_eq!(latest.0, 5);
         assert_eq!(latest.1, hash_for_num(5)); // block was not updated
     }
@@ -601,11 +610,7 @@ mod tests {
         let (ctx, _handle) =
             reth_exex_test_utils::test_exex_context().await.expect("exex test context");
 
-        let pruner = OpProofStoragePruner::new(
-            store.clone(),
-            ctx.components.provider.clone(),
-            20,
-        );
+        let pruner = OpProofStoragePruner::new(store.clone(), ctx.components.provider.clone(), 20);
         let engine_handle = EngineHandle::spawn_with_thresholds(
             ctx.components.components.evm_config.clone(),
             ctx.components.provider.clone(),
@@ -620,12 +625,17 @@ mod tests {
         for i in 1..=10 {
             let new_chain = Arc::new(mk_chain_with_updates(i, i, None));
             let notif = ExExNotification::ChainCommitted { new: new_chain };
-            exex.handle_notification(notif, &engine_handle)
-                .expect("handle chain commit");
+            exex.handle_notification(notif, &engine_handle).expect("handle chain commit");
         }
 
         engine_handle.flush();
-        let latest = store.provider_ro().expect("provider ro").get_latest_block_number().expect("get latest block").expect("ok").0;
+        let latest = store
+            .provider_ro()
+            .expect("provider ro")
+            .get_latest_block_number()
+            .expect("get latest block")
+            .expect("ok")
+            .0;
         assert_eq!(latest, 10);
 
         // Now the tip is 10, and we want to reorg from block 6..12
@@ -635,10 +645,15 @@ mod tests {
         // Notification: chain reorged 6..12
         let notif = ExExNotification::ChainReorged { new: new_chain, old: old_chain };
 
-        exex.handle_notification(notif, &engine_handle)
-            .expect("handle chain re-orged");
+        exex.handle_notification(notif, &engine_handle).expect("handle chain re-orged");
         engine_handle.flush();
-        let latest = store.provider_ro().expect("provider ro").get_latest_block_number().expect("get latest block").expect("ok").0;
+        let latest = store
+            .provider_ro()
+            .expect("provider ro")
+            .get_latest_block_number()
+            .expect("get latest block")
+            .expect("ok")
+            .0;
         assert_eq!(latest, 12);
     }
 
@@ -653,11 +668,7 @@ mod tests {
         let (ctx, _handle) =
             reth_exex_test_utils::test_exex_context().await.expect("exex test context");
 
-        let pruner = OpProofStoragePruner::new(
-            store.clone(),
-            ctx.components.provider.clone(),
-            20,
-        );
+        let pruner = OpProofStoragePruner::new(store.clone(), ctx.components.provider.clone(), 20);
         let engine_handle = EngineHandle::spawn_with_thresholds(
             ctx.components.components.evm_config.clone(),
             ctx.components.provider.clone(),
@@ -673,12 +684,17 @@ mod tests {
             let new_chain = Arc::new(mk_chain_with_updates(i, i, None));
             let notif = ExExNotification::ChainCommitted { new: new_chain };
 
-            exex.handle_notification(notif, &engine_handle)
-                .expect("handle chain commit");
+            exex.handle_notification(notif, &engine_handle).expect("handle chain commit");
         }
 
         engine_handle.flush();
-        let latest = store.provider_ro().expect("provider ro").get_latest_block_number().expect("get latest block").expect("ok").0;
+        let latest = store
+            .provider_ro()
+            .expect("provider ro")
+            .get_latest_block_number()
+            .expect("get latest block")
+            .expect("ok")
+            .0;
         assert_eq!(latest, 10);
 
         // Now the tip is 10, and we want to reorg starting at block 12 (beyond stored tip).
@@ -690,10 +706,15 @@ mod tests {
         // Notification: chain reorged 12..20, fork at 11
         let notif = ExExNotification::ChainReorged { new: new_chain, old: old_chain };
 
-        exex.handle_notification(notif, &engine_handle)
-            .expect("handle chain re-orged");
+        exex.handle_notification(notif, &engine_handle).expect("handle chain re-orged");
         engine_handle.flush();
-        let latest = store.provider_ro().expect("provider ro").get_latest_block_number().expect("get latest block").expect("ok").0;
+        let latest = store
+            .provider_ro()
+            .expect("provider ro")
+            .get_latest_block_number()
+            .expect("get latest block")
+            .expect("ok")
+            .0;
         assert_eq!(latest, 10);
     }
 
@@ -708,11 +729,7 @@ mod tests {
         let (ctx, _handle) =
             reth_exex_test_utils::test_exex_context().await.expect("exex test context");
 
-        let pruner = OpProofStoragePruner::new(
-            store.clone(),
-            ctx.components.provider.clone(),
-            20,
-        );
+        let pruner = OpProofStoragePruner::new(store.clone(), ctx.components.provider.clone(), 20);
         let engine_handle = EngineHandle::spawn_with_thresholds(
             ctx.components.components.evm_config.clone(),
             ctx.components.provider.clone(),
@@ -728,12 +745,17 @@ mod tests {
             let new_chain = Arc::new(mk_chain_with_updates(i, i, None));
             let notif = ExExNotification::ChainCommitted { new: new_chain };
 
-            exex.handle_notification(notif, &engine_handle)
-                .expect("handle chain commit");
+            exex.handle_notification(notif, &engine_handle).expect("handle chain commit");
         }
 
         engine_handle.flush();
-        let latest = store.provider_ro().expect("provider ro").get_latest_block_number().expect("get latest block").expect("ok").0;
+        let latest = store
+            .provider_ro()
+            .expect("provider ro")
+            .get_latest_block_number()
+            .expect("get latest block")
+            .expect("ok")
+            .0;
         assert_eq!(latest, 10);
 
         // Now the tip is 10, and we want to revert from block 9..10
@@ -742,10 +764,15 @@ mod tests {
         // Notification: chain reverted 9..10
         let notif = ExExNotification::ChainReverted { old: old_chain };
 
-        exex.handle_notification(notif, &engine_handle)
-            .expect("handle chain reverted");
+        exex.handle_notification(notif, &engine_handle).expect("handle chain reverted");
         engine_handle.flush();
-        let latest = store.provider_ro().expect("provider ro").get_latest_block_number().expect("get latest block").expect("ok").0;
+        let latest = store
+            .provider_ro()
+            .expect("provider ro")
+            .get_latest_block_number()
+            .expect("get latest block")
+            .expect("ok")
+            .0;
         assert_eq!(latest, 8);
     }
 
@@ -760,11 +787,7 @@ mod tests {
         let (ctx, _handle) =
             reth_exex_test_utils::test_exex_context().await.expect("exex test context");
 
-        let pruner = OpProofStoragePruner::new(
-            store.clone(),
-            ctx.components.provider.clone(),
-            20,
-        );
+        let pruner = OpProofStoragePruner::new(store.clone(), ctx.components.provider.clone(), 20);
         let engine_handle = EngineHandle::spawn_with_thresholds(
             ctx.components.components.evm_config.clone(),
             ctx.components.provider.clone(),
@@ -784,7 +807,13 @@ mod tests {
         }
 
         engine_handle.flush();
-        let latest = store.provider_ro().expect("provider ro").get_latest_block_number().expect("get latest block").expect("ok").0;
+        let latest = store
+            .provider_ro()
+            .expect("provider ro")
+            .get_latest_block_number()
+            .expect("get latest block")
+            .expect("ok")
+            .0;
         assert_eq!(latest, 5);
 
         // Now the tip is 10, and we want to revert from block 9..10
@@ -793,10 +822,15 @@ mod tests {
         // Notification: chain reverted 9..10
         let notif = ExExNotification::ChainReverted { old: old_chain };
 
-        exex.handle_notification(notif, &engine_handle)
-            .expect("handle chain reverted");
+        exex.handle_notification(notif, &engine_handle).expect("handle chain reverted");
         engine_handle.flush();
-        let latest = store.provider_ro().expect("provider ro").get_latest_block_number().expect("get latest block").expect("ok").0;
+        let latest = store
+            .provider_ro()
+            .expect("provider ro")
+            .get_latest_block_number()
+            .expect("get latest block")
+            .expect("ok")
+            .0;
         assert_eq!(latest, 5);
     }
 
@@ -824,10 +858,7 @@ mod tests {
         for i in 1..1100 {
             let rw = store.provider_rw().expect("provider rw");
             rw.store_trie_updates(
-                BlockWithParent::new(
-                    hash_for_num(i - 1),
-                    BlockNumHash::new(i, hash_for_num(i)),
-                ),
+                BlockWithParent::new(hash_for_num(i - 1), BlockNumHash::new(i, hash_for_num(i))),
                 BlockStateDiff::default(),
             )
             .expect("store trie update");
@@ -865,11 +896,7 @@ mod tests {
         let (ctx, _handle) =
             reth_exex_test_utils::test_exex_context().await.expect("exex test context");
 
-        let pruner = OpProofStoragePruner::new(
-            store.clone(),
-            ctx.components.provider.clone(),
-            20,
-        );
+        let pruner = OpProofStoragePruner::new(store.clone(), ctx.components.provider.clone(), 20);
         let engine_handle = EngineHandle::spawn_with_thresholds(
             ctx.components.components.evm_config.clone(),
             ctx.components.provider.clone(),
@@ -901,11 +928,7 @@ mod tests {
         let (ctx, _handle) =
             reth_exex_test_utils::test_exex_context().await.expect("exex test context");
 
-        let pruner = OpProofStoragePruner::new(
-            store.clone(),
-            ctx.components.provider.clone(),
-            20,
-        );
+        let pruner = OpProofStoragePruner::new(store.clone(), ctx.components.provider.clone(), 20);
         let engine_handle = EngineHandle::spawn_with_thresholds(
             ctx.components.components.evm_config.clone(),
             ctx.components.provider.clone(),
@@ -929,7 +952,13 @@ mod tests {
         // The engine has a sync target set but no blocks in the provider, so its catch-up
         // will error out without writing anything. Storage stays at block 0.
         engine_handle.flush();
-        let latest = store.provider_ro().expect("provider ro").get_latest_block_number().expect("get").expect("ok").0;
+        let latest = store
+            .provider_ro()
+            .expect("provider ro")
+            .get_latest_block_number()
+            .expect("get")
+            .expect("ok")
+            .0;
         assert_eq!(latest, 0, "Main thread should not have processed the blocks synchronously");
     }
 }
