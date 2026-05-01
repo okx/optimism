@@ -40,6 +40,9 @@ pub struct OverrideArgs {
     /// Manually specify the timestamp for the Interop fork, overriding the bundled setting.
     #[arg(long, env = "KONA_NODE_OVERRIDE_INTEROP")]
     pub interop_override: Option<u64>,
+    /// Manually specify the timestamp for the XLayerV1 fork, overriding the bundled setting.
+    #[arg(long, env = "KONA_NODE_OVERRIDE_XLAYER_V1")]
+    pub xlayer_v1_override: Option<u64>,
 }
 
 impl Default for OverrideArgs {
@@ -72,6 +75,10 @@ impl OverrideArgs {
             jovian_time: self.jovian_override.map(Some).unwrap_or(config.hardforks.jovian_time),
             karst_time: self.karst_override.map(Some).unwrap_or(config.hardforks.karst_time),
             interop_time: self.interop_override.map(Some).unwrap_or(config.hardforks.interop_time),
+            xlayer_v1_time: self
+                .xlayer_v1_override
+                .map(Some)
+                .unwrap_or(config.hardforks.xlayer_v1_time),
         };
         RollupConfig { hardforks, ..config }
     }
@@ -116,6 +123,8 @@ mod tests {
             "1750000000",
             "--interop-override",
             "1755000000",
+            "--xlayer-v1-override",
+            "1756000000",
         ]);
         let config = RollupConfig::default();
         let updated_config = args.override_flags.apply(config);
@@ -134,6 +143,7 @@ mod tests {
                 jovian_time: Some(1745000001),
                 karst_time: Some(1750000000),
                 interop_time: Some(1755000000),
+                xlayer_v1_time: Some(1756000000),
             }
         );
     }
@@ -168,6 +178,7 @@ mod tests {
                 jovian_override: None,
                 karst_override: None,
                 interop_override: None,
+                xlayer_v1_override: None,
             }
         );
         // Sanity check that the default impl matches the expected default values.

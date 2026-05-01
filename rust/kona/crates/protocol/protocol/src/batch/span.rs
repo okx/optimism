@@ -514,6 +514,13 @@ impl SpanBatch {
                     warn!(target: "batch_span", "EIP-7702 transactions are not supported pre-isthmus. tx_index: {}", i);
                     return BatchValidity::Drop(BatchDropReason::Eip7702PreIsthmus);
                 }
+                // If XLayerV1 is not active yet and the transaction is an 8130, drop the batch.
+                if !cfg.is_xlayer_v1_active(batch.timestamp) &&
+                    tx.as_ref().first() == Some(&(OpTxType::Eip8130 as u8))
+                {
+                    warn!(target: "batch_span", "EIP-8130 transactions are not supported pre-XLayerV1. tx_index: {}", i);
+                    return BatchValidity::Drop(BatchDropReason::Eip8130PreXLayerV1);
+                }
             }
         }
 

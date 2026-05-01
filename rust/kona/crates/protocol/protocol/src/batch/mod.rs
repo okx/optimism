@@ -74,6 +74,8 @@ pub use validity::{BatchDropReason, BatchValidity};
 mod single;
 pub use single::SingleBatch;
 
+mod xlayer;
+
 mod tx_data;
 pub use tx_data::{
     SpanBatchEip1559TransactionData, SpanBatchEip2930TransactionData,

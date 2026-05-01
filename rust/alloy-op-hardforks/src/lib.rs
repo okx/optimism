@@ -50,6 +50,8 @@ hardfork!(
         Jovian,
         /// Karst: <https://github.com/ethereum-optimism/specs/tree/main/specs/protocol/karst>
         Karst,
+        /// XLayerV1: introduces EIP-8130 (XLayer Account Abstraction) on XLayer chains.
+        XLayerV1,
         /// TODO: add interop hardfork overview when available
         Interop,
     }
@@ -235,6 +237,12 @@ pub trait OpHardforks: EthereumHardforks {
         self.op_fork_activation(OpHardfork::Karst).active_at_timestamp(timestamp)
     }
 
+    /// Returns `true` if [`XLayerV1`](OpHardfork::XLayerV1) is active at given block
+    /// timestamp.
+    fn is_xlayer_v1_active_at_timestamp(&self, timestamp: u64) -> bool {
+        self.op_fork_activation(OpHardfork::XLayerV1).active_at_timestamp(timestamp)
+    }
+
     /// Returns `true` if [`Interop`](OpHardfork::Interop) is active at given block
     /// timestamp.
     fn is_interop_active_at_timestamp(&self, timestamp: u64) -> bool {
@@ -331,7 +339,7 @@ impl Index<OpHardfork> for OpChainHardforks {
     fn index(&self, hf: OpHardfork) -> &Self::Output {
         use OpHardfork::{
             Bedrock, Canyon, Ecotone, Fjord, Granite, Holocene, Interop, Isthmus, Jovian, Karst,
-            Regolith,
+            Regolith, XLayerV1,
         };
 
         match hf {
@@ -345,6 +353,7 @@ impl Index<OpHardfork> for OpChainHardforks {
             Isthmus => &self.forks[Isthmus.idx()].1,
             Jovian => &self.forks[Jovian.idx()].1,
             Karst => &self.forks[Karst.idx()].1,
+            XLayerV1 => &self.forks[XLayerV1.idx()].1,
             Interop => &self.forks[Interop.idx()].1,
         }
     }

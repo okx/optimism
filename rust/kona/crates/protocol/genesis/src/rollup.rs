@@ -320,6 +320,25 @@ impl RollupConfig {
             !self.is_karst_active(timestamp.saturating_sub(self.block_time))
     }
 
+    /// Returns true if XLayerV1 is active at the given timestamp.
+    ///
+    /// Falls back to `karst_time` when `xlayer_v1_time` is not explicitly set: XLayerV1 is
+    /// the XLayer-side rename of Karst, and the Go-side fork registry / rollup-config
+    /// writer only emits `karst_time`. Without this fallback, devnets that activate Karst
+    /// at genesis would still see EIP-8130 rejected by the derivation gate.
+    pub fn is_xlayer_v1_active(&self, timestamp: u64) -> bool {
+        self.hardforks
+            .xlayer_v1_time
+            .or(self.hardforks.karst_time)
+            .is_some_and(|t| timestamp >= t)
+    }
+
+    /// Returns true if the timestamp marks the first XLayerV1 block.
+    pub fn is_first_xlayer_v1_block(&self, timestamp: u64) -> bool {
+        self.is_xlayer_v1_active(timestamp) &&
+            !self.is_xlayer_v1_active(timestamp.saturating_sub(self.block_time))
+    }
+
     /// Returns true if Interop is active at the given timestamp.
     pub fn is_interop_active(&self, timestamp: u64) -> bool {
         self.hardforks.interop_time.is_some_and(|t| timestamp >= t)
@@ -718,6 +737,7 @@ mod tests {
                 jovian_time: Some(100),
                 karst_time: Some(110),
                 interop_time: Some(120),
+                xlayer_v1_time: Some(125),
             },
             block_time: 2,
             ..Default::default()
@@ -782,6 +802,11 @@ mod tests {
         assert!(!cfg.is_first_interop_block(118));
         assert!(cfg.is_first_interop_block(120));
         assert!(!cfg.is_first_interop_block(122));
+
+        // XLayerV1
+        assert!(!cfg.is_first_xlayer_v1_block(123));
+        assert!(cfg.is_first_xlayer_v1_block(125));
+        assert!(!cfg.is_first_xlayer_v1_block(127));
     }
 
     #[test]

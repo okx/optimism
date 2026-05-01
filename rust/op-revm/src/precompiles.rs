@@ -29,7 +29,7 @@ pub struct OpPrecompiles {
     spec: OpSpecId,
 }
 
-/// Wraps the standard Ethereum precompile set and (for `XLAYER_AA`+ specs)
+/// Wraps the standard Ethereum precompile set and (for `XLAYER_V1`+ specs)
 /// dispatches the EIP-8130 NonceManager / TxContext addresses to dedicated
 /// handlers.
 impl OpPrecompiles {
@@ -44,7 +44,7 @@ impl OpPrecompiles {
             OpSpecId::FJORD => fjord(),
             OpSpecId::GRANITE | OpSpecId::HOLOCENE => granite(),
             OpSpecId::ISTHMUS => isthmus(),
-            OpSpecId::JOVIAN | OpSpecId::XLAYER_AA => jovian(),
+            OpSpecId::JOVIAN | OpSpecId::XLAYER_V1 => jovian(),
             OpSpecId::KARST | OpSpecId::INTEROP => karst(),
         };
 

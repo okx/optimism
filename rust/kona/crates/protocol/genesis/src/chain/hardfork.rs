@@ -77,6 +77,10 @@ pub struct HardForkConfig {
     /// otherwise.
     #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub interop_time: Option<u64>,
+    /// `xlayer_v1_time` sets the activation time for the XLayerV1 network upgrade,
+    /// which gates EIP-8130 (XLayer Account Abstraction) features.
+    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+    pub xlayer_v1_time: Option<u64>,
 }
 
 impl Display for HardForkConfig {
@@ -110,6 +114,7 @@ impl HardForkConfig {
             ("Jovian", self.jovian_time),
             ("Karst", self.karst_time),
             ("Interop", self.interop_time),
+            ("XLayerV1", self.xlayer_v1_time),
         ]
         .into_iter()
     }
@@ -146,6 +151,7 @@ mod tests {
             jovian_time: None,
             karst_time: None,
             interop_time: None,
+            xlayer_v1_time: None,
         };
 
         let deserialized: HardForkConfig = serde_json::from_str(raw).unwrap();
@@ -194,6 +200,7 @@ mod tests {
             jovian_time: None,
             karst_time: None,
             interop_time: None,
+            xlayer_v1_time: None,
         };
 
         let deserialized: HardForkConfig = toml::from_str(raw).unwrap();
@@ -229,6 +236,7 @@ mod tests {
             jovian_time: Some(10),
             karst_time: Some(11),
             interop_time: Some(12),
+            xlayer_v1_time: Some(13),
         };
 
         let mut iter = hardforks.iter();
@@ -244,6 +252,7 @@ mod tests {
         assert_eq!(iter.next(), Some(("Jovian", Some(10))));
         assert_eq!(iter.next(), Some(("Karst", Some(11))));
         assert_eq!(iter.next(), Some(("Interop", Some(12))));
+        assert_eq!(iter.next(), Some(("XLayerV1", Some(13))));
         assert_eq!(iter.next(), None);
     }
 }

@@ -74,6 +74,19 @@ func WithKarstAtGenesis(p devtest.T, _ devkeys.Keys, builder intentbuilder.Build
 	}
 }
 
+// WithXLayerV1AtGenesis activates the XLayerV1 fork (gating EIP-8130 AA txs) at L2
+// genesis. The Go-side fork registry still names this `Karst`; XLayerV1 is the
+// XLayer-side rename used by the Rust execution / derivation layers (see
+// OpHardfork::XLayerV1, RollupConfig::is_xlayer_v1_active). For the devnet,
+// activating Karst at genesis is what flips on the EIP-8130 plumbing — this
+// helper exists so op-up's `--fork xlayer_v1` reads symmetrically with the
+// Rust-side naming.
+func WithXLayerV1AtGenesis(p devtest.T, _ devkeys.Keys, builder intentbuilder.Builder) {
+	for _, l2Cfg := range builder.L2s() {
+		l2Cfg.WithForkAtGenesis(opforks.Karst)
+	}
+}
+
 func WithJovianAtGenesis(p devtest.T, _ devkeys.Keys, builder intentbuilder.Builder) {
 	for _, l2Cfg := range builder.L2s() {
 		l2Cfg.WithForkAtGenesis(opforks.Jovian)

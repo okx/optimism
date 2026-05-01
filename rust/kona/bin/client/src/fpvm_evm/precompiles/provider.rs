@@ -51,7 +51,7 @@ where
             OpSpecId::FJORD => fjord(),
             OpSpecId::GRANITE | OpSpecId::HOLOCENE => granite(),
             OpSpecId::ISTHMUS => isthmus(),
-            OpSpecId::JOVIAN => jovian(),
+            OpSpecId::JOVIAN | OpSpecId::XLAYER_V1 => jovian(),
             OpSpecId::KARST | OpSpecId::INTEROP => karst(),
         };
 
@@ -62,7 +62,7 @@ where
             OpSpecId::ECOTONE | OpSpecId::FJORD => accelerated_ecotone::<H, O>(),
             OpSpecId::GRANITE | OpSpecId::HOLOCENE => accelerated_granite::<H, O>(),
             OpSpecId::ISTHMUS => accelerated_isthmus::<H, O>(),
-            OpSpecId::JOVIAN => accelerated_jovian::<H, O>(),
+            OpSpecId::JOVIAN | OpSpecId::XLAYER_V1 => accelerated_jovian::<H, O>(),
             OpSpecId::KARST | OpSpecId::INTEROP => accelerated_karst::<H, O>(),
         };
 

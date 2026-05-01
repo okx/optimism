@@ -84,7 +84,7 @@ fn aa_max_cost(tx: impl OpTxTr) -> U256 {
 
 /// Returns whether EIP-8130 system precompiles are available at the given spec.
 pub(crate) fn eip8130_precompiles_enabled(spec: OpSpecId) -> bool {
-    spec.is_enabled_in(OpSpecId::XLAYER_AA)
+    spec.is_enabled_in(OpSpecId::XLAYER_V1)
 }
 
 pub(crate) fn run_nonce_manager_precompile<CTX>(

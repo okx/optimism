@@ -207,6 +207,12 @@ impl OpChainSpecBuilder {
         self
     }
 
+    /// Enable XLayerV1 at genesis
+    pub fn xlayer_v1_activated(mut self) -> Self {
+        self.inner = self.inner.with_fork(OpHardfork::XLayerV1, ForkCondition::Timestamp(0));
+        self
+    }
+
     /// Enable Interop at genesis
     pub fn interop_activated(mut self) -> Self {
         self = self.karst_activated();
@@ -401,6 +407,13 @@ impl From<Genesis> for OpChainSpec {
             (OpHardfork::Isthmus.boxed(), genesis_info.isthmus_time),
             (OpHardfork::Jovian.boxed(), genesis_info.jovian_time),
             (OpHardfork::Karst.boxed(), genesis_info.karst_time),
+            // XLayerV1 is the XLayer-side rename of Karst; the Go-side fork registry only
+            // emits `karstTime`. Fall back so devnets / chains that activate Karst-at-genesis
+            // also flip on EIP-8130 without needing an explicit `xlayerV1Time` field.
+            (
+                OpHardfork::XLayerV1.boxed(),
+                genesis_info.xlayer_v1_time.or(genesis_info.karst_time),
+            ),
             (OpHardfork::Interop.boxed(), genesis_info.interop_time),
         ];
 

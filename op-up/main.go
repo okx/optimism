@@ -74,8 +74,8 @@ var (
 	forkFlag = &cli.StringFlag{
 		Name: "fork",
 		Usage: "OP hardfork to activate at L2 genesis. " +
-			"Case-insensitive. Supported: ecotone, jovian, karst. " +
-			"Empty = no override (devstack default). Karst is required for EIP-8130 AA txs.",
+			"Case-insensitive. Supported: ecotone, jovian, karst, xlayer_v1. " +
+			"Empty = no override (devstack default). xlayer_v1 (or karst) is required for EIP-8130 AA txs.",
 		EnvVars: opservice.PrefixEnvVar(envPrefix, "FORK"),
 	}
 )
@@ -203,8 +203,10 @@ func forkPresetOptions(fork string) ([]presets.Option, error) {
 		return []presets.Option{presets.WithDeployerOptions(sysgo.WithJovianAtGenesis)}, nil
 	case "karst":
 		return []presets.Option{presets.WithDeployerOptions(sysgo.WithKarstAtGenesis)}, nil
+	case "xlayer_v1":
+		return []presets.Option{presets.WithDeployerOptions(sysgo.WithXLayerV1AtGenesis)}, nil
 	default:
-		return nil, fmt.Errorf("unsupported --fork %q (supported: ecotone, jovian, karst)", fork)
+		return nil, fmt.Errorf("unsupported --fork %q (supported: ecotone, jovian, karst, xlayer_v1)", fork)
 	}
 }
 

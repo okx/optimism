@@ -37,6 +37,7 @@ pub fn spec_by_timestamp_after_bedrock(chain_spec: impl OpHardforks, timestamp: 
     check_forks! {
         is_karst_active_at_timestamp => KARST,
         is_interop_active_at_timestamp => INTEROP,
+        is_xlayer_v1_active_at_timestamp => XLAYER_V1,
         is_jovian_active_at_timestamp => JOVIAN,
         is_isthmus_active_at_timestamp => ISTHMUS,
         is_holocene_active_at_timestamp => HOLOCENE,

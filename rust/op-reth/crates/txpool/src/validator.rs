@@ -204,7 +204,7 @@ where
         if transaction.ty() == AA_TX_TYPE_ID {
             if !self
                 .chain_spec()
-                .is_karst_active_at_timestamp(self.block_timestamp())
+                .is_xlayer_v1_active_at_timestamp(self.block_timestamp())
             {
                 return TransactionValidationOutcome::Invalid(
                     transaction,

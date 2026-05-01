@@ -181,6 +181,12 @@ impl SingleBatch {
             {
                 return BatchValidity::Drop(BatchDropReason::Eip7702PreIsthmus);
             }
+            // If XLayerV1 is not active yet and the transaction is an 8130, drop the batch.
+            if !cfg.is_xlayer_v1_active(self.timestamp) &&
+                tx.as_ref().first() == Some(&(OpTxType::Eip8130 as u8))
+            {
+                return BatchValidity::Drop(BatchDropReason::Eip8130PreXLayerV1);
+            }
         }
 
         BatchValidity::Accept

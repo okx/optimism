@@ -381,7 +381,7 @@ where
     };
 
     // Step 8: AA intrinsic-gas computation.
-    // [DEFERRED] requires `XLayerAAGasSchedule::for_spec(OpSpecId)` which doesn't yet
+    // [DEFERRED] requires `XLayerV1GasSchedule::for_spec(OpSpecId)` which doesn't yet
     // exist in this codebase. See xlayer-aa.md "Intrinsic gas constants hard-coded
     // in `build_aa_parts` with no fork binding" (2026-04-21). Step 11 below uses a
     // best-effort lower bound (gas_limit * max_fee) that ignores the intrinsic term;

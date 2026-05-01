@@ -65,6 +65,7 @@ pub const BASE_SEPOLIA_CONFIG: RollupConfig = RollupConfig {
         jovian_time: Some(BASE_SEPOLIA_JOVIAN_TIMESTAMP),
         karst_time: None,
         interop_time: None,
+        xlayer_v1_time: None,
     },
     batch_inbox_address: address!("ff00000000000000000000000000000000084532"),
     deposit_contract_address: address!("49f53e41452c74589e85ca1677426ba426459e85"),

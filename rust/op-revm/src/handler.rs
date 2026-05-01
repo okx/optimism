@@ -594,9 +594,9 @@ where
         // must be re-asserted here.
         if tx_type == EIP8130_TX_TYPE {
             let spec = ctx.cfg().spec();
-            if !spec.is_enabled_in(OpSpecId::XLAYER_AA) {
+            if !spec.is_enabled_in(OpSpecId::XLAYER_V1) {
                 return Err(eip8130_invalid_tx::<Self::Error>(
-                    "EIP-8130 AA transactions require XLAYER_AA",
+                    "EIP-8130 AA transactions require XLAYER_V1",
                 ));
             }
 
@@ -2514,7 +2514,7 @@ mod xlayer_eip8130_tests {
                 operator_fee_constant: Some(U256::ZERO),
                 ..Default::default()
             })
-            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_AA));
+            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_V1));
         let mut evm = ctx.build_op();
 
         let mut handler =
@@ -2860,7 +2860,7 @@ mod xlayer_eip8130_tests {
                 operator_fee_constant: Some(U256::ZERO),
                 ..Default::default()
             })
-            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_AA));
+            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_V1));
         let mut evm = ctx.build_op();
         let mut handler =
             OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
@@ -2917,7 +2917,7 @@ mod xlayer_eip8130_tests {
                 operator_fee_constant: Some(U256::ZERO),
                 ..Default::default()
             })
-            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_AA));
+            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_V1));
         let mut evm = ctx.build_op();
         let mut handler =
             OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
@@ -2966,7 +2966,7 @@ mod xlayer_eip8130_tests {
                 operator_fee_constant: Some(U256::ZERO),
                 ..Default::default()
             })
-            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_AA));
+            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_V1));
         let mut evm = ctx.build_op();
         let mut handler =
             OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
@@ -3023,7 +3023,7 @@ mod xlayer_eip8130_tests {
                 operator_fee_constant: Some(U256::ZERO),
                 ..Default::default()
             })
-            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_AA));
+            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_V1));
         let mut evm = ctx.build_op();
         let mut handler =
             OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
@@ -3082,7 +3082,7 @@ mod xlayer_eip8130_tests {
                 operator_fee_constant: Some(U256::ZERO),
                 ..Default::default()
             })
-            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_AA));
+            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_V1));
         let mut evm = ctx.build_op();
         let mut handler =
             OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
@@ -3153,7 +3153,7 @@ mod xlayer_eip8130_tests {
                 operator_fee_constant: Some(U256::ZERO),
                 ..Default::default()
             })
-            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_AA));
+            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_V1));
         let mut evm = ctx.build_op();
         let mut handler =
             OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
@@ -3281,7 +3281,7 @@ mod xlayer_eip8130_tests {
                 operator_fee_constant: Some(U256::ZERO),
                 ..Default::default()
             })
-            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_AA));
+            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_V1));
         let mut evm = ctx.build_op();
 
         let mut handler =
@@ -3390,7 +3390,7 @@ mod xlayer_eip8130_tests {
                 operator_fee_constant: Some(U256::ZERO),
                 ..Default::default()
             })
-            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_AA));
+            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_V1));
         let mut evm = ctx.build_op();
 
         let mut handler =
@@ -3502,7 +3502,7 @@ mod xlayer_eip8130_tests {
                 operator_fee_constant: Some(U256::ZERO),
                 ..Default::default()
             })
-            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_AA));
+            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_V1));
         let mut evm = ctx.build_op();
 
         let mut handler =
@@ -3593,7 +3593,7 @@ mod xlayer_eip8130_tests {
                 operator_fee_constant: Some(U256::ZERO),
                 ..Default::default()
             })
-            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_AA));
+            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_V1));
         let mut evm = ctx.build_op();
 
         let mut handler =
@@ -3660,7 +3660,7 @@ mod xlayer_eip8130_tests {
                 operator_fee_constant: Some(U256::ZERO),
                 ..Default::default()
             })
-            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_AA));
+            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_V1));
         let mut evm = ctx.build_op();
 
         let mut handler =
@@ -3804,7 +3804,7 @@ mod xlayer_eip8130_tests {
                 operator_fee_constant: Some(U256::ZERO),
                 ..Default::default()
             })
-            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_AA));
+            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_V1));
         let mut evm = ctx.build_op();
 
         let mut handler =
@@ -3880,7 +3880,7 @@ mod xlayer_eip8130_tests {
                 operator_fee_constant: Some(U256::ZERO),
                 ..Default::default()
             })
-            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_AA));
+            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_V1));
         let mut evm = ctx.build_op();
 
         let mut handler =
@@ -3952,7 +3952,7 @@ mod xlayer_eip8130_tests {
                 operator_fee_constant: Some(U256::ZERO),
                 ..Default::default()
             })
-            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_AA));
+            .with_cfg(CfgEnv::new_with_spec(OpSpecId::XLAYER_V1));
         let mut evm = ctx.build_op();
 
         let mut handler =
