@@ -1,18 +1,25 @@
 //! XLayer EIP-8130 (AA) end-to-end coverage.
 //!
 //! Capability under test: `eth_sendRawTransaction(0x7B || rlp(...))` → pool admission →
-//! builder pulls the tx into a payload → op-revm AA handler executes it. We stop short
-//! of `engine_newPayload` / forkchoice update — those exercise stock OP plumbing that
-//! is not XLayer-specific, and the round-trip re-hashing in the engine validator is
-//! orthogonal to AA admission.
+//! builder pulls the tx into a payload → op-revm AA handler executes it → engine_newPayload
+//! re-validates the produced block.
 //!
-//! The harness is the same `setup_engine` used elsewhere; the only XLayer-specific
-//! ingredients are (1) `xlayer_v1_activated()` on the chain spec to flip the
-//! validator's fork gate, and (2) a `NONCE_MANAGER_ADDRESS` allocation in genesis so
-//! the on-chain `aa_nonce_slot(sender, 0)` read in `validate_eip8130_transaction` step
-//! 5 returns 0. The chain spec is **not** advanced past Bedrock for upstream OP forks
-//! — XLayerV1 is independent (per xlayer-aa.md 2026-04-21) so we don't drag in Karst /
-//! Jovian / etc.; this keeps the test capability scoped to "XLayerV1 admits 0x7B".
+//! XLayer-specific ingredients: (1) `xlayer_v1_activated()` on the chain spec to flip the
+//! validator's fork gate, and (2) a `NONCE_MANAGER_ADDRESS` allocation in genesis so the
+//! on-chain `aa_nonce_slot(sender, 0)` read in `validate_eip8130_transaction` step 5
+//! returns 0.
+//!
+//! Required infrastructure (not test-specific): Ecotone is activated alongside XLayerV1
+//! because OP's engine API only knows V3+ payloads — pre-Ecotone payload attributes are
+//! malformed, and `OpExecutionPayload::from_block_unchecked` selects V3 on
+//! `parent_beacon_block_root: Some(_)` and forces `blob_gas_used = Some(0)` on the way
+//! back. Without Ecotone the builder writes the header with `blob_gas_used: None`, so
+//! the validator's recomputed hash drifts. See
+//! `reth_optimism_payload_builder::validator::tests::v3_payload_drops_blob_gas_when_builder_sets_none`
+//! for the unit-level repro of that drift. XLayerV1 itself is still independent (per
+//! xlayer-aa.md 2026-04-21); we don't drag in Fjord / Granite / Holocene / Isthmus /
+//! Jovian / Karst — Ecotone is the floor for OP engine plumbing, not part of the
+//! XLayer feature stack.
 
 use alloy_consensus::{Sealable, transaction::SignerRecoverable};
 use alloy_genesis::{Genesis, GenesisAccount};
@@ -31,11 +38,13 @@ use std::sync::Arc;
 /// Hard-coded so this test does not pull `op-revm` just for one constant.
 const NONCE_MANAGER_ADDRESS: Address = address!("0x000000000000000000000000000000000000aa02");
 
-/// Pre-Jovian minimal payload-attributes generator.
+/// Ecotone-shape, pre-Jovian payload-attributes generator.
 ///
+/// `parent_beacon_block_root` must be `Some` once Ecotone is active (which it is — see
+/// the module docstring on why Ecotone is required infrastructure for OP engine API).
 /// `min_base_fee` and `eip_1559_params` are post-Jovian MUSTs; this test does not
-/// activate Jovian (we only activate XLayerV1, which is independent), so both stay
-/// `None` and the engine builder accepts the attributes as-is.
+/// activate Jovian, so both stay `None` and the engine builder accepts the attributes
+/// as-is.
 const fn minimal_payload_attributes(timestamp: u64) -> OpPayloadAttrs {
     OpPayloadAttrs(OpPayloadAttributes {
         payload_attributes: alloy_rpc_types_engine::PayloadAttributes {
@@ -84,22 +93,23 @@ fn aa_raw_tx_bytes(chain_id: u64, sender: Address, target: Address, nonce_sequen
 
 /// `eth_sendRawTransaction(0x7B || rlp(...))` → pool admission → builder pulls →
 /// op-revm AA handler executes → block contains the AA tx.
+/// We deliberately drive the build via `node.advance(...)` rather than `inject_tx` + `new_payload`, so the payload also round-trips through `engine_newPayload` (validator hash recompute) and
+/// `update_forkchoice` (FCU). This is the strict end-to-end shape: builder produces a
+/// block, the engine API validates it, the FCU commits it.
 ///
-/// We deliberately drive the build via `inject_tx` + `new_payload` rather than
-/// `node.advance(...)`. `advance` additionally calls `submit_payload`, which round-trips
-/// the just-built payload through `engine_newPayload`; that path re-encodes every tx
-/// via `encoded_2718()` and recomputes the transactions trie root, then compares the
-/// resulting block hash against the original. Any byte-level drift in the AA tx codec
-/// surfaces there as a noisy `engine::tree: Invalid payload ... block hash mismatch`
-/// log, which is a serialization concern orthogonal to AA admission and is owned by
-/// dedicated codec round-trip tests in `op-alloy-consensus`. Keeping the e2e test
-/// scoped to ingress + build + execute leaves that surface to its proper owner.
+/// Historically this exact form surfaced an `engine::tree: Invalid payload ... block
+/// hash mismatch` log: a chain spec activating only XLayerV1 left Ecotone inactive at
+/// the test's block timestamp, so the builder wrote a header with
+/// `parent_beacon_block_root: Some(_)` but `blob_gas_used: None`. The V3 reverse path
+/// in `OpExecutionPayload` then rewrote `blob_gas_used = Some(0)` on the validator
+/// side, drifting the hash. The fix is structural: Ecotone is required infrastructure
+/// for OP engine plumbing (see the module docstring), so we activate it on the chain
+/// spec. The unit-level pin for the underlying alloy V3 asymmetry lives at
+/// `reth_optimism_payload_builder::validator::tests::v3_payload_drops_blob_gas_when_builder_sets_none`.
 #[tokio::test]
-async fn test_basic_xlayer_8130_tx() -> eyre::Result<()> {
+async fn test_xlayer_8130_tx_advance_repro() -> eyre::Result<()> {
     reth_tracing::init_test_tracing();
 
-    // Genesis: load the standard fixture and inject the NONCE_MANAGER allocation so
-    // the validator's storage read in step 5 hits an existing account.
     let mut genesis: Genesis =
         serde_json::from_str(include_str!("../assets/genesis.json")).unwrap();
     genesis.alloc.insert(
@@ -107,17 +117,15 @@ async fn test_basic_xlayer_8130_tx() -> eyre::Result<()> {
         GenesisAccount { balance: U256::ZERO, ..Default::default() },
     );
 
-    // XLayerV1-only chain spec — flips the mempool validator's `is_xlayer_v1_active`
-    // gate at genesis. No upstream OP-fork activation is needed for the AA capability
-    // itself.
     let chain_spec = Arc::new(
-        OpChainSpecBuilder::base_mainnet().genesis(genesis).xlayer_v1_activated().build(),
+        OpChainSpecBuilder::base_mainnet()
+            .genesis(genesis)
+            .ecotone_activated()
+            .xlayer_v1_activated()
+            .build(),
     );
     let chain_id = chain_spec.chain().id();
 
-    // Boot a single-node engine. `setup_engine` wires the full stack: pool, validator,
-    // payload builder, engine API, RPC. We do NOT customize the payload-priority hook
-    // here — base ordering is fine; we only care that the AA tx round-trips.
     let (mut nodes, wallet) = setup_engine::<OpNode>(
         1,
         chain_spec.clone(),
@@ -130,27 +138,20 @@ async fn test_basic_xlayer_8130_tx() -> eyre::Result<()> {
     let sender = wallet.inner.address();
     let target = Address::repeat_byte(0x22);
 
-    // 1) RPC ingress + pool admission.
-    let raw_tx = aa_raw_tx_bytes(chain_id, sender, target, 0);
-    node.rpc.inject_tx(raw_tx).await.expect("inject AA tx via eth_sendRawTransaction");
+    // The form that triggers the engine_newPayload re-validation path. If the block
+    // hash drifts during submit_payload, advance() returns an error here.
+    let payloads = node
+        .advance(1, |_| Box::pin(async move { aa_raw_tx_bytes(chain_id, sender, target, 0) }))
+        .await?;
 
-    // 2) Builder pulls from the pool and produces a payload. No `submit_payload`
-    //    afterwards — see the test docstring for why.
-    let payload = node.new_payload().await?;
-    let block = payload.block();
-
-    // The block must contain our AA tx. We don't assert positional ordering because
-    // OP nodes may inject system / deposit txs ahead of mempool-pulled user txs.
+    assert_eq!(payloads.len(), 1, "advance must produce one payload");
+    let block = payloads[0].block();
     let aa_tx = block
         .body()
         .transactions
         .iter()
         .find(|tx| tx.tx_type() == OpTxType::Eip8130)
         .expect("AA tx absent from produced block");
-
-    // Spot-check: the on-chain recovered sender matches the wallet that submitted it.
-    // For explicit-from AA txs `recover_signer` returns `tx.from` directly, so this
-    // mainly proves the envelope round-tripped without losing the `from` field.
     let recovered = aa_tx.recover_signer().expect("AA sender recovery must succeed");
     assert_eq!(recovered, sender);
 
