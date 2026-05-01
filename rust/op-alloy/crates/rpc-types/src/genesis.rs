@@ -204,6 +204,7 @@ mod tests {
                     interop_time: None,
                     jovian_time: None,
                     karst_time: None,
+                    native_aa_time: None,
                 }),
                 base_fee_info: Some(OpBaseFeeInfo {
                     eip1559_elasticity: None,
@@ -230,6 +231,7 @@ mod tests {
                     interop_time: None,
                     jovian_time: None,
                     karst_time: None,
+                    native_aa_time: None,
                 }),
                 base_fee_info: Some(OpBaseFeeInfo {
                     eip1559_elasticity: None,

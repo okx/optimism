@@ -82,6 +82,7 @@ impl InMemorySize for OpPooledTransaction {
             Self::Eip2930(tx) => tx.size(),
             Self::Eip1559(tx) => tx.size(),
             Self::Eip7702(tx) => tx.size(),
+            Self::Eip8130(tx) => tx.size(),
         }
     }
 }

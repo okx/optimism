@@ -332,26 +332,45 @@ impl OpTxEnvelope {
             Self::Eip2930(tx) => Ok(tx.into()),
             Self::Eip1559(tx) => Ok(tx.into()),
             Self::Eip7702(tx) => Ok(tx.into()),
-            tx @ Self::Eip8130(_) => {
-                Err(ValueError::new(tx, "EIP-8130 transactions cannot be pooled via legacy path"))
+            Self::Eip8130(tx) => Ok(OpPooledTransaction::Eip8130(tx)),
+            Self::Deposit(tx) => {
+                Err(ValueError::new(tx.into(), "Deposit transactions cannot be pooled"))
             }
-            tx @ Self::Deposit(_) => {
-                Err(ValueError::new(tx, "Deposit transactions cannot be pooled"))
-            }
-            tx @ Self::PostExec(_) => {
-                Err(ValueError::new(tx, "PostExec transactions cannot be pooled"))
+            Self::PostExec(tx) => {
+                Err(ValueError::new(tx.into(), "PostExec transactions cannot be pooled"))
             }
         }
     }
 
     /// Attempts to convert the envelope into the ethereum pooled variant.
     ///
-    /// Returns an error if the envelope's variant is incompatible with the pooled format:
-    /// [`TxDeposit`] and [`TxPostExec`].
+    /// Returns an error if the envelope's variant is incompatible with the pooled
+    /// format: [`TxDeposit`], [`TxPostExec`], and [`TxEip8130`] (which has no Ethereum equivalent).
     pub fn try_into_eth_pooled(
         self,
     ) -> Result<alloy_consensus::transaction::PooledTransaction, ValueError<Self>> {
-        self.try_into_pooled().map(Into::into)
+        match self {
+            Self::Legacy(tx) => {
+                let pooled: OpPooledTransaction = tx.into();
+                Ok(pooled.try_into().expect("legacy always converts"))
+            }
+            Self::Eip2930(tx) => {
+                let pooled: OpPooledTransaction = tx.into();
+                Ok(pooled.try_into().expect("eip2930 always converts"))
+            }
+            Self::Eip1559(tx) => {
+                let pooled: OpPooledTransaction = tx.into();
+                Ok(pooled.try_into().expect("eip1559 always converts"))
+            }
+            Self::Eip7702(tx) => {
+                let pooled: OpPooledTransaction = tx.into();
+                Ok(pooled.try_into().expect("eip7702 always converts"))
+            }
+            tx @ (Self::Eip8130(_) | Self::Deposit(_) | Self::PostExec(_)) => Err(ValueError::new(
+                tx,
+                "AA/Deposit/PostExec transactions cannot be converted to ethereum PooledTransaction",
+            )),
+        }
     }
 
     /// Attempts to convert the optimism variant into an ethereum [`TxEnvelope`].
@@ -586,12 +605,9 @@ impl alloy_consensus::transaction::SignerRecoverable for OpTxEnvelope {
             Self::Eip2930(tx) => tx.signature_hash(),
             Self::Eip1559(tx) => tx.signature_hash(),
             Self::Eip7702(tx) => tx.signature_hash(),
-            // TODO(eip-8130): has its own sender-recovery flow (ecrecover from `sender_auth`
-            // for EOA mode, or `from` for non-EOA). For now we fall back to `effective_sender()`
-            // which handles non-EOA correctly but returns Address::ZERO for EOA mode.
-            // Full ecrecover-from-sender_auth lives in the validation pipeline — see
-            // `transaction::eip8130::validation::resolve_sender` and wire it here in task #6.
-            Self::Eip8130(tx) => return Ok(tx.effective_sender()),
+            // EIP-8130 has its own sender-recovery flow: for EOA mode, ecrecover from
+            // `sender_auth`; for non-EOA mode (configured-owner), return `tx.from`.
+            Self::Eip8130(tx) => return recover_eip8130_signer(tx.inner()),
             // Optimism's Deposit transaction does not have a signature. Directly return the
             // `from` address.
             Self::Deposit(tx) => return Ok(tx.from),
@@ -620,8 +636,8 @@ impl alloy_consensus::transaction::SignerRecoverable for OpTxEnvelope {
             Self::Eip2930(tx) => tx.signature_hash(),
             Self::Eip1559(tx) => tx.signature_hash(),
             Self::Eip7702(tx) => tx.signature_hash(),
-            // TODO(eip-8130): see `recover_signer` for rationale.
-            Self::Eip8130(tx) => return Ok(tx.effective_sender()),
+            // EIP-8130: ecrecover from `sender_auth` (EOA mode) or `tx.from` (non-EOA).
+            Self::Eip8130(tx) => return recover_eip8130_signer(tx.inner()),
             // Optimism's Deposit transaction does not have a signature. Directly return the
             // `from` address.
             Self::Deposit(tx) => return Ok(tx.from),
@@ -657,12 +673,46 @@ impl alloy_consensus::transaction::SignerRecoverable for OpTxEnvelope {
             Self::Eip7702(tx) => {
                 alloy_consensus::transaction::SignerRecoverable::recover_unchecked_with_buf(tx, buf)
             }
-            // TODO(eip-8130): see `recover_signer` — using effective_sender() as placeholder.
-            Self::Eip8130(tx) => Ok(tx.effective_sender()),
+            // EIP-8130: ecrecover from `sender_auth` (EOA mode) or `tx.from` (non-EOA).
+            Self::Eip8130(tx) => recover_eip8130_signer(tx.inner()),
             Self::Deposit(tx) => Ok(tx.from),
             Self::PostExec(tx) => Ok(tx.inner().signer_address()),
         }
     }
+}
+
+/// Recovers the sender address of an EIP-8130 transaction.
+///
+/// - **Configured-owner mode** (`tx.from` set): returns `tx.from` directly. Authentication is
+///   performed against the on-chain `AccountConfiguration` via the verifier referenced by
+///   `sender_auth` — that check happens at execution time, not here.
+/// - **EOA mode** (`tx.from` empty): ecrecovers the sender from the
+///   65-byte K1 ECDSA signature in `sender_auth` over `sender_signature_hash`.
+#[cfg(feature = "k256")]
+pub(crate) fn recover_eip8130_signer(
+    tx: &TxEip8130,
+) -> Result<alloy_primitives::Address, alloy_consensus::crypto::RecoveryError> {
+    if !tx.is_eoa() {
+        return tx.from.ok_or_else(alloy_consensus::crypto::RecoveryError::new);
+    }
+
+    if tx.sender_auth.len() != 65 {
+        return Err(alloy_consensus::crypto::RecoveryError::new());
+    }
+
+    let sig_hash = super::eip8130::sender_signature_hash(tx);
+    let v = tx.sender_auth[64];
+    let parity = match v {
+        0 | 27 => false,
+        1 | 28 => true,
+        _ => return Err(alloy_consensus::crypto::RecoveryError::new()),
+    };
+    let signature = Signature::new(
+        alloy_primitives::U256::from_be_slice(&tx.sender_auth[..32]),
+        alloy_primitives::U256::from_be_slice(&tx.sender_auth[32..64]),
+        parity,
+    );
+    alloy_consensus::crypto::secp256k1::recover_signer(&signature, sig_hash)
 }
 
 /// Bincode-compatible serde implementation for `OpTxEnvelope`.

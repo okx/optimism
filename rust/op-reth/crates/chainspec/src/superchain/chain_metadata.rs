@@ -213,6 +213,7 @@ mod tests {
             isthmus_time: Some(1746806401),
             jovian_time: Some(1764691201),
             karst_time: None,
+            native_aa_time: None,
             optimism: Option::from(ChainConfigExtraFieldsOptimism {
                 eip1559_elasticity: 6,
                 eip1559_denominator: 50,

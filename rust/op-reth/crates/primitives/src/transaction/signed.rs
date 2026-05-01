@@ -21,7 +21,7 @@ use core::{
     ops::Deref,
 };
 use op_alloy_consensus::{
-    OpPooledTransaction, OpTxEnvelope, OpTypedTransaction, TxDeposit, TxPostExec,
+    OpPooledTransaction, OpTxEnvelope, OpTypedTransaction, TxDeposit, TxEip8130, TxPostExec,
 };
 #[cfg(any(test, feature = "reth-codec"))]
 use reth_primitives_traits::{
@@ -67,6 +67,8 @@ impl OpTransactionSigned {
             OpTypedTransaction::Eip7702(tx) => &mut tx.input,
             OpTypedTransaction::Deposit(tx) => &mut tx.input,
             OpTypedTransaction::PostExec(tx) => &mut tx.input,
+            // EIP-8130 has no top-level `input` field (uses `calls`).
+            OpTypedTransaction::Eip8130(_) => unimplemented!("EIP-8130 has no top-level input"),
         }
     }
 
@@ -115,6 +117,11 @@ impl SignerRecoverable for OpTransactionSigned {
             // Post-exec transactions are unsigned synthetic system transactions. They use a
             // canonical zero-address signer rather than a cryptographic signature.
             OpTypedTransaction::PostExec(tx) => Ok(tx.signer_address()),
+            // EIP-8130: this legacy signed-tx wrapper is only used by Compact roundtrip
+            // proptests (see `#[cfg(test)] mod tests`), not by the real RPC/pool path. For
+            // arbitrary-generated AA txs we don't need actual ecrecover — return the
+            // configured-owner address (or zero for EOA mode) as a placeholder.
+            OpTypedTransaction::Eip8130(tx) => Ok(tx.effective_sender()),
             _ => {
                 let Self { transaction, signature, .. } = self;
                 let signature_hash = signature_hash(transaction);
@@ -131,6 +138,8 @@ impl SignerRecoverable for OpTransactionSigned {
             // Post-exec transactions are unsigned synthetic system transactions. They use a
             // canonical zero-address signer rather than a cryptographic signature.
             OpTypedTransaction::PostExec(tx) => Ok(tx.signer_address()),
+            // EIP-8130: see `recover_signer` — placeholder for proptest roundtrip.
+            OpTypedTransaction::Eip8130(tx) => Ok(tx.effective_sender()),
             _ => {
                 let Self { transaction, signature, .. } = self;
                 let signature_hash = signature_hash(transaction);
@@ -147,6 +156,8 @@ impl SignerRecoverable for OpTransactionSigned {
             // Post-exec transactions are unsigned synthetic system transactions. They use a
             // canonical zero-address signer rather than a cryptographic signature.
             OpTypedTransaction::PostExec(tx) => Ok(tx.signer_address()),
+            // EIP-8130: see `recover_signer` — placeholder for proptest roundtrip.
+            OpTypedTransaction::Eip8130(tx) => Ok(tx.effective_sender()),
             OpTypedTransaction::Legacy(tx) => {
                 tx.encode_for_signing(buf);
                 recover_signer_unchecked(&self.signature, keccak256(buf))
@@ -203,6 +214,7 @@ impl From<OpTxEnvelope> for OpTransactionSigned {
             OpTxEnvelope::Eip7702(tx) => tx.into(),
             OpTxEnvelope::Deposit(tx) => tx.into(),
             OpTxEnvelope::PostExec(tx) => tx.into(),
+            OpTxEnvelope::Eip8130(tx) => tx.into(),
         }
     }
 }
@@ -221,6 +233,16 @@ impl From<Sealed<TxPostExec>> for OpTransactionSigned {
     }
 }
 
+impl From<Sealed<TxEip8130>> for OpTransactionSigned {
+    fn from(value: Sealed<TxEip8130>) -> Self {
+        let (tx, hash) = value.into_parts();
+        // EIP-8130 has no top-level ECDSA signature (auth lives in `sender_auth`/`payer_auth`
+        // bytes inside the tx). Use a canonical zero signature like Deposit/PostExec.
+        let dummy_sig = Signature::new(Uint::ZERO, Uint::ZERO, false);
+        Self::new(OpTypedTransaction::Eip8130(tx), dummy_sig, hash)
+    }
+}
+
 impl From<OpTransactionSigned> for OpTxEnvelope {
     fn from(value: OpTransactionSigned) -> Self {
         let (tx, signature, hash) = value.into_parts();
@@ -231,6 +253,7 @@ impl From<OpTransactionSigned> for OpTxEnvelope {
             OpTypedTransaction::Deposit(tx) => Sealed::new_unchecked(tx, hash).into(),
             OpTypedTransaction::Eip7702(tx) => Signed::new_unchecked(tx, signature, hash).into(),
             OpTypedTransaction::PostExec(tx) => Sealed::new_unchecked(tx, hash).into(),
+            OpTypedTransaction::Eip8130(tx) => OpTxEnvelope::Eip8130(Sealed::new_unchecked(tx, hash)),
         }
     }
 }
@@ -284,6 +307,7 @@ impl Encodable2718 for OpTransactionSigned {
             }
             OpTypedTransaction::Deposit(deposit_tx) => deposit_tx.eip2718_encoded_length(),
             OpTypedTransaction::PostExec(post_exec_tx) => post_exec_tx.eip2718_encoded_length(),
+            OpTypedTransaction::Eip8130(aa_tx) => aa_tx.eip2718_encoded_length(),
         }
     }
 
@@ -304,6 +328,7 @@ impl Encodable2718 for OpTransactionSigned {
             OpTypedTransaction::Eip7702(set_code_tx) => set_code_tx.eip2718_encode(signature, out),
             OpTypedTransaction::Deposit(deposit_tx) => deposit_tx.encode_2718(out),
             OpTypedTransaction::PostExec(post_exec_tx) => post_exec_tx.encode_2718(out),
+            OpTypedTransaction::Eip8130(aa_tx) => aa_tx.encode_2718(out),
         }
     }
 }
@@ -338,6 +363,11 @@ impl Decodable2718 for OpTransactionSigned {
                 OpTypedTransaction::PostExec(TxPostExec::decode_2718(buf)?),
                 TxPostExec::signature(),
             )),
+            op_alloy_consensus::OpTxType::Eip8130 => {
+                let tx = TxEip8130::decode_2718(buf)?;
+                let dummy_sig = Signature::new(Uint::ZERO, Uint::ZERO, false);
+                Ok(Self::new_unhashed(OpTypedTransaction::Eip8130(tx), dummy_sig))
+            }
         }
     }
 
@@ -554,7 +584,9 @@ fn signature_hash(tx: &OpTypedTransaction) -> B256 {
         OpTypedTransaction::Eip2930(tx) => tx.signature_hash(),
         OpTypedTransaction::Eip1559(tx) => tx.signature_hash(),
         OpTypedTransaction::Eip7702(tx) => tx.signature_hash(),
-        OpTypedTransaction::Deposit(_) | OpTypedTransaction::PostExec(_) => B256::ZERO,
+        OpTypedTransaction::Deposit(_)
+        | OpTypedTransaction::PostExec(_)
+        | OpTypedTransaction::Eip8130(_) => B256::ZERO,
     }
 }
 

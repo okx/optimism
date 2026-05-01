@@ -27,6 +27,7 @@ pub mod transaction;
 pub use transaction::{
     DEPOSIT_TX_TYPE_ID, DepositTransaction, OpEip8130Transaction, OpPooledTransaction,
     OpTransaction, OpTxEnvelope, OpTxType, OpTypedTransaction, TxDeposit, TxEip8130,
+    eip8130::{DELEGATE_VERIFIER_ADDRESS, EXTERNAL_CALLER_VERIFIER, K1_VERIFIER_ADDRESS},
 };
 
 pub mod eip1559;

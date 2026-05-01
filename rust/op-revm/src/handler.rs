@@ -2058,6 +2058,7 @@ mod tests {
             base: TxEnv::builder().build_fill(),
             enveloped_tx: None, // Missing enveloped_tx for non-deposit transaction
             deposit: DepositTransactionParts::default(), // No source_hash means non-deposit
+            eip8130: crate::transaction::eip8130::Eip8130Parts::default(),
         });
 
         let mut evm = ctx.build_op();

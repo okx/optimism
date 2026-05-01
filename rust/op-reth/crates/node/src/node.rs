@@ -44,7 +44,7 @@ use reth_optimism_payload_builder::{
 };
 use reth_optimism_primitives::{DepositReceipt, OpPrimitives};
 use reth_optimism_rpc::{
-    SequencerClient,
+    SequencerClient, TransactionCountOverrideImpl, TransactionCountOverrideServer,
     eth::{OpEthApiBuilder, ext::OpEthExtApi},
     historical::{HistoricalRpc, HistoricalRpcClient},
     miner::{MinerApiExtServer, OpMinerExtApi},
@@ -682,12 +682,20 @@ where
             ctx.node.provider().clone(),
         );
 
+        let tx_count_override = TransactionCountOverrideImpl::new(ctx.node.provider().clone());
+
         rpc_add_ons
             .launch_add_ons_with(ctx, move |container| {
                 let reth_node_builder::rpc::RpcModuleContainer { modules, auth_module, registry } =
                     container;
 
                 modules.merge_if_module_configured(RethRpcModule::Eth, eth_config.into_rpc())?;
+
+                debug!(target: "reth::cli", "Installing EIP-8130 transaction count override");
+                modules.add_or_replace_if_module_configured(
+                    RethRpcModule::Eth,
+                    tx_count_override.into_rpc(),
+                )?;
 
                 debug!(target: "reth::cli", "Installing debug payload witness rpc endpoint");
                 modules.merge_if_module_configured(RethRpcModule::Debug, debug_ext.into_rpc())?;
