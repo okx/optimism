@@ -17,11 +17,11 @@ workspace = true
 alloy-evm = { workspace = true }
 
 alloy-eips = { workspace = true }
-alloy-consensus = { workspace = true }
+alloy-consensus = { workspace = true, features = ["k256"] }
 alloy-primitives = { workspace = true }
 
 alloy-op-hardforks.workspace = true
-op-alloy = { workspace = true, features = ["consensus"] }
+op-alloy = { workspace = true, features = ["consensus", "k256"] }
 
 revm = { workspace = true }
 op-revm = { workspace = true }
@@ -30,8 +30,18 @@ thiserror = { workspace = true }
 
 auto_impl = { workspace = true }
 
+# EIP-8130 native verifier crypto.
+p256 = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+# WebAuthn `clientDataJSON` parsing (~5 lines vs ~80 hand-rolled).
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
 [dev-dependencies]
 alloy-hardforks = { workspace = true }
+alloy-signer = { workspace = true }
+alloy-signer-local = { workspace = true }
 test-case.workspace = true
 
 [features]
@@ -45,11 +55,20 @@ std = [
 	"alloy-eips/std",
 	"op-alloy/std",
 	"thiserror/std",
+	"sha2/std",
+	"serde/std",
+	"serde_json/std",
+	"base64/std",
+	"p256/std",
 ]
 gmp = ["alloy-evm/gmp"]
 engine = ["op-alloy/rpc-types-engine"]
 rpc = ["alloy-evm/rpc", "op-alloy/rpc-types"]
-asm-keccak = ["alloy-evm/asm-keccak", "alloy-primitives/asm-keccak", "revm/asm-keccak"]
+asm-keccak = [
+	"alloy-evm/asm-keccak",
+	"alloy-primitives/asm-keccak",
+	"revm/asm-keccak",
+]
 arbitrary = [
 	"alloy-consensus/arbitrary",
 	"alloy-eips/arbitrary",

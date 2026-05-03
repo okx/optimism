@@ -71,7 +71,7 @@ pub const BASE_FEE_RECIPIENT: Address = address!("0x4200000000000000000000000000
 pub const L1_BLOCK_CONTRACT: Address = address!("0x4200000000000000000000000000000000000015");
 
 // ---------------------------------------------------------------------------
-// EIP-8130 owner scope bitmask
+// EIP-8130 constants
 // ---------------------------------------------------------------------------
 
 /// Owner scope bit: allowed to sign as the sender.
@@ -89,6 +89,26 @@ pub const MAX_CALLS_PER_TX: usize = 100;
 /// Maximum number of account-change units in one EIP-8130 transaction.
 pub const MAX_ACCOUNT_CHANGES_PER_TX: usize = 10;
 
+/// Native K1 (secp256k1) verifier sentinel address (`address(1)`).
+///
+/// EIP-8130 uses this address as the verifier identifier for native ECDSA
+/// recovery, distinguishing it from custom verifier contracts.
+pub const K1_VERIFIER_ADDRESS: Address = address!("0x0000000000000000000000000000000000000001");
+
+/// Native P256 raw signature verifier address.
+///
+/// Wire data layout for this verifier: `pubkey(64) || r(32) || s(32)` (128 bytes
+/// total). `owner_id = keccak256(pubkey)`.
+pub const P256_RAW_VERIFIER_ADDRESS: Address =
+    address!("0x75E9779603e826f2D8d4dD7Edee3F0a737e4228d");
+
+/// Native P256 WebAuthn verifier address.
+///
+/// Wire data layout: `pubkey(64) || authenticatorData(37+) || clientDataJSONLen(4 BE)
+/// || clientDataJSON || sig(64)`. `owner_id = keccak256(pubkey)`.
+pub const P256_WEBAUTHN_VERIFIER_ADDRESS: Address =
+    address!("0xb2c8b7ec119882fBcc32FDe1be1341e19a5Bd53E");
+
 /// Delegate verifier contract address (1-hop delegation).
 pub const DELEGATE_VERIFIER_ADDRESS: Address =
     address!("0x30A76831b27732087561372f6a1bef6Fc391d805");
@@ -96,6 +116,15 @@ pub const DELEGATE_VERIFIER_ADDRESS: Address =
 /// Default cap for aggregate gas spent across custom verifier STATICCALLs.
 /// Use `u32` to support the risv32 non_std target.
 pub const DEFAULT_CUSTOM_VERIFIER_GAS_CAP: u32 = 200_000;
+
+/// XLAYER-V1 fork-bound aggregate gas cap for custom-verifier STATICCALLs in a
+/// single EIP-8130 transaction.
+///
+/// The cap is **shared** between the sender and payer custom verifier paths:
+/// the same budget covers both calls within one tx. Activated only on
+/// `OpSpecId::XLAYER_V1` (and later forks); pre-XLAYER_V1 txs do not exercise
+/// the custom-verifier path.
+pub const XLAYER_AA_CUSTOM_VERIFIER_GAS_CAP: u64 = 250_000;
 
 /// Runtime-configurable cap for aggregate custom verifier STATICCALL gas.
 static CUSTOM_VERIFIER_GAS_CAP: AtomicU32 = AtomicU32::new(DEFAULT_CUSTOM_VERIFIER_GAS_CAP);

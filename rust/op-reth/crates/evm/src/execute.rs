@@ -204,9 +204,12 @@ mod xlayer_tests {
     use alloy_consensus::{Block, BlockBody, Header, Sealable};
     use alloy_eips::eip2718::{Decodable2718, Encodable2718};
     use alloy_primitives::{Address, B256, U256};
-    use op_alloy_consensus::{Eip8130CallEntry, OpTxEnvelope, TxEip8130};
+    use alloy_primitives::Bytes;
+    use alloy_signer::SignerSync;
+    use alloy_signer_local::PrivateKeySigner;
+    use op_alloy_consensus::{Eip8130CallEntry, OpTxEnvelope, TxEip8130, sender_signature_hash};
     use op_revm::{
-        constants::L1_BLOCK_CONTRACT,
+        constants::{K1_VERIFIER_ADDRESS, L1_BLOCK_CONTRACT},
         precompiles_xlayer::{NONCE_MANAGER_ADDRESS, TX_CONTEXT_ADDRESS},
         transaction::eip8130::phase_statuses_log_topic,
     };
@@ -229,7 +232,14 @@ mod xlayer_tests {
         };
 
         let mut db = create_op_state_provider();
-        let sender = Address::from([0x11; 20]);
+        // Deterministic signer so the K1 sig over `sender_signature_hash(tx)`
+        // recovers to a known address. Required since the new validator-side
+        // auth gate rejects empty / malformed `sender_auth`.
+        let signer = {
+            let bytes = B256::repeat_byte(0x11);
+            PrivateKeySigner::from_bytes(&bytes).expect("valid private key")
+        };
+        let sender = signer.address();
         let target = Address::from([0x22; 20]);
 
         db.insert_account(
@@ -243,7 +253,7 @@ mod xlayer_tests {
 
         let chain_spec = Arc::new(OpChainSpecBuilder::base_mainnet().karst_activated().build());
 
-        let tx = TxEip8130 {
+        let mut tx = TxEip8130 {
             chain_id: chain_spec.chain.id(),
             from: Some(sender),
             nonce_key: U256::ZERO,
@@ -255,6 +265,16 @@ mod xlayer_tests {
             calls: vec![vec![Eip8130CallEntry { to: target, data: Default::default() }]],
             ..Default::default()
         };
+        // Sign over the canonical preimage and embed the 85-byte explicit-from
+        // K1 auth blob: `[K1_VERIFIER_ADDRESS(20) || r || s || v(1)]`.
+        let sig_hash = sender_signature_hash(&tx);
+        let sig = signer.sign_hash_sync(&sig_hash).expect("sign");
+        let mut blob = Vec::with_capacity(85);
+        blob.extend_from_slice(K1_VERIFIER_ADDRESS.as_slice());
+        blob.extend_from_slice(&sig.r().to_be_bytes::<32>());
+        blob.extend_from_slice(&sig.s().to_be_bytes::<32>());
+        blob.push(if sig.v() { 1 } else { 0 });
+        tx.sender_auth = Bytes::from(blob);
 
         let envelope = OpTxEnvelope::Eip8130(tx.seal_slow());
         let mut encoded = Vec::new();

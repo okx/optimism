@@ -40,7 +40,10 @@ pub trait OpTxTr: Transaction {
 
     /// EIP-8130 AA execution data (call phases, pre-writes, etc.).
     ///
-    /// Returns a default (empty) instance for non-AA transactions.
+    /// Returns a default (empty) instance for non-AA transactions. AA-tx gas
+    /// computation reads from this directly via `op_revm::eip8130_gas
+    /// (`sender_payload_calldata_cost`, `sender_auth`, `payer_auth`, `is_eoa`,
+    /// `is_self_pay()`).
     fn eip8130_parts(&self) -> &Eip8130Parts;
 }
 
@@ -105,7 +108,7 @@ impl<T: Transaction> OpTransaction<T> {
             base,
             enveloped_tx: None,
             deposit: DepositTransactionParts::default(),
-            eip8130: Eip8130Parts::default(),
+            eip8130: Default::default(),
         }
     }
 }
@@ -123,7 +126,7 @@ impl Default for OpTransaction<TxEnv> {
             base: TxEnv::default(),
             enveloped_tx: Some(vec![0x00].into()),
             deposit: DepositTransactionParts::default(),
-            eip8130: Eip8130Parts::default(),
+            eip8130: Default::default(),
         }
     }
 }
@@ -356,7 +359,7 @@ impl OpTransactionBuilder {
             base,
             enveloped_tx: self.enveloped_tx,
             deposit: self.deposit,
-            eip8130: Eip8130Parts::default(),
+            eip8130: Default::default(),
         }
     }
 
@@ -387,7 +390,7 @@ impl OpTransactionBuilder {
             base,
             enveloped_tx: self.enveloped_tx,
             deposit: self.deposit,
-            eip8130: Eip8130Parts::default(),
+            eip8130: Default::default(),
         })
     }
 }

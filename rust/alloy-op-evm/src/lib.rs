@@ -9,6 +9,8 @@
 
 extern crate alloc;
 
+pub mod eip8130;
+
 pub mod env;
 #[cfg(feature = "engine")]
 pub use env::evm_env_for_op_payload;

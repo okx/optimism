@@ -1,6 +1,7 @@
 //! [`OpTx`] newtype wrapper around [`OpTransaction<TxEnv>`].
 
 use crate::block::OpTxEnv;
+use crate::eip8130::eip8130_parts;
 use alloy_consensus::{
     Signed, Transaction, TxEip1559, TxEip2930, TxEip4844, TxEip4844Variant, TxEip7702, TxLegacy,
 };
@@ -9,13 +10,7 @@ use alloy_evm::{FromRecoveredTx, FromTxWithEncoded, IntoTxEnv, TransactionEnvMut
 use alloy_primitives::{Address, B256, Bytes, TxKind, U256};
 use core::ops::{Deref, DerefMut};
 use op_alloy::consensus::{AA_TX_TYPE_ID, OpTxEnvelope, TxDeposit, TxEip8130, TxPostExec};
-use op_revm::{
-    OpTransaction,
-    transaction::{
-        deposit::DepositTransactionParts,
-        eip8130::{Eip8130Call, Eip8130Parts},
-    },
-};
+use op_revm::{OpTransaction, transaction::deposit::DepositTransactionParts};
 use revm::context::TxEnv;
 
 /// Helper to convert a deposit transaction into a [`TxEnv`].
@@ -27,33 +22,6 @@ fn deposit_tx_env(tx: &TxDeposit, caller: Address) -> TxEnv {
         kind: tx.to,
         value: tx.value,
         data: tx.input.clone(),
-        ..Default::default()
-    }
-}
-
-fn eip8130_parts(tx: &TxEip8130, caller: Address) -> Eip8130Parts {
-    Eip8130Parts {
-        expiry: tx.expiry,
-        sender: caller,
-        payer: tx.payer.unwrap_or(caller),
-        nonce_key: tx.nonce_key,
-        call_phases: tx
-            .calls
-            .iter()
-            .map(|phase| {
-                phase
-                    .iter()
-                    .map(|call| Eip8130Call {
-                        to: call.to,
-                        data: call.data.clone(),
-                        value: U256::ZERO,
-                    })
-                    .collect()
-            })
-            .collect(),
-        account_change_units: tx.account_changes.len(),
-        sender_auth_empty: !tx.is_eoa() && tx.sender_auth.is_empty(),
-        payer_auth_empty: !tx.is_self_pay() && tx.payer_auth.is_empty(),
         ..Default::default()
     }
 }

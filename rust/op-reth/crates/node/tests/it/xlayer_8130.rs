@@ -25,11 +25,16 @@ use alloy_consensus::{Sealable, transaction::SignerRecoverable};
 use alloy_genesis::{Genesis, GenesisAccount};
 use alloy_network::eip2718::Encodable2718;
 use alloy_primitives::{Address, B256, Bytes, U256, address, bytes};
-use op_alloy_consensus::{Eip8130CallEntry, OpTxEnvelope, OpTxType, TxEip8130};
+use alloy_signer::SignerSync;
+use alloy_signer_local::PrivateKeySigner;
+use op_alloy_consensus::{
+    Eip8130CallEntry, OpTxEnvelope, OpTxType, TxEip8130, sender_signature_hash,
+};
 use op_alloy_rpc_types_engine::OpPayloadAttributes;
+use op_revm::constants::K1_VERIFIER_ADDRESS;
 use reth_chainspec::EthChainSpec;
 use reth_e2e_test_utils::setup_engine;
-use reth_optimism_chainspec::OpChainSpecBuilder;
+use reth_optimism_chainspec::{OpChainSpec, OpChainSpecBuilder};
 use reth_optimism_node::OpNode;
 use reth_optimism_payload_builder::OpPayloadAttrs;
 use std::sync::Arc;
@@ -62,20 +67,40 @@ const fn minimal_payload_attributes(timestamp: u64) -> OpPayloadAttrs {
     })
 }
 
-/// Builds a 2718-encoded self-pay EIP-8130 transaction with a single empty call phase.
+/// Builds an Ecotone+XLayerV1 chain spec with `NONCE_MANAGER_ADDRESS` allocated in genesis,
+/// so the on-chain `aa_nonce_slot(sender, 0)` read in `validate_eip8130_transaction` step 5
+/// returns 0. Returns `(chain_spec, chain_id)`.
 ///
-/// Mirrors `TransactionTestContext::optimism_l1_block_info_tx` in shape: returns the
-/// raw bytes ready for `eth_sendRawTransaction`. The tx has no `account_changes`, no
-/// sponsored payer, and no EOA recovery — i.e. exactly the shape the mempool
-/// validator's MVP path admits today.
+/// See module docstring for why Ecotone is required infrastructure (OP engine API only
+/// knows V3+) even though XLayerV1 itself is independent.
+fn xlayer_chain_spec() -> (Arc<OpChainSpec>, u64) {
+    let mut genesis: Genesis =
+        serde_json::from_str(include_str!("../assets/genesis.json")).unwrap();
+    genesis.alloc.insert(
+        NONCE_MANAGER_ADDRESS,
+        GenesisAccount { balance: U256::ZERO, ..Default::default() },
+    );
+
+    let chain_spec = Arc::new(
+        OpChainSpecBuilder::base_mainnet()
+            .genesis(genesis)
+            .ecotone_activated()
+            .xlayer_v1_activated()
+            .build(),
+    );
+    let chain_id = chain_spec.chain().id();
+    (chain_spec, chain_id)
+}
+
+/// Builds an unsigned EIP-8130 tx scaffold (sender_auth left blank for the caller to fill).
 ///
 /// `max_fee_per_gas` is set to 20 gwei so the standard pool's basefee/priority-fee
 /// admission does not reject as underpriced; the genesis basefee inherits from the
 /// OP base mainnet upgrades and is non-zero.
-fn aa_raw_tx_bytes(chain_id: u64, sender: Address, target: Address, nonce_sequence: u64) -> Bytes {
-    let tx = TxEip8130 {
+fn aa_unsigned_tx(chain_id: u64, from: Address, target: Address, nonce_sequence: u64) -> TxEip8130 {
+    TxEip8130 {
         chain_id,
-        from: Some(sender),
+        from: Some(from),
         nonce_key: U256::ZERO,
         nonce_sequence,
         expiry: 0,
@@ -84,8 +109,45 @@ fn aa_raw_tx_bytes(chain_id: u64, sender: Address, target: Address, nonce_sequen
         gas_limit: 100_000,
         calls: vec![vec![Eip8130CallEntry { to: target, data: bytes!() }]],
         ..Default::default()
-    };
-    let envelope = OpTxEnvelope::Eip8130(tx.seal_slow());
+    }
+}
+
+/// Encodes a `Signature` as the 85-byte explicit-from `sender_auth` blob
+/// `[K1_VERIFIER_ADDRESS(20) || r(32) || s(32) || v(1)]`.
+///
+/// Per EIP-8130, explicit-from sender auth uses the uniform
+/// `[verifier_addr || data]` wire format; for the native K1 path the verifier is
+/// `K1_VERIFIER_ADDRESS` (`address(1)`) and `data` is the bare 65-byte ECDSA sig.
+/// EOA-mode (`tx.from == None`) uses a different shape — bare 65 bytes — but
+/// this test only exercises explicit-from mode.
+fn signature_to_sender_auth(sig: alloy_primitives::Signature) -> Bytes {
+    let mut bytes = Vec::with_capacity(85);
+    bytes.extend_from_slice(K1_VERIFIER_ADDRESS.as_slice());
+    bytes.extend_from_slice(&sig.r().to_be_bytes::<32>());
+    bytes.extend_from_slice(&sig.s().to_be_bytes::<32>());
+    bytes.push(if sig.v() { 1 } else { 0 });
+    Bytes::from(bytes)
+}
+
+/// Builds a 2718-encoded EIP-8130 tx, claiming `from = claimed_from` and signing
+/// `sender_auth` with `signing_signer`.
+///
+/// When `claimed_from == signing_signer.address()`, the recovered address matches `from`
+/// and the handler accepts (validator-correct shape). When they differ, ecrecover still
+/// succeeds but `build_sender_auth_parts` flags `auth_invalid = true` and the handler
+/// rejects — the slice-1 forged-`sender_auth` shape.
+fn aa_raw_tx_bytes(
+    chain_id: u64,
+    claimed_from: Address,
+    signing_signer: &PrivateKeySigner,
+    target: Address,
+    nonce_sequence: u64,
+) -> Bytes {
+    let unsigned = aa_unsigned_tx(chain_id, claimed_from, target, nonce_sequence);
+    let sig_hash = sender_signature_hash(&unsigned);
+    let sig = signing_signer.sign_hash_sync(&sig_hash).expect("sign sender_auth");
+    let signed = TxEip8130 { sender_auth: signature_to_sender_auth(sig), ..unsigned };
+    let envelope = OpTxEnvelope::Eip8130(signed.seal_slow());
     let mut buf = Vec::with_capacity(envelope.encode_2718_len());
     envelope.encode_2718(&mut buf);
     buf.into()
@@ -93,7 +155,8 @@ fn aa_raw_tx_bytes(chain_id: u64, sender: Address, target: Address, nonce_sequen
 
 /// `eth_sendRawTransaction(0x7B || rlp(...))` → pool admission → builder pulls →
 /// op-revm AA handler executes → block contains the AA tx.
-/// We deliberately drive the build via `node.advance(...)` rather than `inject_tx` + `new_payload`, so the payload also round-trips through `engine_newPayload` (validator hash recompute) and
+/// We deliberately drive the build via `node.advance(...)` rather than `inject_tx` + `new_payload`,
+/// so the payload also round-trips through `engine_newPayload` (validator hash recompute) and
 /// `update_forkchoice` (FCU). This is the strict end-to-end shape: builder produces a
 /// block, the engine API validates it, the FCU commits it.
 ///
@@ -110,38 +173,27 @@ fn aa_raw_tx_bytes(chain_id: u64, sender: Address, target: Address, nonce_sequen
 async fn test_xlayer_8130_tx_advance_repro() -> eyre::Result<()> {
     reth_tracing::init_test_tracing();
 
-    let mut genesis: Genesis =
-        serde_json::from_str(include_str!("../assets/genesis.json")).unwrap();
-    genesis.alloc.insert(
-        NONCE_MANAGER_ADDRESS,
-        GenesisAccount { balance: U256::ZERO, ..Default::default() },
-    );
-
-    let chain_spec = Arc::new(
-        OpChainSpecBuilder::base_mainnet()
-            .genesis(genesis)
-            .ecotone_activated()
-            .xlayer_v1_activated()
-            .build(),
-    );
-    let chain_id = chain_spec.chain().id();
-
+    let (chain_spec, chain_id) = xlayer_chain_spec();
     let (mut nodes, wallet) = setup_engine::<OpNode>(
         1,
-        chain_spec.clone(),
+        chain_spec,
         false,
         Default::default(),
         minimal_payload_attributes,
     )
     .await?;
     let node = &mut nodes[0];
-    let sender = wallet.inner.address();
+    let signer = wallet.inner.clone();
+    let sender = signer.address();
     let target = Address::repeat_byte(0x22);
 
     // The form that triggers the engine_newPayload re-validation path. If the block
     // hash drifts during submit_payload, advance() returns an error here.
     let payloads = node
-        .advance(1, |_| Box::pin(async move { aa_raw_tx_bytes(chain_id, sender, target, 0) }))
+        .advance(1, move |_| {
+            let signer = signer.clone();
+            Box::pin(async move { aa_raw_tx_bytes(chain_id, sender, &signer, target, 0) })
+        })
         .await?;
 
     assert_eq!(payloads.len(), 1, "advance must produce one payload");
@@ -154,6 +206,62 @@ async fn test_xlayer_8130_tx_advance_repro() -> eyre::Result<()> {
         .expect("AA tx absent from produced block");
     let recovered = aa_tx.recover_signer().expect("AA sender recovery must succeed");
     assert_eq!(recovered, sender);
+
+    Ok(())
+}
+
+///This is the validator-side defense: a tx with a forged `sender_auth` (valid 65-byte K1
+/// signature, but signed by a different key than `tx.from` claims) MUST NOT execute.
+#[tokio::test]
+async fn test_xlayer_8130_tx_corrupted_sender_auth_rejected() -> eyre::Result<()> {
+    reth_tracing::init_test_tracing();
+
+    let (chain_spec, chain_id) = xlayer_chain_spec();
+    let (mut nodes, wallet) = setup_engine::<OpNode>(
+        1,
+        chain_spec,
+        false,
+        Default::default(),
+        minimal_payload_attributes,
+    )
+    .await?;
+    let node = &mut nodes[0];
+    let claimed_from = wallet.inner.address();
+    // A different key — its signature recovers to a different address than `claimed_from`.
+    let attacker = PrivateKeySigner::from_bytes(&B256::repeat_byte(0xAB)).unwrap();
+    let target = Address::repeat_byte(0x22);
+
+    // Filler: a validly-signed AA tx at AA nonce_sequence 0. Without this, the pool
+    // would have only the rejected tx and the build would produce an empty payload,
+    // which the e2e harness's `wait_for_built_payload` panics on. The filler also
+    // sharpens the assertion: the block must contain exactly the valid AA tx and
+    // not the corrupted one.
+    let valid_signer = wallet.inner.clone();
+    let valid_tx = aa_raw_tx_bytes(chain_id, claimed_from, &valid_signer, target, 0);
+    node.rpc.inject_tx(valid_tx).await.expect("admit validly-signed AA tx");
+
+    // The forged tx claims `from = claimed_from` (the wallet) but is signed by
+    // `attacker`. AA nonce_sequence 1 so it doesn't collide with the filler.
+    let corrupted = aa_raw_tx_bytes(chain_id, claimed_from, &attacker, target, 1);
+    // Mempool may or may not admit it (slice 1 doesn't touch mempool admission); both
+    // outcomes satisfy the capability, the assertion is on what gets executed.
+    let _ = node.rpc.inject_tx(corrupted).await;
+
+    let payload = node.new_payload().await?;
+    let block = payload.block();
+    let aa_txs: Vec<_> =
+        block.body().transactions.iter().filter(|tx| tx.tx_type() == OpTxType::Eip8130).collect();
+    assert_eq!(
+        aa_txs.len(),
+        1,
+        "expected exactly one AA tx in the block (the validly-signed filler); \
+         the forged-sender_auth tx must have been rejected"
+    );
+    let recovered = aa_txs[0].recover_signer().expect("AA sender recovery");
+    assert_eq!(
+        recovered, claimed_from,
+        "included AA tx must be the validly-signed one (recovered signer == wallet address)"
+    );
 
     Ok(())
 }

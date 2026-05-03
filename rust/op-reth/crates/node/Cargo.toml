@@ -44,9 +44,9 @@ reth-optimism-chainspec.workspace = true
 reth-optimism-consensus = { workspace = true, features = ["std"] }
 reth-optimism-forks.workspace = true
 reth-optimism-primitives = { workspace = true, features = [
-  "serde",
-  "serde-bincode-compat",
-  "reth-codec",
+	"serde",
+	"serde-bincode-compat",
+	"reth-codec",
 ] }
 reth-optimism-exex = { workspace = true, features = ["metrics"] }
 reth-optimism-trie = { workspace = true, features = ["metrics"] }
@@ -54,10 +54,10 @@ reth-optimism-trie = { workspace = true, features = ["metrics"] }
 # revm with required optimism features
 # Note: this must be kept to ensure all features are properly enabled/forwarded
 revm = { workspace = true, features = [
-  "secp256k1",
-  "blst",
-  "c-kzg",
-  "memory_limit",
+	"secp256k1",
+	"blst",
+	"c-kzg",
+	"memory_limit",
 ] }
 op-revm.workspace = true
 
@@ -103,27 +103,30 @@ alloy-network.workspace = true
 alloy-op-evm.workspace = true
 alloy-op-hardforks.workspace = true
 alloy-rpc-types-admin.workspace = true
+alloy-signer.workspace = true
+alloy-signer-local.workspace = true
 futures.workspace = true
+op-alloy-consensus = { workspace = true, features = ["k256"] }
 op-alloy-network.workspace = true
 
 [features]
 default = ["reth-codec"]
 asm-keccak = [
-  "alloy-primitives/asm-keccak",
-  "reth-optimism-node/asm-keccak",
-  "reth-node-core/asm-keccak",
-  "revm/asm-keccak",
+	"alloy-primitives/asm-keccak",
+	"reth-optimism-node/asm-keccak",
+	"reth-node-core/asm-keccak",
+	"revm/asm-keccak",
 ]
 keccak-cache-global = [
-  "alloy-primitives/keccak-cache-global",
-  "reth-node-core/keccak-cache-global",
-  "reth-optimism-node/keccak-cache-global",
+	"alloy-primitives/keccak-cache-global",
+	"reth-node-core/keccak-cache-global",
+	"reth-optimism-node/keccak-cache-global",
 ]
 js-tracer = [
-  "reth-node-builder/js-tracer",
-  "reth-optimism-node/js-tracer",
-  "reth-rpc/js-tracer",
-  "reth-rpc-eth-types/js-tracer",
+	"reth-node-builder/js-tracer",
+	"reth-optimism-node/js-tracer",
+	"reth-rpc/js-tracer",
+	"reth-rpc-eth-types/js-tracer",
 ]
 test-utils = [
 	"reth-codec",
@@ -148,7 +151,7 @@ test-utils = [
 	"reth-stages-types/test-utils",
 	"reth-db-api/test-utils",
 	"reth-tasks/test-utils",
-	"reth-optimism-exex/test-utils"
+	"reth-optimism-exex/test-utils",
 ]
 reth-codec = ["reth-optimism-primitives/reth-codec"]
 
