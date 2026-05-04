@@ -15,6 +15,7 @@ use alloc::{format, sync::Arc};
 use alloy_consensus::{
     BlockHeader as _, EMPTY_OMMER_ROOT_HASH, constants::MAXIMUM_EXTRA_DATA_SIZE,
 };
+use alloy_eips::eip2718::Typed2718;
 use alloy_primitives::B64;
 use core::fmt::Debug;
 use reth_chainspec::EthChainSpec;
@@ -114,6 +115,17 @@ where
         // Check transaction root
         if let Err(error) = block.ensure_transaction_root_valid() {
             return Err(ConsensusError::BodyTransactionRootDiff(error.into()));
+        }
+
+        // Reject blocks containing EIP-8130 AA transactions before NativeAA activation.
+        if !self.chain_spec.is_native_aa_active_at_timestamp(block.timestamp()) {
+            const EIP8130_TX_TYPE: u8 = 0x7B;
+            if block.body().transactions().iter().any(|tx| tx.ty() == EIP8130_TX_TYPE) {
+                return Err(ConsensusError::Other(format!(
+                    "block {} contains EIP-8130 transaction before NativeAA activation",
+                    block.number(),
+                )));
+            }
         }
 
         // Check empty shanghai-withdrawals

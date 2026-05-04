@@ -18,7 +18,7 @@ pub use request::OpTransactionRequest;
 #[serde(
     try_from = "tx_serde::TransactionSerdeHelper<T>",
     into = "tx_serde::TransactionSerdeHelper<T>",
-    bound = "T: TransactionTrait + OpTransaction + Clone + serde::Serialize + serde::de::DeserializeOwned"
+    bound = "T: TransactionTrait + OpTransaction + op_alloy_consensus::OpEip8130Transaction + Clone + serde::Serialize + serde::de::DeserializeOwned"
 )]
 pub struct Transaction<T = OpTxEnvelope> {
     /// Ethereum Transaction Types
@@ -211,7 +211,7 @@ mod tx_serde {
     //! Additionally, we need similar logic for the `gasPrice` field
     use super::*;
     use alloy_consensus::transaction::Recovered;
-    use op_alloy_consensus::OpTransaction;
+    use op_alloy_consensus::{OpEip8130Transaction, OpTransaction};
     use serde::de::Error;
 
     /// Helper struct which will be flattened into the transaction and will only contain `from`
@@ -264,7 +264,9 @@ mod tx_serde {
         other: OptionalFields,
     }
 
-    impl<T: TransactionTrait + OpTransaction> From<Transaction<T>> for TransactionSerdeHelper<T> {
+    impl<T: TransactionTrait + OpTransaction + OpEip8130Transaction> From<Transaction<T>>
+        for TransactionSerdeHelper<T>
+    {
         fn from(value: Transaction<T>) -> Self {
             let Transaction {
                 inner:
@@ -280,8 +282,13 @@ mod tx_serde {
                 deposit_nonce,
             } = value;
 
-            // if inner transaction is a deposit, then don't serialize `from` directly
-            let from = if inner.as_deposit().is_some() { None } else { Some(inner.signer()) };
+            // Deposits and AA transactions embed `from` in their inner type, so
+            // skip the RPC-level `from` field to avoid duplicate JSON keys.
+            let from = if inner.as_deposit().is_some() || inner.is_eip8130() {
+                None
+            } else {
+                Some(inner.signer())
+            };
 
             // if inner transaction has its own `gasPrice` don't serialize it in this struct.
             let effective_gas_price = effective_gas_price.filter(|_| inner.gas_price().is_none());
@@ -298,7 +305,9 @@ mod tx_serde {
         }
     }
 
-    impl<T: TransactionTrait + OpTransaction> TryFrom<TransactionSerdeHelper<T>> for Transaction<T> {
+    impl<T: TransactionTrait + OpTransaction + OpEip8130Transaction>
+        TryFrom<TransactionSerdeHelper<T>> for Transaction<T>
+    {
         type Error = serde_json::Error;
 
         fn try_from(value: TransactionSerdeHelper<T>) -> Result<Self, Self::Error> {
@@ -312,15 +321,16 @@ mod tx_serde {
                 other,
             } = value;
 
-            // Try to get `from` field from inner envelope or from `MaybeFrom`, otherwise return
-            // error
+            // Resolve `from`: prefer the explicit RPC field, fall back to
+            // deposit's sender or the AA transaction's sender.
             let from = if let Some(from) = other.from {
                 from
+            } else if let Some(deposit) = inner.as_deposit() {
+                deposit.from
+            } else if let Some(eip8130) = inner.as_eip8130() {
+                eip8130.effective_sender()
             } else {
-                inner
-                    .as_deposit()
-                    .map(|v| v.from)
-                    .ok_or_else(|| serde_json::Error::custom("missing `from` field"))?
+                return Err(serde_json::Error::custom("missing `from` field"));
             };
 
             // Only serialize deposit_nonce if inner transaction is deposit to avoid duplicated keys
