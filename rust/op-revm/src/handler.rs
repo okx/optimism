@@ -863,12 +863,16 @@ where
 
         let any_phase_succeeded = phase_results.iter().any(|r| r.success);
 
-        // Deploy-only transactions (account creation with no call phases) succeed
-        // when pre-execution code placement completed without error.
-        let deploy_only_success =
-            phase_results.is_empty() && !eip8130.code_placements.is_empty();
+        // EIP-8130 §RPC Extensions: `status = 0x01` when all phases succeeded
+        // **or `calls` was empty**. An empty `calls` array is a legitimate
+        // shape (e.g. nonce-bump-only, lock-only, or account-change-only
+        // transactions) and must report success. Reaching this point with
+        // `phase_results.is_empty()` means no phases were attempted; any
+        // pre-execution failure (account_changes, validation) would have
+        // errored out earlier. Deploy-only is a special case of this.
+        let no_phases_success = phase_results.is_empty();
 
-        let tx_succeeded = is_estimation || any_phase_succeeded || deploy_only_success;
+        let tx_succeeded = is_estimation || any_phase_succeeded || no_phases_success;
 
         // Emit a system log with per-phase statuses so they survive in the receipt's
         // log list and can be recovered at RPC time.
