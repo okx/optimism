@@ -300,9 +300,16 @@ impl TxEip8130 {
     /// `keccak256(AA_PAYER_TYPE || rlp([chain_id, from, nonce_key, nonce_sequence, expiry,
     ///   max_priority_fee_per_gas, max_fee_per_gas, gas_limit,
     ///   account_changes, calls]))`
-    pub fn encode_for_payer_signing(&self, out: &mut dyn BufMut) {
+    ///
+    /// Per EIP-8130 §"Signature Payload" + §"Cross-sender Payer Replay", the
+    /// `from` slot must hold the *resolved* sender (the recovered EOA
+    /// address in the EOA path; `tx.from` in the configured-owner path).
+    /// Pass it explicitly via `from` — using the wire-format `tx.from`
+    /// directly on the EOA path leaves the cross-sender payer-replay
+    /// attack open.
+    pub fn encode_for_payer_signing(&self, from: Option<Address>, out: &mut dyn BufMut) {
         let payload_len = self.chain_id.length()
-            + optional_address_len(&self.from)
+            + optional_address_len(&from)
             + self.nonce_key.length()
             + self.nonce_sequence.length()
             + self.expiry.length()
@@ -315,7 +322,7 @@ impl TxEip8130 {
         out.put_u8(super::constants::AA_PAYER_TYPE);
         Header { list: true, payload_length: payload_len }.encode(out);
         self.chain_id.encode(out);
-        encode_optional_address(&self.from, out);
+        encode_optional_address(&from, out);
         self.nonce_key.encode(out);
         self.nonce_sequence.encode(out);
         self.expiry.encode(out);
@@ -654,7 +661,7 @@ mod tests {
         let mut sender_buf = Vec::new();
         tx.encode_for_sender_signing(&mut sender_buf);
         let mut payer_buf = Vec::new();
-        tx.encode_for_payer_signing(&mut payer_buf);
+        tx.encode_for_payer_signing(tx.from, &mut payer_buf);
         assert_ne!(
             keccak256(&sender_buf),
             keccak256(&payer_buf),

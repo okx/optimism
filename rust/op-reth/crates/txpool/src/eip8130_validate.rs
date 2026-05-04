@@ -988,7 +988,12 @@ fn validate_payer(
         ));
     }
 
-    let sig_hash = payer_signature_hash(tx);
+    // EIP-8130 spec: the payer hash MUST bind to the *resolved* sender,
+    // not the wire-format `from`. For the EOA path the recovered ecrecover
+    // address is substituted into the `from` slot before hashing — this
+    // closes the cross-sender payer-replay attack described in the spec's
+    // Security Considerations.
+    let sig_hash = payer_signature_hash(tx, sender);
 
     let verifier = Address::from_slice(&tx.payer_auth[..20]);
     let data = Bytes::copy_from_slice(&tx.payer_auth[20..]);

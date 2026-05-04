@@ -84,8 +84,12 @@ fn derive_sender_owner_id(_tx: &TxEip8130) -> B256 {
 /// For self-pay transactions returns `B256::ZERO`. For sponsored transactions,
 /// the first 20 bytes of `payer_auth` identify the verifier address; the
 /// remaining bytes are passed to the native verifier.
+///
+/// `sender` is the resolved sender (recovered ecrecover address in the EOA
+/// path; `tx.from` value in the configured-owner path). Per EIP-8130 spec
+/// the payer hash binds to this resolved sender.
 #[cfg(feature = "native-verifier")]
-fn derive_payer_owner_id(tx: &TxEip8130) -> B256 {
+fn derive_payer_owner_id(tx: &TxEip8130, sender: Address) -> B256 {
     if tx.is_self_pay() {
         return B256::ZERO;
     }
@@ -94,7 +98,7 @@ fn derive_payer_owner_id(tx: &TxEip8130) -> B256 {
         return B256::ZERO;
     };
     let data = Bytes::copy_from_slice(&tx.payer_auth[20..]);
-    let sig_hash = payer_signature_hash(tx);
+    let sig_hash = payer_signature_hash(tx, sender);
 
     match verifier {
         VerifierKind::Native(native) => {
@@ -119,7 +123,7 @@ fn derive_payer_owner_id(tx: &TxEip8130) -> B256 {
 }
 
 #[cfg(not(feature = "native-verifier"))]
-fn derive_payer_owner_id(_tx: &TxEip8130) -> B256 {
+fn derive_payer_owner_id(_tx: &TxEip8130, _sender: Address) -> B256 {
     B256::ZERO
 }
 
@@ -317,7 +321,7 @@ pub fn build_eip8130_parts_with_costs(
     let sender = recovered_caller;
     let payer = tx.payer.unwrap_or(recovered_caller);
     let owner_id = derive_sender_owner_id(tx);
-    let payer_owner_id = derive_payer_owner_id(tx);
+    let payer_owner_id = derive_payer_owner_id(tx, sender);
 
     let sender_inner = delegate_inner_verifier(&tx.sender_auth);
     let payer_inner = delegate_inner_verifier(&tx.payer_auth);
@@ -426,7 +430,8 @@ pub fn build_eip8130_parts_with_costs(
     };
 
     let payer_verify_call = if !tx.is_self_pay() && !tx.payer_auth.is_empty() {
-        let sig_hash = payer_signature_hash(tx);
+        // Per EIP-8130, the payer hash binds to the resolved sender.
+        let sig_hash = payer_signature_hash(tx, sender);
         build_verify_call(&tx.payer_auth, sig_hash, payer, OwnerScope::PAYER, true)
     } else {
         None

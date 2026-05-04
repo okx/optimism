@@ -83,7 +83,7 @@ mod integration {
         assert!(!tx.payer_auth.is_empty());
 
         let sender_hash = sender_signature_hash(&tx);
-        let payer_hash = payer_signature_hash(&tx);
+        let payer_hash = payer_signature_hash(&tx, from);
         assert_ne!(sender_hash, payer_hash);
     }
 
@@ -276,12 +276,13 @@ mod integration {
 
     #[test]
     fn sender_and_payer_hashes_differ() {
+        let from = Address::repeat_byte(0xAA);
         let tx = TxEip8130 {
             payer: Address::repeat_byte(0xBB),
             payer_auth: Bytes::from(vec![0u8; 65]),
-            ..simple_tx(Address::repeat_byte(0xAA))
+            ..simple_tx(from)
         };
-        assert_ne!(sender_signature_hash(&tx), payer_signature_hash(&tx));
+        assert_ne!(sender_signature_hash(&tx), payer_signature_hash(&tx, from));
     }
 
     #[test]

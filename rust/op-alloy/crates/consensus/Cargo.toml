@@ -47,7 +47,6 @@ modular-bitfield = { workspace = true, optional = true }
 
 # evm (for EIP-8130 execution integration)
 revm = { workspace = true, optional = true }
-alloy-evm = { workspace = true, optional = true }
 
 # native verifier crypto (for EIP-8130 native signature verification)
 k256 = { workspace = true, optional = true }
@@ -89,7 +88,7 @@ reth-codec = [
 	"dep:modular-bitfield",
 ]
 k256 = ["alloy-primitives/k256", "alloy-consensus/k256"]
-evm = ["dep:alloy-evm", "dep:revm"]
+evm = ["dep:revm"]
 native-verifier = ["dep:k256", "dep:p256", "dep:sha2"]
 kzg = ["alloy-eips/kzg", "alloy-consensus/kzg", "std"]
 arbitrary = [

@@ -46,9 +46,17 @@ pub fn sender_signature_hash(tx: &TxEip8130) -> B256 {
 }
 
 /// Computed payer signature hash.
-pub fn payer_signature_hash(tx: &TxEip8130) -> B256 {
+///
+/// Per EIP-8130 §"Signature Payload" + §"Cross-sender Payer Replay", the
+/// `from` slot in the hashed payload MUST be the *resolved* sender — for
+/// the EOA path the recovered ecrecover address from `sender_auth`; for
+/// the configured-owner path it equals `tx.from`. Callers must pass the
+/// resolved sender explicitly; using the wire-format `tx.from` (which is
+/// `None` on the EOA path) would let a payer signature issued for one
+/// EOA be replayed by another sending an otherwise-identical tx.
+pub fn payer_signature_hash(tx: &TxEip8130, resolved_sender: Address) -> B256 {
     let mut buf = Vec::with_capacity(512);
-    tx.encode_for_payer_signing(&mut buf);
+    tx.encode_for_payer_signing(Some(resolved_sender), &mut buf);
     keccak256(&buf)
 }
 
@@ -173,8 +181,8 @@ mod tests {
         let h2 = sender_signature_hash(&tx);
         assert_eq!(h1, h2);
 
-        let p1 = payer_signature_hash(&tx);
-        let p2 = payer_signature_hash(&tx);
+        let p1 = payer_signature_hash(&tx, tx.from.unwrap());
+        let p2 = payer_signature_hash(&tx, tx.from.unwrap());
         assert_eq!(p1, p2);
 
         assert_ne!(h1, p1, "sender and payer hashes must differ");
