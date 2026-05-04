@@ -69,6 +69,7 @@ require (
 )
 
 require (
+	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251001021608-1fe7b43fc4d6 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
 	github.com/grafana/pyroscope-go v1.2.7 // indirect
@@ -85,7 +86,6 @@ require (
 	git.sr.ht/~sbinet/gg v0.6.0 // indirect
 	github.com/DataDog/zstd v1.5.6-0.20230824185856-869dae002e5e // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251001021608-1fe7b43fc4d6 // indirect
 	github.com/VictoriaMetrics/fastcache v1.13.0 // indirect
 	github.com/adrg/xdg v0.4.0 // indirect
 	github.com/ajstarks/svgo v0.0.0-20211024235047-1546f124cd8b // indirect
@@ -279,7 +279,7 @@ require (
 	lukechampine.com/blake3 v1.3.0 // indirect
 )
 
-replace github.com/ethereum/go-ethereum => github.com/okx/op-geth v0.3.1
+replace github.com/ethereum/go-ethereum => github.com/okx/op-geth v0.3.2-0.20260504104737-ac5de9b5a1b8
 
 //replace github.com/ethereum/go-ethereum => ./op-geth
 
