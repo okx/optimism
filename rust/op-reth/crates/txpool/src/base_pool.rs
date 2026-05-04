@@ -558,6 +558,23 @@ where
     }
 
     fn on_canonical_state_change(&self, update: CanonicalStateUpdate<'_, Self::Block>) {
+        // The standard reth pool removes mined tx hashes from itself
+        // internally via `mined_transactions`, but EIP-8130 AA txs live
+        // exclusively in `self.eip8130_pool` and never reach the
+        // standard pool. Without an explicit by-hash eviction here,
+        // mined nonce-free AA txs (`nonce_key == NONCE_KEY_MAX`) stay in
+        // the AA pool forever — their NonceManager slot doesn't change
+        // (so `update_sequence_nonce` in `eip8130_invalidation` doesn't
+        // catch them), and the block builder keeps re-proposing them
+        // every block, hitting the on-chain seen-set guard
+        // (`nonce-free transaction replay: hash already seen`) and
+        // stalling block production. Standard 2D-nonce AA txs would
+        // also be safely evicted here; the `update_sequence_nonce`
+        // path remains as the redundant slot-driven cleanup for any
+        // edge case (e.g. reorgs with nonce regressions).
+        if !update.mined_transactions.is_empty() {
+            self.eip8130_pool.remove_transactions(&update.mined_transactions);
+        }
         self.protocol_pool.on_canonical_state_change(update);
     }
 
