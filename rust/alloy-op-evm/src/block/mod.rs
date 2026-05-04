@@ -17,6 +17,7 @@ use alloy_evm::{
 use alloy_op_hardforks::{OpChainHardforks, OpHardforks};
 use alloy_primitives::{Address, B256, Bytes};
 use canyon::ensure_create2_deployer;
+use native_aa::ensure_aa_predeploys;
 use op_alloy::consensus::OpDepositReceipt;
 use op_revm::{
     L1BlockInfo, OpTransaction, constants::L1_BLOCK_CONTRACT, estimate_tx_compressed_size,
@@ -31,6 +32,7 @@ use revm::{
 };
 
 mod canyon;
+mod native_aa;
 pub mod receipt_builder;
 
 /// Trait for OP transaction environments. Allows to recover the transaction encoded bytes if
@@ -211,6 +213,16 @@ where
         // so we can safely assume that this will always be triggered upon the transition and that
         // the above check for empty blocks will never be hit on OP chains.
         ensure_create2_deployer(
+            &self.spec,
+            self.evm.block().timestamp().saturating_to(),
+            self.evm.db_mut(),
+        )
+        .map_err(BlockExecutionError::other)?;
+
+        // Ensure NonceManager and TxContext precompile addresses have stub bytecode at
+        // NativeAA activation, preventing EIP-161 from pruning the empty accounts and
+        // wiping their storage (2D nonces, tx context state).
+        ensure_aa_predeploys(
             &self.spec,
             self.evm.block().timestamp().saturating_to(),
             self.evm.db_mut(),
