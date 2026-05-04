@@ -859,20 +859,40 @@ where
                 success: phase_ok,
                 gas_used: phase_gas_start.saturating_sub(gas_remaining),
             });
+
+            // EIP-8130 §Call Execution: "if any call in a phase reverts,
+            // all state changes for that phase are discarded and remaining
+            // phases are skipped." Stop dispatching further phases once
+            // one has reverted; skipped phases are filled in below so
+            // `phaseStatuses.len() == calls.len()`.
+            if !phase_ok {
+                break;
+            }
         }
 
-        let any_phase_succeeded = phase_results.iter().any(|r| r.success);
+        // Pad with `success = false` entries for phases that were skipped
+        // because an earlier phase reverted, so the receipt's
+        // `phaseStatuses` length equals `calls.len()` per spec ("Phases
+        // after a revert ... reported as 0x00").
+        while phase_results.len() < eip8130.call_phases.len() {
+            phase_results.push(crate::transaction::eip8130::Eip8130PhaseResult {
+                success: false,
+                gas_used: 0,
+            });
+        }
 
-        // EIP-8130 §RPC Extensions: `status = 0x01` when all phases succeeded
-        // **or `calls` was empty**. An empty `calls` array is a legitimate
-        // shape (e.g. nonce-bump-only, lock-only, or account-change-only
-        // transactions) and must report success. Reaching this point with
-        // `phase_results.is_empty()` means no phases were attempted; any
-        // pre-execution failure (account_changes, validation) would have
-        // errored out earlier. Deploy-only is a special case of this.
-        let no_phases_success = phase_results.is_empty();
+        // EIP-8130 §RPC Extensions: `status = 0x01` iff "all phases
+        // succeeded **or `calls` was empty**". `Iterator::all` returns
+        // `true` on an empty iterator (vacuous truth), which gives us
+        // the empty-calls success case — including legitimate no-op
+        // shapes like nonce-bump-only, lock-only, or pure
+        // account-change transactions. Reaching this point with empty
+        // `phase_results` means no phases were attempted; any
+        // pre-execution failure (account_changes, validation) would
+        // have errored out earlier on a different path.
+        let all_phases_succeeded = phase_results.iter().all(|r| r.success);
 
-        let tx_succeeded = is_estimation || any_phase_succeeded || no_phases_success;
+        let tx_succeeded = is_estimation || all_phases_succeeded;
 
         // Emit a system log with per-phase statuses so they survive in the receipt's
         // log list and can be recovered at RPC time.
