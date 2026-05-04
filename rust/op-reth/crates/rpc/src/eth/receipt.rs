@@ -4,9 +4,11 @@ use crate::{OpEthApi, OpEthApiError, eth::RpcNodeCore};
 use alloy_consensus::{BlockHeader, Receipt, ReceiptWithBloom, TxReceipt};
 use alloy_eips::eip2718::Encodable2718;
 use alloy_rpc_types_eth::{Log, TransactionReceipt};
-use op_alloy_consensus::{OpReceipt, OpTransaction};
-use op_alloy_rpc_types::{L1BlockInfo, OpTransactionReceipt, OpTransactionReceiptFields};
-use op_revm::estimate_tx_compressed_size;
+use op_alloy_consensus::{OpEip8130Transaction, OpReceipt, OpTransaction};
+use op_alloy_rpc_types::{
+    Eip8130ReceiptFields, L1BlockInfo, OpTransactionReceipt, OpTransactionReceiptFields,
+};
+use op_revm::{estimate_tx_compressed_size, transaction::eip8130::extract_phase_statuses_from_logs};
 use reth_chainspec::{ChainSpecProvider, EthChainSpec};
 use reth_node_api::NodePrimitives;
 use reth_optimism_evm::RethL1BlockInfo;
@@ -43,7 +45,7 @@ impl<Provider> OpReceiptConverter<Provider> {
 
 impl<Provider, N> ReceiptConverter<N> for OpReceiptConverter<Provider>
 where
-    N: NodePrimitives<SignedTx: OpTransaction, Receipt = OpReceipt>,
+    N: NodePrimitives<SignedTx: OpTransaction + OpEip8130Transaction, Receipt = OpReceipt>,
     Provider:
         BlockReader<Block = N::Block> + ChainSpecProvider<ChainSpec: OpHardforks> + Debug + 'static,
 {
@@ -299,6 +301,28 @@ pub struct OpReceiptBuilder {
     pub core_receipt: TransactionReceipt<ReceiptWithBloom<OpReceipt<Log>>>,
     /// Additional OP receipt fields.
     pub op_receipt_fields: OpTransactionReceiptFields,
+    /// Optional EIP-8130 receipt extension fields.
+    pub eip8130_fields: Option<Eip8130ReceiptFields>,
+}
+
+/// Infers per-phase EIP-8130 statuses from receipt-level status when the
+/// system log is not present (pre-fix receipts only).
+///
+/// The handler now always emits a system log for phased AA transactions, so
+/// `extract_phase_statuses_from_logs` should always succeed for new receipts.
+/// This fallback handles legacy receipts where the log was only emitted on
+/// success.
+///
+/// Returns `None` for multi-phase success because `tx_success == true` only
+/// means at least one phase succeeded — individual phase outcomes are
+/// indeterminate without the system log.
+fn infer_eip8130_phase_statuses(phase_count: usize, tx_success: bool) -> Option<Vec<bool>> {
+    match (phase_count, tx_success) {
+        (0, _) => Some(Vec::new()),
+        (1, status) => Some(vec![status]),
+        (_, false) => Some(vec![false; phase_count]),
+        (_, true) => None,
+    }
 }
 
 impl OpReceiptBuilder {
@@ -310,10 +334,11 @@ impl OpReceiptBuilder {
         op_gas_refund: Option<u64>,
     ) -> Result<Self, OpEthApiError>
     where
-        N: NodePrimitives<SignedTx: OpTransaction, Receipt = OpReceipt>,
+        N: NodePrimitives<SignedTx: OpTransaction + OpEip8130Transaction, Receipt = OpReceipt>,
     {
         let timestamp = input.meta.timestamp;
         let block_number = input.meta.block_number;
+        let recovered_sender = input.tx.signer();
         let tx_signed = *input.tx.inner();
         let mut core_receipt = build_receipt(input, None, |receipt, next_log_index, meta| {
             let map_logs = move |receipt: alloy_consensus::Receipt| {
@@ -353,13 +378,24 @@ impl OpReceiptBuilder {
             .op_gas_refund(op_gas_refund)
             .build();
 
-        Ok(Self { core_receipt, op_receipt_fields })
+        let eip8130_fields = tx_signed.as_eip8130().map(|sealed| {
+            let tx = sealed.inner();
+            let phase_statuses = extract_phase_statuses_from_logs(
+                core_receipt.inner.logs(),
+                op_alloy_consensus::transaction::eip8130::TX_CONTEXT_ADDRESS,
+            )
+            .or_else(|| infer_eip8130_phase_statuses(tx.calls.len(), core_receipt.inner.status()));
+            let payer = if tx.is_self_pay() { recovered_sender } else { tx.effective_payer() };
+            Eip8130ReceiptFields { payer, phase_statuses }
+        });
+
+        Ok(Self { core_receipt, op_receipt_fields, eip8130_fields })
     }
 
     /// Builds [`OpTransactionReceipt`] by combining core (l1) receipt fields and additional OP
     /// receipt fields.
     pub fn build(self) -> OpTransactionReceipt {
-        let Self { core_receipt: inner, op_receipt_fields } = self;
+        let Self { core_receipt: inner, op_receipt_fields, eip8130_fields } = self;
 
         let OpTransactionReceiptFields {
             l1_block_info,
@@ -368,7 +404,7 @@ impl OpReceiptBuilder {
             deposit_receipt_version: _,
         } = op_receipt_fields;
 
-        OpTransactionReceipt { inner, l1_block_info, op_gas_refund }
+        OpTransactionReceipt { inner, l1_block_info, op_gas_refund, eip8130_fields }
     }
 }
 
@@ -388,6 +424,17 @@ mod test {
     use reth_optimism_chainspec::{BASE_MAINNET, OP_MAINNET};
     use reth_optimism_primitives::{OpPrimitives, OpTransactionSigned};
     use reth_primitives_traits::{Recovered, SealedBlock};
+
+    #[test]
+    fn infer_phase_statuses_rules() {
+        assert_eq!(infer_eip8130_phase_statuses(0, true), Some(Vec::<bool>::new()));
+        assert_eq!(infer_eip8130_phase_statuses(1, true), Some(vec![true]));
+        assert_eq!(infer_eip8130_phase_statuses(1, false), Some(vec![false]));
+        assert_eq!(infer_eip8130_phase_statuses(3, false), Some(vec![false, false, false]));
+        // Multi-phase success: individual statuses are indeterminate without
+        // the system log, so the fallback returns None.
+        assert_eq!(infer_eip8130_phase_statuses(3, true), None);
+    }
 
     /// OP Mainnet transaction at index 0 in block 124665056.
     ///

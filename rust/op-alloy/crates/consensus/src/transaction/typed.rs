@@ -329,8 +329,10 @@ impl SignableTransaction<Signature> for OpTypedTransaction {
             Self::Eip2930(tx) => tx.set_chain_id(chain_id),
             Self::Eip1559(tx) => tx.set_chain_id(chain_id),
             Self::Eip7702(tx) => tx.set_chain_id(chain_id),
-            Self::Eip8130(tx) => tx.chain_id = chain_id,
-            Self::Deposit(_) | Self::PostExec(_) => {}
+            // EIP-8130 has its own dual-domain sign API (sender_signature_hash /
+            // payer_signature_hash). Don't mutate via the SignableTransaction trait —
+            // it would silently invalidate any pre-computed sender_auth/payer_auth.
+            Self::Eip8130(_) | Self::Deposit(_) | Self::PostExec(_) => {}
         }
     }
 

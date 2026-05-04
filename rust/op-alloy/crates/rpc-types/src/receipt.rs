@@ -22,6 +22,22 @@ pub struct OpTransactionReceipt {
     /// Per-transaction gas refund from post-exec block-level warming.
     #[serde(default, skip_serializing_if = "Option::is_none", with = "alloy_serde::quantity::opt")]
     pub op_gas_refund: Option<u64>,
+    /// EIP-8130 Account Abstraction fields. Only present for AA (type 0x7B) receipts.
+    #[serde(default, flatten, skip_serializing_if = "Option::is_none")]
+    pub eip8130_fields: Option<Eip8130ReceiptFields>,
+}
+
+/// EIP-8130 Account Abstraction receipt fields.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Eip8130ReceiptFields {
+    /// The address that paid for gas (may differ from `from` in sponsored txs).
+    pub payer: alloy_primitives::Address,
+    /// Per-phase execution status. `true` = success, `false` = revert.
+    /// `None` for legacy receipts where individual phase outcomes could not
+    /// be determined (the system log was missing and the tx had mixed results).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase_statuses: Option<alloc::vec::Vec<bool>>,
 }
 
 impl alloy_network_primitives::ReceiptResponse for OpTransactionReceipt {

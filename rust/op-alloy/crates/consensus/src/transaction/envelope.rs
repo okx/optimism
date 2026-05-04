@@ -443,10 +443,10 @@ impl OpTxEnvelope {
             Self::Eip2930(tx) => &mut tx.tx_mut().input,
             Self::Legacy(tx) => &mut tx.tx_mut().input,
             Self::Eip7702(tx) => &mut tx.tx_mut().input,
-            // TODO(eip-8130): no top-level `input` field — calls live in `tx.calls`.
-            // input_mut is doc(hidden) and unused for AA txs; if a caller hits this, they're
-            // treating an AA tx as a single-call tx by mistake.
-            Self::Eip8130(_) => panic!("TODO(eip-8130): EIP-8130 has no top-level input field"),
+            // EIP-8130 has no top-level `input` field — calls live in `tx.calls`.
+            // The closest semantic equivalent for testing utilities is `sender_auth`
+            // (the field that gets hashed for sender signature recovery).
+            Self::Eip8130(tx) => &mut tx.inner_mut().sender_auth,
             Self::Deposit(tx) => &mut tx.inner_mut().input,
             Self::PostExec(tx) => &mut tx.inner_mut().input,
         }

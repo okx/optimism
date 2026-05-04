@@ -411,7 +411,7 @@ mod tests {
     fn check_op_hardfork_from_str() {
         let hardfork_str = [
             "beDrOck", "rEgOlITH", "cAnYoN", "eCoToNe", "FJorD", "GRaNiTe", "hOlOcEnE", "isthMUS",
-            "jOvIaN", "kArSt", "inTerOP", "xLAyerNAtIveAA",
+            "jOvIaN", "kArSt", "inTerOP", "nAtIvEAA",
         ];
         let expected_hardforks = [
             OpHardfork::Bedrock,
