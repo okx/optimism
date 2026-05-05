@@ -95,9 +95,10 @@ pub const MAX_ACCOUNT_CHANGES_PER_TX: usize = 10;
 
 /// Delegate verifier contract address (1-hop delegation).
 ///
-/// Mirrors `op_alloy_consensus::DELEGATE_VERIFIER_ADDRESS`.
+/// `create(NativeAADelegateVerifierDeployer @ 0x4210…000c, 0)`. Mirrors
+/// `op_alloy_consensus::DELEGATE_VERIFIER_ADDRESS`.
 pub const DELEGATE_VERIFIER_ADDRESS: Address =
-    address!("0x30A76831b27732087561372f6a1bef6Fc391d805");
+    address!("0xc758A89C53542164aaB7f6439e8c8cAcf628fF62");
 
 /// Default cap for aggregate gas spent across custom verifier STATICCALLs.
 pub const DEFAULT_CUSTOM_VERIFIER_GAS_CAP: u64 = 200_000;

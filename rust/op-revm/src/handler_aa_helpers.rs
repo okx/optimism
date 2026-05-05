@@ -52,10 +52,16 @@ const ESTIMATION_AUTH_CALLDATA_GAS: u64 = 1_100;
 pub(crate) const NONCE_COLD_WARM_DELTA: u64 = 17_100;
 
 /// AccountConfiguration deployed contract address.
-/// Must match the CREATE2 address from `Deploy.s.sol` (salt = 0).
+///
+/// `create(NativeAAAccountConfigurationDeployer @ 0x4210…000b, 0)` — must
+/// match `op_alloy_consensus::ACCOUNT_CONFIG_ADDRESS`. Pre-fix this had a
+/// stale `0x4F20618C…` value left over from earlier spec docs that did NOT
+/// match where Go op-node deploys the contract; the handler's
+/// "AccountConfiguration deployed" guard then rejected every config-change
+/// tx because the wrong address has no code. See test report BUG-006/007.
 pub(crate) const ACCOUNT_CONFIG_ADDRESS: Address = Address::new([
-    0x4F, 0x20, 0x61, 0x8C, 0xf5, 0xc1, 0x60, 0xe7, 0xAA, 0x38, 0x52, 0x68, 0x72, 0x1d, 0xA9, 0x68,
-    0xF8, 0x6F, 0x0e, 0x61,
+    0xf9, 0x46, 0x60, 0x1d, 0x54, 0x24, 0x11, 0x8a, 0x4e, 0x40, 0x54, 0xbb, 0x0b, 0x13, 0x13, 0x3f,
+    0x21, 0x6b, 0x4f, 0xee,
 ]);
 
 /// Explicit native K1/ecrecover verifier sentinel (`address(1)`).
