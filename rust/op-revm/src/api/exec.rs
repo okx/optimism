@@ -141,6 +141,12 @@ where
             data,
         ));
         let mut h = OpHandler::<_, _, EthFrame<EthInterpreter>>::new();
+
+        // Load caller account into the journal (necessary for Geth proofs
+        // compatibility). Remove once https://github.com/bluealloy/revm/issues/3484
+        // is fixed. Mirrors `reth-projects/base @ crates/execution/revm/src/api/exec.rs`.
+        self.0.ctx.journal_mut().load_account_with_code_mut(caller)?;
+
         h.run_system_call(self)
     }
 }
@@ -164,6 +170,12 @@ where
             data,
         ));
         let mut h = OpHandler::<_, _, EthFrame<EthInterpreter>>::new();
+
+        // Load caller account into the journal (necessary for Geth proofs
+        // compatibility). Remove once https://github.com/bluealloy/revm/issues/3484
+        // is fixed. Mirrors `reth-projects/base @ crates/execution/revm/src/api/exec.rs`.
+        self.0.ctx.journal_mut().load_account_with_code_mut(caller)?;
+
         h.inspect_run_system_call(self)
     }
 }
