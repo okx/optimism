@@ -179,6 +179,7 @@ fn validate_account_changes_structure(tx: &TxEip8130) -> Result<(), ValidationEr
     use super::types::AccountChangeEntry;
 
     let mut seen_create = false;
+    let mut seen_delegation = false;
     for (i, entry) in tx.account_changes.iter().enumerate() {
         match entry {
             AccountChangeEntry::Create(_) => {
@@ -199,7 +200,21 @@ fn validate_account_changes_structure(tx: &TxEip8130) -> Result<(), ValidationEr
                     ));
                 }
             }
-            AccountChangeEntry::Delegation(_) => {}
+            AccountChangeEntry::Delegation(_) => {
+                // EIP-8130 §"Account Changes" + §"Mempool Acceptance": a
+                // delegation entry is "at most one per account". Without this
+                // check the protocol would silently apply two writes back-to-
+                // back, leaving only the last `target` visible while still
+                // charging both — and worse, breaking the spec's "exactly
+                // one delegation indicator per tx" invariant relied on by
+                // downstream tooling.
+                if seen_delegation {
+                    return Err(ValidationError::InvalidAccountChanges(
+                        "multiple delegation entries",
+                    ));
+                }
+                seen_delegation = true;
+            }
         }
     }
     Ok(())
