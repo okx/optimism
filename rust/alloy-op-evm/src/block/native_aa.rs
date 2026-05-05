@@ -73,3 +73,46 @@ where
     db.commit(accounts);
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy_op_hardforks::{ForkCondition, OpChainHardforks, OpHardfork};
+    use alloy_primitives::U256;
+    use revm::{Database, database::InMemoryDB};
+
+    fn devnet_spec() -> OpChainHardforks {
+        OpChainHardforks::new([(OpHardfork::NativeAA, ForkCondition::Timestamp(0))])
+    }
+
+    fn make_db() -> InMemoryDB {
+        InMemoryDB::default()
+    }
+
+    #[test]
+    fn idempotent_when_already_deployed() {
+        let mut db = make_db();
+        let spec = devnet_spec();
+
+        ensure_aa_predeploys(&spec, 0, &mut db).unwrap();
+
+        let mut info = db.basic(NONCE_MANAGER_ADDRESS).unwrap().unwrap_or_default();
+        info.balance = U256::from(42);
+        db.insert_account_info(NONCE_MANAGER_ADDRESS, info);
+
+        ensure_aa_predeploys(&spec, 2, &mut db).unwrap();
+        let info = db.basic(NONCE_MANAGER_ADDRESS).unwrap().expect("account should exist");
+        assert_eq!(info.balance, U256::from(42));
+    }
+
+    #[test]
+    fn no_op_when_fork_inactive() {
+        let mut db = make_db();
+        let spec = OpChainHardforks::op_mainnet();
+
+        ensure_aa_predeploys(&spec, 0, &mut db).unwrap();
+
+        let info = db.basic(NONCE_MANAGER_ADDRESS).unwrap();
+        assert!(info.is_none());
+    }
+}

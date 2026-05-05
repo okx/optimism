@@ -139,6 +139,19 @@ impl OpTransactionRequest {
         self
     }
 
+    /// Sets the chain ID for the transaction.
+    pub const fn chain_id(mut self, chain_id: ChainId) -> Self {
+        self.inner.chain_id = Some(chain_id);
+        self
+    }
+
+    /// Sets the input data as deploy (CREATE) bytecode.
+    pub fn deploy_code(mut self, code: impl Into<Bytes>) -> Self {
+        self.inner.to = Some(TxKind::Create);
+        self.inner.input.input = Some(code.into());
+        self
+    }
+
     /// Sets the access list for the transaction.
     pub fn access_list(mut self, access_list: AccessList) -> Self {
         self.inner.access_list = Some(access_list);

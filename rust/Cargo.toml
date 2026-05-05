@@ -310,7 +310,6 @@ reth-rpc-traits = { version = "0.3.0", default-features = false }
 reth-zstd-compressors = { version = "0.3.0", default-features = false }
 
 # ==================== RETH CRATES (git @ 27bfddeada3953edc22759080a3659ccea62ca1f) ====================
-reth = { git = "https://github.com/paradigmxyz/reth", rev = "27bfddeada3953edc22759080a3659ccea62ca1f" }
 reth-basic-payload-builder = { git = "https://github.com/paradigmxyz/reth", rev = "27bfddeada3953edc22759080a3659ccea62ca1f" }
 reth-chain-state = { git = "https://github.com/paradigmxyz/reth", rev = "27bfddeada3953edc22759080a3659ccea62ca1f" }
 reth-chainspec = { git = "https://github.com/paradigmxyz/reth", rev = "27bfddeada3953edc22759080a3659ccea62ca1f", default-features = false }
@@ -658,7 +657,6 @@ rocksdb = { version = "0.24.0", default-features = false }
 
 
 [patch."https://github.com/paradigmxyz/reth"]
-reth = { git = "https://github.com/okx/reth", rev = "22f21c1008865aa662c0942d485ac8834cb5d125" }
 reth-basic-payload-builder = { git = "https://github.com/okx/reth", rev = "22f21c1008865aa662c0942d485ac8834cb5d125" }
 reth-chain-state = { git = "https://github.com/okx/reth", rev = "22f21c1008865aa662c0942d485ac8834cb5d125" }
 reth-chainspec = { git = "https://github.com/okx/reth", rev = "22f21c1008865aa662c0942d485ac8834cb5d125" }
