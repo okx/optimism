@@ -73,58 +73,53 @@ pub const NONCE_MANAGER_ADDRESS: Address = address!("0x0000000000000000000000000
 /// `owner_id`, phase index, and call metadata during execution.
 pub const TX_CONTEXT_ADDRESS: Address = address!("0x000000000000000000000000000000000000aa03");
 
-// ── Deployed contracts (TxDeposit at BASE_V1 activation) ─────────
+// ── Deployed contracts (TxDeposit at NativeAA activation) ────────────
 //
-// All addresses are deterministic: `Deployers::BASE_V1_*.create(0)`.
-// See `crates/consensus/upgrades/src/base_v1.rs` for the deposit
-// transactions that deploy these contracts.
+// Addresses are deterministic via `create(deployer, 0)` where the deployer
+// addresses live at `0x4210…0008` … `0x4210…000d`. See
+// `op-node/rollup/derive/native_aa_upgrade_transactions.go` for the
+// canonical `NativeAA<X>Deployer` constants and the upgrade-deposit
+// transactions that deploy these contracts at fork activation.
 //
-// On devnets where BASE_V1 is active from genesis, these are deployed
-// by the derivation pipeline's upgrade transactions at block 0.
-
-// Deterministic via `Deployers::BASE_V1_*.create(0)` — see
-// `op-node/rollup/derive/native_aa_upgrade_transactions.go` for the Go
-// deployer addresses (`0x4210…0008` … `0x4210…000d`) and base's
-// `crates/consensus/upgrades/src/base_v1.rs::deployed_addresses_are_deterministic`
-// test for the canonical asserted values.
-//
-// The earlier hardcoded values (e.g. `0x4F20618C…` for AccountConfig,
-// `0x31914Dd8…` for DefaultAccount) appeared in spec docs / `send-aa-tx.mjs`
-// fixtures but did NOT match the addresses produced by `create(deployer, 0)`
-// — base's own unit tests assert the CREATE-derived ones, and the protocol
-// reads/writes storage at this constant. Pre-fix, the protocol storage path
-// pointed at an address with no contract code, breaking ERC-1271 and
-// applySignedOwnerChanges() while masking failures via the implicit-EOA
-// fallback. See test report BUG-006 for the discovery + reasoning.
+// Pre-fix, this file hardcoded different magic addresses (e.g.
+// `0x4F20618C…` for AccountConfig, `0x31914Dd8…` for DefaultAccount)
+// that appeared in spec docs / `send-aa-tx.mjs` fixtures but did NOT
+// match what `create(deployer, 0)` produces. The protocol reads/writes
+// storage at the constants here, so the storage path pointed at empty-
+// code addresses, breaking ERC-1271 and `applySignedOwnerChanges()`
+// while masking the failure via the implicit-EOA fallback. See test
+// report BUG-006 for the discovery + reasoning.
 
 /// Default account (wallet) implementation contract. Bare EOAs that submit
 /// AA transactions are auto-delegated to this address via EIP-7702.
-/// `BASE_V1_DEFAULT_ACCOUNT (0x4210…000d).create(0)`.
+/// `create(NativeAADefaultAccountDeployer @ 0x4210…000d, 0)`.
 pub const DEFAULT_ACCOUNT_ADDRESS: Address = address!("0xAb4eE49EE97e49807e180BD5Fb9D9F35783b84F2");
 
-/// Account configuration system contract.
-/// Manages owner registrations, account creation, config changes, and locks.
-/// `BASE_V1_ACCOUNT_CONFIGURATION (0x4210…000b).create(0)`.
+/// Account configuration system contract. Manages owner registrations,
+/// account creation, config changes, and locks.
+/// `create(NativeAAAccountConfigurationDeployer @ 0x4210…000b, 0)`.
 pub const ACCOUNT_CONFIG_ADDRESS: Address = address!("0xf946601D5424118A4e4054BB0B13133f216b4FeE");
 
 /// Explicit native K1/ecrecover verifier sentinel — protocol-reserved at
 /// `address(1)` (the standard ECRECOVER precompile). Different from the
-/// on-chain ERC-1271 K1 verifier contract at `0x5Be482Da…`; this constant
-/// is only ever interpreted natively, never STATICCALL'd.
+/// on-chain ERC-1271 K1 verifier contract deployed at `0x5Be482Da…`;
+/// this constant is only ever interpreted natively, never STATICCALL'd.
 ///
 /// `address(0)` remains the implicit EOA mode.
 pub const K1_VERIFIER_ADDRESS: Address = address!("0x0000000000000000000000000000000000000001");
 
-/// P256 raw ECDSA verifier contract. `BASE_V1_P256_VERIFIER (0x4210…0009).create(0)`.
+/// P256 raw ECDSA verifier contract.
+/// `create(NativeAAP256VerifierDeployer @ 0x4210…0009, 0)`.
 pub const P256_RAW_VERIFIER_ADDRESS: Address =
     address!("0x6751c7ED0C58319e75437f8E6Dafa2d7F6b8306F");
 
-/// P256 WebAuthn verifier contract. `BASE_V1_WEBAUTHN_VERIFIER (0x4210…000a).create(0)`.
+/// P256 WebAuthn verifier contract.
+/// `create(NativeAAWebAuthnVerifierDeployer @ 0x4210…000a, 0)`.
 pub const P256_WEBAUTHN_VERIFIER_ADDRESS: Address =
     address!("0x3572bb3F611a40DDcA70e5b55Cc797D58357AD44");
 
 /// Delegate verifier contract (1-hop delegation).
-/// `BASE_V1_DELEGATE_VERIFIER (0x4210…000c).create(0)`.
+/// `create(NativeAADelegateVerifierDeployer @ 0x4210…000c, 0)`.
 pub const DELEGATE_VERIFIER_ADDRESS: Address =
     address!("0xc758A89C53542164aaB7f6439e8c8cAcf628fF62");
 
