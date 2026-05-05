@@ -29,6 +29,9 @@ use core::{
 use op_revm::{
     L1BlockInfo, OpBuilder, OpHaltReason, OpSpecId, OpTransaction, precompiles::OpPrecompiles,
 };
+
+pub mod aa_precompiles;
+use aa_precompiles::op_precompiles_map;
 use revm::{
     Context, ExecuteEvm, InspectEvm, Inspector, Journal, MainContext, SystemCallEvm,
     context::{BlockEnv, CfgEnv, TxEnv},
@@ -246,9 +249,7 @@ where
                 .with_block(input.block_env)
                 .with_cfg(input.cfg_env)
                 .build_op_with_inspector(NoOpInspector {})
-                .with_precompiles(PrecompilesMap::from_static(
-                    OpPrecompiles::new_with_spec(spec_id).precompiles(),
-                )),
+                .with_precompiles(op_precompiles_map(spec_id)),
             inspect: false,
             _tx: PhantomData,
         }
@@ -270,9 +271,7 @@ where
                 .with_block(input.block_env)
                 .with_cfg(input.cfg_env)
                 .build_op_with_inspector(inspector)
-                .with_precompiles(PrecompilesMap::from_static(
-                    OpPrecompiles::new_with_spec(spec_id).precompiles(),
-                )),
+                .with_precompiles(op_precompiles_map(spec_id)),
             inspect: true,
             _tx: PhantomData,
         }
