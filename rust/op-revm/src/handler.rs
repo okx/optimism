@@ -501,6 +501,28 @@ where
     Ok(())
 }
 
+/// Loads a target account's bytecode and code hash for use as
+/// `CallInputs::known_bytecode`.
+///
+/// Restores the auto-load behavior that revm-handler ≤17 performed when
+/// `known_bytecode == None`: revm-handler 18.x removed the auto-load and
+/// treats empty bytecode as instant `Stop`, so the caller must populate it.
+/// EIP-7702 delegation is intentionally *not* resolved here — that matches
+/// the prior contract (delegation is unwrapped inside the interpreter when
+/// it executes a `Bytecode::Eip7702`).
+#[inline]
+fn load_call_target_bytecode<EVM, ERROR>(
+    evm: &mut EVM,
+    address: Address,
+) -> Result<(B256, revm::bytecode::Bytecode), ERROR>
+where
+    EVM: EvmTr<Context: OpContextTr>,
+    ERROR: EvmTrError<EVM>,
+{
+    let acct = evm.ctx().journal_mut().load_account_with_code(address)?.data;
+    Ok((acct.info.code_hash, acct.info.code.clone().unwrap_or_default()))
+}
+
 /// Runs a custom verifier STATICCALL and decodes the returned owner_id.
 fn run_custom_verifier_staticcall<EVM, ERROR, FRAME>(
     mainnet: &mut MainnetHandler<EVM, ERROR, FRAME>,
@@ -518,15 +540,16 @@ where
     ERROR: EvmTrError<EVM> + From<OpTransactionError>,
     FRAME: FrameTr<FrameResult = FrameResult, FrameInit = FrameInit>,
 {
-    evm.ctx().journal_mut().load_account(verifier)?;
+    let (code_hash, code) = load_call_target_bytecode::<EVM, ERROR>(evm, verifier)?;
 
     let call_gas = verification_gas_cap.saturating_sub(*verification_gas_used);
     let call_inputs = CallInputs {
         input: CallInput::Bytes(calldata.clone()),
         return_memory_offset: 0..0,
         gas_limit: call_gas,
+        reservoir: 0,
+        known_bytecode: (code_hash, code),
         bytecode_address: verifier,
-        known_bytecode: None,
         target_address: verifier,
         caller,
         value: CallValue::Transfer(U256::ZERO),
@@ -1524,15 +1547,17 @@ where
                     (call.to, call.data.clone(), call.value)
                 };
 
-                evm.ctx().journal_mut().load_account(call_to)?;
+                let (code_hash, code) =
+                    load_call_target_bytecode::<Self::Evm, Self::Error>(evm, call_to)?;
 
                 let call_gas = gas_remaining;
                 let call_inputs = CallInputs {
                     input: CallInput::Bytes(call_data),
                     return_memory_offset: 0..0,
                     gas_limit: call_gas,
+                    reservoir: 0,
+                    known_bytecode: (code_hash, code),
                     bytecode_address: call_to,
-                    known_bytecode: None,
                     target_address: call_to,
                     caller: sender,
                     value: CallValue::Transfer(call_value),

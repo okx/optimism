@@ -10,7 +10,7 @@ use alloy_evm::{FromRecoveredTx, FromTxWithEncoded, IntoTxEnv, TransactionEnvMut
 use alloy_primitives::{Address, B256, Bytes, TxKind, U256};
 use core::ops::{Deref, DerefMut};
 use op_alloy::consensus::{AA_TX_TYPE_ID, OpTxEnvelope, TxDeposit, TxEip8130, TxPostExec};
-use op_revm::{OpTransaction, transaction::deposit::DepositTransactionParts};
+use op_revm::{OpTransaction, transaction::deposit::DepositTransactionParts, transaction::eip8130::Eip8130Parts};
 use revm::context::TxEnv;
 
 /// Helper to convert a deposit transaction into a [`TxEnv`].
@@ -160,6 +160,10 @@ impl op_revm::transaction::OpTxTr for OpTx {
 
     fn is_system_transaction(&self) -> bool {
         self.0.is_system_transaction()
+    }
+
+    fn eip8130_parts(&self) -> &Eip8130Parts {
+        self.0.eip8130_parts()
     }
 }
 

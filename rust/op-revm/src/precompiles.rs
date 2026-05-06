@@ -157,7 +157,7 @@ fn map_precompile_output(
             if gas_limit < gas_used {
                 result.result = InstructionResult::PrecompileOOG;
             } else {
-                let enough_gas = result.gas.record_cost(gas_used);
+                let enough_gas = result.gas.record_regular_cost(gas_used);
                 debug_assert!(enough_gas, "gas should be sufficient after explicit limit check");
                 result.output = bytes;
             }
