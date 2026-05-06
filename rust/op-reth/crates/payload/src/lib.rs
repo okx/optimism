@@ -32,12 +32,15 @@ pub mod config;
 
 // Implement `ConfigureEngineEvm<OpExecData>` by delegating to the `OpExecutionData` implementation.
 // This must live here because `OpExecData` is defined in this crate (orphan rules).
-impl<ChainSpec, N, R> reth_evm::ConfigureEngineEvm<OpExecData>
-    for reth_optimism_evm::OpEvmConfig<ChainSpec, N, R>
+//
+// PENDING UPSTREAM PR: generalize over EvmFactory parameter.
+impl<ChainSpec, N, R, EvmF> reth_evm::ConfigureEngineEvm<OpExecData>
+    for reth_optimism_evm::OpEvmConfig<ChainSpec, N, R, EvmF>
 where
     N: NodePrimitives,
     R: Send + Sync + Unpin + Clone + 'static,
     ChainSpec: Send + Sync + Unpin + Clone + 'static,
+    EvmF: Send + Sync + Unpin + Clone + 'static,
     Self: reth_evm::ConfigureEngineEvm<OpExecutionData>,
 {
     fn evm_env_for_payload(

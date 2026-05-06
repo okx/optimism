@@ -211,8 +211,13 @@ where
     }
 }
 
+// PENDING UPSTREAM PR: generalize ConfigureEngineEvm impl over EvmFactory.
+// See https://github.com/ethereum-optimism/optimism/issues/<TBD> — needed so
+// custom EvmFactory impls (e.g. xlayer-reth's revmc JIT factory) can satisfy
+// reth's engine validation trait bounds without touching the JIT crate.
 #[cfg(feature = "std")]
-impl<ChainSpec, N, R> ConfigureEngineEvm<OpExecutionData> for OpEvmConfig<ChainSpec, N, R>
+impl<ChainSpec, N, R, EvmF> ConfigureEngineEvm<OpExecutionData>
+    for OpEvmConfig<ChainSpec, N, R, EvmF>
 where
     ChainSpec: EthChainSpec<Header = Header> + OpHardforks,
     N: NodePrimitives<
@@ -224,6 +229,21 @@ where
         >,
     OpTx: FromRecoveredTx<N::SignedTx> + FromTxWithEncoded<N::SignedTx>,
     R: OpReceiptBuilder<Receipt: DepositReceipt, Transaction: SignedTransaction>,
+    EvmF: EvmFactory<
+            Tx: FromRecoveredTx<R::Transaction>
+                    + FromTxWithEncoded<R::Transaction>
+                    + alloy_evm::TransactionEnvMut
+                    + OpTxEnv,
+            Precompiles = PrecompilesMap,
+            Spec = OpSpecId,
+            BlockEnv = revm::context::BlockEnv,
+        > + Debug,
+    OpBlockExecutorFactory<R, Arc<ChainSpec>, EvmF>: for<'a> alloy_evm::block::BlockExecutorFactory<
+            EvmFactory = EvmF,
+            ExecutionCtx<'a> = alloy_op_evm::OpBlockExecutionCtx,
+            Transaction = R::Transaction,
+            Receipt = R::Receipt,
+        >,
     Self: Send + Sync + Unpin + Clone + 'static,
 {
     fn evm_env_for_payload(
