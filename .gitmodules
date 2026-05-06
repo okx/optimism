@@ -38,3 +38,12 @@
 [submodule "rollup-boost"]
 	path = rollup-boost
 	url = https://github.com/flashbots/rollup-boost
+[submodule "packages/contracts-xlayer/EIP-8130/lib/forge-std"]
+	path = packages/contracts-xlayer/EIP-8130/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
+[submodule "packages/contracts-xlayer/EIP-8130/lib/openzeppelin-contracts"]
+	path = packages/contracts-xlayer/EIP-8130/lib/openzeppelin-contracts
+	url = https://github.com/OpenZeppelin/openzeppelin-contracts
+[submodule "packages/contracts-xlayer/EIP-8130/lib/solady"]
+	path = packages/contracts-xlayer/EIP-8130/lib/solady
+	url = https://github.com/Vectorized/solady
