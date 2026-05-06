@@ -1096,6 +1096,9 @@ where
         let validator =
             TransactionValidationTaskExecutor::eth_builder(ctx.provider().clone(), evm_config)
                 .no_eip4844()
+                // Register XLayerAA (EIP-8130, 0x7B) so the generic validator
+                // forwards it to the AA structural check.
+                .with_custom_tx_type(op_alloy_consensus::AA_TX_TYPE_ID)
                 .with_max_tx_input_bytes(ctx.config().txpool.max_tx_input_bytes)
                 .kzg_settings(ctx.kzg_settings()?)
                 .set_tx_fee_cap(ctx.config().rpc.rpc_tx_fee_cap)

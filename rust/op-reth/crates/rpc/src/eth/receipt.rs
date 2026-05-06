@@ -5,8 +5,14 @@ use alloy_consensus::{BlockHeader, Receipt, ReceiptWithBloom, TxReceipt};
 use alloy_eips::eip2718::Encodable2718;
 use alloy_rpc_types_eth::{Log, TransactionReceipt};
 use op_alloy_consensus::{OpReceipt, OpTransaction};
-use op_alloy_rpc_types::{L1BlockInfo, OpTransactionReceipt, OpTransactionReceiptFields};
-use op_revm::estimate_tx_compressed_size;
+use op_alloy_rpc_types::{
+    Eip8130ReceiptFields, L1BlockInfo, OpTransactionReceipt, OpTransactionReceiptFields,
+};
+use op_revm::{
+    OpEip8130TxTr, estimate_tx_compressed_size,
+    precompiles_xlayer::TX_CONTEXT_ADDRESS,
+    transaction::eip8130::extract_phase_statuses_from_logs,
+};
 use reth_chainspec::{ChainSpecProvider, EthChainSpec};
 use reth_node_api::NodePrimitives;
 use reth_optimism_evm::RethL1BlockInfo;
@@ -43,7 +49,7 @@ impl<Provider> OpReceiptConverter<Provider> {
 
 impl<Provider, N> ReceiptConverter<N> for OpReceiptConverter<Provider>
 where
-    N: NodePrimitives<SignedTx: OpTransaction, Receipt = OpReceipt>,
+    N: NodePrimitives<SignedTx: OpTransaction + OpEip8130TxTr, Receipt = OpReceipt>,
     Provider:
         BlockReader<Block = N::Block> + ChainSpecProvider<ChainSpec: OpHardforks> + Debug + 'static,
 {
@@ -299,6 +305,8 @@ pub struct OpReceiptBuilder {
     pub core_receipt: TransactionReceipt<ReceiptWithBloom<OpReceipt<Log>>>,
     /// Additional OP receipt fields.
     pub op_receipt_fields: OpTransactionReceiptFields,
+    /// EIP-8130 (XLayer AA) extension fields. `None` for non-AA receipts.
+    pub eip8130_fields: Option<Eip8130ReceiptFields>,
 }
 
 impl OpReceiptBuilder {
@@ -310,11 +318,32 @@ impl OpReceiptBuilder {
         op_gas_refund: Option<u64>,
     ) -> Result<Self, OpEthApiError>
     where
-        N: NodePrimitives<SignedTx: OpTransaction, Receipt = OpReceipt>,
+        N: NodePrimitives<SignedTx: OpTransaction + OpEip8130TxTr, Receipt = OpReceipt>,
     {
         let timestamp = input.meta.timestamp;
         let block_number = input.meta.block_number;
         let tx_signed = *input.tx.inner();
+
+        // EIP-8130 (XLayer AA, tx type 0x7B) extension fields. Derived from the tx envelope's
+        // payer + the system log emitted by `TX_CONTEXT_ADDRESS` carrying per-phase statuses.
+        // Falls back to inferring from the receipt-level status for legacy receipts that
+        // predate the system log. `None` for non-AA txs.
+        let eip8130_fields = tx_signed.as_eip8130().map(|sealed| {
+            let aa_tx = sealed.inner();
+            let recovered_sender = input.tx.signer();
+            let phase_statuses =
+                extract_phase_statuses_from_logs(input.receipt.logs(), TX_CONTEXT_ADDRESS)
+                    .or_else(|| {
+                        infer_phase_statuses(aa_tx.calls.len(), input.receipt.status())
+                    });
+            let payer = if aa_tx.is_self_pay() {
+                recovered_sender
+            } else {
+                aa_tx.effective_payer()
+            };
+            Eip8130ReceiptFields { payer, phase_statuses }
+        });
+
         let mut core_receipt = build_receipt(input, None, |receipt, next_log_index, meta| {
             let map_logs = move |receipt: alloy_consensus::Receipt| {
                 let Receipt { status, cumulative_gas_used, logs } = receipt;
@@ -355,13 +384,13 @@ impl OpReceiptBuilder {
             .op_gas_refund(op_gas_refund)
             .build();
 
-        Ok(Self { core_receipt, op_receipt_fields })
+        Ok(Self { core_receipt, op_receipt_fields, eip8130_fields })
     }
 
     /// Builds [`OpTransactionReceipt`] by combining core (l1) receipt fields and additional OP
     /// receipt fields.
     pub fn build(self) -> OpTransactionReceipt {
-        let Self { core_receipt: inner, op_receipt_fields } = self;
+        let Self { core_receipt: inner, op_receipt_fields, eip8130_fields } = self;
 
         let OpTransactionReceiptFields {
             l1_block_info,
@@ -370,7 +399,21 @@ impl OpReceiptBuilder {
             deposit_receipt_version: _,
         } = op_receipt_fields;
 
-        OpTransactionReceipt { inner, l1_block_info, op_gas_refund }
+        OpTransactionReceipt { inner, l1_block_info, op_gas_refund, eip8130_fields }
+    }
+}
+
+/// Infers per-phase statuses from the receipt-level status when the system log is absent.
+///
+/// 0 phases → empty; 1 phase → mirror tx status; N phases with failure → all false
+/// (execution halts at the first failing phase); N phases with success → `None`
+/// (indeterminate without the system log).
+fn infer_phase_statuses(phase_count: usize, tx_success: bool) -> Option<Vec<bool>> {
+    match (phase_count, tx_success) {
+        (0, _) => Some(Vec::new()),
+        (1, status) => Some(vec![status]),
+        (_, false) => Some(vec![false; phase_count]),
+        (_, true) => None,
     }
 }
 
@@ -767,6 +810,259 @@ mod test {
             .saturating_mul(DA_FOOTPRINT_GAS_SCALAR.into());
 
         assert_eq!(op_receipt.core_receipt.blob_gas_used, Some(expected_blob_gas_used));
+    }
+
+    // ── infer_phase_statuses ──────────────────────────────────────────
+    //
+    // Pure-function unit tests for the legacy-receipt fallback. These pin the
+    // whole semantic table — the function feeds `phase_statuses` when the
+    // system log is absent, and getting any case wrong silently returns a
+    // wrong-shape `phaseStatuses` to RPC clients.
+
+    /// Zero-phase txs are degenerate but legal; status is moot, return empty
+    /// rather than `None` so clients see "definitely no phases".
+    #[test]
+    fn infer_phase_statuses_zero_phases_is_empty_vec() {
+        assert_eq!(infer_phase_statuses(0, true), Some(Vec::new()));
+        assert_eq!(infer_phase_statuses(0, false), Some(Vec::new()));
+    }
+
+    /// Single-phase tx: receipt-level status uniquely determines the one
+    /// phase outcome (the only phase IS the tx).
+    #[test]
+    fn infer_phase_statuses_single_phase_mirrors_status() {
+        assert_eq!(infer_phase_statuses(1, true), Some(vec![true]));
+        assert_eq!(infer_phase_statuses(1, false), Some(vec![false]));
+    }
+
+    /// Multi-phase failure: AA execution halts at the first failing phase
+    /// and the spec treats subsequent phases as implicitly failed. The
+    /// fallback returns all-`false` to reflect that — matches Base.
+    #[test]
+    fn infer_phase_statuses_multi_phase_failure_all_false() {
+        assert_eq!(infer_phase_statuses(3, false), Some(vec![false, false, false]));
+        assert_eq!(infer_phase_statuses(5, false), Some(vec![false; 5]));
+    }
+
+    /// Multi-phase success without the system log is genuinely
+    /// indeterminate — individual phases could have mixed outcomes that
+    /// still net to tx-success. Return `None` so the field gets dropped
+    /// rather than reporting fabricated all-`true`.
+    #[test]
+    fn infer_phase_statuses_multi_phase_success_indeterminate() {
+        assert_eq!(infer_phase_statuses(2, true), None);
+        assert_eq!(infer_phase_statuses(10, true), None);
+    }
+
+    // ── AA receipt path through OpReceiptBuilder::new ─────────────────
+    //
+    // Integration-ish tests: build an AA tx + receipt, push through the
+    // converter, assert on the populated `eip8130_fields`. This exercises
+    // the same code path the live RPC uses.
+
+    /// Synthetic AA tx scaffold with `phase_count` phase batches of one
+    /// trivial call each. `from`/`payer` left to caller; everything else
+    /// is filler that doesn't affect receipt-side derivation.
+    fn make_aa_tx(
+        from: Option<Address>,
+        payer: Option<Address>,
+        phase_count: usize,
+    ) -> op_alloy_consensus::TxEip8130 {
+        op_alloy_consensus::TxEip8130 {
+            chain_id: 196,
+            from,
+            nonce_key: U256::ZERO,
+            nonce_sequence: 1,
+            expiry: 0,
+            max_priority_fee_per_gas: 1_000_000_000,
+            max_fee_per_gas: 10_000_000_000,
+            gas_limit: 100_000,
+            account_changes: Vec::new(),
+            calls: (0..phase_count)
+                .map(|_| {
+                    vec![op_alloy_consensus::Eip8130CallEntry {
+                        to: Address::repeat_byte(0xBB),
+                        data: alloy_primitives::Bytes::new(),
+                    }]
+                })
+                .collect(),
+            payer,
+            sender_auth: alloy_primitives::Bytes::from_static(&[0xFF; 65]),
+            payer_auth: alloy_primitives::Bytes::new(),
+        }
+    }
+
+    /// Builds a system log matching what the AA handler emits: emitter =
+    /// `TX_CONTEXT_ADDRESS`, topic = `phase_statuses_log_topic()`, data is
+    /// one byte per phase (`0x01` = success, `0x00` = failure).
+    fn make_phase_statuses_log(statuses: &[bool]) -> alloy_primitives::Log {
+        let topic = op_revm::transaction::eip8130::phase_statuses_log_topic();
+        let data: Vec<u8> = statuses.iter().map(|s| u8::from(*s)).collect();
+        alloy_primitives::Log {
+            address: TX_CONTEXT_ADDRESS,
+            data: alloy_primitives::LogData::new_unchecked(
+                vec![topic],
+                alloy_primitives::Bytes::from(data),
+            ),
+        }
+    }
+
+    /// Boilerplate-light wrapper around `OpReceiptBuilder::new` for AA
+    /// tests: bundles default chain spec + L1 info, returns the built RPC
+    /// receipt so tests can assert on `eip8130_fields` directly.
+    fn build_receipt_for_aa(
+        signed_tx: &OpTransactionSigned,
+        sender: Address,
+        receipt: OpReceipt,
+    ) -> OpTransactionReceipt {
+        let mut l1_block_info = op_revm::L1BlockInfo::default();
+        OpReceiptBuilder::new(
+            &*OP_MAINNET,
+            ConvertReceiptInput::<OpPrimitives> {
+                tx: Recovered::new_unchecked(signed_tx, sender),
+                receipt,
+                gas_used: 100,
+                next_log_index: 0,
+                meta: TransactionMeta::default(),
+            },
+            &mut l1_block_info,
+            None,
+        )
+        .expect("builder should succeed")
+        .build()
+    }
+
+    /// Self-paying AA tx (`payer == None`): the receipt's `payer` must
+    /// resolve to the **recovered sender**, not zero or `tx.from`. This is
+    /// the path most user wallets exercise.
+    #[test]
+    fn aa_self_paying_tx_payer_is_recovered_sender() {
+        let sender = Address::repeat_byte(0x01);
+        let aa_tx = make_aa_tx(Some(sender), None, 1);
+        let signed = OpTransactionSigned::Eip8130(aa_tx.seal_slow());
+
+        let logs = vec![make_phase_statuses_log(&[true])];
+        let receipt = OpReceipt::Eip8130(Receipt {
+            status: Eip658Value::Eip658(true),
+            cumulative_gas_used: 100,
+            logs,
+        });
+
+        let result = build_receipt_for_aa(&signed, sender, receipt);
+        let fields = result.eip8130_fields.expect("AA receipt must carry eip8130 fields");
+        assert_eq!(fields.payer, sender, "self-pay payer must match recovered sender");
+        assert_eq!(fields.phase_statuses, Some(vec![true]));
+    }
+
+    /// Sponsored AA tx (`payer == Some(addr)`): the receipt's `payer` must
+    /// be **`tx.payer`**, not the recovered sender. This is what tells
+    /// downstream tooling who actually paid gas in a sponsored tx.
+    #[test]
+    fn aa_sponsored_tx_payer_is_envelope_payer() {
+        let sender = Address::repeat_byte(0x01);
+        let sponsor = Address::repeat_byte(0x99);
+        let aa_tx = make_aa_tx(Some(sender), Some(sponsor), 1);
+        let signed = OpTransactionSigned::Eip8130(aa_tx.seal_slow());
+
+        let logs = vec![make_phase_statuses_log(&[true])];
+        let receipt = OpReceipt::Eip8130(Receipt {
+            status: Eip658Value::Eip658(true),
+            cumulative_gas_used: 100,
+            logs,
+        });
+
+        let result = build_receipt_for_aa(&signed, sender, receipt);
+        let fields = result.eip8130_fields.expect("AA receipt must carry eip8130 fields");
+        assert_eq!(fields.payer, sponsor, "sponsored payer must be tx.payer, not sender");
+        assert_eq!(fields.phase_statuses, Some(vec![true]));
+    }
+
+    /// System log present + tx-level success: phase statuses come from the
+    /// log, NOT the fallback. Fallback for multi-phase success would
+    /// return `None` (indeterminate); the log lets us be specific. This
+    /// pin guards against silently dropping the log path.
+    #[test]
+    fn aa_phase_statuses_from_system_log_take_precedence() {
+        let sender = Address::repeat_byte(0x01);
+        let aa_tx = make_aa_tx(Some(sender), None, 2);
+        let signed = OpTransactionSigned::Eip8130(aa_tx.seal_slow());
+
+        // Multi-phase + tx success: fallback would yield None. The system
+        // log MUST override that with the precise [true, false] outcome.
+        let logs = vec![make_phase_statuses_log(&[true, false])];
+        let receipt = OpReceipt::Eip8130(Receipt {
+            status: Eip658Value::Eip658(true),
+            cumulative_gas_used: 100,
+            logs,
+        });
+
+        let result = build_receipt_for_aa(&signed, sender, receipt);
+        let fields = result.eip8130_fields.expect("AA receipt must carry eip8130 fields");
+        assert_eq!(
+            fields.phase_statuses,
+            Some(vec![true, false]),
+            "system log must win over fallback for multi-phase success"
+        );
+    }
+
+    /// No system log + tx-level failure: fallback infers all phases failed.
+    /// Pre-systemic-log historical receipts hit this path.
+    #[test]
+    fn aa_phase_statuses_fallback_when_no_system_log() {
+        let sender = Address::repeat_byte(0x01);
+        let aa_tx = make_aa_tx(Some(sender), None, 3);
+        let signed = OpTransactionSigned::Eip8130(aa_tx.seal_slow());
+
+        // Empty logs: no system log present. Tx-level failure → fallback
+        // says "all 3 phases false" (execution halted at the failing one).
+        let receipt = OpReceipt::Eip8130(Receipt {
+            status: Eip658Value::Eip658(false),
+            cumulative_gas_used: 100,
+            logs: vec![],
+        });
+
+        let result = build_receipt_for_aa(&signed, sender, receipt);
+        let fields = result.eip8130_fields.expect("AA receipt must carry eip8130 fields");
+        assert_eq!(fields.phase_statuses, Some(vec![false; 3]));
+    }
+
+    /// No system log + multi-phase tx success: fallback returns None
+    /// (indeterminate). The receipt still surfaces `payer`; only the
+    /// phaseStatuses key drops out.
+    #[test]
+    fn aa_phase_statuses_none_for_multi_phase_success_without_log() {
+        let sender = Address::repeat_byte(0x01);
+        let aa_tx = make_aa_tx(Some(sender), None, 2);
+        let signed = OpTransactionSigned::Eip8130(aa_tx.seal_slow());
+
+        let receipt = OpReceipt::Eip8130(Receipt {
+            status: Eip658Value::Eip658(true),
+            cumulative_gas_used: 100,
+            logs: vec![],
+        });
+
+        let result = build_receipt_for_aa(&signed, sender, receipt);
+        let fields = result.eip8130_fields.expect("AA receipt must carry eip8130 fields");
+        assert_eq!(fields.payer, sender);
+        assert!(fields.phase_statuses.is_none(), "multi-phase success without log is indeterminate");
+    }
+
+    /// Non-AA receipts (e.g. EIP-1559) must produce `eip8130_fields = None`,
+    /// otherwise generic OP tooling sees phantom AA fields on regular txs.
+    #[test]
+    fn non_aa_receipt_has_no_eip8130_fields() {
+        let tx = OpTransactionSigned::decode_2718(
+            &mut TX_1_OP_MAINNET_BLOCK_124665056.as_slice(),
+        )
+        .unwrap();
+        let receipt = OpReceipt::Eip1559(Receipt {
+            status: Eip658Value::Eip658(true),
+            cumulative_gas_used: 100,
+            logs: vec![],
+        });
+
+        let result = build_receipt_for_aa(&tx, Address::ZERO, receipt);
+        assert!(result.eip8130_fields.is_none(), "non-AA tx must not carry eip8130 fields");
     }
 
     #[test]
