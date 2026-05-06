@@ -4,7 +4,10 @@ use super::{precompiles::OpFpvmPrecompiles, tx::FpvmOpTx};
 use alloy_evm::{Database, EvmEnv, EvmFactory};
 use alloy_op_evm::{OpEvm, OpEvmContext, OpTx, OpTxError};
 use kona_preimage::{HintWriterClient, PreimageOracleClient};
-use op_revm::{L1BlockInfo, OpBuilder, OpHaltReason, OpSpecId, OpTransaction};
+use op_revm::{
+    L1BlockInfo, OpBuilder, OpHaltReason, OpSpecId, OpTransaction,
+    gas_params::install_xlayer_gas_params,
+};
 use revm::{
     Context, Inspector, MainContext,
     context::{BlockEnv, CfgEnv, result::EVMError},
@@ -61,14 +64,15 @@ where
         db: DB,
         input: EvmEnv<OpSpecId>,
     ) -> Self::Evm<DB, NoOpInspector> {
-        let spec_id = *input.spec_id();
+        let cfg_env = install_xlayer_gas_params(input.cfg_env);
+        let spec_id = cfg_env.spec;
         let revm_evm = Context::mainnet()
             .with_tx(OpTx(OpTransaction::builder().build_fill()))
             .with_cfg(CfgEnv::new_with_spec(OpSpecId::BEDROCK))
             .with_chain(L1BlockInfo::default())
             .with_db(db)
             .with_block(input.block_env)
-            .with_cfg(input.cfg_env)
+            .with_cfg(cfg_env)
             .build_op_with_inspector(NoOpInspector {})
             .with_precompiles(OpFpvmPrecompiles::new_with_spec(
                 spec_id,
@@ -85,14 +89,15 @@ where
         input: EvmEnv<OpSpecId>,
         inspector: I,
     ) -> Self::Evm<DB, I> {
-        let spec_id = *input.spec_id();
+        let cfg_env = install_xlayer_gas_params(input.cfg_env);
+        let spec_id = cfg_env.spec;
         let revm_evm = Context::mainnet()
             .with_tx(OpTx(OpTransaction::builder().build_fill()))
             .with_cfg(CfgEnv::new_with_spec(OpSpecId::BEDROCK))
             .with_chain(L1BlockInfo::default())
             .with_db(db)
             .with_block(input.block_env)
-            .with_cfg(input.cfg_env)
+            .with_cfg(cfg_env)
             .build_op_with_inspector(inspector)
             .with_precompiles(OpFpvmPrecompiles::new_with_spec(
                 spec_id,
@@ -103,3 +108,4 @@ where
         OpEvm::new(revm_evm, true)
     }
 }
+

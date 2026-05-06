@@ -42,8 +42,8 @@ pub trait OpTxTr: Transaction {
     ///
     /// Returns a default (empty) instance for non-AA transactions. AA-tx gas
     /// computation reads from this directly via `op_revm::eip8130_gas
-    /// (`sender_payload_calldata_cost`, `sender_auth`, `payer_auth`, `is_eoa`,
-    /// `is_self_pay()`).
+    /// (``sender_payload_calldata_cost``, ``sender_auth``, ``payer_auth``, ``is_eoa``,
+    /// ``is_self_pay()``).
     fn eip8130_parts(&self) -> &Eip8130Parts;
 }
 

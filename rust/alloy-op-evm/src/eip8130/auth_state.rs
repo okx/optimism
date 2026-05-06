@@ -6,11 +6,11 @@
 //!   signature, no verifier prefix. Always treated as K1.
 //! - **Explicit-from / sponsored mode**: `[verifier_addr(20) || data(N)]`. The
 //!   first 20 bytes name the verifier; the remaining bytes are
-//!   verifier-specific (K1: 65-byte sig, P256Raw: 128 bytes, WebAuthn: variable,
+//!   verifier-specific (K1: 65-byte sig, `P256Raw`: 128 bytes, `WebAuthn`: variable,
 //!   Delegate: nested, custom: opaque).
 //!
 //! For native verifiers we run the cryptography eagerly here and produce
-//! [`AuthState::Native`]. For custom verifiers (and currently the WebAuthn stub
+//! [`AuthState::Native`]. For custom verifiers (and currently the `WebAuthn` stub
 //! and Delegate→Custom) we produce [`AuthState::Deferred`] with the
 //! pre-encoded STATICCALL spec.
 //!
@@ -47,10 +47,10 @@ use super::native_verifier::{NativeVerifyResult, address_to_owner_id, try_native
 /// - empty auth → [`AuthState::Empty`] (estimateGas escape)
 /// - K1 verifier prefix: recover, **require recovered == `tx.from`** (xlayer
 ///   K1 strict-self-owner invariant), produce [`AuthState::Native`]
-/// - P256-raw verifier prefix: native verify, owner_id = `keccak256(pubkey)`
+/// - P256-raw verifier prefix: native verify, `owner_id` = `keccak256(pubkey)`
 /// - P256-WebAuthn verifier prefix: native verify (SHA-256 challenge match +
-///   P256 ECDSA), owner_id = `keccak256(pubkey)` → [`AuthState::Native`]
-/// - Delegate→Native: eager native verification of inner, owner_id =
+///   P256 ECDSA), `owner_id` = `keccak256(pubkey)` → [`AuthState::Native`]
+/// - Delegate→Native: eager native verification of inner, `owner_id` =
 ///   `bytes32(bytes20(delegate_addr))`
 /// - Delegate→Custom: STATICCALL deferred via [`AuthState::Deferred`] with
 ///   `delegate_outer = Some(delegate_addr)` for the handler's outer-binding
@@ -157,7 +157,7 @@ pub fn build_payer_auth_state(tx: &TxEip8130) -> AuthState {
 /// mode, the recovered K1 address must equal the claimed `tx.from` (sender) or
 /// `tx.payer` (payer). This makes K1 explicit-from authenticate "the account
 /// itself signed" — different K1 owners must use a different verifier or be
-/// reached via an `owner_config` registration of their bytes20 owner_id which
+/// reached via an `owner_config` registration of their bytes20 `owner_id` which
 /// the implicit-EOA fallback won't match.
 ///
 /// (EOA-mode K1 doesn't go through this path — there's no claimed-from to
@@ -217,13 +217,13 @@ fn resolve_explicit_auth(
 /// Layout: `verifier_data = delegate_addr(20) || inner_verifier(20) || inner_data`.
 ///
 /// Branches on the inner verifier:
-/// - **Inner native** (K1 / P256Raw / WebAuthn): runs the inner crypto eagerly
+/// - **Inner native** (K1 / `P256Raw` / WebAuthn): runs the inner crypto eagerly
 ///   and returns [`AuthState::Native`] with `verifier = DELEGATE_VERIFIER_ADDRESS`,
 ///   `owner_id = bytes32(bytes20(delegate_addr))`, and
 ///   `delegate_inner = Some(DelegateInner { verifier: inner_verifier, owner_id: inner_owner_id })`.
 ///   The handler runs both bindings on this state.
 /// - **Inner custom**: returns [`AuthState::Deferred`] with the inner
-///   STATICCALL spec (account = delegate_addr) and
+///   STATICCALL spec (account = `delegate_addr`) and
 ///   `delegate_outer = Some(delegate_addr)` for the handler's outer-binding
 ///   check after the STATICCALL.
 /// - **Inner verify failed**: [`AuthState::Invalid`].

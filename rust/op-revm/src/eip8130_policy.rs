@@ -38,7 +38,7 @@ pub enum PendingOwnerValidationError {
 /// Returns `true` if a scope authorizes the required bitmask.
 ///
 /// Scope `0` means unrestricted.
-pub fn owner_scope_allows(scope: u8, required_scope: u8) -> bool {
+pub const fn owner_scope_allows(scope: u8, required_scope: u8) -> bool {
     scope == 0 || (scope & required_scope) != 0
 }
 
@@ -70,7 +70,7 @@ pub fn validate_pending_owner_state(
 /// - `0x01` => authorize
 /// - `0x02` => revoke
 /// - others => ignored (`None`)
-pub fn pending_owner_state_for_change(
+pub const fn pending_owner_state_for_change(
     change_type: u8,
     verifier: Address,
     scope: u8,

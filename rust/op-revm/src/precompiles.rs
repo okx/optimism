@@ -30,7 +30,7 @@ pub struct OpPrecompiles {
 }
 
 /// Wraps the standard Ethereum precompile set and (for `XLAYER_V1`+ specs)
-/// dispatches the EIP-8130 NonceManager / TxContext addresses to dedicated
+/// dispatches the EIP-8130 `NonceManager` / `TxContext` addresses to dedicated
 /// handlers.
 impl OpPrecompiles {
     /// Create a new precompile provider with the given `OpSpec`.

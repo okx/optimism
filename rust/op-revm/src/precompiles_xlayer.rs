@@ -1,4 +1,4 @@
-//! XLayer (EIP-8130) AA system precompiles: NonceManager + TxContext.
+//! `XLayer` (EIP-8130) AA system precompiles: `NonceManager` + `TxContext`.
 use crate::{
     OpSpecId,
     constants::XLAYER_AA_CUSTOM_VERIFIER_GAS_CAP,
@@ -15,19 +15,19 @@ use std::{string::String, vec::Vec};
 /// EIP-8130 transaction type byte.
 pub(crate) const EIP8130_TX_TYPE: u8 = 0x7B;
 
-/// NonceManager system precompile address.
+/// `NonceManager` system precompile address.
 pub const NONCE_MANAGER_ADDRESS: Address = address!("0x000000000000000000000000000000000000aa02");
 
-/// TxContext system precompile address.
+/// `TxContext` system precompile address.
 pub const TX_CONTEXT_ADDRESS: Address = address!("0x000000000000000000000000000000000000aa03");
 
-/// Base storage slot for the NonceManager nonce mapping.
+/// Base storage slot for the `NonceManager` nonce mapping.
 pub const NONCE_BASE_SLOT: U256 = U256::from_limbs([1u64, 0, 0, 0]);
 
-/// Gas cost for TxContext precompile calls.
+/// Gas cost for `TxContext` precompile calls.
 pub const TX_CONTEXT_GAS: u64 = 100;
 
-/// Gas cost for NonceManager precompile calls.
+/// Gas cost for `NonceManager` precompile calls.
 pub const NONCE_MANAGER_GAS: u64 = 2_100;
 
 /// Stack buffer size for AA precompile input. Sized to fit the largest valid
@@ -41,12 +41,12 @@ sol! {
         bytes data;
     }
 
-    /// NonceManager view interface.
+    /// `NonceManager` view interface.
     interface INonceManager {
         function getNonce(address account, uint256 nonceKey) external view returns (uint256);
     }
 
-    /// TxContext view interface.
+    /// `TxContext` view interface.
     interface ITxContext {
         function getSender() external view returns (address);
         function getPayer() external view returns (address);
@@ -57,7 +57,7 @@ sol! {
     }
 }
 
-/// Computes the NonceManager storage slot for `nonce[account][nonce_key]`.
+/// Computes the `NonceManager` storage slot for `nonce[account][nonce_key]`.
 ///
 /// Mirrors the Solidity mapping layout: `keccak256(nonce_key . keccak256(account .
 /// NONCE_BASE_SLOT))`.
@@ -114,7 +114,7 @@ where
 }
 
 /// Returns whether EIP-8130 system precompiles are available at the given spec.
-pub(crate) fn eip8130_precompiles_enabled(spec: OpSpecId) -> bool {
+pub(crate) const fn eip8130_precompiles_enabled(spec: OpSpecId) -> bool {
     spec.is_enabled_in(OpSpecId::XLAYER_V1)
 }
 
@@ -135,7 +135,7 @@ where
 
     let storage_value = context
         .db_mut()
-        .storage(NONCE_MANAGER_ADDRESS, slot.into())
+        .storage(NONCE_MANAGER_ADDRESS, slot)
         .map_err(|_| String::from("nonce manager storage read failed"))?;
 
     let mut out = [0u8; 32];
@@ -157,7 +157,7 @@ where
     }
 
     let tx = context.tx();
-    let parts = if tx.tx_type() == EIP8130_TX_TYPE { Some(tx.eip8130_parts()) } else { None };
+    let parts = (tx.tx_type() == EIP8130_TX_TYPE).then(|| tx.eip8130_parts());
 
     let selector: [u8; 4] = input[0..4].try_into().expect("checked length above");
     let output = match selector {

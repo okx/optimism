@@ -5,8 +5,8 @@
 //! | Variant         | Address                                      | Data layout                                                                              | `owner_id`                       |
 //! |-----------------|----------------------------------------------|------------------------------------------------------------------------------------------|----------------------------------|
 //! | K1              | `0x0000…0001`                                | `r(32) \|\| s(32) \|\| v(1)` (65 bytes)                                                  | `bytes32(bytes20(ecrecover))`    |
-//! | P256Raw         | `0x75E9779603e826f2D8d4dD7Edee3F0a737e4228d` | `pubkey(64) \|\| r(32) \|\| s(32)` (128 bytes)                                           | `keccak256(pubkey)`              |
-//! | P256WebAuthn    | `0xb2c8b7ec119882fBcc32FDe1be1341e19a5Bd53E` | `pubkey(64) \|\| authData(37+) \|\| jsonLen(4 BE) \|\| json \|\| sig(64)`                 | `keccak256(pubkey)`              |
+//! | `P256Raw`         | `0x75E9779603e826f2D8d4dD7Edee3F0a737e4228d` | `pubkey(64) \|\| r(32) \|\| s(32)` (128 bytes)                                           | `keccak256(pubkey)`              |
+//! | `P256WebAuthn`    | `0xb2c8b7ec119882fBcc32FDe1be1341e19a5Bd53E` | `pubkey(64) \|\| authData(37+) \|\| jsonLen(4 BE) \|\| json \|\| sig(64)`                 | `keccak256(pubkey)`              |
 //! | Delegate        | `0x30A76831b27732087561372f6a1bef6Fc391d805` | `delegate_addr(20) \|\| inner_auth(verifier(20) \|\| inner_data)`                         | `bytes32(bytes20(delegate_addr))`|
 //!
 //! Custom verifiers (any other address) return [`NativeVerifyResult::Unsupported`];
@@ -14,7 +14,7 @@
 //! for the handler to STATICCALL at execution time.
 //!
 //! All four native verifiers are fully implemented; see [`verify_webauthn`] for the
-//! WebAuthn assertion check (signed-message convention, base64url challenge binding).
+//! `WebAuthn` assertion check (signed-message convention, base64url challenge binding).
 
 use alloy_primitives::{Address, B256, Bytes, Signature, U256, keccak256, uint};
 use op_revm::constants::{
@@ -41,7 +41,7 @@ pub enum NativeVerifier {
     K1,
     /// P256 raw signature at [`P256_RAW_VERIFIER_ADDRESS`].
     P256Raw,
-    /// P256 WebAuthn at [`P256_WEBAUTHN_VERIFIER_ADDRESS`].
+    /// P256 `WebAuthn` at [`P256_WEBAUTHN_VERIFIER_ADDRESS`].
     P256WebAuthn,
     /// 1-hop delegate verifier at [`DELEGATE_VERIFIER_ADDRESS`].
     Delegate,
@@ -63,7 +63,7 @@ impl NativeVerifier {
 
     /// Returns the on-chain sentinel address for this verifier.
     #[inline]
-    pub fn address(self) -> Address {
+    pub const fn address(self) -> Address {
         match self {
             Self::K1 => K1_VERIFIER_ADDRESS,
             Self::P256Raw => P256_RAW_VERIFIER_ADDRESS,
@@ -149,10 +149,10 @@ fn verify_k1(data: &Bytes, sig_hash: B256) -> NativeVerifyResult {
         U256::from_be_slice(&data[32..64]),
         parity,
     );
-    match alloy_consensus::crypto::secp256k1::recover_signer(&signature, sig_hash) {
-        Ok(addr) => NativeVerifyResult::Verified(address_to_owner_id(addr)),
-        Err(_) => NativeVerifyResult::Invalid("K1: ecrecover failed".into()),
-    }
+    alloy_consensus::crypto::secp256k1::recover_signer(&signature, sig_hash).map_or_else(
+        |_| NativeVerifyResult::Invalid("K1: ecrecover failed".into()),
+        |addr| NativeVerifyResult::Verified(address_to_owner_id(addr)),
+    )
 }
 
 /// Verifies a raw P256 (secp256r1) signature.
@@ -199,7 +199,7 @@ fn verify_p256_raw(data: &Bytes, sig_hash: B256) -> NativeVerifyResult {
 /// (`0 < s <= N/2`). Rejects zero and high-s. ECDSA is malleable: `(r, N-s)`
 /// is a valid alternate signature for `(r, s)`, and accepting both forms
 /// opens malleability surfaces. We close it deterministically for both
-/// raw-P256 and the inner P256 sig of WebAuthn.
+/// raw-P256 and the inner P256 sig of `WebAuthn`.
 #[inline]
 fn p256_s_is_low(s_bytes: &[u8]) -> bool {
     if s_bytes.len() != 32 {
@@ -215,7 +215,7 @@ fn p256_s_is_low(s_bytes: &[u8]) -> bool {
 /// any other fields (including `origin`) — those are the verifier contract's
 /// concern at the spec level. We never decode `challenge` back to bytes; we
 /// re-encode the expected `sig_hash` to base64url and string-compare, which
-/// avoids needing a base64 decoder and is unambiguous because URL_SAFE_NO_PAD
+/// avoids needing a base64 decoder and is unambiguous because `URL_SAFE_NO_PAD`
 /// encoding is deterministic for a fixed-size 32-byte input.
 #[derive(serde::Deserialize)]
 struct ClientDataJson<'a> {
@@ -225,7 +225,7 @@ struct ClientDataJson<'a> {
     challenge: &'a str,
 }
 
-/// Verifies a P256 WebAuthn assertion.
+/// Verifies a P256 `WebAuthn` assertion.
 ///
 /// `data` layout:
 /// `pubkey(64) || authenticatorData(37) || clientDataJSONLen(4 BE) || clientDataJSON ||
@@ -235,7 +235,7 @@ struct ClientDataJson<'a> {
 /// signCount 4); EIP-8130 doesn't permit extensions on the assertion path,
 /// so the longer-form attestedCredentialData / extension layouts don't appear.
 ///
-/// Algorithm (matches WebAuthn `webauthn.get` assertion + tempo's convention):
+/// Algorithm (matches `WebAuthn` `webauthn.get` assertion + tempo's convention):
 ///
 /// 1. Parse the wire layout.
 /// 2. Validate authenticatorData flags: at least one of UP / UV must be set; AT and ED must NOT be
@@ -389,7 +389,7 @@ fn verify_webauthn(data: &Bytes, sig_hash: B256) -> NativeVerifyResult {
 /// recursive Delegate→Delegate→Native chain would slip through with the
 /// nested K1/P256 sig validating mathematically but never being checked
 /// against the innermost delegate's `owner_config` (the recursion only
-/// returns the *intermediate* delegate's address as owner_id).
+/// returns the *intermediate* delegate's address as `owner_id`).
 fn verify_delegate(data: &Bytes, sig_hash: B256) -> NativeVerifyResult {
     if data.len() < 40 {
         // Need at least delegate_address(20) + inner_verifier(20).
@@ -582,7 +582,7 @@ mod tests {
         out
     }
 
-    /// Builds a WebAuthn auth blob for the given key, with `challenge` set to
+    /// Builds a `WebAuthn` auth blob for the given key, with `challenge` set to
     /// Signs `prehash` with `sk` and normalizes to low-s form (rejects the
     /// p256 crate's possibly-high-s output by flipping it to `N - s`). Always
     /// returns 64 bytes `r || s` in low-s form so the production verifier
@@ -736,7 +736,7 @@ mod tests {
         }
 
         // (c) extra trailing bytes → "trailing bytes".
-        let mut trailing = full.clone();
+        let mut trailing = full;
         trailing.push(0u8);
         match try_native_verify(P256_WEBAUTHN_VERIFIER_ADDRESS, &Bytes::from(trailing), hash) {
             NativeVerifyResult::Invalid(reason) => {

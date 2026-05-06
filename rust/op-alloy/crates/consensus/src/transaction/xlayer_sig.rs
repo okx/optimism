@@ -12,7 +12,7 @@
 //!
 //! **Higher-level auth resolution** — choosing between native verification,
 //! custom-verifier STATICCALL deferral, and the EOA / explicit-from / sponsored
-//! cases — is **not** here. That logic needs P256 / WebAuthn / Delegate-aware
+//! cases — is **not** here. That logic needs `P256` / `WebAuthn` / `Delegate`-aware
 //! dispatch and lives in [`alloy_op_evm::eip8130`] (EL-side) so the consensus
 //! crate stays free of crypto deps beyond the K1 needed for the standard
 //! envelope-recover trait surface.
@@ -20,11 +20,11 @@
 #[cfg(feature = "k256")]
 use alloy_consensus::crypto::{RecoveryError, secp256k1::recover_signer};
 #[cfg(feature = "k256")]
-use alloy_primitives::{Address, Signature, U256};
-use alloy_primitives::{B256, Bytes, keccak256};
-use alloy_sol_types::{SolCall, sol};
+use alloy_primitives::{Signature, U256};
+use alloy_primitives::{Address, B256, Bytes, keccak256};
+use alloy_sol_types::{SolCall, SolValue, sol};
 
-use super::TxEip8130;
+use super::{TxEip8130, xlayer::ConfigChangeEntry};
 
 sol! {
     /// EIP-8130 verifier interface. Used to derive the `verify(bytes32,bytes)`
@@ -32,6 +32,67 @@ sol! {
     interface IEip8130Verifier {
         function verify(bytes32 sigHash, bytes calldata data) external view returns (bool);
     }
+
+    /// Inner ABI struct for owner-change items inside the authorizer signing
+    /// preimage. The Solidity declaration is replicated here so
+    /// `SolValue::abi_encode` produces the exact bytes hashed by the on-chain
+    /// `AccountConfiguration` contract.
+    struct OwnerChangeAbi {
+        uint8 changeType;
+        address verifier;
+        bytes32 ownerId;
+        uint8 scope;
+    }
+}
+
+/// Type-hash preimage for the authorizer signing struct.
+///
+/// EIP-712-shaped (typeHash || padded scalars || nested struct hash) but
+/// **not** strict EIP-712: there is no domain separator and the inner
+/// `OwnerChange` items are not prefixed with their own type-hash. EIP-8130's
+/// "config change signature payload" section does not pin a specific
+/// EIP-712 envelope, so we mirror the shape the on-chain
+/// `AccountConfiguration` contract hashes. Wallet integrations that want
+/// EIP-712 UX should map this preimage to whatever envelope they support.
+const CONFIG_CHANGE_TYPEHASH_PREIMAGE: &[u8] =
+    b"SignedOwnerChanges(address account,uint64 chainId,uint64 sequence,\
+      OwnerChange[] ownerChanges)\
+      OwnerChange(uint8 changeType,address verifier,bytes32 ownerId,uint8 scope)";
+
+/// EIP-712-shaped digest for an EIP-8130 [`ConfigChangeEntry`] authorizer auth.
+///
+/// The authorizer (an owner with `OWNER_SCOPE_CONFIG` on `account`) signs
+/// this digest to authorize the contained `owner_changes`. `account` is
+/// the sender address whose `owner_config` is being modified.
+///
+/// Layout: `keccak256(typeHash || account-padded || chain_id-padded ||
+/// sequence-padded || keccak256(concat per-item hashes))`. See
+/// [`CONFIG_CHANGE_TYPEHASH_PREIMAGE`] for the EIP-712 deviations.
+pub fn config_change_digest(account: Address, change: &ConfigChangeEntry) -> B256 {
+    let typehash = keccak256(CONFIG_CHANGE_TYPEHASH_PREIMAGE);
+
+    // Hash each OwnerChange struct individually, then keccak256 the
+    // concatenation per EIP-712 array encoding.
+    let mut concat = alloc::vec::Vec::with_capacity(change.owner_changes.len() * 32);
+    for op in &change.owner_changes {
+        let abi = OwnerChangeAbi {
+            changeType: op.change_type,
+            verifier: op.verifier,
+            ownerId: op.owner_id,
+            scope: op.scope,
+        };
+        concat.extend_from_slice(keccak256(abi.abi_encode()).as_slice());
+    }
+    let owner_changes_hash = keccak256(&concat);
+
+    // Top-level struct hash. Each scalar field is left-padded to 32 bytes.
+    let mut buf = [0u8; 160];
+    buf[..32].copy_from_slice(typehash.as_slice());
+    buf[44..64].copy_from_slice(account.as_slice());
+    buf[88..96].copy_from_slice(&change.chain_id.to_be_bytes());
+    buf[120..128].copy_from_slice(&change.sequence.to_be_bytes());
+    buf[128..160].copy_from_slice(owner_changes_hash.as_slice());
+    keccak256(buf)
 }
 
 /// Encodes a STATICCALL to `IEip8130Verifier.verify(sig_hash, data)`:

@@ -59,7 +59,7 @@ pub struct Eip8130PhaseResult {
 pub struct Eip8130SequenceUpdate {
     /// Pre-computed storage slot for `_changeSequences[account]`.
     pub slot: U256,
-    /// `true` = update the multichain (chain_id 0) field, `false` = local.
+    /// `true` = update the multichain (`chain_id` 0) field, `false` = local.
     pub is_multichain: bool,
     /// The new sequence value to write (old + 1).
     pub new_value: u64,
@@ -76,6 +76,81 @@ impl Eip8130SequenceUpdate {
             (current & !field_mask) | (U256::from(self.new_value) << shift)
         }
     }
+}
+
+/// Account-change-derived projections shared between create, config-change,
+/// and delegation handling.
+///
+/// Grouped onto [`Eip8130Parts::account_changes`] so the handler and gas
+/// paths can refer to a single namespace rather than a long list of
+/// peer fields.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Eip8130AccountChanges {
+    /// Whether the tx includes a create entry (determines auto-delegation skip).
+    pub has_create_entry: bool,
+    /// Explicit delegation target from an `AccountChangeEntry::Delegation`.
+    ///
+    /// `Some(target)` means the tx requests EIP-7702-style code delegation to
+    /// `target`. `Some(Address::ZERO)` clears an existing delegation.
+    /// `None` means no delegation entry is present.
+    pub delegation_target: Option<Address>,
+    /// Total account-change units in the transaction.
+    pub account_change_units: usize,
+    /// Count of `ConfigChange` entries dropped because their `chain_id` did
+    /// not match the tx's chain (and was not `0` for multichain). The
+    /// gas path bills these at the per-fork "skip" rate to cover the SLOAD
+    /// the handler would have issued before noticing the mismatch.
+    ///
+    /// Populated by `alloy_op_evm::eip8130::parts::eip8130_parts`. The
+    /// matching count is derivable from
+    /// [`Self::sequence_updates`] / [`Self::authorizer_validations`].
+    pub skipped_config_change_count: usize,
+    /// Count of explicit `Delegation` entries the parser observed.
+    ///
+    /// Distinct from [`Self::delegation_target`] (which holds at most one
+    /// target). The gas path bills each entry at `aa_delegation_gas`; the
+    /// handler enforces "at most one delegation" via the
+    /// `MAX_ACCOUNT_CHANGES_PER_TX` cap and structural checks.
+    pub delegation_entry_count: usize,
+    /// Count of initial-owner registrations from a `Create` entry.
+    ///
+    /// Equal to `pre_writes.len()` in practice, kept as an explicit count so
+    /// the gas path doesn't have to scan `pre_writes` to derive it.
+    pub create_initial_owners_count: usize,
+    /// Auto-delegation code (`0xef0100 || DEFAULT_ACCOUNT_ADDRESS`) if applicable.
+    pub auto_delegation_code: Bytes,
+    /// Pre-execution storage writes for account creation (owner registrations).
+    pub pre_writes: Vec<Eip8130StorageWrite>,
+    /// Storage writes for config changes (authorize/revoke owners).
+    pub config_writes: Vec<Eip8130StorageWrite>,
+    /// Sequence updates requiring read-modify-write on packed storage slots.
+    pub sequence_updates: Vec<Eip8130SequenceUpdate>,
+    /// Code placements for account creation. EIP-8130 allows at most one
+    /// create entry per transaction; this `Vec` length must be `<= 1`.
+    pub code_placements: Vec<Eip8130CodePlacement>,
+    /// `true` when a `Create` entry is preceded by a non-Create entry.
+    ///
+    /// EIP-8130 requires the `Create` entry (if present) to be the first
+    /// entry in `account_changes`. The parser sets this flag without
+    /// short-circuiting; `validate_env` rejects with "create entry must
+    /// be first" so the rejection is structural and stateless.
+    pub create_not_first_entry: bool,
+    /// `true` when a matching `ConfigChange` entry contributes zero
+    /// effective `OP_AUTHORIZE` / `OP_REVOKE` operations.
+    ///
+    /// Set when the entry's `owner_changes` list is empty, or every op has
+    /// an unknown `change_type`. Such an entry would otherwise touch
+    /// `_accountState` (sequence bump) and run authorizer validation for
+    /// no actual writes — exempt from the per-unit gas cap and a footgun
+    /// for replays. `validate_env` rejects on this flag.
+    pub matching_config_change_with_zero_valid_ops: bool,
+    /// Per-config-change authorizer validation data.
+    pub authorizer_validations: Vec<Eip8130AuthorizerValidation>,
+    /// System log events for account creation.
+    pub account_creation_logs: Vec<Eip8130ConfigLog>,
+    /// System log events for config changes.
+    pub config_change_logs: Vec<Eip8130ConfigLog>,
 }
 
 /// Aggregated AA execution data populated during transaction conversion.
@@ -121,16 +196,10 @@ pub struct Eip8130Parts {
     /// buffer. `None` for standard (sequenced) transactions; if `None` while
     /// `nonce_key == NONCE_KEY_MAX`, the tx is rejected at validation time.
     pub nonce_free_hash: Option<B256>,
-    /// Whether the tx includes a create entry (determines auto-delegation skip).
-    pub has_create_entry: bool,
-    /// Explicit delegation target from an `AccountChangeEntry::Delegation`.
-    ///
-    /// `Some(target)` means the tx requests EIP-7702-style code delegation to
-    /// `target`. `Some(Address::ZERO)` clears an existing delegation.
-    /// `None` means no delegation entry is present.
-    pub delegation_target: Option<Address>,
-    /// Total account-change units in the transaction.
-    pub account_change_units: usize,
+    /// Account-change-derived state grouped together so call sites can
+    /// share a single namespace for create / config-change / delegation
+    /// projections.
+    pub account_changes: Eip8130AccountChanges,
     /// EIP-2028 calldata cost (4 per zero, 16 per non-zero byte) of the
     /// sender-signing preimage `tx.encoded_for_sender_signing()`.
     ///
@@ -158,25 +227,8 @@ pub struct Eip8130Parts {
     /// estimateGas. See [`Self::sender_auth`] for the role this plays in
     /// gas computation.
     pub payer_auth: Bytes,
-    /// Auto-delegation code (`0xef0100 || DEFAULT_ACCOUNT_ADDRESS`) if applicable.
-    pub auto_delegation_code: Bytes,
-    /// Pre-execution storage writes for account creation (owner registrations).
-    pub pre_writes: Vec<Eip8130StorageWrite>,
-    /// Storage writes for config changes (authorize/revoke owners).
-    pub config_writes: Vec<Eip8130StorageWrite>,
-    /// Sequence updates requiring read-modify-write on packed storage slots.
-    pub sequence_updates: Vec<Eip8130SequenceUpdate>,
-    /// Code placements for account creation. EIP-8130 allows at most one
-    /// create entry per transaction; this `Vec` length must be `<= 1`.
-    pub code_placements: Vec<Eip8130CodePlacement>,
     /// Phased call batches. Each inner `Vec` is one atomic phase.
     pub call_phases: Vec<Vec<Eip8130Call>>,
-    /// Per-config-change authorizer validation data.
-    pub authorizer_validations: Vec<Eip8130AuthorizerValidation>,
-    /// System log events for account creation.
-    pub account_creation_logs: Vec<Eip8130ConfigLog>,
-    /// System log events for config changes.
-    pub config_change_logs: Vec<Eip8130ConfigLog>,
 }
 
 impl Eip8130Parts {
@@ -199,7 +251,7 @@ impl Eip8130Parts {
 pub struct Eip8130AuthorizerValidation {
     /// Verifier address from the authorizer's auth prefix.
     pub verifier: Address,
-    /// The authenticated owner_id (from native verification at conversion time).
+    /// The authenticated `owner_id` (from native verification at conversion time).
     pub owner_id: B256,
     /// STATICCALL data for custom verifiers. `None` for native verifiers.
     pub verify_call: Option<Eip8130VerifyCall>,
@@ -224,16 +276,16 @@ pub struct Eip8130ConfigOp {
 /// Inner-verifier metadata for the Delegate→Native auth case.
 ///
 /// Carries the `(verifier, owner_id)` pair that the inner native verifier
-/// (K1 / P256Raw / P256WebAuthn) recovered eagerly at conversion time, so the
+/// (K1 / `P256Raw` / `P256WebAuthn`) recovered eagerly at conversion time, so the
 /// handler can run the inner-binding check
 /// `owner_config[delegate_address][owner_id] = (verifier, scope)` on the
-/// *delegate account's* owner_config — independent of (and after) the outer
+/// *delegate account's* `owner_config` — independent of (and after) the outer
 /// `owner_config[account][bytes20(delegate_address)] = (DELEGATE_VERIFIER_ADDRESS, scope)`
 /// check.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DelegateInner {
-    /// Inner native verifier address (K1, P256Raw, or P256WebAuthn).
+    /// Inner native verifier address (K1, `P256Raw`, or `P256WebAuthn`).
     pub verifier: Address,
     /// Inner-recovered owner id: `bytes32(bytes20(addr))` for K1,
     /// `keccak256(pubkey)` for P256 variants.
@@ -248,7 +300,7 @@ pub struct Eip8130VerifyCall {
     pub verifier: Address,
     /// ABI-encoded `IVerifier.verify(hash, data)` calldata.
     pub calldata: Bytes,
-    /// The account whose owner_config to check the returned owner_id against.
+    /// The account whose `owner_config` to check the returned `owner_id` against.
     pub account: Address,
     /// Required scope bit for the owner.
     pub required_scope: u8,
@@ -308,7 +360,7 @@ pub enum AuthState {
 
     /// Native verifier succeeded eagerly at conversion time.
     ///
-    /// Covers K1 / P256Raw / P256WebAuthn / Delegate-with-native-inner.
+    /// Covers K1 / `P256Raw` / `P256WebAuthn` / Delegate-with-native-inner.
     /// The handler does not re-run cryptography; it re-validates the
     /// `(account, owner_id, verifier, scope)` binding against on-chain
     /// `owner_config` (and pending in-tx config changes).
@@ -316,7 +368,7 @@ pub enum AuthState {
     /// **Delegate→Native** sets `delegate_inner = Some(...)`. The outer
     /// `verifier` is then `DELEGATE_VERIFIER_ADDRESS` and `owner_id =
     /// bytes32(bytes20(delegate_address))`. The handler runs **two**
-    /// owner_config checks for this case:
+    /// `owner_config` checks for this case:
     ///
     /// 1. Outer: `owner_config[account][owner_id] = (DELEGATE_VERIFIER_ADDRESS, scope)`.
     /// 2. Inner: `owner_config[delegate_address][delegate_inner.owner_id] =
@@ -329,16 +381,16 @@ pub enum AuthState {
     /// `verify_delegate` doesn't. We do (2) at validator dispatch so the
     /// mempool and validator share one code path.
     Native {
-        /// Verifier address (K1 sentinel, P256Raw addr, WebAuthn addr, or
+        /// Verifier address (K1 sentinel, `P256Raw` addr, `WebAuthn` addr, or
         /// `DELEGATE_VERIFIER_ADDRESS`).
         verifier: Address,
         /// Authenticated owner id. For K1 / Delegate this is
         /// `bytes32(bytes20(addr))`; for P256 variants it's `keccak256(pubkey)`.
         owner_id: B256,
         /// `Some` only for Delegate→Native; carries the inner verifier
-        /// address and inner-recovered owner_id so the handler can run the
-        /// inner-binding check on the *delegate account's* owner_config.
-        /// `None` for K1 / P256Raw / P256WebAuthn.
+        /// address and inner-recovered `owner_id` so the handler can run the
+        /// inner-binding check on the *delegate account's* `owner_config`.
+        /// `None` for K1 / `P256Raw` / `P256WebAuthn`.
         delegate_inner: Option<DelegateInner>,
     },
 
@@ -364,23 +416,23 @@ pub enum AuthState {
 
 impl AuthState {
     /// `true` iff this state is [`AuthState::SelfPay`].
-    pub fn is_self_pay(&self) -> bool {
+    pub const fn is_self_pay(&self) -> bool {
         matches!(self, Self::SelfPay)
     }
 
     /// `true` iff this state is [`AuthState::Empty`].
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         matches!(self, Self::Empty)
     }
 
     /// `true` iff this state is [`AuthState::Invalid`].
-    pub fn is_invalid(&self) -> bool {
+    pub const fn is_invalid(&self) -> bool {
         matches!(self, Self::Invalid(_))
     }
 
     /// Returns the deferred STATICCALL spec when this state is
     /// [`AuthState::Deferred`].
-    pub fn verify_call(&self) -> Option<&Eip8130VerifyCall> {
+    pub const fn verify_call(&self) -> Option<&Eip8130VerifyCall> {
         match self {
             Self::Deferred { spec, .. } => Some(spec),
             _ => None,
@@ -388,7 +440,7 @@ impl AuthState {
     }
 
     /// Returns the `(verifier, owner_id)` pair for [`AuthState::Native`].
-    pub fn native_pair(&self) -> Option<(Address, B256)> {
+    pub const fn native_pair(&self) -> Option<(Address, B256)> {
         match self {
             Self::Native { verifier, owner_id, .. } => Some((*verifier, *owner_id)),
             _ => None,
@@ -396,7 +448,7 @@ impl AuthState {
     }
 
     /// Returns the `delegate_outer` address when present.
-    pub fn delegate_outer(&self) -> Option<Address> {
+    pub const fn delegate_outer(&self) -> Option<Address> {
         match self {
             Self::Deferred { delegate_outer, .. } => *delegate_outer,
             _ => None,
@@ -482,7 +534,7 @@ pub enum Eip8130ConfigLog {
 }
 
 /// Converts an [`Eip8130ConfigLog`] into a revm [`Log`] emitted from
-/// `emitter` (the AccountConfiguration contract address).
+/// `emitter` (the `AccountConfiguration` contract address).
 pub fn config_log_to_system_log(emitter: Address, event: &Eip8130ConfigLog) -> Log {
     match event {
         Eip8130ConfigLog::OwnerAuthorized { account, owner_id, verifier, scope } => {
@@ -616,18 +668,22 @@ mod tests {
         assert_eq!(parts.sender_authstate, AuthState::SelfPay);
         assert_eq!(parts.payer_authstate, AuthState::SelfPay);
         assert_eq!(parts.nonce_key, U256::ZERO);
-        assert!(!parts.has_create_entry);
-        assert_eq!(parts.account_change_units, 0);
+        assert!(!parts.account_changes.has_create_entry);
+        assert_eq!(parts.account_changes.account_change_units, 0);
+        assert_eq!(parts.account_changes.skipped_config_change_count, 0);
+        assert_eq!(parts.account_changes.delegation_entry_count, 0);
+        assert_eq!(parts.account_changes.create_initial_owners_count, 0);
+        assert!(!parts.account_changes.create_not_first_entry);
         assert_eq!(parts.sender_payload_calldata_cost, 0);
         assert!(!parts.is_eoa);
         assert!(parts.sender_auth.is_empty());
         assert!(parts.payer_auth.is_empty());
         assert!(parts.is_self_pay());
-        assert!(parts.auto_delegation_code.is_empty());
-        assert!(parts.pre_writes.is_empty());
+        assert!(parts.account_changes.auto_delegation_code.is_empty());
+        assert!(parts.account_changes.pre_writes.is_empty());
         assert!(parts.call_phases.is_empty());
-        assert!(parts.account_creation_logs.is_empty());
-        assert!(parts.config_change_logs.is_empty());
+        assert!(parts.account_changes.account_creation_logs.is_empty());
+        assert!(parts.account_changes.config_change_logs.is_empty());
     }
 
     #[test]

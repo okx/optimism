@@ -3,16 +3,16 @@
 //! Builds on revm's [`GasParams`] (a 256-slot fork-aware gas table living on
 //! `Cfg`) by reserving a small range of chain-specific slots for EIP-8130
 //! native verifier costs and the AA nonce-SSTORE intrinsic prices, then
-//! injecting them via [`GasParams::override_gas`] when XLayer forks activate.
+//! injecting them via [`GasParams::override_gas`] when `XLayer` forks activate.
 //!
 //! Design parallels tempo's `tempo_gas_params(spec) -> GasParams`:
 //!
-//! - **Inherited EVM gas** (cold/warm SLOAD, SSTORE_SET/RESET, calldata token
+//! - **Inherited EVM gas** (cold/warm SLOAD, `SSTORE_SET/RESET`, calldata token
 //!   cost, tx base stipend, EIP-7702 per-empty-account, …) comes from
 //!   [`GasParams::new_spec`] which is already fork-aware via the upstream
 //!   `SpecId` table. We don't duplicate those.
 //! - **XLayer-specific gas** lives in dedicated [`GasId`] slots in the upper
-//!   range (240+) so future revm GasIds (which currently extend through 39)
+//!   range (240+) so future revm `GasIds` (which currently extend through 39)
 //!   won't collide. The [`XlayerGasParams`] trait gives them named getters.
 //!
 //! Why we don't follow op-revm's "per-fork named function" pattern (used in
@@ -21,6 +21,7 @@
 //! design keeps the fork-aware mapping in one place and lets handler /
 //! conversion code stay fork-agnostic.
 
+use revm::context::CfgEnv;
 use revm::context_interface::cfg::{GasId, GasParams};
 
 use crate::spec::OpSpecId;
@@ -62,7 +63,7 @@ pub const fn delegate_outer_verification_gas() -> GasId {
 ///
 /// Distinct from upstream `cold_storage_cost` (a pure SLOAD price) — this is
 /// the conversion-time charge for "we'll do a fresh SSTORE on the nonce slot
-/// during execution". XLayer prices it as cold-SLOAD (2100) + SSTORE_SET
+/// during execution". `XLayer` prices it as cold-SLOAD (2100) + `SSTORE_SET`
 /// (20000) = 22100; the precise breakdown happens in the handler.
 pub const fn nonce_cold_gas() -> GasId {
     GasId::new(244)
@@ -79,6 +80,51 @@ pub const fn expiring_nonce_gas() -> GasId {
     GasId::new(246)
 }
 
+/// EIP-8130 per-account-change-unit gas for `Create` entries.
+///
+/// One charge for the create itself plus one for each `initial_owner`
+/// registration. Mirrors base's `CONFIG_CHANGE_OP_GAS` (`20_000`) which is the
+/// SSTORE-set cost of writing each `owner_config` slot.
+pub const fn aa_create_per_unit_gas() -> GasId {
+    GasId::new(247)
+}
+
+/// EIP-8130 per-`OwnerChange` gas inside `ConfigChange` entries.
+///
+/// Charged per `owner_change` op when the entry targets the local chain (or
+/// `chain_id == 0`). Mirrors base's `CONFIG_CHANGE_OP_GAS` (`20_000`).
+pub const fn aa_config_change_per_op_gas() -> GasId {
+    GasId::new(248)
+}
+
+/// EIP-8130 cost for a `ConfigChange` entry whose `chain_id` does not match
+/// the tx's chain.
+///
+/// The handler still issues a single SLOAD to read the sequence and confirm
+/// the entry is for a different chain before skipping it. Mirrors base's
+/// `CONFIG_CHANGE_SKIP_GAS` = `SLOAD_GAS` = `2_100`.
+pub const fn aa_config_change_skip_gas() -> GasId {
+    GasId::new(249)
+}
+
+/// EIP-8130 per-`Delegation` entry gas.
+///
+/// Covers writing the EIP-7702-style 23-byte designator
+/// (`0xef0100 || target`) into the sender's code slot. Mirrors base's
+/// `BYTECODE_PER_BYTE_GAS * 23` = `4_600`.
+pub const fn aa_delegation_gas() -> GasId {
+    GasId::new(250)
+}
+
+/// EIP-8130 SLOAD gas for an authorizer's `owner_config` row read.
+///
+/// Composed from upstream `cold_storage_cost` at activation time so it
+/// tracks Ethereum's spec without manual mirroring; future `XLayer` forks
+/// can pin a literal here to decouple.
+pub const fn aa_authorizer_sload_gas() -> GasId {
+    GasId::new(253)
+}
+
 // ── Trait surface ───────────────────────────────────────────────────────────
 
 /// Named getters for XLayer-specific entries in [`GasParams`].
@@ -93,7 +139,7 @@ pub trait XlayerGasParams {
     /// Per-call gas for the P256-raw native verifier.
     fn p256_raw_verification_gas(&self) -> u64;
 
-    /// Per-call gas for the P256 WebAuthn native verifier.
+    /// Per-call gas for the P256 `WebAuthn` native verifier.
     fn p256_webauthn_verification_gas(&self) -> u64;
 
     /// Outer-shell cost for the Delegate verifier (inner cost added separately).
@@ -107,6 +153,21 @@ pub trait XlayerGasParams {
 
     /// Intrinsic cost for the expiring-nonce ring-buffer path.
     fn expiring_nonce_gas(&self) -> u64;
+
+    /// Per-unit gas for a `Create` account-change entry (1 + `initial_owners`).
+    fn aa_create_per_unit_gas(&self) -> u64;
+
+    /// Per-op gas for an `OwnerChange` inside a matching `ConfigChange`.
+    fn aa_config_change_per_op_gas(&self) -> u64;
+
+    /// Gas for a `ConfigChange` entry whose `chain_id` doesn't match this chain.
+    fn aa_config_change_skip_gas(&self) -> u64;
+
+    /// Gas for a `Delegation` account-change entry.
+    fn aa_delegation_gas(&self) -> u64;
+
+    /// SLOAD gas for an authorizer's `owner_config` row read.
+    fn aa_authorizer_sload_gas(&self) -> u64;
 }
 
 impl XlayerGasParams for GasParams {
@@ -138,6 +199,26 @@ impl XlayerGasParams for GasParams {
     fn expiring_nonce_gas(&self) -> u64 {
         self.get(expiring_nonce_gas())
     }
+    #[inline]
+    fn aa_create_per_unit_gas(&self) -> u64 {
+        self.get(aa_create_per_unit_gas())
+    }
+    #[inline]
+    fn aa_config_change_per_op_gas(&self) -> u64 {
+        self.get(aa_config_change_per_op_gas())
+    }
+    #[inline]
+    fn aa_config_change_skip_gas(&self) -> u64 {
+        self.get(aa_config_change_skip_gas())
+    }
+    #[inline]
+    fn aa_delegation_gas(&self) -> u64 {
+        self.get(aa_delegation_gas())
+    }
+    #[inline]
+    fn aa_authorizer_sload_gas(&self) -> u64 {
+        self.get(aa_authorizer_sload_gas())
+    }
 }
 
 // ── Factory ─────────────────────────────────────────────────────────────────
@@ -145,23 +226,23 @@ impl XlayerGasParams for GasParams {
 /// Builds a [`GasParams`] for `spec` with EIP-8130 native verifier and
 /// AA-nonce intrinsic gas overlaid on top of the upstream EVM table.
 ///
-/// Two classes of XLayer slot are populated here:
+/// Two classes of `XLayer` slot are populated here:
 ///
 /// - **EVM-derived**: `nonce_cold_gas`, `nonce_warm_gas`, `expiring_nonce_gas`
-///   are SSTORE_SET / SSTORE_RESET compositions from EIP-2929. We **compose
+///   are `SSTORE_SET` / `SSTORE_RESET` compositions from EIP-2929. We **compose
 ///   them from the upstream `GasId::*` slots** at activation time so the
-///   XLayer values automatically track Ethereum's spec (e.g., a future
-///   upstream SSTORE-price fork that XLAYER_V1 lands on top of will get the
+///   `XLayer` values automatically track Ethereum's spec (e.g., a future
+///   upstream SSTORE-price fork that `XLAYER_V1` lands on top of will get the
 ///   new values, no manual re-mirroring). The composed value is captured
-///   into the XLayer slot once and stays O(1) lookup at the call site.
+///   into the `XLayer` slot once and stays O(1) lookup at the call site.
 ///
-/// - **XLayer-specific**: K1 / P256Raw / P256WebAuthn / Delegate verification
-///   gas are pure XLayer protocol-design numbers (no EVM equivalent), so
+/// - **XLayer-specific**: K1 / `P256Raw` / `P256WebAuthn` / Delegate verification
+///   gas are pure `XLayer` protocol-design numbers (no EVM equivalent), so
 ///   they're hardcoded as explicit overrides.
 ///
-/// Pre-`XLAYER_V1` returns a default (zeros) for XLayer slots — those slots
+/// Pre-`XLAYER_V1` returns a default (zeros) for `XLayer` slots — those slots
 /// are not exercised because the AA-tx type isn't accepted before that fork.
-/// Future XLayer forks (V2, …) can re-override individual entries here:
+/// Future `XLayer` forks (V2, …) can re-override individual entries here:
 /// passing `(nonce_cold_gas(), 22_100)` on a V2 branch would *pin* the
 /// composed value rather than let it drift with upstream.
 pub fn xlayer_gas_params(spec: OpSpecId) -> GasParams {
@@ -213,10 +294,43 @@ pub fn xlayer_gas_params(spec: OpSpecId) -> GasParams {
             (nonce_cold_gas(), derived_nonce_cold),
             (nonce_warm_gas(), derived_nonce_warm),
             (expiring_nonce_gas(), derived_nonce_cold),
+            // ── Account-change pricing (base reference values) ─────────────
+            // SSTORE_SET on owner_config slot per Create-unit / per
+            // ConfigChange op. Same shape as `nonce_cold_gas` (cold SLOAD +
+            // SSTORE_SET) so we keep it composable from upstream.
+            (aa_create_per_unit_gas(), derived_nonce_cold),
+            (aa_config_change_per_op_gas(), derived_nonce_cold),
+            // SLOAD-only cost for skipping a wrong-chain ConfigChange.
+            (aa_config_change_skip_gas(), cold_sload),
+            // EIP-7702 designator write: 23 bytes × per-byte deploy cost.
+            // Hardcoded as 4_600 (= 200 × 23) because the per-byte cost is
+            // bytecode-specific to AA, not the EVM's CREATE per-byte.
+            (aa_delegation_gas(), 4_600),
+            // SLOAD for the authorizer's owner_config row read; tracks
+            // upstream cold_storage_cost.
+            (aa_authorizer_sload_gas(), cold_sload),
         ]);
     }
 
     params
+}
+
+/// Installs the `XLayer` [`GasParams`] overlay on `cfg` when the spec is at or
+/// beyond `XLAYER_V1`; otherwise returns `cfg` unchanged.
+///
+/// Consumed by every EVM construction site (native `OpEvmFactory`, FPVM
+/// factory, …) so AA gas accounting is consensus-identical across execution
+/// paths. Without this, callers would need to thread `with_gas_params`
+/// themselves and `eip8130_gas` would silently bill 0 for the new
+/// account-change costs in production.
+#[inline]
+pub fn install_xlayer_gas_params(cfg: CfgEnv<OpSpecId>) -> CfgEnv<OpSpecId> {
+    if cfg.spec.is_enabled_in(OpSpecId::XLAYER_V1) {
+        let spec = cfg.spec;
+        cfg.with_gas_params(xlayer_gas_params(spec))
+    } else {
+        cfg
+    }
 }
 
 #[cfg(test)]
@@ -236,6 +350,14 @@ mod tests {
         assert_eq!(params.nonce_cold_gas(), 22_100);
         assert_eq!(params.nonce_warm_gas(), 5_000);
         assert_eq!(params.expiring_nonce_gas(), 22_100);
+        // Account-change pricing: same SSTORE_SET shape as nonce_cold.
+        assert_eq!(params.aa_create_per_unit_gas(), 22_100);
+        assert_eq!(params.aa_config_change_per_op_gas(), 22_100);
+        // SLOAD-only skip cost.
+        assert_eq!(params.aa_config_change_skip_gas(), 2_100);
+        // Hardcoded delegation pricing.
+        assert_eq!(params.aa_delegation_gas(), 4_600);
+        assert_eq!(params.aa_authorizer_sload_gas(), 2_100);
     }
 
     #[test]
@@ -293,6 +415,20 @@ mod tests {
         assert_eq!(params.nonce_cold_gas(), 0, "nonce_cold leaked pre-fork");
         assert_eq!(params.nonce_warm_gas(), 0, "nonce_warm leaked pre-fork");
         assert_eq!(params.expiring_nonce_gas(), 0, "expiring_nonce leaked pre-fork");
+        // New account-change slots must also be zero pre-fork.
+        assert_eq!(params.aa_create_per_unit_gas(), 0, "aa_create_per_unit leaked pre-fork");
+        assert_eq!(
+            params.aa_config_change_per_op_gas(),
+            0,
+            "aa_config_change_per_op leaked pre-fork",
+        );
+        assert_eq!(
+            params.aa_config_change_skip_gas(),
+            0,
+            "aa_config_change_skip leaked pre-fork",
+        );
+        assert_eq!(params.aa_delegation_gas(), 0, "aa_delegation leaked pre-fork");
+        assert_eq!(params.aa_authorizer_sload_gas(), 0, "aa_authorizer_sload leaked pre-fork");
     }
 
     #[test]
@@ -324,6 +460,11 @@ mod tests {
             ("nonce_cold_gas", nonce_cold_gas()),
             ("nonce_warm_gas", nonce_warm_gas()),
             ("expiring_nonce_gas", expiring_nonce_gas()),
+            ("aa_create_per_unit_gas", aa_create_per_unit_gas()),
+            ("aa_config_change_per_op_gas", aa_config_change_per_op_gas()),
+            ("aa_config_change_skip_gas", aa_config_change_skip_gas()),
+            ("aa_delegation_gas", aa_delegation_gas()),
+            ("aa_authorizer_sload_gas", aa_authorizer_sload_gas()),
         ];
         for (xlayer_name, id) in xlayer_ids {
             assert!(
@@ -356,6 +497,11 @@ mod tests {
             nonce_cold_gas().as_u8(),
             nonce_warm_gas().as_u8(),
             expiring_nonce_gas().as_u8(),
+            aa_create_per_unit_gas().as_u8(),
+            aa_config_change_per_op_gas().as_u8(),
+            aa_config_change_skip_gas().as_u8(),
+            aa_delegation_gas().as_u8(),
+            aa_authorizer_sload_gas().as_u8(),
         ];
         let mut sorted = ids.to_vec();
         sorted.sort_unstable();

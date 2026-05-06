@@ -83,6 +83,38 @@ pub const OWNER_SCOPE_PAYER: u8 = 0x04;
 /// Owner scope bit: allowed to authorize config changes.
 pub const OWNER_SCOPE_CONFIG: u8 = 0x08;
 
+/// Account creation entry: `change_type` discriminator at the consensus layer.
+/// The entry-level RLP discriminator is distinct from per-op `OP_*` codes.
+pub const OP_AUTHORIZE_OWNER: u8 = 0x01;
+
+/// Owner revocation operation in a config change.
+pub const OP_REVOKE_OWNER: u8 = 0x02;
+
+/// `AccountConfiguration` deployed contract address.
+///
+/// Owns owner registrations, account creation, config changes, and locks.
+/// The handler emits all account-creation / owner-change logs from this
+/// address so block-explorers attribute them to the contract that the
+/// equivalent on-chain Solidity write would emit from. Matches base's
+/// `eip8130/predeploys.rs::ACCOUNT_CONFIG_ADDRESS` (deterministic CREATE
+/// from the `BASE_V1` deployer at nonce 0).
+pub const ACCOUNT_CONFIG_ADDRESS: Address = address!("0x4F20618CF5c160e7AA385268721dA968F86F0e61");
+
+/// Default account (wallet) implementation contract.
+///
+/// Bare EOAs that submit AA transactions are auto-delegated to this address
+/// via EIP-7702 `0xef0100 || DEFAULT_ACCOUNT_ADDRESS`.
+pub const DEFAULT_ACCOUNT_ADDRESS: Address = address!("0x31914Dd8C3901448D787b2097744Bf7D3241E85A");
+
+/// Sentinel verifier written when the implicit-EOA owner is explicitly revoked.
+///
+/// Storage interpretation:
+///   - `verifier == address(0)` → empty slot (implicit EOA rule may apply)
+///   - `verifier == address(1)` → explicit native K1/ecrecover verifier
+///   - `verifier == address(type(uint160).max)` → explicitly revoked
+///   - `verifier` in `[2..max-1]` → registered custom verifier contract
+pub const REVOKED_VERIFIER: Address = address!("0xffffffffffffffffffffffffffffffffffffffff");
+
 /// Maximum number of calls across all EIP-8130 phases.
 pub const MAX_CALLS_PER_TX: usize = 100;
 
@@ -102,7 +134,7 @@ pub const K1_VERIFIER_ADDRESS: Address = address!("0x000000000000000000000000000
 pub const P256_RAW_VERIFIER_ADDRESS: Address =
     address!("0x75E9779603e826f2D8d4dD7Edee3F0a737e4228d");
 
-/// Native P256 WebAuthn verifier address.
+/// Native P256 `WebAuthn` verifier address.
 ///
 /// Wire data layout: `pubkey(64) || authenticatorData(37+) || clientDataJSONLen(4 BE)
 /// || clientDataJSON || sig(64)`. `owner_id = keccak256(pubkey)`.
@@ -114,7 +146,7 @@ pub const DELEGATE_VERIFIER_ADDRESS: Address =
     address!("0x30A76831b27732087561372f6a1bef6Fc391d805");
 
 /// Default cap for aggregate gas spent across custom verifier STATICCALLs.
-/// Use `u32` to support the risv32 non_std target.
+/// Use `u32` to support the risv32 `non_std` target.
 pub const DEFAULT_CUSTOM_VERIFIER_GAS_CAP: u32 = 200_000;
 
 /// XLAYER-V1 fork-bound aggregate gas cap for custom-verifier STATICCALLs in a

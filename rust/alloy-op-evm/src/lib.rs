@@ -29,7 +29,8 @@ use core::{
     ops::{Deref, DerefMut},
 };
 use op_revm::{
-    L1BlockInfo, OpBuilder, OpHaltReason, OpSpecId, OpTransaction, precompiles::OpPrecompiles,
+    L1BlockInfo, OpBuilder, OpHaltReason, OpSpecId, OpTransaction,
+    gas_params::install_xlayer_gas_params, precompiles::OpPrecompiles,
 };
 use revm::{
     Context, ExecuteEvm, InspectEvm, Inspector, Journal, MainContext, SystemCallEvm,
@@ -235,7 +236,8 @@ where
         db: DB,
         input: EvmEnv<OpSpecId, BlockEnv>,
     ) -> Self::Evm<DB, NoOpInspector> {
-        let spec_id = input.cfg_env.spec;
+        let cfg_env = install_xlayer_gas_params(input.cfg_env);
+        let spec_id = cfg_env.spec;
         OpEvm {
             inner: Context::mainnet()
                 .with_tx(OpTx(OpTransaction::builder().build_fill()))
@@ -243,7 +245,7 @@ where
                 .with_chain(L1BlockInfo::default())
                 .with_db(db)
                 .with_block(input.block_env)
-                .with_cfg(input.cfg_env)
+                .with_cfg(cfg_env)
                 .build_op_with_inspector(NoOpInspector {})
                 .with_precompiles(PrecompilesMap::from_static(
                     OpPrecompiles::new_with_spec(spec_id).precompiles(),
@@ -259,7 +261,8 @@ where
         input: EvmEnv<OpSpecId, BlockEnv>,
         inspector: I,
     ) -> Self::Evm<DB, I> {
-        let spec_id = input.cfg_env.spec;
+        let cfg_env = install_xlayer_gas_params(input.cfg_env);
+        let spec_id = cfg_env.spec;
         OpEvm {
             inner: Context::mainnet()
                 .with_tx(OpTx(OpTransaction::builder().build_fill()))
@@ -267,7 +270,7 @@ where
                 .with_chain(L1BlockInfo::default())
                 .with_db(db)
                 .with_block(input.block_env)
-                .with_cfg(input.cfg_env)
+                .with_cfg(cfg_env)
                 .build_op_with_inspector(inspector)
                 .with_precompiles(PrecompilesMap::from_static(
                     OpPrecompiles::new_with_spec(spec_id).precompiles(),
@@ -448,5 +451,36 @@ mod tests {
         });
 
         assert!(result.is_ok());
+    }
+
+    /// `OpEvmFactory::create_evm` must auto-install
+    /// [`xlayer_gas_params`] when the spec is at or beyond `XLAYER_V1`.
+    /// Without this, `cfg.gas_params()` returns the upstream-EVM-only table
+    /// and every `eip8130_gas` slot reads zero — silently mispricing AA
+    /// txs in production.
+    #[test]
+    fn xlayer_gas_params_auto_installed_post_xlayer_v1() {
+        use op_revm::gas_params::XlayerGasParams;
+        let evm = OpEvmFactory::<OpTx>::default().create_evm(
+            EmptyDB::default(),
+            EvmEnv::new(CfgEnv::new_with_spec(OpSpecId::XLAYER_V1), BlockEnv::default()),
+        );
+        let params = &evm.inner.0.ctx.cfg.gas_params;
+        assert_eq!(params.k1_verification_gas(), 6_000, "K1 verifier price not installed");
+        assert_eq!(params.aa_delegation_gas(), 4_600, "delegation gas not installed");
+    }
+
+    /// Pre-`XLAYER_V1` specs must NOT install `XLayer` pricing — the upstream
+    /// table stays untouched and every `XLayer` slot remains zero.
+    #[test]
+    fn xlayer_gas_params_not_installed_pre_xlayer_v1() {
+        use op_revm::gas_params::XlayerGasParams;
+        let evm = OpEvmFactory::<OpTx>::default().create_evm(
+            EmptyDB::default(),
+            EvmEnv::new(CfgEnv::new_with_spec(OpSpecId::ISTHMUS), BlockEnv::default()),
+        );
+        let params = &evm.inner.0.ctx.cfg.gas_params;
+        assert_eq!(params.k1_verification_gas(), 0, "K1 leaked pre-fork");
+        assert_eq!(params.aa_delegation_gas(), 0, "delegation gas leaked pre-fork");
     }
 }

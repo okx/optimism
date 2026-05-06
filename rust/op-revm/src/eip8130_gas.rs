@@ -101,12 +101,15 @@ pub fn verifier_verification_gas(
 // fork ever shifts these we'll plumb `params` through this fn too.
 #[inline]
 pub fn calldata_cost(bytes: &[u8]) -> u64 {
+    // `bytes.iter().filter(...).count()` over a `bytecount` dep — the AA
+    // signing preimages are typically <1 KiB and not on the hot per-call path.
+    #[allow(clippy::naive_bytecount)]
     let zeros = bytes.iter().filter(|&&b| b == 0).count() as u64;
     let non_zeros = (bytes.len() as u64).saturating_sub(zeros);
     zeros.saturating_mul(4).saturating_add(non_zeros.saturating_mul(16))
 }
 
-/// SLOAD charged for the sender's owner_config row.
+/// SLOAD charged for the sender's `owner_config` row.
 ///
 /// `0` when `sender_auth` is empty (estimateGas escape — caller adds the
 /// missing-calldata overhead separately); cold SLOAD otherwise (Berlin+ →
@@ -120,11 +123,11 @@ pub fn sender_auth_cost(parts: &Eip8130Parts, params: &GasParams) -> u64 {
     }
 }
 
-/// SLOAD charged for the payer's owner_config row.
+/// SLOAD charged for the payer's `owner_config` row.
 ///
 /// `0` for self-pay (the sender's row already covers it); cold SLOAD
 /// otherwise. Note: gating is `is_self_pay()`, not `payer_auth.is_empty()`
-/// — sponsored estimateGas (empty payer_auth on a non-self-pay tx) still
+/// — sponsored estimateGas (empty `payer_auth` on a non-self-pay tx) still
 /// pays the SLOAD because the row gets read at execution time.
 #[inline]
 pub fn payer_auth_cost(parts: &Eip8130Parts, params: &GasParams) -> u64 {
@@ -175,7 +178,7 @@ fn auth_verification_gas(is_eoa: bool, auth: &[u8], params: &GasParams) -> u64 {
 /// if the blob isn't a Delegate or the inner payload is too short.
 ///
 /// The returned address is whatever the inner 20-byte prefix names —
-/// native (K1 / P256Raw / WebAuthn) or custom. Custom inner is fine here:
+/// native (K1 / `P256Raw` / `WebAuthn`) or custom. Custom inner is fine here:
 /// `verifier_verification_gas(DELEGATE, Some(custom))` recurses into the
 /// custom-verifier case which returns 0, so the only charge is the outer
 /// delegate cost (the inner custom STATICCALL is paid separately against
@@ -221,7 +224,7 @@ pub fn nonce_key_cost(parts: &Eip8130Parts, params: &GasParams) -> u64 {
 /// Equals `nonce_cold_gas - nonce_warm_gas` — the amount overpaid by the
 /// conservative cold charge in [`nonce_key_cost`]. Computing it from
 /// [`GasParams`] keeps the refund in lockstep with whatever cold/warm
-/// values the active fork is using; a future XLayer fork that re-prices
+/// values the active fork is using; a future `XLayer` fork that re-prices
 /// either cost flows through here automatically without a separate const
 /// to update.
 ///
@@ -239,37 +242,115 @@ pub fn nonce_warm_refund(params: &GasParams) -> u64 {
     params.nonce_cold_gas().saturating_sub(params.nonce_warm_gas())
 }
 
-/// **Placeholder** — account-change entry costs.
+/// Per-entry account-change cost.
 ///
-/// TODO(slice 4-6): when `tx.account_changes` parsing lands, replace with
-/// the per-entry cost: Create entries (1 + initial_owners count),
-/// ConfigChange entries (per op per target chain), Delegation entries
-/// (fixed). For now returns 0; account_change entries are still validated
-/// structurally in `validate_env`. `params` is plumbed through ahead of time
-/// so the eventual implementation doesn't have to widen the signature.
+/// - **Create**: `aa_create_per_unit_gas * (1 + initial_owners_count)`.
+///   At most one Create entry per tx (validated by `validate_env`); the
+///   parser projects the create's `initial_owners` into
+///   `pre_writes` (one per owner) and onto
+///   [`Eip8130AccountChanges::create_initial_owners_count`][crate::transaction::eip8130::Eip8130AccountChanges::create_initial_owners_count].
+/// - **`ConfigChange` (matching)**: `aa_config_change_per_op_gas *
+///   sum_owner_changes`. The parser projects each matching entry into one
+///   [`Eip8130AuthorizerValidation`][crate::transaction::eip8130::Eip8130AuthorizerValidation]
+///   carrying its `owner_changes`; we sum across all of them.
+/// - **`ConfigChange` (skipped)**: `aa_config_change_skip_gas` per entry.
+///   The parser doesn't keep skipped entries; their count lives in
+///   [`Eip8130AccountChanges::skipped_config_change_count`][crate::transaction::eip8130::Eip8130AccountChanges::skipped_config_change_count].
+/// - **Delegation**: `aa_delegation_gas` per entry, summed via
+///   [`Eip8130AccountChanges::delegation_entry_count`][crate::transaction::eip8130::Eip8130AccountChanges::delegation_entry_count].
+///
+/// Returns 0 pre-XLAYER_V1 because every slot defaults to 0; AA txs aren't
+/// admitted before that fork in any case.
 #[inline]
-pub fn account_changes_cost(_parts: &Eip8130Parts, _params: &GasParams) -> u64 {
-    0
+pub fn account_changes_cost(parts: &Eip8130Parts, params: &GasParams) -> u64 {
+    let mut total: u64 = 0;
+
+    // Create entry: 1 (the create itself) + N initial-owner registrations.
+    if parts.account_changes.has_create_entry {
+        let units = 1u64.saturating_add(parts.account_changes.create_initial_owners_count as u64);
+        total = total.saturating_add(
+            params.aa_create_per_unit_gas().saturating_mul(units),
+        );
+    }
+
+    // Matching ConfigChange entries: sum owner_changes across all kept
+    // authorizer_validations.
+    let matching_ops: u64 = parts
+        .account_changes.authorizer_validations
+        .iter()
+        .map(|v| v.owner_changes.len() as u64)
+        .sum();
+    total = total
+        .saturating_add(params.aa_config_change_per_op_gas().saturating_mul(matching_ops));
+
+    // Skipped ConfigChange entries: one SLOAD per skip.
+    total = total.saturating_add(
+        params
+            .aa_config_change_skip_gas()
+            .saturating_mul(parts.account_changes.skipped_config_change_count as u64),
+    );
+
+    // Delegation entries: fixed per-entry charge.
+    total = total.saturating_add(
+        params.aa_delegation_gas().saturating_mul(parts.account_changes.delegation_entry_count as u64),
+    );
+
+    total
 }
 
-/// **Placeholder** — bytecode cost for create entries.
+/// Bytecode cost for the (≤1) Create entry.
 ///
-/// TODO(slice 4-6): from a Create entry, charge `32_000 + 200 * bytecode.len()`.
-/// EIP-8130 limits one Create entry per tx, so at most one bytecode_cost
-/// contribution per tx.
+/// `CREATE base + CODEDEPOSIT * code.len()`, sourced directly from the
+/// upstream EVM gas table (`GasId::create()` = `32_000`, `GasId::code_deposit_cost()`
+/// = 200) — EIP-8130 mirrors the EVM CREATE schedule here. Returns 0 when
+/// no Create entry is present (no `code_placements`).
+///
+/// EIP-8130 doesn't split zero/nonzero per-byte for deployment code (unlike
+/// EIP-2028 calldata), matching base's `CODEDEPOSIT` flat-rate schedule.
 #[inline]
-pub fn bytecode_cost(_parts: &Eip8130Parts, _params: &GasParams) -> u64 {
-    0
+pub fn bytecode_cost(parts: &Eip8130Parts, params: &GasParams) -> u64 {
+    let placement = match parts.account_changes.code_placements.first() {
+        Some(p) => p,
+        None => return 0,
+    };
+
+    let base = params.get(revm::context_interface::cfg::GasId::create());
+    let per_byte = params.get(revm::context_interface::cfg::GasId::code_deposit_cost());
+    base.saturating_add(per_byte.saturating_mul(placement.code.len() as u64))
 }
 
-/// **Placeholder** — authorizer verification gas inside ConfigChange entries.
+/// Authorizer verification gas inside `ConfigChange` entries.
 ///
-/// TODO(slice 4-6): each ConfigChange may carry an authorizer auth blob whose
-/// verification gas mirrors [`sender_verification_gas`] (per-verifier
-/// per-blob). Returns 0 until parsing lands.
+/// For each [`Eip8130AuthorizerValidation`][crate::transaction::eip8130::Eip8130AuthorizerValidation]:
+///   - per-verifier verification gas via [`verifier_verification_gas`]
+///     (`0` for custom verifiers — they're billed against
+///     [`crate::constants::XLAYER_AA_CUSTOM_VERIFIER_GAS_CAP`] at runtime),
+///   - one SLOAD for the authorizer's `owner_config` row read.
+///
+/// Empty `authorizer_auth` blobs are surfaced by the parser as a
+/// `verifier == Address::ZERO` placeholder; both the verifier-cost and the
+/// SLOAD here charge 0 in that case (the handler rejects at the auth-state
+/// stage before the row is read).
 #[inline]
-pub fn authorizer_verification_gas(_parts: &Eip8130Parts, _params: &GasParams) -> u64 {
-    0
+pub fn authorizer_verification_gas(parts: &Eip8130Parts, params: &GasParams) -> u64 {
+    let mut total: u64 = 0;
+    for validation in &parts.account_changes.authorizer_validations {
+        if validation.verifier == Address::ZERO {
+            // Empty / malformed authorizer_auth: no cost contribution.
+            continue;
+        }
+        // Authorizer auth doesn't currently support nested Delegate (parser
+        // rejects it as malformed → verifier == ZERO above). Pass `None` for
+        // the inner native to match.
+        total = total.saturating_add(verifier_verification_gas(
+            validation.verifier,
+            None,
+            params,
+        ));
+        // SLOAD for the authorizer's owner_config row.
+        total = total.saturating_add(params.aa_authorizer_sload_gas());
+    }
+    total
 }
 
 /// EIP-8130 intrinsic gas: AA-base + per-component costs aggregated.
@@ -303,7 +384,7 @@ mod tests {
     use revm::context_interface::cfg::GasId;
     use revm::primitives::{Address, U256};
 
-    /// Test [`GasParams`] for XLAYER_V1 — cached once for the test module.
+    /// Test [`GasParams`] for `XLAYER_V1` — cached once for the test module.
     fn params() -> GasParams {
         xlayer_gas_params(OpSpecId::XLAYER_V1)
     }
@@ -317,7 +398,7 @@ mod tests {
     }
 
     /// Mirrors what `eip8130_parts` produces for an explicit-from sponsored
-    /// tx with non-empty sender_auth and empty payer_auth. Tests override
+    /// tx with non-empty `sender_auth` and empty `payer_auth`. Tests override
     /// individual fields per scenario.
     fn empty_parts() -> Eip8130Parts {
         Eip8130Parts {
@@ -708,14 +789,181 @@ mod tests {
 
     // ── account_changes_cost / bytecode_cost / authorizer_verification_gas ──
 
-    /// TODO(slice 4-6): when account-change parsing lands, replace these
-    /// pinning tests with real coverage of the per-entry cost breakdown.
     #[test]
-    fn placeholder_account_changes_cost_zero() {
+    fn account_changes_cost_empty_parts_is_zero() {
         let p = params();
         let parts = empty_parts();
+        // No create / matching / skipped / delegation entries → 0.
         assert_eq!(account_changes_cost(&parts, &p), 0);
+    }
+
+    #[test]
+    fn account_changes_cost_create_entry() {
+        let p = params();
+        let mut parts = empty_parts();
+        parts.account_changes.has_create_entry = true;
+        parts.account_changes.create_initial_owners_count = 2;
+        // 1 (create) + 2 (owners) units, each at aa_create_per_unit_gas.
+        let expected = p.aa_create_per_unit_gas() * 3;
+        assert_eq!(account_changes_cost(&parts, &p), expected);
+    }
+
+    #[test]
+    fn account_changes_cost_config_change_matching() {
+        use crate::transaction::eip8130::{Eip8130AuthorizerValidation, Eip8130ConfigOp};
+        let p = params();
+        let mut parts = empty_parts();
+        parts.account_changes.authorizer_validations = vec![Eip8130AuthorizerValidation {
+            verifier: Address::ZERO,
+            owner_id: alloy_primitives::B256::ZERO,
+            verify_call: None,
+            owner_changes: vec![
+                Eip8130ConfigOp::default(),
+                Eip8130ConfigOp::default(),
+                Eip8130ConfigOp::default(),
+            ],
+        }];
+        // Three matching ops at aa_config_change_per_op_gas.
+        let expected = p.aa_config_change_per_op_gas() * 3;
+        assert_eq!(account_changes_cost(&parts, &p), expected);
+    }
+
+    #[test]
+    fn account_changes_cost_config_change_skipped() {
+        let p = params();
+        let mut parts = empty_parts();
+        parts.account_changes.skipped_config_change_count = 4;
+        let expected = p.aa_config_change_skip_gas() * 4;
+        assert_eq!(account_changes_cost(&parts, &p), expected);
+    }
+
+    #[test]
+    fn account_changes_cost_delegation() {
+        let p = params();
+        let mut parts = empty_parts();
+        parts.account_changes.delegation_entry_count = 1;
+        assert_eq!(account_changes_cost(&parts, &p), p.aa_delegation_gas());
+    }
+
+    #[test]
+    fn account_changes_cost_pre_fork_zero() {
+        // Pre-XLAYER_V1 forks zero out every per-entry slot, so even a
+        // populated parts struct charges 0.
+        let p = xlayer_gas_params(OpSpecId::ISTHMUS);
+        let mut parts = empty_parts();
+        parts.account_changes.has_create_entry = true;
+        parts.account_changes.create_initial_owners_count = 5;
+        parts.account_changes.skipped_config_change_count = 2;
+        parts.account_changes.delegation_entry_count = 1;
+        assert_eq!(account_changes_cost(&parts, &p), 0);
+    }
+
+    #[test]
+    fn bytecode_cost_no_create_is_zero() {
+        let p = params();
+        let parts = empty_parts();
         assert_eq!(bytecode_cost(&parts, &p), 0);
+    }
+
+    #[test]
+    fn bytecode_cost_create_entry() {
+        use crate::transaction::eip8130::Eip8130CodePlacement;
+        let p = params();
+        let mut parts = empty_parts();
+        parts.account_changes.has_create_entry = true;
+        parts.account_changes.code_placements = vec![Eip8130CodePlacement {
+            address: Address::repeat_byte(0xDE),
+            code: Bytes::from_static(&[0x60u8; 100]),
+        }];
+        // 32_000 + 200 * 100 (sourced from upstream `GasId::create` /
+        // `GasId::code_deposit_cost`).
+        let base = p.get(revm::context_interface::cfg::GasId::create());
+        let per_byte = p.get(revm::context_interface::cfg::GasId::code_deposit_cost());
+        assert_eq!(bytecode_cost(&parts, &p), base + per_byte * 100);
+    }
+
+    #[test]
+    fn bytecode_cost_create_entry_zero_byte_code_charges_only_base() {
+        // EIP-8130's base cost applies even to a zero-length deployment.
+        use crate::transaction::eip8130::Eip8130CodePlacement;
+        let p = params();
+        let mut parts = empty_parts();
+        parts.account_changes.has_create_entry = true;
+        parts.account_changes.code_placements = vec![Eip8130CodePlacement {
+            address: Address::repeat_byte(0xDE),
+            code: Bytes::new(),
+        }];
+        let base = p.get(revm::context_interface::cfg::GasId::create());
+        assert_eq!(bytecode_cost(&parts, &p), base);
+    }
+
+    #[test]
+    fn authorizer_verification_gas_per_validation() {
+        use crate::transaction::eip8130::{Eip8130AuthorizerValidation, Eip8130ConfigOp};
+        let p = params();
+        let mut parts = empty_parts();
+        parts.account_changes.authorizer_validations = vec![
+            Eip8130AuthorizerValidation {
+                verifier: K1_VERIFIER_ADDRESS,
+                owner_id: alloy_primitives::B256::ZERO,
+                verify_call: None,
+                owner_changes: vec![Eip8130ConfigOp::default()],
+            },
+            Eip8130AuthorizerValidation {
+                verifier: P256_RAW_VERIFIER_ADDRESS,
+                owner_id: alloy_primitives::B256::ZERO,
+                verify_call: None,
+                owner_changes: vec![Eip8130ConfigOp::default()],
+            },
+        ];
+        // Each validation contributes verifier_gas + aa_authorizer_sload_gas.
+        let expected = (p.k1_verification_gas() + p.aa_authorizer_sload_gas())
+            + (p.p256_raw_verification_gas() + p.aa_authorizer_sload_gas());
+        assert_eq!(authorizer_verification_gas(&parts, &p), expected);
+    }
+
+    #[test]
+    fn authorizer_verification_gas_empty_verifier_is_skipped() {
+        use crate::transaction::eip8130::{Eip8130AuthorizerValidation, Eip8130ConfigOp};
+        let p = params();
+        let mut parts = empty_parts();
+        parts.account_changes.authorizer_validations = vec![Eip8130AuthorizerValidation {
+            // Parser placeholder for empty / malformed authorizer_auth.
+            verifier: Address::ZERO,
+            owner_id: alloy_primitives::B256::ZERO,
+            verify_call: None,
+            owner_changes: vec![Eip8130ConfigOp::default()],
+        }];
+        assert_eq!(authorizer_verification_gas(&parts, &p), 0);
+    }
+
+    #[test]
+    fn authorizer_verification_gas_custom_verifier_charges_only_sload() {
+        use crate::transaction::eip8130::{Eip8130AuthorizerValidation, Eip8130ConfigOp};
+        let p = params();
+        let mut parts = empty_parts();
+        parts.account_changes.authorizer_validations = vec![Eip8130AuthorizerValidation {
+            verifier: Address::repeat_byte(0xAB),
+            owner_id: alloy_primitives::B256::ZERO,
+            verify_call: None,
+            owner_changes: vec![Eip8130ConfigOp::default()],
+        }];
+        // verifier_verification_gas returns 0 for unknown addresses; only
+        // the SLOAD shows up.
+        assert_eq!(authorizer_verification_gas(&parts, &p), p.aa_authorizer_sload_gas());
+    }
+
+    #[test]
+    fn authorizer_verification_gas_pre_fork_zero() {
+        use crate::transaction::eip8130::{Eip8130AuthorizerValidation, Eip8130ConfigOp};
+        let p = xlayer_gas_params(OpSpecId::ISTHMUS);
+        let mut parts = empty_parts();
+        parts.account_changes.authorizer_validations = vec![Eip8130AuthorizerValidation {
+            verifier: K1_VERIFIER_ADDRESS,
+            owner_id: alloy_primitives::B256::ZERO,
+            verify_call: None,
+            owner_changes: vec![Eip8130ConfigOp::default()],
+        }];
         assert_eq!(authorizer_verification_gas(&parts, &p), 0);
     }
 
@@ -826,12 +1074,12 @@ mod tests {
         assert_eq!(nonce_warm_refund(&p), 0, "must clamp to 0 not wrap");
     }
 
-    /// Sanity: pre-XLAYER_V1 forks have the XLayer slots zeroed, so the
+    /// Sanity: pre-XLAYER_V1 forks have the `XLayer` slots zeroed, so the
     /// aggregator computes only `tx_base_stipend + payload + auth_cost +
     /// payer_auth_cost` — every XLayer-specific component (verification,
-    /// nonce) is 0. The path is unreachable at runtime because validate_env
-    /// gates on XLAYER_V1, but pinning the aggregator output catches a
-    /// regression where any XLayer slot leaked a non-zero default into a
+    /// nonce) is 0. The path is unreachable at runtime because `validate_env`
+    /// gates on `XLAYER_V1`, but pinning the aggregator output catches a
+    /// regression where any `XLayer` slot leaked a non-zero default into a
     /// pre-fork block (which would change consensus on those blocks).
     #[test]
     fn pre_xlayer_v1_params_zero_xlayer_slots() {
