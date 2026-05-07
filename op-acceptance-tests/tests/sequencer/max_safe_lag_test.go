@@ -11,16 +11,19 @@ import (
 )
 
 // TestMaxSafeLagStallAndResume verifies the sequencer.max-safe-lag behavior:
-// 1. The sequencer produces blocks normally when the safe head is caught up.
-// 2. When the batcher is stopped and the unsafe/safe gap exceeds maxSafeLag,
-//    the sequencer stalls (stops producing new blocks).
-// 3. When the batcher is restarted and the safe head advances past the stall
-//    point, the sequencer resumes producing blocks.
+//  1. The sequencer produces blocks normally when the safe head is caught up.
+//  2. When the batcher is stopped and the unsafe/safe gap exceeds maxSafeLag,
+//     the sequencer stalls (stops producing new blocks).
+//  3. When the batcher is restarted and the safe head advances past the stall
+//     point, the sequencer resumes producing blocks.
 //
 // This protects the feature introduced in ethereum-optimism/optimism#17936
 // against regression.
 func TestMaxSafeLagStallAndResume(gt *testing.T) {
 	t := devtest.ParallelT(gt)
+	// max-safe-lag is enforced inside op-node's Go sequencer; kona-node has its
+	// own sequencer implementation and is out of scope for this regression test.
+	sysgo.SkipOnKonaNode(t, "max-safe-lag is op-node only")
 	const maxSafeLag = uint64(20)
 	// This test does not need fault proofs; using the NoFaultProofs variant
 	// avoids requiring cannon prestate artifacts in local test runs.
