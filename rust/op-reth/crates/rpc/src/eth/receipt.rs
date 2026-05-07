@@ -413,6 +413,13 @@ impl OpReceiptBuilder {
 /// are not executed and reported as `0x00`").
 ///
 /// 0 phases always yields `[]` (spec: "Empty if `calls` was empty").
+///
+/// TODO: revisit and tighten the inference once the receipt carries enough
+/// information to recover the precise per-phase outcome (e.g. when the system
+/// log becomes a hard requirement and the legacy-receipt fallback is no longer
+/// needed, or when on-chain receipt fields directly encode phase outcomes).
+/// Today the failure case conservatively reports all-`0x00` because the
+/// success prefix can't be recovered from the single status bit alone.
 fn infer_phase_statuses(phase_count: usize, tx_success: bool) -> Vec<u8> {
     if phase_count == 0 {
         return Vec::new();
