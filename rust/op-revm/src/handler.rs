@@ -1360,7 +1360,6 @@ where
             payer_address,
             sender_address,
             call_phase_count,
-            code_placements_empty,
             estimation_overhead,
         ) = {
             let ctx = evm.ctx();
@@ -1371,7 +1370,6 @@ where
                 parts.payer,
                 parts.sender,
                 parts.call_phases.len(),
-                parts.account_changes.code_placements.is_empty(),
                 estimation_calldata_overhead(parts),
             )
         };
@@ -1760,16 +1758,20 @@ where
                 gas_used: phase_gas_start.saturating_sub(gas_remaining),
             });
 
-            // EIP-8130 atomic-per-phase: halt remaining phases on first failure
-            // (xlayer-aa.md 2026-04-21 lesson).
+            // EIP-8130 atomic-per-phase: halt remaining phases on first failure. Spec requires
+            // phases after a revert to be reported as 0x00, so pad before stopping.
             if !phase_ok {
+                while phase_results.len() < call_phase_count {
+                    phase_results.push(Eip8130PhaseResult { success: false, gas_used: 0 });
+                }
                 break;
             }
         }
 
-        let any_phase_succeeded = phase_results.iter().any(|r| r.success);
-        let deploy_only_success = phase_results.is_empty() && !code_placements_empty;
-        let tx_succeeded = is_estimation || any_phase_succeeded || deploy_only_success;
+        // Spec: status = 0x01 iff all phases succeeded OR `calls` was empty.
+        // `Iterator::all` on empty returns true, so this collapses both arms.
+        let all_phases_succeeded = phase_results.iter().all(|r| r.success);
+        let tx_succeeded = is_estimation || all_phases_succeeded;
 
         if !phase_results.is_empty() {
             evm.ctx()
@@ -3147,7 +3149,7 @@ mod xlayer_eip8130_tests {
     }
 
     #[test]
-    fn test_eip8130_empty_phases_rejected() {
+    fn test_eip8130_empty_tx_succeeds() {
         let sender = Address::from([0x11; 20]);
         let (result, _) = run_eip8130_tx(
             sender,
@@ -3159,7 +3161,13 @@ mod xlayer_eip8130_tests {
             0,
         );
         let result = result.unwrap();
-        assert!(!result.is_success(), "empty phases = no successes = tx reverts");
+        assert!(
+            result.is_success(),
+            "no call phases and no deploys → spec: status = 0x01 (calls was empty)",
+        );
+
+        let statuses = decode_phase_statuses(result.output().unwrap());
+        assert!(statuses.is_empty(), "no call phases = empty statuses");
     }
 
     #[test]
@@ -3515,7 +3523,7 @@ mod xlayer_eip8130_tests {
     }
 
     #[test]
-    fn test_eip8130_mixed_phases_succeeds() {
+    fn test_eip8130_mixed_phases_rejected() {
         let sender = Address::from([0x11; 20]);
         let target_ok = Address::from([0x22; 20]);
         let target_fail = Address::from([0x33; 20]);
@@ -3541,10 +3549,50 @@ mod xlayer_eip8130_tests {
             0,
         );
         let result = result.unwrap();
-        assert!(result.is_success(), "at least one phase succeeded → tx succeeds");
+        assert!(!result.is_success(), "any phase reverted → tx fails per EIP-8130");
 
         let statuses = decode_phase_statuses(result.output().unwrap());
         assert_eq!(statuses, vec![true, false]);
+    }
+
+    #[test]
+    fn test_eip8130_mid_phase_failure_pads_remaining_rejected() {
+        let sender = Address::from([0x11; 20]);
+        let target_ok = Address::from([0x22; 20]);
+        let target_fail = Address::from([0x33; 20]);
+        let target_phase3 = Address::from([0x44; 20]);
+
+        let (result, _) = run_eip8130_tx(
+            sender,
+            &[
+                (target_ok, Bytecode::new_legacy(bytes!("00"))), // STOP
+                (target_fail, Bytecode::new_legacy(bytes!("60006000FD"))), // REVERT
+                (target_phase3, Bytecode::new_legacy(bytes!("00"))), // STOP — never executed
+            ],
+            &[],
+            0,
+            Eip8130Parts {
+                sender,
+                payer: sender,
+                call_phases: vec![
+                    vec![Eip8130Call { to: target_ok, data: Bytes::new(), value: U256::ZERO }],
+                    vec![Eip8130Call { to: target_fail, data: Bytes::new(), value: U256::ZERO }],
+                    vec![Eip8130Call { to: target_phase3, data: Bytes::new(), value: U256::ZERO }],
+                ],
+                ..Default::default()
+            },
+            200_000,
+            0,
+        );
+        let result = result.unwrap();
+        assert!(!result.is_success(), "phase 2 reverted → tx fails per EIP-8130");
+
+        let statuses = decode_phase_statuses(result.output().unwrap());
+        assert_eq!(
+            statuses,
+            vec![true, false, false],
+            "phase 3 must be padded as failed (spec: phases after revert reported as 0x00)",
+        );
     }
 
     #[test]
