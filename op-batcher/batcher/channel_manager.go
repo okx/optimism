@@ -311,8 +311,8 @@ func (s *channelManager) getReadyChannel(l1Head eth.BlockID, pi pubInfo) (*chann
 	}
 
 	// If there are pending blocks, add them to a channel.
-	toBeAddedBlocks := s.pendingBlocks() > 0
-	if toBeAddedBlocks {
+	havePendingBlocks := s.pendingBlocks() > 0
+	if havePendingBlocks {
 		if err := s.ensureChannelWithSpace(l1Head); err != nil {
 			return nil, err
 		}
@@ -330,7 +330,7 @@ func (s *channelManager) getReadyChannel(l1Head eth.BlockID, pi pubInfo) (*chann
 	// frames were already produced by a prior call (and drained by the earlier
 	// HasTxData check above). Skip re-running outputFrames on an already-closed
 	// channel-out, which would error.
-	if !toBeAddedBlocks && s.currentChannel.IsFull() {
+	if !havePendingBlocks && s.currentChannel.IsFull() {
 		return nil, io.EOF
 	}
 
