@@ -327,13 +327,16 @@ impl OpReceiptBuilder {
         // EIP-8130 (XLayer AA, tx type 0x7B) extension fields. Derived from the tx envelope's
         // payer + the system log emitted by `TX_CONTEXT_ADDRESS` carrying per-phase statuses.
         // Falls back to inferring from the receipt-level status for legacy receipts that
-        // predate the system log. `None` for non-AA txs.
+        // predate the system log. `None` for non-AA txs; otherwise `phase_statuses` is
+        // always populated (per EIP-8130 spec: the field is required on AA receipts and is
+        // `[]` when `calls` was empty).
         let eip8130_fields = tx_signed.as_eip8130().map(|sealed| {
             let aa_tx = sealed.inner();
             let recovered_sender = input.tx.signer();
             let phase_statuses =
                 extract_phase_statuses_from_logs(input.receipt.logs(), TX_CONTEXT_ADDRESS)
-                    .or_else(|| {
+                    .map(|v| v.into_iter().map(u8::from).collect::<Vec<u8>>())
+                    .unwrap_or_else(|| {
                         infer_phase_statuses(aa_tx.calls.len(), input.receipt.status())
                     });
             let payer = if aa_tx.is_self_pay() {
@@ -405,16 +408,17 @@ impl OpReceiptBuilder {
 
 /// Infers per-phase statuses from the receipt-level status when the system log is absent.
 ///
-/// 0 phases → empty; 1 phase → mirror tx status; N phases with failure → all false
-/// (execution halts at the first failing phase); N phases with success → `None`
-/// (indeterminate without the system log).
-fn infer_phase_statuses(phase_count: usize, tx_success: bool) -> Option<Vec<bool>> {
-    match (phase_count, tx_success) {
-        (0, _) => Some(Vec::new()),
-        (1, status) => Some(vec![status]),
-        (_, false) => Some(vec![false; phase_count]),
-        (_, true) => None,
+/// Per EIP-8130's RPC extension: `status == 0x01` iff **all** phases succeeded;
+/// `status == 0x00` iff one or more phases reverted (and "phases after a revert
+/// are not executed and reported as `0x00`").
+///
+/// 0 phases always yields `[]` (spec: "Empty if `calls` was empty").
+fn infer_phase_statuses(phase_count: usize, tx_success: bool) -> Vec<u8> {
+    if phase_count == 0 {
+        return Vec::new();
     }
+    let value = if tx_success { 0x01u8 } else { 0x00u8 };
+    vec![value; phase_count]
 }
 
 #[cfg(test)]
@@ -814,44 +818,30 @@ mod test {
 
     // ── infer_phase_statuses ──────────────────────────────────────────
     //
-    // Pure-function unit tests for the legacy-receipt fallback. These pin the
-    // whole semantic table — the function feeds `phase_statuses` when the
-    // system log is absent, and getting any case wrong silently returns a
-    // wrong-shape `phaseStatuses` to RPC clients.
+    // Pure-function unit tests for the legacy-receipt fallback.
 
-    /// Zero-phase txs are degenerate but legal; status is moot, return empty
-    /// rather than `None` so clients see "definitely no phases".
+    /// Zero phases yields an empty `phaseStatuses` per spec ("Empty if
+    /// `calls` was empty").
     #[test]
     fn infer_phase_statuses_zero_phases_is_empty_vec() {
-        assert_eq!(infer_phase_statuses(0, true), Some(Vec::new()));
-        assert_eq!(infer_phase_statuses(0, false), Some(Vec::new()));
+        assert_eq!(infer_phase_statuses(0, true), Vec::<u8>::new());
+        assert_eq!(infer_phase_statuses(0, false), Vec::<u8>::new());
     }
 
-    /// Single-phase tx: receipt-level status uniquely determines the one
-    /// phase outcome (the only phase IS the tx).
+    /// `status == 0x01` iff **all** phases succeeded. So tx-success
+    /// deterministically maps to `[0x01; N]` for any `N >= 1`.
     #[test]
-    fn infer_phase_statuses_single_phase_mirrors_status() {
-        assert_eq!(infer_phase_statuses(1, true), Some(vec![true]));
-        assert_eq!(infer_phase_statuses(1, false), Some(vec![false]));
+    fn infer_phase_statuses_tx_success_means_all_phases_succeeded() {
+        assert_eq!(infer_phase_statuses(1, true), vec![1u8]);
+        assert_eq!(infer_phase_statuses(3, true), vec![1u8, 1u8, 1u8]);
+        assert_eq!(infer_phase_statuses(10, true), vec![1u8; 10]);
     }
 
-    /// Multi-phase failure: AA execution halts at the first failing phase
-    /// and the spec treats subsequent phases as implicitly failed. The
-    /// fallback returns all-`false` to reflect that — matches Base.
     #[test]
-    fn infer_phase_statuses_multi_phase_failure_all_false() {
-        assert_eq!(infer_phase_statuses(3, false), Some(vec![false, false, false]));
-        assert_eq!(infer_phase_statuses(5, false), Some(vec![false; 5]));
-    }
-
-    /// Multi-phase success without the system log is genuinely
-    /// indeterminate — individual phases could have mixed outcomes that
-    /// still net to tx-success. Return `None` so the field gets dropped
-    /// rather than reporting fabricated all-`true`.
-    #[test]
-    fn infer_phase_statuses_multi_phase_success_indeterminate() {
-        assert_eq!(infer_phase_statuses(2, true), None);
-        assert_eq!(infer_phase_statuses(10, true), None);
+    fn infer_phase_statuses_tx_failure_falls_back_to_all_reverted() {
+        assert_eq!(infer_phase_statuses(1, false), vec![0u8]);
+        assert_eq!(infer_phase_statuses(3, false), vec![0u8, 0u8, 0u8]);
+        assert_eq!(infer_phase_statuses(5, false), vec![0u8; 5]);
     }
 
     // ── AA receipt path through OpReceiptBuilder::new ─────────────────
@@ -951,7 +941,7 @@ mod test {
         let result = build_receipt_for_aa(&signed, sender, receipt);
         let fields = result.eip8130_fields.expect("AA receipt must carry eip8130 fields");
         assert_eq!(fields.payer, sender, "self-pay payer must match recovered sender");
-        assert_eq!(fields.phase_statuses, Some(vec![true]));
+        assert_eq!(fields.phase_statuses, vec![1u8]);
     }
 
     /// Sponsored AA tx (`payer == Some(addr)`): the receipt's `payer` must
@@ -974,21 +964,20 @@ mod test {
         let result = build_receipt_for_aa(&signed, sender, receipt);
         let fields = result.eip8130_fields.expect("AA receipt must carry eip8130 fields");
         assert_eq!(fields.payer, sponsor, "sponsored payer must be tx.payer, not sender");
-        assert_eq!(fields.phase_statuses, Some(vec![true]));
+        assert_eq!(fields.phase_statuses, vec![1u8]);
     }
 
-    /// System log present + tx-level success: phase statuses come from the
-    /// log, NOT the fallback. Fallback for multi-phase success would
-    /// return `None` (indeterminate); the log lets us be specific. This
-    /// pin guards against silently dropping the log path.
+    /// System log present: phase statuses come from the log, NOT the
+    /// fallback. The log carries the precise per-phase truth (e.g.
+    /// `[0x01, 0x00]`) regardless of what the receipt-level status bit
+    /// would imply. This pin guards against silently dropping the log
+    /// path.
     #[test]
     fn aa_phase_statuses_from_system_log_take_precedence() {
         let sender = Address::repeat_byte(0x01);
         let aa_tx = make_aa_tx(Some(sender), None, 2);
         let signed = OpTransactionSigned::Eip8130(aa_tx.seal_slow());
 
-        // Multi-phase + tx success: fallback would yield None. The system
-        // log MUST override that with the precise [true, false] outcome.
         let logs = vec![make_phase_statuses_log(&[true, false])];
         let receipt = OpReceipt::Eip8130(Receipt {
             status: Eip658Value::Eip658(true),
@@ -1000,21 +989,20 @@ mod test {
         let fields = result.eip8130_fields.expect("AA receipt must carry eip8130 fields");
         assert_eq!(
             fields.phase_statuses,
-            Some(vec![true, false]),
-            "system log must win over fallback for multi-phase success"
+            vec![1u8, 0u8],
+            "system log must win over the receipt-status fallback",
         );
     }
 
-    /// No system log + tx-level failure: fallback infers all phases failed.
-    /// Pre-systemic-log historical receipts hit this path.
+    /// No system log + tx-level failure: per spec, `status == 0x00` means
+    /// at least one phase reverted; without the log we can't recover the
+    /// success prefix, so the conservative fallback reports all reverted.
     #[test]
-    fn aa_phase_statuses_fallback_when_no_system_log() {
+    fn aa_phase_statuses_fallback_when_no_system_log_failure() {
         let sender = Address::repeat_byte(0x01);
         let aa_tx = make_aa_tx(Some(sender), None, 3);
         let signed = OpTransactionSigned::Eip8130(aa_tx.seal_slow());
 
-        // Empty logs: no system log present. Tx-level failure → fallback
-        // says "all 3 phases false" (execution halted at the failing one).
         let receipt = OpReceipt::Eip8130(Receipt {
             status: Eip658Value::Eip658(false),
             cumulative_gas_used: 100,
@@ -1023,14 +1011,15 @@ mod test {
 
         let result = build_receipt_for_aa(&signed, sender, receipt);
         let fields = result.eip8130_fields.expect("AA receipt must carry eip8130 fields");
-        assert_eq!(fields.phase_statuses, Some(vec![false; 3]));
+        assert_eq!(fields.phase_statuses, vec![0u8; 3]);
     }
 
-    /// No system log + multi-phase tx success: fallback returns None
-    /// (indeterminate). The receipt still surfaces `payer`; only the
-    /// phaseStatuses key drops out.
+    /// No system log + tx-level success: per EIP-8130 RPC ext, `status ==
+    /// 0x01` iff all phases succeeded, so the fallback can deterministically
+    /// report all-success. Replaces the old "indeterminate-multi-phase-
+    /// success" Base-parity behavior with the spec-compliant answer.
     #[test]
-    fn aa_phase_statuses_none_for_multi_phase_success_without_log() {
+    fn aa_phase_statuses_fallback_when_no_system_log_success() {
         let sender = Address::repeat_byte(0x01);
         let aa_tx = make_aa_tx(Some(sender), None, 2);
         let signed = OpTransactionSigned::Eip8130(aa_tx.seal_slow());
@@ -1044,7 +1033,11 @@ mod test {
         let result = build_receipt_for_aa(&signed, sender, receipt);
         let fields = result.eip8130_fields.expect("AA receipt must carry eip8130 fields");
         assert_eq!(fields.payer, sender);
-        assert!(fields.phase_statuses.is_none(), "multi-phase success without log is indeterminate");
+        assert_eq!(
+            fields.phase_statuses,
+            vec![1u8, 1u8],
+            "spec: status=0x01 iff all phases succeeded"
+        );
     }
 
     /// Non-AA receipts (e.g. EIP-1559) must produce `eip8130_fields = None`,

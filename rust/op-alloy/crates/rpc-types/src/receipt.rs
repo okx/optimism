@@ -36,9 +36,10 @@ pub struct OpTransactionReceipt {
 pub struct Eip8130ReceiptFields {
     /// Address that actually paid gas (equal to `tx.from` unless a sponsor pays).
     pub payer: Address,
-    /// Per-phase execution status, one entry per phase in `tx.calls`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub phase_statuses: Option<Vec<bool>>,
+    /// Per-phase execution status, one entry per phase in `tx.calls` (`0x01` = success,
+    /// `0x00` = reverted). Empty when `calls` was empty.
+    #[serde(with = "alloy_serde::quantity::vec")]
+    pub phase_statuses: Vec<u8>,
 }
 
 impl alloy_network_primitives::ReceiptResponse for OpTransactionReceipt {
@@ -385,15 +386,14 @@ mod tests {
     }
 
     /// Pin the wire shape: AA receipts surface `payer` and `phaseStatuses` as **flattened
-    /// top-level keys** (matches Base byte-for-byte). A serde regression that nests them
-    /// under `eip8130Fields` would silently break wallets without this pin.
+    /// top-level keys** matching EIP-8130's RPC extension format.
     #[test]
     fn eip8130_fields_serialize_as_flattened_top_level_keys() {
         let mut receipt: OpTransactionReceipt =
             serde_json::from_str(baseline_receipt_json()).unwrap();
         receipt.eip8130_fields = Some(Eip8130ReceiptFields {
             payer: alloy_primitives::address!("0x9999999999999999999999999999999999999999"),
-            phase_statuses: Some(alloc::vec![true, false]),
+            phase_statuses: alloc::vec![1u8, 0u8],
         });
 
         let json = serde_json::to_value(&receipt).unwrap();
@@ -416,7 +416,7 @@ mod tests {
             obj["payer"],
             Value::String("0x9999999999999999999999999999999999999999".to_string()),
         );
-        assert_eq!(obj["phaseStatuses"], json!([true, false]));
+        assert_eq!(obj["phaseStatuses"], json!(["0x1", "0x0"]));
     }
 
     /// `eip8130_fields == None` must produce **no** AA-related keys in the wire output —
@@ -437,37 +437,33 @@ mod tests {
         );
     }
 
-    /// `phase_statuses == None` (the indeterminate-multi-phase-success case) must drop
-    /// the `phaseStatuses` key entirely while still surfacing `payer`. Without this,
-    /// clients would have to distinguish "no AA receipt" vs. "AA receipt with unknown
-    /// per-phase outcome" via something other than key presence.
+    /// Empty-calls case: spec says `phaseStatuses` is `[]` when `calls` was empty.
+    /// `phaseStatuses` MUST still serialize (as `[]`), not be omitted
     #[test]
-    fn aa_receipt_with_indeterminate_phase_statuses_drops_just_phase_statuses_key() {
+    fn aa_receipt_with_empty_phase_statuses_serializes_as_empty_array() {
         let mut receipt: OpTransactionReceipt =
             serde_json::from_str(baseline_receipt_json()).unwrap();
         let payer = alloy_primitives::address!("0x9999999999999999999999999999999999999999");
-        receipt.eip8130_fields = Some(Eip8130ReceiptFields { payer, phase_statuses: None });
+        receipt.eip8130_fields = Some(Eip8130ReceiptFields { payer, phase_statuses: Vec::new() });
 
         let json = serde_json::to_value(&receipt).unwrap();
         let obj = json.as_object().expect("receipt is a JSON object");
 
-        assert!(obj.contains_key("payer"), "payer must still appear");
-        assert!(
-            !obj.contains_key("phaseStatuses"),
-            "phaseStatuses must be omitted when None"
-        );
+        assert!(obj.contains_key("payer"), "payer must appear");
+        assert!(obj.contains_key("phaseStatuses"), "phaseStatuses must appear even when empty");
+        assert_eq!(obj["phaseStatuses"], json!([]));
     }
 
-    /// Round-trip parity: an AA receipt with both fields populated must
-    /// deserialize-then-serialize to the same JSON object (modulo key ordering),
-    /// guaranteeing the flattened layout survives a full wire cycle.
+    /// Round-trip parity: an AA receipt with populated fields must deserialize-then-
+    /// serialize to the same JSON object (modulo key ordering), guaranteeing the
+    /// flattened layout + hex-quantity wire format survives a full wire cycle.
     #[test]
     fn aa_receipt_json_round_trip() {
         let mut input: OpTransactionReceipt =
             serde_json::from_str(baseline_receipt_json()).unwrap();
         input.eip8130_fields = Some(Eip8130ReceiptFields {
             payer: alloy_primitives::address!("0x9999999999999999999999999999999999999999"),
-            phase_statuses: Some(alloc::vec![true, true, false]),
+            phase_statuses: alloc::vec![1u8, 1u8, 0u8],
         });
 
         let serialized = serde_json::to_value(&input).unwrap();
