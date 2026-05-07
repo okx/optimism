@@ -1,6 +1,8 @@
 //! Receipt types for RPC
 
+use alloc::vec::Vec;
 use alloy_consensus::{Receipt, ReceiptWithBloom, TxReceipt};
+use alloy_primitives::Address;
 use alloy_rpc_types_eth::Log;
 use alloy_serde::OtherFields;
 use op_alloy_consensus::{
@@ -22,6 +24,22 @@ pub struct OpTransactionReceipt {
     /// Per-transaction gas refund from post-exec block-level warming.
     #[serde(default, skip_serializing_if = "Option::is_none", with = "alloy_serde::quantity::opt")]
     pub op_gas_refund: Option<u64>,
+    /// XLayerAA (EIP-8130, tx type `0x7B`) extension fields. `None` for
+    /// non-AA receipts; flattened into the JSON for AA receipts.
+    #[serde(default, flatten, skip_serializing_if = "Option::is_none")]
+    pub eip8130_fields: Option<Eip8130ReceiptFields>,
+}
+
+/// Extension fields for XLayerAA (tx type `0x7B`) receipts.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Eip8130ReceiptFields {
+    /// Address that actually paid gas (equal to `tx.from` unless a sponsor pays).
+    pub payer: Address,
+    /// Per-phase execution status, one entry per phase in `tx.calls` (`0x01` = success,
+    /// `0x00` = reverted). Empty when `calls` was empty.
+    #[serde(with = "alloy_serde::quantity::vec")]
+    pub phase_statuses: Vec<u8>,
 }
 
 impl alloy_network_primitives::ReceiptResponse for OpTransactionReceipt {
@@ -343,5 +361,115 @@ mod tests {
 
         let op_fields: OpTransactionReceiptFields = serde_json::from_value(json).unwrap();
         assert_eq!(op_fields.l1_block_info.l1_fee_scalar, None);
+    }
+
+    /// Baseline deposit receipt JSON used as a starting point for the EIP-8130 wire-shape
+    /// tests below. Mirrors the body in `parse_rpc_receipt`; kept inline so each test is
+    /// self-contained.
+    fn baseline_receipt_json() -> &'static str {
+        r#"{
+        "blockHash": "0x9e6a0fb7e22159d943d760608cc36a0fb596d1ab3c997146f5b7c55c8c718c67",
+        "blockNumber": "0x6cfef89",
+        "contractAddress": null,
+        "cumulativeGasUsed": "0xfa0d",
+        "effectiveGasPrice": "0x0",
+        "from": "0xdeaddeaddeaddeaddeaddeaddeaddeaddead0001",
+        "gasUsed": "0xfa0d",
+        "logs": [],
+        "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "status": "0x1",
+        "to": "0x4200000000000000000000000000000000000015",
+        "transactionHash": "0xb7c74afdeb7c89fb9de2c312f49b38cb7a850ba36e064734c5223a477e83fdc9",
+        "transactionIndex": "0x0",
+        "type": "0x7b"
+    }"#
+    }
+
+    /// Pin the wire shape: AA receipts surface `payer` and `phaseStatuses` as **flattened
+    /// top-level keys** matching EIP-8130's RPC extension format.
+    #[test]
+    fn eip8130_fields_serialize_as_flattened_top_level_keys() {
+        let mut receipt: OpTransactionReceipt =
+            serde_json::from_str(baseline_receipt_json()).unwrap();
+        receipt.eip8130_fields = Some(Eip8130ReceiptFields {
+            payer: alloy_primitives::address!("0x9999999999999999999999999999999999999999"),
+            phase_statuses: alloc::vec![1u8, 0u8],
+        });
+
+        let json = serde_json::to_value(&receipt).unwrap();
+        let obj = json.as_object().expect("receipt is a JSON object");
+
+        assert!(obj.contains_key("payer"), "payer must be at top level, not nested");
+        assert!(
+            obj.contains_key("phaseStatuses"),
+            "phaseStatuses must be at top level (camelCased)"
+        );
+        assert!(
+            !obj.contains_key("eip8130Fields"),
+            "eip8130_fields must be flattened, not appear as a nested object"
+        );
+        assert!(
+            !obj.contains_key("phase_statuses"),
+            "snake_case phase_statuses must not leak into wire format"
+        );
+        assert_eq!(
+            obj["payer"],
+            Value::String("0x9999999999999999999999999999999999999999".to_string()),
+        );
+        assert_eq!(obj["phaseStatuses"], json!(["0x1", "0x0"]));
+    }
+
+    /// `eip8130_fields == None` must produce **no** AA-related keys in the wire output —
+    /// otherwise non-AA receipts gain phantom fields that confuse generic OP tooling.
+    #[test]
+    fn eip8130_fields_skipped_when_none() {
+        let receipt: OpTransactionReceipt =
+            serde_json::from_str(baseline_receipt_json()).unwrap();
+        assert!(receipt.eip8130_fields.is_none(), "baseline parses with no AA fields");
+
+        let json = serde_json::to_value(&receipt).unwrap();
+        let obj = json.as_object().expect("receipt is a JSON object");
+
+        assert!(!obj.contains_key("payer"), "payer must not appear when no AA fields");
+        assert!(
+            !obj.contains_key("phaseStatuses"),
+            "phaseStatuses must not appear when no AA fields"
+        );
+    }
+
+    /// Empty-calls case: spec says `phaseStatuses` is `[]` when `calls` was empty.
+    /// `phaseStatuses` MUST still serialize (as `[]`), not be omitted
+    #[test]
+    fn aa_receipt_with_empty_phase_statuses_serializes_as_empty_array() {
+        let mut receipt: OpTransactionReceipt =
+            serde_json::from_str(baseline_receipt_json()).unwrap();
+        let payer = alloy_primitives::address!("0x9999999999999999999999999999999999999999");
+        receipt.eip8130_fields = Some(Eip8130ReceiptFields { payer, phase_statuses: Vec::new() });
+
+        let json = serde_json::to_value(&receipt).unwrap();
+        let obj = json.as_object().expect("receipt is a JSON object");
+
+        assert!(obj.contains_key("payer"), "payer must appear");
+        assert!(obj.contains_key("phaseStatuses"), "phaseStatuses must appear even when empty");
+        assert_eq!(obj["phaseStatuses"], json!([]));
+    }
+
+    /// Round-trip parity: an AA receipt with populated fields must deserialize-then-
+    /// serialize to the same JSON object (modulo key ordering), guaranteeing the
+    /// flattened layout + hex-quantity wire format survives a full wire cycle.
+    #[test]
+    fn aa_receipt_json_round_trip() {
+        let mut input: OpTransactionReceipt =
+            serde_json::from_str(baseline_receipt_json()).unwrap();
+        input.eip8130_fields = Some(Eip8130ReceiptFields {
+            payer: alloy_primitives::address!("0x9999999999999999999999999999999999999999"),
+            phase_statuses: alloc::vec![1u8, 1u8, 0u8],
+        });
+
+        let serialized = serde_json::to_value(&input).unwrap();
+        let reparsed: OpTransactionReceipt = serde_json::from_value(serialized.clone()).unwrap();
+
+        assert_eq!(reparsed.eip8130_fields, input.eip8130_fields);
+        assert_eq!(serde_json::to_value(&reparsed).unwrap(), serialized);
     }
 }
