@@ -1,6 +1,6 @@
 //! Contains all hardforks represented in the [`crate::Hardfork`] type.
 
-use crate::{Ecotone, Fjord, Interop, Isthmus, Jovian, Karst};
+use crate::{Ecotone, Fjord, Interop, Isthmus, Jovian, Karst, XlayerV1};
 
 /// Optimism Hardforks
 ///
@@ -68,6 +68,15 @@ impl Hardforks {
 
     /// The Interop hardfork upgrade transactions.
     pub const INTEROP: Interop = Interop;
+
+    /// The XLayer V1 hardfork upgrade transactions.
+    ///
+    /// Activation block deposits: `AccountConfiguration` + `DefaultAccount`
+    /// system contracts for EIP-8130 Account Abstraction. The four native
+    /// verifiers (K1 / P256 / WebAuthn / Delegate) are not deployed —
+    /// verification happens natively inside the handler against fixed
+    /// sentinel addresses.
+    pub const XLAYER_V1: XlayerV1 = XlayerV1;
 }
 
 #[cfg(test)]
@@ -98,5 +107,8 @@ mod tests {
 
         let cross_l2_inbox_txs = Interop::cross_l2_inbox_txs();
         assert_eq!(cross_l2_inbox_txs.collect::<Vec<_>>().len(), 2);
+
+        let xlayer_v1_upgrade_txs = Hardforks::XLAYER_V1.txs();
+        assert_eq!(xlayer_v1_upgrade_txs.collect::<Vec<_>>().len(), 2);
     }
 }

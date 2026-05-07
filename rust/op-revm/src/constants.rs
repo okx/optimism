@@ -95,16 +95,19 @@ pub const OP_REVOKE_OWNER: u8 = 0x02;
 /// Owns owner registrations, account creation, config changes, and locks.
 /// The handler emits all account-creation / owner-change logs from this
 /// address so block-explorers attribute them to the contract that the
-/// equivalent on-chain Solidity write would emit from. Matches base's
-/// `eip8130/predeploys.rs::ACCOUNT_CONFIG_ADDRESS` (deterministic CREATE
-/// from the `BASE_V1` deployer at nonce 0).
-pub const ACCOUNT_CONFIG_ADDRESS: Address = address!("0x4F20618CF5c160e7AA385268721dA968F86F0e61");
+/// equivalent on-chain Solidity write would emit from.
+///
+/// Deterministic value: `XlayerV1` hardfork's `ACCOUNT_CONFIGURATION_DEPLOYER`
+/// at nonce 0 (mirrors the OP-Stack pattern of pinning predeploy addresses
+/// via deterministic CREATE from a reserved deployer).
+pub const ACCOUNT_CONFIG_ADDRESS: Address = address!("0xf946601D5424118A4e4054BB0B13133f216b4FeE");
 
 /// Default account (wallet) implementation contract.
 ///
 /// Bare EOAs that submit AA transactions are auto-delegated to this address
-/// via EIP-7702 `0xef0100 || DEFAULT_ACCOUNT_ADDRESS`.
-pub const DEFAULT_ACCOUNT_ADDRESS: Address = address!("0x31914Dd8C3901448D787b2097744Bf7D3241E85A");
+/// via EIP-7702 `0xef0100 || DEFAULT_ACCOUNT_ADDRESS`. Deterministic value:
+/// `XlayerV1::DEFAULT_ACCOUNT_DEPLOYER.create(0)`.
+pub const DEFAULT_ACCOUNT_ADDRESS: Address = address!("0xAb4eE49EE97e49807e180BD5Fb9D9F35783b84F2");
 
 /// Sentinel verifier written when the implicit-EOA owner is explicitly revoked.
 ///

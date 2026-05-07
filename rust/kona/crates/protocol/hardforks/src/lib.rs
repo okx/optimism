@@ -36,6 +36,9 @@ pub use jovian::Jovian;
 mod karst;
 pub use karst::Karst;
 
+mod xlayer_v1;
+pub use xlayer_v1::XlayerV1;
+
 mod utils;
 pub(crate) use utils::upgrade_to_calldata;
 

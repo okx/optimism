@@ -195,6 +195,17 @@ where
             upgrade_transactions.append(&mut Hardforks::KARST.txs().collect());
             upgrade_gas += Hardforks::KARST.upgrade_gas();
         }
+        // XLayer V1 deploys the EIP-8130 AA system contracts (AccountConfiguration
+        // + DefaultAccount). The `is_xlayer_v1_active` predicate falls back to
+        // `karst_time` when `xlayer_v1_time` isn't explicitly set, so devnets
+        // that activate XLayer V1 at the same timestamp as Karst (the typical
+        // case) get the EIP-8130 predeploys at the same activation block.
+        if self.rollup_cfg.is_xlayer_v1_active(next_l2_time) &&
+            !self.rollup_cfg.is_xlayer_v1_active(l2_parent.block_info.timestamp)
+        {
+            upgrade_transactions.append(&mut Hardforks::XLAYER_V1.txs().collect());
+            upgrade_gas += Hardforks::XLAYER_V1.upgrade_gas();
+        }
         if self.rollup_cfg.is_interop_active(next_l2_time) &&
             !self.rollup_cfg.is_interop_active(l2_parent.block_info.timestamp)
         {
