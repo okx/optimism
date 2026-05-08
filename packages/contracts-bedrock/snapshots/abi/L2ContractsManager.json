@@ -115,21 +115,6 @@
           },
           {
             "internalType": "address",
-            "name": "optimismSuperchainERC20FactoryImpl",
-            "type": "address"
-          },
-          {
-            "internalType": "address",
-            "name": "optimismSuperchainERC20BeaconImpl",
-            "type": "address"
-          },
-          {
-            "internalType": "address",
-            "name": "superchainTokenBridgeImpl",
-            "type": "address"
-          },
-          {
-            "internalType": "address",
             "name": "nativeAssetLiquidityImpl",
             "type": "address"
           },
@@ -140,12 +125,12 @@
           },
           {
             "internalType": "address",
-            "name": "feeSplitterImpl",
+            "name": "conditionalDeployerImpl",
             "type": "address"
           },
           {
             "internalType": "address",
-            "name": "conditionalDeployerImpl",
+            "name": "l2DevFeatureFlagsImpl",
             "type": "address"
           }
         ],
@@ -275,21 +260,6 @@
           },
           {
             "internalType": "address",
-            "name": "optimismSuperchainERC20FactoryImpl",
-            "type": "address"
-          },
-          {
-            "internalType": "address",
-            "name": "optimismSuperchainERC20BeaconImpl",
-            "type": "address"
-          },
-          {
-            "internalType": "address",
-            "name": "superchainTokenBridgeImpl",
-            "type": "address"
-          },
-          {
-            "internalType": "address",
             "name": "nativeAssetLiquidityImpl",
             "type": "address"
           },
@@ -300,12 +270,12 @@
           },
           {
             "internalType": "address",
-            "name": "feeSplitterImpl",
+            "name": "conditionalDeployerImpl",
             "type": "address"
           },
           {
             "internalType": "address",
-            "name": "conditionalDeployerImpl",
+            "name": "l2DevFeatureFlagsImpl",
             "type": "address"
           }
         ],
@@ -349,8 +319,40 @@
     "type": "error"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_target",
+        "type": "address"
+      }
+    ],
+    "name": "L2ContractsManager_EmptyImplementation",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "L2ContractsManager_FeatureFlagMismatch",
+    "type": "error"
+  },
+  {
     "inputs": [],
     "name": "L2ContractsManager_InitializingDuringUpgrade",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "L2ContractsManager_InvalidV5Offset",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_target",
+        "type": "address"
+      }
+    ],
+    "name": "L2ContractsManager_NotUpgradeable",
     "type": "error"
   },
   {

@@ -22,6 +22,7 @@ const (
 	GameTypeSuperPermCannon    GameType = 5
 	GameTypeCannonKona         GameType = 8
 	GameTypeSuperCannonKona    GameType = 9
+	GameTypeZKDisputeGame      GameType = 10
 )
 
 var (
@@ -31,12 +32,12 @@ var (
 	// This is used to encode the permissioned dispute game config for the upgrade input
 	permEncoder = w3.MustNewFunc("dummy((bytes32 absolutePrestate,address proposer,address challenger))", "")
 
+	// This is used to encode the ZK dispute game config for the upgrade input
+	zkEncoder = w3.MustNewFunc("dummy((bytes32 absolutePrestate,address verifier,uint64 maxChallengeDuration,uint64 maxProveDuration,uint256 challengerBond))", "")
+
 	// This is used to encode the upgrade input for the upgrade input
 	upgradeInputEncoder = w3.MustNewFunc("dummy((address systemConfig,(bool enabled,uint256 initBond,uint32 gameType,bytes gameArgs)[] disputeGameConfigs,(string key,bytes data)[] extraInstructions))",
 		"")
-
-	// This is used to encode the OP Chain config for the upgrade input
-	opChainConfigEncoder = w3.MustNewFunc("dummy((address systemConfigProxy,bytes32 cannonPrestate,bytes32 cannonKonaPrestate)[])", "")
 )
 
 // ScriptInput represents the input struct that is actually passed to the script.
@@ -48,22 +49,13 @@ type ScriptInput struct {
 }
 
 // UpgradeOPChainInput represents the struct that is read from the config file.
-// It contains both fields for the old and new upgrade input.
 type UpgradeOPChainInput struct {
 	Prank          common.Address  `json:"prank"`
 	Opcm           common.Address  `json:"opcm"`
-	ChainConfigs   []OPChainConfig `json:"chainConfigs,omitempty"`
 	UpgradeInputV2 *UpgradeInputV2 `json:"upgradeInput,omitempty"`
 }
 
-// OPChainConfig represents the configuration for an OP Chain upgrade on OPCM v1.
-type OPChainConfig struct {
-	SystemConfigProxy  common.Address `json:"systemConfigProxy"`
-	CannonPrestate     common.Hash    `json:"cannonPrestate"`
-	CannonKonaPrestate common.Hash    `json:"cannonKonaPrestate"`
-}
-
-// UpgradeInputV2 represents the new upgrade input in OPCM v2.
+// UpgradeInputV2 represents the upgrade input for OPCM v2.
 type UpgradeInputV2 struct {
 	SystemConfig       common.Address      `json:"systemConfig"`
 	DisputeGameConfigs []DisputeGameConfig `json:"disputeGameConfigs"`
@@ -77,6 +69,7 @@ type DisputeGameConfig struct {
 	GameType                      GameType                       `json:"gameType"`
 	FaultDisputeGameConfig        *FaultDisputeGameConfig        `json:"faultDisputeGameConfig,omitempty"`
 	PermissionedDisputeGameConfig *PermissionedDisputeGameConfig `json:"permissionedDisputeGameConfig,omitempty"`
+	ZKDisputeGameConfig           *ZKDisputeGameConfig           `json:"zkDisputeGameConfig,omitempty"`
 }
 
 // ExtraInstruction represents an additional upgrade instruction for the upgrade on OPCM v2.
@@ -99,6 +92,16 @@ type PermissionedDisputeGameConfig struct {
 	Challenger       common.Address `json:"challenger"`
 }
 
+// ZKDisputeGameConfig represents the configuration for a ZK dispute game.
+// It contains the absolute prestate, verifier address, challenge/prove durations, and challenger bond.
+type ZKDisputeGameConfig struct {
+	AbsolutePrestate     common.Hash    `json:"absolutePrestate"`
+	Verifier             common.Address `json:"verifier"`
+	MaxChallengeDuration uint64         `json:"maxChallengeDuration"`
+	MaxProveDuration     uint64         `json:"maxProveDuration"`
+	ChallengerBond       *big.Int       `json:"challengerBond"`
+}
+
 // EncodableUpgradeInput is an intermediate struct that matches the encoder expectation for the UpgradeInputV2 struct.
 type EncodableUpgradeInput struct {
 	SystemConfig       common.Address
@@ -114,16 +117,7 @@ type EncodableDisputeGameConfig struct {
 	GameArgs []byte
 }
 
-// EncodedOpChainConfigs encodes the OP Chain configs for the upgrade input, assumes is not nil
-func (u *UpgradeOPChainInput) EncodedOpChainConfigs() ([]byte, error) {
-	data, err := opChainConfigEncoder.EncodeArgs(u.ChainConfigs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode chain configs: %w", err)
-	}
-	return data[4:], nil
-}
-
-// EncodedUpgradeInputV2 encodes the upgrade input for the upgrade input, assumes is not nil
+// EncodedUpgradeInputV2 encodes the upgrade input, assumes UpgradeInputV2 is not nil
 func (u *UpgradeOPChainInput) EncodedUpgradeInputV2() ([]byte, error) {
 
 	encodableConfigs := make([]EncodableDisputeGameConfig, len(u.UpgradeInputV2.DisputeGameConfigs))
@@ -137,7 +131,7 @@ func (u *UpgradeOPChainInput) EncodedUpgradeInputV2() ([]byte, error) {
 
 		if gameConfig.Enabled {
 			switch gameConfig.GameType {
-			case GameTypeCannon, GameTypeCannonKona:
+			case GameTypeCannon, GameTypeCannonKona, GameTypeSuperCannon, GameTypeSuperCannonKona:
 				if gameConfig.FaultDisputeGameConfig == nil {
 					return nil, fmt.Errorf("faultDisputeGameConfig is required for game type %d", gameConfig.GameType)
 				}
@@ -146,7 +140,7 @@ func (u *UpgradeOPChainInput) EncodedUpgradeInputV2() ([]byte, error) {
 				if err != nil {
 					return nil, fmt.Errorf("failed to encode fault game config: %w", err)
 				}
-			case GameTypePermissionedCannon:
+			case GameTypePermissionedCannon, GameTypeSuperPermCannon:
 				if gameConfig.PermissionedDisputeGameConfig == nil {
 					return nil, fmt.Errorf("permissionedDisputeGameConfig is required for game type %d", gameConfig.GameType)
 				}
@@ -154,6 +148,15 @@ func (u *UpgradeOPChainInput) EncodedUpgradeInputV2() ([]byte, error) {
 				gameArgs, err = permEncoder.EncodeArgs(gameConfig.PermissionedDisputeGameConfig)
 				if err != nil {
 					return nil, fmt.Errorf("failed to encode permissioned game config: %w", err)
+				}
+			case GameTypeZKDisputeGame:
+				if gameConfig.ZKDisputeGameConfig == nil {
+					return nil, fmt.Errorf("zkDisputeGameConfig is required for game type %d", gameConfig.GameType)
+				}
+				// Encode the ZK dispute game args
+				gameArgs, err = zkEncoder.EncodeArgs(gameConfig.ZKDisputeGameConfig)
+				if err != nil {
+					return nil, fmt.Errorf("failed to encode ZK game config: %w", err)
 				}
 			default:
 				return nil, fmt.Errorf("invalid game type %d for opcm v2", gameConfig.GameType)
@@ -196,23 +199,13 @@ type UpgradeOPChain struct {
 }
 
 func Upgrade(host *script.Host, input UpgradeOPChainInput) error {
-	// Determine which input format to use and encode it
-	var encodedUpgradeInput []byte
-	var encodedError error
-
-	if input.UpgradeInputV2 != nil {
-		// Prefer V2 input if present
-		encodedUpgradeInput, encodedError = input.EncodedUpgradeInputV2()
-	} else if len(input.ChainConfigs) > 0 {
-		// Fall back to V1 input if V2 is not present
-		encodedUpgradeInput, encodedError = input.EncodedOpChainConfigs()
-	} else {
-		// Neither input format is present
-		return fmt.Errorf("failed to read either an upgrade input or config array")
+	if input.UpgradeInputV2 == nil {
+		return fmt.Errorf("UpgradeInputV2 is required")
 	}
 
-	if encodedError != nil {
-		return encodedError
+	encodedUpgradeInput, err := input.EncodedUpgradeInputV2()
+	if err != nil {
+		return err
 	}
 
 	scriptInput := ScriptInput{

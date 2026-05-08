@@ -6,6 +6,7 @@ import (
 
 	"github.com/ethereum-optimism/optimism/op-devstack/devtest"
 	"github.com/ethereum-optimism/optimism/op-devstack/dsl"
+	"github.com/ethereum-optimism/optimism/op-devstack/sysgo"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/types"
 	"github.com/ethereum-optimism/optimism/op-test-sequencer/sequencer/seqtypes"
@@ -13,7 +14,20 @@ import (
 )
 
 func TestFollowL2_Safe_Finalized_CurrentL1(gt *testing.T) {
-	t := devtest.SerialT(gt)
+	t := devtest.ParallelT(gt)
+	// Example error with kona-node:
+	//
+	// assertions.go:387:             ERROR[03-31|11:33:11.255]
+	// assertions.go:387:             	Error Trace:	/optimism/op-devstack/sysgo/singlechain_variants.go:143
+	// assertions.go:387:             	            				/optimism/op-devstack/sysgo/singlechain_variants.go:53
+	// assertions.go:387:             	            				/optimism/op-devstack/presets/singlechain_twoverifiers.go:24
+	// assertions.go:387:             	            				/optimism/op-acceptance-tests/tests/sync/follow_l2/setup_test.go:24
+	// assertions.go:387:             	            				/optimism/op-acceptance-tests/tests/sync/follow_l2/sync_test.go:18
+	// assertions.go:387:             	Error:      	Should be true
+	// assertions.go:387:             	Test:       	TestFollowL2_Safe_Finalized_CurrentL1
+	// assertions.go:387:             	Messages:   	single-chain test sequencer requires an op-node CL node
+	sysgo.SkipOnKonaNode(t, "not supported")
+	sysgo.FlakyOnOpReth(t, "timeouts in merge queue but not locally")
 	sys := newSingleChainTwoVerifiersFollowL2(t)
 	logger := t.Logger()
 
@@ -55,7 +69,19 @@ func TestFollowL2_Safe_Finalized_CurrentL1(gt *testing.T) {
 }
 
 func TestFollowL2_ReorgRecovery(gt *testing.T) {
-	t := devtest.SerialT(gt)
+	t := devtest.ParallelT(gt)
+	// Example error with kona-node:
+	//
+	// assertions.go:387:             ERROR[03-31|11:31:11.567]
+	// assertions.go:387:             	Error Trace:	/optimism/op-devstack/sysgo/singlechain_variants.go:143
+	// assertions.go:387:             	            				/optimism/op-devstack/sysgo/singlechain_variants.go:53
+	// assertions.go:387:             	            				/optimism/op-devstack/presets/singlechain_twoverifiers.go:24
+	// assertions.go:387:             	            				/optimism/op-acceptance-tests/tests/sync/follow_l2/setup_test.go:24
+	// assertions.go:387:             	            				/optimism/op-acceptance-tests/tests/sync/follow_l2/sync_test.go:60
+	// assertions.go:387:             	Error:      	Should be true
+	// assertions.go:387:             	Test:       	TestFollowL2_ReorgRecovery
+	// assertions.go:387:             	Messages:   	single-chain test sequencer requires an op-node CL node
+	sysgo.SkipOnKonaNode(t, "not supported")
 	sys := newSingleChainTwoVerifiersFollowL2(t)
 	require := t.Require()
 	logger := t.Logger()
@@ -108,10 +134,18 @@ func TestFollowL2_ReorgRecovery(gt *testing.T) {
 	// Need to poll until the L2CL detects L1 Reorg and trigger L2 Reorg
 	// What happens:
 	//  L2CL detects L1 Reorg and reset the pipeline. op-node example logs: "reset: detected L1 reorg"
-	//  L2ELB detects L2 Reorg and reorgs. op-geth example logs: "Chain reorg detected"
-	sys.L2ELB.ReorgTriggered(l2BlockBeforeReorg, 30)
-	l2BlockAfterReorg := sys.L2ELB.BlockRefByNumber(l2BlockBeforeReorg.Number)
-	require.NotEqual(l2BlockAfterReorg.Hash, l2BlockBeforeReorg.Hash)
+	//  L2ELB detects L2 reorg and replaces the original block. The replacement
+	//  block at this height may also come from a different parent chain, so only
+	//  assert that the original block is replaced before checking convergence.
+	var l2BlockAfterReorg eth.L2BlockRef
+	require.Eventually(func() bool {
+		l2BlockAfterReorg = sys.L2ELB.BlockRefByNumber(l2BlockBeforeReorg.Number)
+		if l2BlockAfterReorg.Hash == l2BlockBeforeReorg.Hash {
+			logger.Info("Waiting for L2 reorg", "before", l2BlockBeforeReorg, "current", l2BlockAfterReorg)
+			return false
+		}
+		return true
+	}, 60*time.Second, 2*time.Second)
 	logger.Info("Triggered L2 reorg", "l2", l2BlockAfterReorg)
 
 	attempts := 30
@@ -124,7 +158,19 @@ func TestFollowL2_ReorgRecovery(gt *testing.T) {
 }
 
 func TestFollowL2_WithoutCLP2P(gt *testing.T) {
-	t := devtest.SerialT(gt)
+	t := devtest.ParallelT(gt)
+	// Example error with kona-node:
+	//
+	// assertions.go:387:             ERROR[03-31|11:27:57.797]
+	// assertions.go:387:             	Error Trace:	/optimism/op-devstack/sysgo/singlechain_variants.go:143
+	// assertions.go:387:             	            				/optimism/op-devstack/sysgo/singlechain_variants.go:53
+	// assertions.go:387:             	            				/optimism/op-devstack/presets/singlechain_twoverifiers.go:24
+	// assertions.go:387:             	            				/optimism/op-acceptance-tests/tests/sync/follow_l2/setup_test.go:24
+	// assertions.go:387:             	            				/optimism/op-acceptance-tests/tests/sync/follow_l2/sync_test.go:136
+	// assertions.go:387:             	Error:      	Should be true
+	// assertions.go:387:             	Test:       	TestFollowL2_WithoutCLP2P
+	// assertions.go:387:             	Messages:   	single-chain test sequencer requires an op-node CL nod
+	sysgo.SkipOnKonaNode(t, "not supported")
 	sys := newSingleChainTwoVerifiersFollowL2(t)
 	require := t.Require()
 	logger := t.Logger()
@@ -136,9 +182,11 @@ func TestFollowL2_WithoutCLP2P(gt *testing.T) {
 	sys.L2CLB.Advanced(types.LocalUnsafe, target, attempts)
 
 	// The test's primary target is the L2CLC, with follow source and derivation disabled
-	// Normally there should be delta between safe head between unsafe head
+	// There is often a gap between safe and unsafe before disconnect, but the
+	// follow-source verifier may also catch up before we observe it. The actual
+	// property this test cares about is the post-disconnect behavior below.
 	status := sys.L2CLC.SyncStatus()
-	require.NotEqual(status.LocalSafeL2, status.UnsafeL2)
+	logger.Info("Initial follow-source sync status", "safe", status.LocalSafeL2, "unsafe", status.UnsafeL2)
 
 	logger.Info("Disconnect CLP2P")
 	// L2CLC is the verifier with follow source, derivation disabled
@@ -150,7 +198,7 @@ func TestFollowL2_WithoutCLP2P(gt *testing.T) {
 
 	// Advance few safe blocks
 	sys.L2CLC.Advanced(types.LocalSafe, target, attempts)
-	sys.L2CLC.Matched(sys.L2CLB, types.LocalSafe, attempts)
+	sys.L2CLC.ReachedRef(types.LocalSafe, sys.L2CLB.HeadBlockRef(types.LocalSafe).ID(), attempts)
 
 	// Make sure the safe head reaches non-moving unsafe head
 	sys.L2CLC.Reached(types.LocalSafe, sys.L2CLC.UnsafeHead().BlockRef.Number, attempts)

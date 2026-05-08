@@ -96,7 +96,7 @@ func setupLoadTest(gt *testing.T) (devtest.T, *L2, *L2) {
 	if testing.Short() {
 		gt.Skip("skipping load test in short mode")
 	}
-	t := devtest.SerialT(gt)
+	t := devtest.ParallelT(gt)
 
 	ctx, cancel := context.WithTimeout(t.Ctx(), 3*time.Minute)
 	if timeoutStr, exists := os.LookupEnv("NAT_INTEROP_LOADTEST_TIMEOUT"); exists {
@@ -113,12 +113,12 @@ func setupLoadTest(gt *testing.T) (devtest.T, *L2, *L2) {
 }
 
 func setupL2s(t devtest.T) (*L2, *L2) {
-	sys := presets.NewSimpleInterop(t)
-	blockTimeA := time.Duration(sys.L2ChainA.Escape().RollupConfig().BlockTime) * time.Second
-	blockTimeB := time.Duration(sys.L2ChainB.Escape().RollupConfig().BlockTime) * time.Second
+	sys := presets.NewTwoL2SupernodeInterop(t, 0, presets.WithInteropFilter())
+	blockTimeA := time.Duration(sys.L2A.Escape().RollupConfig().BlockTime) * time.Second
+	blockTimeB := time.Duration(sys.L2B.Escape().RollupConfig().BlockTime) * time.Second
 
-	l2A := setupL2(t, sys.Wallet, blockTimeA, sys.L2ChainA.Escape().ChainConfig(), sys.L2ChainA.PublicRPC(), sys.FaucetA)
-	l2B := setupL2(t, sys.Wallet, blockTimeB, sys.L2ChainB.Escape().ChainConfig(), sys.L2ChainB.PublicRPC(), sys.FaucetB)
+	l2A := setupL2(t, sys.Wallet, blockTimeA, sys.L2A.Escape().ChainConfig(), sys.L2A.PublicRPC(), sys.FaucetA)
+	l2B := setupL2(t, sys.Wallet, blockTimeB, sys.L2B.Escape().ChainConfig(), sys.L2B.PublicRPC(), sys.FaucetB)
 
 	var deployWg sync.WaitGroup
 	defer deployWg.Wait()

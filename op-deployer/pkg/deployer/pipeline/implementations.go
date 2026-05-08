@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/ethereum-optimism/optimism/op-chain-ops/addresses"
-	"github.com/ethereum-optimism/optimism/op-service/jsonutil"
 	"github.com/ethereum/go-ethereum/common"
 
+	"github.com/ethereum-optimism/optimism/op-chain-ops/addresses"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/opcm"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/standard"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/state"
+	"github.com/ethereum-optimism/optimism/op-service/jsonutil"
 )
 
 func DeployImplementations(env *Env, intent *state.Intent, st *state.State) error {
@@ -83,17 +83,11 @@ func DeployImplementations(env *Env, intent *state.Intent, st *state.State) erro
 	}
 
 	st.ImplementationsDeployment = &addresses.ImplementationsContracts{
-		OpcmImpl:                         dio.Opcm,
-		OpcmGameTypeAdderImpl:            dio.OpcmGameTypeAdder,
-		OpcmDeployerImpl:                 dio.OpcmDeployer,
-		OpcmUpgraderImpl:                 dio.OpcmUpgrader,
-		OpcmInteropMigratorImpl:          dio.OpcmInteropMigrator,
 		OpcmStandardValidatorImpl:        dio.OpcmStandardValidator,
 		OpcmV2Impl:                       dio.OpcmV2,
 		OpcmContainerImpl:                dio.OpcmContainer,
 		DelayedWethImpl:                  dio.DelayedWETHImpl,
 		OptimismPortalImpl:               dio.OptimismPortalImpl,
-		OptimismPortalInteropImpl:        dio.OptimismPortalInteropImpl,
 		EthLockboxImpl:                   dio.ETHLockboxImpl,
 		PreimageOracleImpl:               dio.PreimageOracleSingleton,
 		MipsImpl:                         dio.MipsSingleton,
@@ -106,6 +100,7 @@ func DeployImplementations(env *Env, intent *state.Intent, st *state.State) erro
 		AnchorStateRegistryImpl:          dio.AnchorStateRegistryImpl,
 		FaultDisputeGameImpl:             dio.FaultDisputeGameImpl,
 		PermissionedDisputeGameImpl:      dio.PermissionedDisputeGameImpl,
+		ZkDisputeGameImpl:                dio.ZkDisputeGameImpl,
 		StorageSetterImpl:                dio.StorageSetterImpl,
 	}
 

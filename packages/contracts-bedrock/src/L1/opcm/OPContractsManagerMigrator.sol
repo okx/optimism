@@ -17,7 +17,6 @@ import { IDisputeGame } from "interfaces/dispute/IDisputeGame.sol";
 import { IDisputeGameFactory } from "interfaces/dispute/IDisputeGameFactory.sol";
 import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
 import { IOptimismPortal2 as IOptimismPortal } from "interfaces/L1/IOptimismPortal2.sol";
-import { IOptimismPortalInterop } from "interfaces/L1/IOptimismPortalInterop.sol";
 import { IETHLockbox } from "interfaces/L1/IETHLockbox.sol";
 import { IOPContractsManagerContainer } from "interfaces/L1/opcm/IOPContractsManagerContainer.sol";
 import { IOPContractsManagerUtils } from "interfaces/L1/opcm/IOPContractsManagerUtils.sol";
@@ -46,8 +45,20 @@ contract OPContractsManagerMigrator is OPContractsManagerUtilsCaller {
     /// @notice Thrown when the starting respected game type is not a valid super game type.
     error OPContractsManagerMigrator_InvalidStartingRespectedGameType();
 
+    /// @notice Thrown when attempting to migrate a CGT chain.
+    error OPContractsManagerMigrator_CustomGasTokenNotSupported();
+
+    /// @notice Thrown when the chainSystemConfigs array is empty.
+    error OPContractsManagerMigrator_NoChains();
+
     /// @notice Thrown when the OPTIMISM_PORTAL_INTEROP dev feature is not enabled.
     error OPContractsManagerMigrator_InteropNotEnabled();
+
+    /// @notice Thrown when a chain's SystemConfig does not have Features.INTEROP enabled.
+    error OPContractsManagerMigrator_InteropFeatureNotEnabled();
+
+    /// @notice Thrown when a chain's SystemConfig does not have Features.ETH_LOCKBOX enabled.
+    error OPContractsManagerMigrator_EthLockboxFeatureNotEnabled();
 
     /// @param _utils The utility functions for the OPContractsManager.
     constructor(IOPContractsManagerUtils _utils) OPContractsManagerUtilsCaller(_utils) { }
@@ -76,14 +87,21 @@ contract OPContractsManagerMigrator is OPContractsManagerUtilsCaller {
     ///      upgraded to the current OPCM release version before calling migrate.
     /// @param _input The input parameters for the migration.
     function migrate(MigrateInput calldata _input) public {
+        // Check that at least one chain is being migrated.
+        if (_input.chainSystemConfigs.length == 0) {
+            revert OPContractsManagerMigrator_NoChains();
+        }
+
         // Check that the OPTIMISM_PORTAL_INTEROP dev feature is enabled.
         if (!contractsContainer().isDevFeatureEnabled(DevFeatures.OPTIMISM_PORTAL_INTEROP)) {
             revert OPContractsManagerMigrator_InteropNotEnabled();
         }
 
         // Check that the starting respected game type is a valid super game type.
+        // TODO(#20030): Remove SUPER_CANNON — only allow SUPER_CANNON_KONA and SUPER_PERMISSIONED_CANNON.
         if (
             _input.startingRespectedGameType.raw() != GameTypes.SUPER_CANNON.raw()
+                && _input.startingRespectedGameType.raw() != GameTypes.SUPER_CANNON_KONA.raw()
                 && _input.startingRespectedGameType.raw() != GameTypes.SUPER_PERMISSIONED_CANNON.raw()
         ) {
             revert OPContractsManagerMigrator_InvalidStartingRespectedGameType();
@@ -239,8 +257,22 @@ contract OPContractsManagerMigrator is OPContractsManagerUtilsCaller {
     )
         internal
     {
+        // CGT chains must not be migrated — prevents incorrect pooling into shared ETHLockbox.
+        if (_systemConfig.isCustomGasToken()) {
+            revert OPContractsManagerMigrator_CustomGasTokenNotSupported();
+        }
+
+        // Verify INTEROP is already enabled (set by OPCMv2.upgrade()).
+        // migrateToSharedDisputeGame requires both INTEROP and ETH_LOCKBOX.
+        if (!_systemConfig.isFeatureEnabled(Features.INTEROP)) {
+            revert OPContractsManagerMigrator_InteropFeatureNotEnabled();
+        }
+        if (!_systemConfig.isFeatureEnabled(Features.ETH_LOCKBOX)) {
+            revert OPContractsManagerMigrator_EthLockboxFeatureNotEnabled();
+        }
+
         // Convert portal to interop portal interface, and grab existing ETHLockbox and DGF.
-        IOptimismPortalInterop portal = IOptimismPortalInterop(payable(_systemConfig.optimismPortal()));
+        IOptimismPortal portal = IOptimismPortal(payable(_systemConfig.optimismPortal()));
         IETHLockbox existingLockbox = IETHLockbox(payable(address(portal.ethLockbox())));
         IDisputeGameFactory existingDGF = IDisputeGameFactory(payable(address(portal.disputeGameFactory())));
 
@@ -264,6 +296,7 @@ contract OPContractsManagerMigrator is OPContractsManagerUtilsCaller {
         existingDGF.setImplementation(GameTypes.SUPER_PERMISSIONED_CANNON, IDisputeGame(address(0)), hex"");
         existingDGF.setImplementation(GameTypes.CANNON_KONA, IDisputeGame(address(0)), hex"");
         existingDGF.setImplementation(GameTypes.SUPER_CANNON_KONA, IDisputeGame(address(0)), hex"");
+        existingDGF.setImplementation(GameTypes.ZK_DISPUTE_GAME, IDisputeGame(address(0)), hex"");
 
         // Enable the ETH lockbox feature on the SystemConfig if not already enabled.
         // This is needed for the SystemConfig's paused() function to use the correct identifier.
@@ -272,11 +305,7 @@ contract OPContractsManagerMigrator is OPContractsManagerUtilsCaller {
         }
 
         // Migrate the portal to the new ETHLockbox and AnchorStateRegistry.
-        // This also sets superRootsActive = true.
-        // NOTE: This requires the portal to already be upgraded to the interop version
-        // (OptimismPortalInterop). If the portal is not on the interop version, this call will
-        // fail.
-        portal.migrateToSuperRoots(_newLockbox, _newASR);
+        portal.migrateToSharedDisputeGame(_newLockbox, _newASR);
     }
 
     /// @notice Returns the contracts container.

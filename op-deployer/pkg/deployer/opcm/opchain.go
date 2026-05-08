@@ -99,7 +99,6 @@ type ReadImplementationAddressesInput struct {
 type ReadImplementationAddressesOutput struct {
 	DelayedWETH                  common.Address
 	OptimismPortal               common.Address
-	OptimismPortalInterop        common.Address
 	EthLockbox                   common.Address `evm:"ethLockbox"`
 	SystemConfig                 common.Address
 	AnchorStateRegistry          common.Address
@@ -114,9 +113,7 @@ type ReadImplementationAddressesOutput struct {
 	PermissionedDisputeGame      common.Address
 	SuperFaultDisputeGame        common.Address
 	SuperPermissionedDisputeGame common.Address
-	OpcmDeployer                 common.Address
-	OpcmUpgrader                 common.Address
-	OpcmGameTypeAdder            common.Address
+	ZkDisputeGame                common.Address
 	OpcmStandardValidator        common.Address
 	OpcmInteropMigrator          common.Address
 }

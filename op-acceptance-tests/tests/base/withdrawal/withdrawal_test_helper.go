@@ -27,9 +27,6 @@ func withdrawalOpts(gameType gameTypes.GameType) []presets.Option {
 			cfg.DisputeGameType = uint32(gameType)
 		}),
 	}
-	if gameType == gameTypes.CannonKonaGameType {
-		opts = append(opts, presets.WithChallengerCannonKonaEnabled())
-	}
 	return opts
 }
 
@@ -38,12 +35,11 @@ func newSystem(t devtest.T, gameType gameTypes.GameType) *presets.Minimal {
 }
 
 func TestWithdrawal(gt *testing.T, gameType gameTypes.GameType) {
-	t := devtest.SerialT(gt)
+	t := devtest.ParallelT(gt)
 	sys := newSystem(t, gameType)
-	require := sys.T.Require()
 
 	bridge := sys.StandardBridge()
-	require.EqualValuesf(gameType, bridge.RespectedGameType(), "Respected game type must be %s", gameType)
+	bridge.VerifyRespectedGameType(gameType)
 
 	initialL1Balance := eth.OneThirdEther
 

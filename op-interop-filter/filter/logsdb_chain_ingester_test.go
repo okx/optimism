@@ -633,6 +633,34 @@ func TestLogsDBChainIngester_InitIngestion_FreshStart(t *testing.T) {
 	require.Equal(t, startingBlock, nextBlock)
 }
 
+func TestLogsDBChainIngester_CalculateStartingBlock_BackfillUnderflow(t *testing.T) {
+	chainID := eth.ChainIDFromUInt64(901)
+	tempDir := t.TempDir()
+
+	mockClient := NewMockEthClient()
+
+	l2StartBlock := uint64(100)
+	l2StartTimestamp := uint64(1000)
+
+	headBlock := createTestBlock(200, 1200, common.Hash{0x99})
+	mockClient.AddBlock(headBlock, nil)
+	mockClient.SetHeadBlock(headBlock)
+
+	ingester := newTestLogsDBChainIngester(t, testIngesterConfig{
+		chainID:   chainID,
+		dataDir:   tempDir,
+		ethClient: mockClient,
+		rollupCfg: testRollupConfig(901, l2StartBlock, l2StartTimestamp),
+	})
+
+	// startTimestamp=50, backfillDuration=200s would underflow without the guard
+	ingester.startTimestamp = 50
+	ingester.backfillDuration = 200 * time.Second
+
+	startingBlock := ingester.calculateStartingBlock()
+	require.Equal(t, l2StartBlock, startingBlock)
+}
+
 func TestLogsDBChainIngester_InitIngestion_ResumeFromExistingDB(t *testing.T) {
 	chainID := eth.ChainIDFromUInt64(901)
 	tempDir := t.TempDir()
@@ -696,6 +724,7 @@ func TestLogsDBChainIngester_InitIngestion_ResumeFromExistingDB(t *testing.T) {
 
 	// Verify earliest block was found
 	require.True(t, ingester2.earliestIngestedBlockSet.Load())
+	require.Equal(t, uint64(100), ingester2.earliestIngestedBlock.Load())
 }
 
 func TestLogsDBChainIngester_InitIngestion_ErrorGettingHead(t *testing.T) {

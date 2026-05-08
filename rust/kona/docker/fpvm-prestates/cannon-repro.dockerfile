@@ -33,10 +33,17 @@ COPY --from=custom_configs / /usr/local/kona-custom-configs
 # Copy kona source from build context
 COPY . /kona
 
+# Pull in the NUT bundle JSONs from the monorepo context so the kona-hardforks
+# build.rs ancestor walk finds op-core/ as a parent of the crate directory.
+COPY --from=monorepo op-core/nuts/bundles /kona/op-core/nuts/bundles
+
 ENV KONA_CUSTOM_CONFIGS=$KONA_CUSTOM_CONFIGS
 ENV KONA_CUSTOM_CONFIGS_DIR=/usr/local/kona-custom-configs
 
 # Build kona-client
+# Override the target spec baked into the cannon-builder image (which has
+# target-c-int-width: 64) with the corrected one from the source tree.
+COPY kona/docker/cannon/mips64-unknown-none.json /mips64-unknown-none.json
 RUN cd kona && \
   cargo build -Zbuild-std=core,alloc -Zjson-target-spec -p kona-client --bin $CLIENT_BIN --locked --profile release-client-lto && \
   mv ./target/mips64-unknown-none/release-client-lto/$CLIENT_BIN /kona-client-elf
