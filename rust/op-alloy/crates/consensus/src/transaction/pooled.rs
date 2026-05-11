@@ -76,11 +76,8 @@ impl OpPooledTransaction {
     /// envelope has no ECDSA outer signature; per xlayer-aa.md (2026-04-29 lesson) we
     /// must NOT reinterpret `sender_auth` bytes as the outer signature.
     pub fn signature(&self) -> &Signature {
-        static AA_DUMMY_SIG: Signature = Signature::new(
-            alloy_primitives::U256::ZERO,
-            alloy_primitives::U256::ZERO,
-            false,
-        );
+        static AA_DUMMY_SIG: Signature =
+            Signature::new(alloy_primitives::U256::ZERO, alloy_primitives::U256::ZERO, false);
         match self {
             Self::Legacy(tx) => tx.signature(),
             Self::Eip2930(tx) => tx.signature(),

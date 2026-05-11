@@ -4,11 +4,10 @@
 //! (tx-type `0x7B`). At activation we deploy two system contracts via
 //! deposit transactions:
 //!
-//! 1. `AccountConfiguration` — owner registrations, account creation,
-//!    config changes, locks. The handler emits all account-creation /
-//!    owner-change logs from this address.
-//! 2. `DefaultAccount` — the wallet implementation bare EOAs are
-//!    auto-delegated to via EIP-7702 (`0xef0100 || DEFAULT_ACCOUNT_ADDRESS`).
+//! 1. `AccountConfiguration` — owner registrations, account creation, config changes, locks. The
+//!    handler emits all account-creation / owner-change logs from this address.
+//! 2. `DefaultAccount` — the wallet implementation bare EOAs are auto-delegated to via EIP-7702
+//!    (`0xef0100 || DEFAULT_ACCOUNT_ADDRESS`).
 //!
 //! The four native verifiers (K1 / P256 / WebAuthn / Delegate) are
 //! **not** deployed here — verification happens natively inside the
@@ -44,10 +43,8 @@ impl XlayerV1 {
 
     /// Source-hash intent for the `AccountConfiguration` deployment.
     pub fn deploy_account_configuration_source() -> B256 {
-        UpgradeDepositSource {
-            intent: String::from("XLayer V1: Account Configuration Deployment"),
-        }
-        .source_hash()
+        UpgradeDepositSource { intent: String::from("XLayer V1: Account Configuration Deployment") }
+            .source_hash()
     }
 
     /// Source-hash intent for the `DefaultAccount` deployment.
@@ -283,8 +280,7 @@ mod tests {
         };
         assert_eq!(address, expected_address, "Contract deployed to an unexpected address");
 
-        let code =
-            evm.load_account_code(address).expect("Account does not exist after deployment");
+        let code = evm.load_account_code(address).expect("Account does not exist after deployment");
         assert!(!code.is_empty(), "Deployed code is empty at {address}");
     }
 }

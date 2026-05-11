@@ -210,11 +210,7 @@ pub fn payer_intrinsic_gas(parts: &Eip8130Parts, params: &GasParams) -> u64 {
 #[inline]
 pub fn nonce_key_cost(parts: &Eip8130Parts, params: &GasParams) -> u64 {
     use revm::primitives::U256;
-    if parts.nonce_key == U256::MAX {
-        params.expiring_nonce_gas()
-    } else {
-        params.nonce_cold_gas()
-    }
+    if parts.nonce_key == U256::MAX { params.expiring_nonce_gas() } else { params.nonce_cold_gas() }
 }
 
 /// Gas refunded into the per-phase execution budget when the nonce slot
@@ -230,10 +226,10 @@ pub fn nonce_key_cost(parts: &Eip8130Parts, params: &GasParams) -> u64 {
 ///
 /// The handler reads the nonce slot during `execution()` and:
 ///
-/// - if the slot value is `> 1`: adds this refund back to `gas_remaining`
-///   (the cold charge was over-conservative);
-/// - if `<= 1`: no adjustment (the cold charge was correct — slot was
-///   genuinely fresh / never written).
+/// - if the slot value is `> 1`: adds this refund back to `gas_remaining` (the cold charge was
+///   over-conservative);
+/// - if `<= 1`: no adjustment (the cold charge was correct — slot was genuinely fresh / never
+///   written).
 ///
 /// Returns 0 in regimes where either nonce slot is zero (e.g., pre-XLAYER_V1
 /// when neither is overridden), so callers don't need to special-case forks.
@@ -249,8 +245,8 @@ pub fn nonce_warm_refund(params: &GasParams) -> u64 {
 ///   parser projects the create's `initial_owners` into
 ///   `pre_writes` (one per owner) and onto
 ///   [`Eip8130AccountChanges::create_initial_owners_count`][crate::transaction::eip8130::Eip8130AccountChanges::create_initial_owners_count].
-/// - **`ConfigChange` (matching)**: `aa_config_change_per_op_gas *
-///   sum_owner_changes`. The parser projects each matching entry into one
+/// - **`ConfigChange` (matching)**: `aa_config_change_per_op_gas * sum_owner_changes`. The parser
+///   projects each matching entry into one
 ///   [`Eip8130AuthorizerValidation`][crate::transaction::eip8130::Eip8130AuthorizerValidation]
 ///   carrying its `owner_changes`; we sum across all of them.
 /// - **`ConfigChange` (skipped)**: `aa_config_change_skip_gas` per entry.
@@ -268,20 +264,18 @@ pub fn account_changes_cost(parts: &Eip8130Parts, params: &GasParams) -> u64 {
     // Create entry: 1 (the create itself) + N initial-owner registrations.
     if parts.account_changes.has_create_entry {
         let units = 1u64.saturating_add(parts.account_changes.create_initial_owners_count as u64);
-        total = total.saturating_add(
-            params.aa_create_per_unit_gas().saturating_mul(units),
-        );
+        total = total.saturating_add(params.aa_create_per_unit_gas().saturating_mul(units));
     }
 
     // Matching ConfigChange entries: sum owner_changes across all kept
     // authorizer_validations.
     let matching_ops: u64 = parts
-        .account_changes.authorizer_validations
+        .account_changes
+        .authorizer_validations
         .iter()
         .map(|v| v.owner_changes.len() as u64)
         .sum();
-    total = total
-        .saturating_add(params.aa_config_change_per_op_gas().saturating_mul(matching_ops));
+    total = total.saturating_add(params.aa_config_change_per_op_gas().saturating_mul(matching_ops));
 
     // Skipped ConfigChange entries: one SLOAD per skip.
     total = total.saturating_add(
@@ -292,7 +286,9 @@ pub fn account_changes_cost(parts: &Eip8130Parts, params: &GasParams) -> u64 {
 
     // Delegation entries: fixed per-entry charge.
     total = total.saturating_add(
-        params.aa_delegation_gas().saturating_mul(parts.account_changes.delegation_entry_count as u64),
+        params
+            .aa_delegation_gas()
+            .saturating_mul(parts.account_changes.delegation_entry_count as u64),
     );
 
     total
@@ -322,9 +318,8 @@ pub fn bytecode_cost(parts: &Eip8130Parts, params: &GasParams) -> u64 {
 /// Authorizer verification gas inside `ConfigChange` entries.
 ///
 /// For each [`Eip8130AuthorizerValidation`][crate::transaction::eip8130::Eip8130AuthorizerValidation]:
-///   - per-verifier verification gas via [`verifier_verification_gas`]
-///     (`0` for custom verifiers — they're billed against
-///     [`crate::constants::XLAYER_AA_CUSTOM_VERIFIER_GAS_CAP`] at runtime),
+///   - per-verifier verification gas via [`verifier_verification_gas`] (`0` for custom verifiers —
+///     they're billed against [`crate::constants::XLAYER_AA_CUSTOM_VERIFIER_GAS_CAP`] at runtime),
 ///   - one SLOAD for the authorizer's `owner_config` row read.
 ///
 /// Empty `authorizer_auth` blobs are surfaced by the parser as a
@@ -342,11 +337,7 @@ pub fn authorizer_verification_gas(parts: &Eip8130Parts, params: &GasParams) -> 
         // Authorizer auth doesn't currently support nested Delegate (parser
         // rejects it as malformed → verifier == ZERO above). Pass `None` for
         // the inner native to match.
-        total = total.saturating_add(verifier_verification_gas(
-            validation.verifier,
-            None,
-            params,
-        ));
+        total = total.saturating_add(verifier_verification_gas(validation.verifier, None, params));
         // SLOAD for the authorizer's owner_config row.
         total = total.saturating_add(params.aa_authorizer_sload_gas());
     }
@@ -381,8 +372,10 @@ mod tests {
     use super::*;
     use crate::{OpSpecId, gas_params::xlayer_gas_params};
     use alloy_primitives::Bytes;
-    use revm::context_interface::cfg::GasId;
-    use revm::primitives::{Address, U256};
+    use revm::{
+        context_interface::cfg::GasId,
+        primitives::{Address, U256},
+    };
 
     /// Test [`GasParams`] for `XLAYER_V1` — cached once for the test module.
     fn params() -> GasParams {
@@ -440,7 +433,10 @@ mod tests {
     #[test]
     fn k1_verification_gas() {
         let p = params();
-        assert_eq!(verifier_verification_gas(K1_VERIFIER_ADDRESS, None, &p), p.k1_verification_gas());
+        assert_eq!(
+            verifier_verification_gas(K1_VERIFIER_ADDRESS, None, &p),
+            p.k1_verification_gas()
+        );
     }
 
     #[test]
@@ -526,10 +522,7 @@ mod tests {
             Some(DELEGATE_VERIFIER_ADDRESS),
             &p,
         );
-        assert_eq!(
-            g,
-            p.delegate_outer_verification_gas() * 2 + p.k1_verification_gas(),
-        );
+        assert_eq!(g, p.delegate_outer_verification_gas() * 2 + p.k1_verification_gas(),);
     }
 
     #[test]
@@ -889,10 +882,8 @@ mod tests {
         let p = params();
         let mut parts = empty_parts();
         parts.account_changes.has_create_entry = true;
-        parts.account_changes.code_placements = vec![Eip8130CodePlacement {
-            address: Address::repeat_byte(0xDE),
-            code: Bytes::new(),
-        }];
+        parts.account_changes.code_placements =
+            vec![Eip8130CodePlacement { address: Address::repeat_byte(0xDE), code: Bytes::new() }];
         let base = p.get(revm::context_interface::cfg::GasId::create());
         assert_eq!(bytecode_cost(&parts, &p), base);
     }
@@ -917,8 +908,8 @@ mod tests {
             },
         ];
         // Each validation contributes verifier_gas + aa_authorizer_sload_gas.
-        let expected = (p.k1_verification_gas() + p.aa_authorizer_sload_gas())
-            + (p.p256_raw_verification_gas() + p.aa_authorizer_sload_gas());
+        let expected = (p.k1_verification_gas() + p.aa_authorizer_sload_gas()) +
+            (p.p256_raw_verification_gas() + p.aa_authorizer_sload_gas());
         assert_eq!(authorizer_verification_gas(&parts, &p), expected);
     }
 
@@ -986,9 +977,8 @@ mod tests {
         // + 0 (placeholders) + nonce_cold_gas.
         let p = params();
         let parts = Eip8130Parts::default();
-        let expected = p.get(GasId::tx_base_stipend())
-            + p.k1_verification_gas()
-            + p.nonce_cold_gas();
+        let expected =
+            p.get(GasId::tx_base_stipend()) + p.k1_verification_gas() + p.nonce_cold_gas();
         assert_eq!(aa_intrinsic_gas(&parts, &p), expected);
     }
 
@@ -1019,7 +1009,7 @@ mod tests {
             + parts.sender_payload_calldata_cost
             + p.get(GasId::cold_storage_cost())  // sender_auth_cost
             + p.p256_webauthn_verification_gas() // sender_verification_gas
-            + p.nonce_cold_gas();                // payer side all zero
+            + p.nonce_cold_gas(); // payer side all zero
         assert_eq!(aa_intrinsic_gas(&parts, &p), expected);
     }
 

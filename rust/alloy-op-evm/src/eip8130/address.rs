@@ -42,7 +42,7 @@ const fn deployment_header(bytecode_len: usize) -> [u8; DEPLOYMENT_HEADER_LEN] {
     let hi = (len >> 8) as u8;
     let lo = (len & 0xFF) as u8;
     [
-        0x61, hi, lo, // PUSH2 len
+        0x61, hi, lo,   // PUSH2 len
         0x80, // DUP1
         0x60, 0x0e, // PUSH1 14 (header size = code offset)
         0x60, 0x00, // PUSH1 0

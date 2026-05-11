@@ -17,7 +17,6 @@ use alloy_evm::{
 use alloy_op_hardforks::{OpChainHardforks, OpHardforks};
 use alloy_primitives::{Address, B256, Bytes};
 use canyon::ensure_create2_deployer;
-use xlayer_v1::ensure_aa_predeploys;
 use op_alloy::consensus::OpDepositReceipt;
 use op_revm::{
     L1BlockInfo, OpTransaction, constants::L1_BLOCK_CONTRACT, estimate_tx_compressed_size,
@@ -30,10 +29,11 @@ use revm::{
     context::{Block, result::ResultAndState},
     database::DatabaseCommitExt,
 };
+use xlayer_v1::ensure_aa_predeploys;
 
 mod canyon;
-mod xlayer_v1;
 pub mod receipt_builder;
+mod xlayer_v1;
 
 /// Trait for OP transaction environments. Allows to recover the transaction encoded bytes if
 /// they're available.

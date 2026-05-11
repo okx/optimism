@@ -31,9 +31,9 @@ pub use transaction::{
     DEPOSIT_TX_TYPE_ID, DelegationEntry, DepositTransaction, Eip8130CallEntry, OpPooledTransaction,
     OpTransaction, OpTxEnvelope, OpTxType, OpTypedTransaction, Owner, OwnerChange, TxDeposit,
     TxEip8130,
-};
-pub use transaction::xlayer_sig::{
-    config_change_digest, encode_verify_call, payer_signature_hash, sender_signature_hash,
+    xlayer_sig::{
+        config_change_digest, encode_verify_call, payer_signature_hash, sender_signature_hash,
+    },
 };
 
 pub mod eip1559;

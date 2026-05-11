@@ -327,10 +327,7 @@ impl RollupConfig {
     /// writer only emits `karst_time`. Without this fallback, devnets that activate Karst
     /// at genesis would still see EIP-8130 rejected by the derivation gate.
     pub fn is_xlayer_v1_active(&self, timestamp: u64) -> bool {
-        self.hardforks
-            .xlayer_v1_time
-            .or(self.hardforks.karst_time)
-            .is_some_and(|t| timestamp >= t)
+        self.hardforks.xlayer_v1_time.or(self.hardforks.karst_time).is_some_and(|t| timestamp >= t)
     }
 
     /// Returns true if the timestamp marks the first XLayerV1 block.

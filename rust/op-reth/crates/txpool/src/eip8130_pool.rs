@@ -471,9 +471,9 @@ struct EvictionKey {
 
 impl PartialEq for EvictionKey {
     fn eq(&self, other: &Self) -> bool {
-        self.priority == other.priority
-            && self.submission_id == other.submission_id
-            && self.hash == other.hash
+        self.priority == other.priority &&
+            self.submission_id == other.submission_id &&
+            self.hash == other.hash
     }
 }
 
@@ -1955,8 +1955,8 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
                     let new_head: u64 = value.saturating_to();
                     lane_advances.push((seq, new_head));
                 }
-                if !value.is_zero()
-                    && let Some(exp_hash) = self.slot_to_expiring.get(&slot).copied()
+                if !value.is_zero() &&
+                    let Some(exp_hash) = self.slot_to_expiring.get(&slot).copied()
                 {
                     expiring_evictions.push(exp_hash);
                 }
@@ -2403,9 +2403,9 @@ where
             inner.account_changes.iter().any(|e| {
                 matches!(
                     e,
-                    op_alloy_consensus::AccountChangeEntry::Create(_)
-                        | op_alloy_consensus::AccountChangeEntry::Delegation(_)
-                        | op_alloy_consensus::AccountChangeEntry::ConfigChange(_)
+                    op_alloy_consensus::AccountChangeEntry::Create(_) |
+                        op_alloy_consensus::AccountChangeEntry::Delegation(_) |
+                        op_alloy_consensus::AccountChangeEntry::ConfigChange(_)
                 )
             })
         } else {

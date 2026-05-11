@@ -410,10 +410,7 @@ impl From<Genesis> for OpChainSpec {
             // XLayerV1 is the XLayer-side rename of Karst; the Go-side fork registry only
             // emits `karstTime`. Fall back so devnets / chains that activate Karst-at-genesis
             // also flip on EIP-8130 without needing an explicit `xlayerV1Time` field.
-            (
-                OpHardfork::XLayerV1.boxed(),
-                genesis_info.xlayer_v1_time.or(genesis_info.karst_time),
-            ),
+            (OpHardfork::XLayerV1.boxed(), genesis_info.xlayer_v1_time.or(genesis_info.karst_time)),
             (OpHardfork::Interop.boxed(), genesis_info.interop_time),
         ];
 

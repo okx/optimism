@@ -203,8 +203,7 @@ mod xlayer_tests {
     use alloc::sync::Arc;
     use alloy_consensus::{Block, BlockBody, Header, Sealable};
     use alloy_eips::eip2718::{Decodable2718, Encodable2718};
-    use alloy_primitives::{Address, B256, U256};
-    use alloy_primitives::Bytes;
+    use alloy_primitives::{Address, B256, Bytes, U256};
     use alloy_signer::SignerSync;
     use alloy_signer_local::PrivateKeySigner;
     use op_alloy_consensus::{Eip8130CallEntry, OpTxEnvelope, TxEip8130, sender_signature_hash};

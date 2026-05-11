@@ -158,11 +158,7 @@ mod tests {
         for addr in AA_PRECOMPILE_ADDRESSES {
             let info = db.basic(addr).unwrap().expect("account should exist after deploy");
             let code = info.code.as_ref().expect("code present");
-            assert_eq!(
-                code.original_bytes().as_ref(),
-                AA_STUB_BYTECODE,
-                "wrong stub at {addr}",
-            );
+            assert_eq!(code.original_bytes().as_ref(), AA_STUB_BYTECODE, "wrong stub at {addr}",);
         }
     }
 

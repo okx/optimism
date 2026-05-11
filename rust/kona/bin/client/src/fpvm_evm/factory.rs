@@ -108,4 +108,3 @@ where
         OpEvm::new(revm_evm, true)
     }
 }
-

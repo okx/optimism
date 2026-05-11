@@ -124,10 +124,10 @@ pub struct OwnerChange {
 
 impl Encodable for OwnerChange {
     fn encode(&self, out: &mut dyn BufMut) {
-        let payload = self.change_type.length()
-            + self.verifier.length()
-            + self.owner_id.length()
-            + self.scope.length();
+        let payload = self.change_type.length() +
+            self.verifier.length() +
+            self.owner_id.length() +
+            self.scope.length();
         Header { list: true, payload_length: payload }.encode(out);
         self.change_type.encode(out);
         self.verifier.encode(out);
@@ -136,10 +136,10 @@ impl Encodable for OwnerChange {
     }
 
     fn length(&self) -> usize {
-        let payload = self.change_type.length()
-            + self.verifier.length()
-            + self.owner_id.length()
-            + self.scope.length();
+        let payload = self.change_type.length() +
+            self.verifier.length() +
+            self.owner_id.length() +
+            self.scope.length();
         payload + length_of_length(payload)
     }
 }
@@ -230,10 +230,10 @@ impl Encodable for AccountChangeEntry {
         match self {
             Self::Create(create) => {
                 let owners_len = list_len(&create.initial_owners);
-                let payload = CHANGE_TYPE_CREATE.length()
-                    + create.user_salt.length()
-                    + create.bytecode.length()
-                    + owners_len;
+                let payload = CHANGE_TYPE_CREATE.length() +
+                    create.user_salt.length() +
+                    create.bytecode.length() +
+                    owners_len;
                 Header { list: true, payload_length: payload }.encode(out);
                 CHANGE_TYPE_CREATE.encode(out);
                 create.user_salt.encode(out);
@@ -242,11 +242,11 @@ impl Encodable for AccountChangeEntry {
             }
             Self::ConfigChange(change) => {
                 let owner_changes_len = list_len(&change.owner_changes);
-                let payload = CHANGE_TYPE_CONFIG.length()
-                    + change.chain_id.length()
-                    + change.sequence.length()
-                    + owner_changes_len
-                    + change.authorizer_auth.length();
+                let payload = CHANGE_TYPE_CONFIG.length() +
+                    change.chain_id.length() +
+                    change.sequence.length() +
+                    owner_changes_len +
+                    change.authorizer_auth.length();
                 Header { list: true, payload_length: payload }.encode(out);
                 CHANGE_TYPE_CONFIG.encode(out);
                 change.chain_id.encode(out);
@@ -266,17 +266,17 @@ impl Encodable for AccountChangeEntry {
     fn length(&self) -> usize {
         let payload = match self {
             Self::Create(create) => {
-                CHANGE_TYPE_CREATE.length()
-                    + create.user_salt.length()
-                    + create.bytecode.length()
-                    + list_len(&create.initial_owners)
+                CHANGE_TYPE_CREATE.length() +
+                    create.user_salt.length() +
+                    create.bytecode.length() +
+                    list_len(&create.initial_owners)
             }
             Self::ConfigChange(change) => {
-                CHANGE_TYPE_CONFIG.length()
-                    + change.chain_id.length()
-                    + change.sequence.length()
-                    + list_len(&change.owner_changes)
-                    + change.authorizer_auth.length()
+                CHANGE_TYPE_CONFIG.length() +
+                    change.chain_id.length() +
+                    change.sequence.length() +
+                    list_len(&change.owner_changes) +
+                    change.authorizer_auth.length()
             }
             Self::Delegation(delegation) => {
                 CHANGE_TYPE_DELEGATION.length() + delegation.target.length()
@@ -398,19 +398,19 @@ impl TxEip8130 {
 
     /// Length of RLP-encoded fields without list header.
     pub fn rlp_encoded_fields_length(&self) -> usize {
-        self.chain_id.length()
-            + optional_address_len(&self.from)
-            + self.nonce_key.length()
-            + self.nonce_sequence.length()
-            + self.expiry.length()
-            + self.max_priority_fee_per_gas.length()
-            + self.max_fee_per_gas.length()
-            + self.gas_limit.length()
-            + list_len(&self.account_changes)
-            + nested_calls_len(&self.calls)
-            + optional_address_len(&self.payer)
-            + self.sender_auth.length()
-            + self.payer_auth.length()
+        self.chain_id.length() +
+            optional_address_len(&self.from) +
+            self.nonce_key.length() +
+            self.nonce_sequence.length() +
+            self.expiry.length() +
+            self.max_priority_fee_per_gas.length() +
+            self.max_fee_per_gas.length() +
+            self.gas_limit.length() +
+            list_len(&self.account_changes) +
+            nested_calls_len(&self.calls) +
+            optional_address_len(&self.payer) +
+            self.sender_auth.length() +
+            self.payer_auth.length()
     }
 
     /// RLP-encode fields without list header.
@@ -500,45 +500,45 @@ impl TxEip8130 {
     pub fn sender_payload_len_for_signature(&self) -> usize {
         1 + Header {
             list: true,
-            payload_length: self.chain_id.length()
-                + optional_address_len(&self.from)
-                + self.nonce_key.length()
-                + self.nonce_sequence.length()
-                + self.expiry.length()
-                + self.max_priority_fee_per_gas.length()
-                + self.max_fee_per_gas.length()
-                + self.gas_limit.length()
-                + list_len(&self.account_changes)
-                + nested_calls_len(&self.calls)
-                + optional_address_len(&self.payer),
+            payload_length: self.chain_id.length() +
+                optional_address_len(&self.from) +
+                self.nonce_key.length() +
+                self.nonce_sequence.length() +
+                self.expiry.length() +
+                self.max_priority_fee_per_gas.length() +
+                self.max_fee_per_gas.length() +
+                self.gas_limit.length() +
+                list_len(&self.account_changes) +
+                nested_calls_len(&self.calls) +
+                optional_address_len(&self.payer),
         }
-        .length()
-            + self.chain_id.length()
-            + optional_address_len(&self.from)
-            + self.nonce_key.length()
-            + self.nonce_sequence.length()
-            + self.expiry.length()
-            + self.max_priority_fee_per_gas.length()
-            + self.max_fee_per_gas.length()
-            + self.gas_limit.length()
-            + list_len(&self.account_changes)
-            + nested_calls_len(&self.calls)
-            + optional_address_len(&self.payer)
+        .length() +
+            self.chain_id.length() +
+            optional_address_len(&self.from) +
+            self.nonce_key.length() +
+            self.nonce_sequence.length() +
+            self.expiry.length() +
+            self.max_priority_fee_per_gas.length() +
+            self.max_fee_per_gas.length() +
+            self.gas_limit.length() +
+            list_len(&self.account_changes) +
+            nested_calls_len(&self.calls) +
+            optional_address_len(&self.payer)
     }
 
     /// Encodes the EIP-8130 sender signing preimage into `out`.
     pub fn encode_for_sender_signing(&self, out: &mut dyn BufMut) {
-        let payload_length = self.chain_id.length()
-            + optional_address_len(&self.from)
-            + self.nonce_key.length()
-            + self.nonce_sequence.length()
-            + self.expiry.length()
-            + self.max_priority_fee_per_gas.length()
-            + self.max_fee_per_gas.length()
-            + self.gas_limit.length()
-            + list_len(&self.account_changes)
-            + nested_calls_len(&self.calls)
-            + optional_address_len(&self.payer);
+        let payload_length = self.chain_id.length() +
+            optional_address_len(&self.from) +
+            self.nonce_key.length() +
+            self.nonce_sequence.length() +
+            self.expiry.length() +
+            self.max_priority_fee_per_gas.length() +
+            self.max_fee_per_gas.length() +
+            self.gas_limit.length() +
+            list_len(&self.account_changes) +
+            nested_calls_len(&self.calls) +
+            optional_address_len(&self.payer);
 
         out.put_u8(AA_TX_TYPE_ID);
         Header { list: true, payload_length }.encode(out);
@@ -569,42 +569,42 @@ impl TxEip8130 {
     pub fn payer_payload_len_for_signature(&self) -> usize {
         1 + Header {
             list: true,
-            payload_length: self.chain_id.length()
-                + optional_address_len(&self.from)
-                + self.nonce_key.length()
-                + self.nonce_sequence.length()
-                + self.expiry.length()
-                + self.max_priority_fee_per_gas.length()
-                + self.max_fee_per_gas.length()
-                + self.gas_limit.length()
-                + list_len(&self.account_changes)
-                + nested_calls_len(&self.calls),
+            payload_length: self.chain_id.length() +
+                optional_address_len(&self.from) +
+                self.nonce_key.length() +
+                self.nonce_sequence.length() +
+                self.expiry.length() +
+                self.max_priority_fee_per_gas.length() +
+                self.max_fee_per_gas.length() +
+                self.gas_limit.length() +
+                list_len(&self.account_changes) +
+                nested_calls_len(&self.calls),
         }
-        .length()
-            + self.chain_id.length()
-            + optional_address_len(&self.from)
-            + self.nonce_key.length()
-            + self.nonce_sequence.length()
-            + self.expiry.length()
-            + self.max_priority_fee_per_gas.length()
-            + self.max_fee_per_gas.length()
-            + self.gas_limit.length()
-            + list_len(&self.account_changes)
-            + nested_calls_len(&self.calls)
+        .length() +
+            self.chain_id.length() +
+            optional_address_len(&self.from) +
+            self.nonce_key.length() +
+            self.nonce_sequence.length() +
+            self.expiry.length() +
+            self.max_priority_fee_per_gas.length() +
+            self.max_fee_per_gas.length() +
+            self.gas_limit.length() +
+            list_len(&self.account_changes) +
+            nested_calls_len(&self.calls)
     }
 
     /// Encodes the EIP-8130 payer signing preimage into `out`.
     pub fn encode_for_payer_signing(&self, out: &mut dyn BufMut) {
-        let payload_length = self.chain_id.length()
-            + optional_address_len(&self.from)
-            + self.nonce_key.length()
-            + self.nonce_sequence.length()
-            + self.expiry.length()
-            + self.max_priority_fee_per_gas.length()
-            + self.max_fee_per_gas.length()
-            + self.gas_limit.length()
-            + list_len(&self.account_changes)
-            + nested_calls_len(&self.calls);
+        let payload_length = self.chain_id.length() +
+            optional_address_len(&self.from) +
+            self.nonce_key.length() +
+            self.nonce_sequence.length() +
+            self.expiry.length() +
+            self.max_priority_fee_per_gas.length() +
+            self.max_fee_per_gas.length() +
+            self.gas_limit.length() +
+            list_len(&self.account_changes) +
+            nested_calls_len(&self.calls);
 
         out.put_u8(AA_PAYER_TYPE_ID);
         Header { list: true, payload_length }.encode(out);
@@ -629,16 +629,15 @@ impl TxEip8130 {
 
     /// Approximate in-memory size.
     pub fn size(&self) -> usize {
-        core::mem::size_of::<Self>()
-            + self.account_changes.len() * core::mem::size_of::<AccountChangeEntry>()
-            + self
-                .calls
+        core::mem::size_of::<Self>() +
+            self.account_changes.len() * core::mem::size_of::<AccountChangeEntry>() +
+            self.calls
                 .iter()
                 .flat_map(|phase| phase.iter())
                 .map(|call| call.data.len())
-                .sum::<usize>()
-            + self.sender_auth.len()
-            + self.payer_auth.len()
+                .sum::<usize>() +
+            self.sender_auth.len() +
+            self.payer_auth.len()
     }
 }
 
@@ -761,8 +760,8 @@ impl Transaction for TxEip8130 {
     fn effective_gas_price(&self, base_fee: Option<u64>) -> u128 {
         base_fee.map_or(self.max_fee_per_gas, |base_fee| {
             let base_fee = base_fee as u128;
-            base_fee
-                + self.max_fee_per_gas.saturating_sub(base_fee).min(self.max_priority_fee_per_gas)
+            base_fee +
+                self.max_fee_per_gas.saturating_sub(base_fee).min(self.max_priority_fee_per_gas)
         })
     }
 
@@ -902,8 +901,10 @@ fn decode_nested_calls(buf: &mut &[u8]) -> alloy_rlp::Result<Vec<Vec<Eip8130Call
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::DEPOSIT_TX_TYPE_ID;
-    use crate::transaction::xlayer_sig::{payer_signature_hash, sender_signature_hash};
+    use crate::{
+        DEPOSIT_TX_TYPE_ID,
+        transaction::xlayer_sig::{payer_signature_hash, sender_signature_hash},
+    };
     use alloy_rlp::{Decodable, Encodable};
 
     fn sample_owner(scope: u8) -> Owner {
@@ -1116,10 +1117,19 @@ mod tests {
         let tx = TxEip8130 {
             calls: vec![
                 vec![
-                    Eip8130CallEntry { to: Address::repeat_byte(1), data: Bytes::from_static(&[0x01]) },
-                    Eip8130CallEntry { to: Address::repeat_byte(2), data: Bytes::from_static(&[0x02]) },
+                    Eip8130CallEntry {
+                        to: Address::repeat_byte(1),
+                        data: Bytes::from_static(&[0x01]),
+                    },
+                    Eip8130CallEntry {
+                        to: Address::repeat_byte(2),
+                        data: Bytes::from_static(&[0x02]),
+                    },
                 ],
-                vec![Eip8130CallEntry { to: Address::repeat_byte(3), data: Bytes::from_static(&[0x03]) }],
+                vec![Eip8130CallEntry {
+                    to: Address::repeat_byte(3),
+                    data: Bytes::from_static(&[0x03]),
+                }],
             ],
             ..sample_tx()
         };
@@ -1233,11 +1243,11 @@ mod tests {
     #[test]
     fn size_counts_dynamic_auth_and_call_data() {
         let tx = sample_tx();
-        let expected_floor = core::mem::size_of::<TxEip8130>()
-            + tx.account_changes.len() * core::mem::size_of::<AccountChangeEntry>()
-            + tx.sender_auth.len()
-            + tx.payer_auth.len()
-            + tx.calls
+        let expected_floor = core::mem::size_of::<TxEip8130>() +
+            tx.account_changes.len() * core::mem::size_of::<AccountChangeEntry>() +
+            tx.sender_auth.len() +
+            tx.payer_auth.len() +
+            tx.calls
                 .iter()
                 .flat_map(|phase| phase.iter())
                 .map(|call| call.data.len())

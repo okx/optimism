@@ -166,12 +166,12 @@ impl<T> OpReceiptEnvelope<T> {
     /// Return the receipt's bloom.
     pub const fn logs_bloom(&self) -> &Bloom {
         match self {
-            Self::Legacy(t)
-            | Self::Eip2930(t)
-            | Self::Eip1559(t)
-            | Self::Eip7702(t)
-            | Self::Eip8130(t)
-            | Self::PostExec(t) => &t.logs_bloom,
+            Self::Legacy(t) |
+            Self::Eip2930(t) |
+            Self::Eip1559(t) |
+            Self::Eip7702(t) |
+            Self::Eip8130(t) |
+            Self::PostExec(t) => &t.logs_bloom,
             Self::Deposit(t) => &t.logs_bloom,
         }
     }
@@ -205,12 +205,12 @@ impl<T> OpReceiptEnvelope<T> {
     /// Consumes the type and returns the underlying [`Receipt`].
     pub fn into_receipt(self) -> Receipt<T> {
         match self {
-            Self::Legacy(t)
-            | Self::Eip2930(t)
-            | Self::Eip1559(t)
-            | Self::Eip7702(t)
-            | Self::Eip8130(t)
-            | Self::PostExec(t) => t.receipt,
+            Self::Legacy(t) |
+            Self::Eip2930(t) |
+            Self::Eip1559(t) |
+            Self::Eip7702(t) |
+            Self::Eip8130(t) |
+            Self::PostExec(t) => t.receipt,
             Self::Deposit(t) => t.receipt.into_inner(),
         }
     }
@@ -219,12 +219,12 @@ impl<T> OpReceiptEnvelope<T> {
     /// receipt types may be added.
     pub const fn as_receipt(&self) -> Option<&Receipt<T>> {
         match self {
-            Self::Legacy(t)
-            | Self::Eip2930(t)
-            | Self::Eip1559(t)
-            | Self::Eip7702(t)
-            | Self::Eip8130(t)
-            | Self::PostExec(t) => Some(&t.receipt),
+            Self::Legacy(t) |
+            Self::Eip2930(t) |
+            Self::Eip1559(t) |
+            Self::Eip7702(t) |
+            Self::Eip8130(t) |
+            Self::PostExec(t) => Some(&t.receipt),
             Self::Deposit(t) => Some(&t.receipt.inner),
         }
     }
@@ -234,12 +234,12 @@ impl OpReceiptEnvelope {
     /// Get the length of the inner receipt in the 2718 encoding.
     pub fn inner_length(&self) -> usize {
         match self {
-            Self::Legacy(t)
-            | Self::Eip2930(t)
-            | Self::Eip1559(t)
-            | Self::Eip7702(t)
-            | Self::Eip8130(t)
-            | Self::PostExec(t) => t.length(),
+            Self::Legacy(t) |
+            Self::Eip2930(t) |
+            Self::Eip1559(t) |
+            Self::Eip7702(t) |
+            Self::Eip8130(t) |
+            Self::PostExec(t) => t.length(),
             Self::Deposit(t) => t.length(),
         }
     }
@@ -342,12 +342,12 @@ impl Encodable2718 for OpReceiptEnvelope {
         }
         match self {
             Self::Deposit(t) => t.encode(out),
-            Self::Legacy(t)
-            | Self::Eip2930(t)
-            | Self::Eip1559(t)
-            | Self::Eip7702(t)
-            | Self::Eip8130(t)
-            | Self::PostExec(t) => t.encode(out),
+            Self::Legacy(t) |
+            Self::Eip2930(t) |
+            Self::Eip1559(t) |
+            Self::Eip7702(t) |
+            Self::Eip8130(t) |
+            Self::PostExec(t) => t.encode(out),
         }
     }
 }

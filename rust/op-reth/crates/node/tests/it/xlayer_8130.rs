@@ -297,7 +297,8 @@ async fn test_xlayer_8130_nonce_incremented() -> eyre::Result<()> {
     let slot = aa_nonce_slot(sender, U256::ZERO);
     let key = B256::from(slot.to_be_bytes());
 
-    let pre = node.inner.provider.latest()?.storage(NONCE_MANAGER_ADDRESS, key)?.unwrap_or_default();
+    let pre =
+        node.inner.provider.latest()?.storage(NONCE_MANAGER_ADDRESS, key)?.unwrap_or_default();
     assert_eq!(pre, U256::ZERO, "pre-state nonce slot must be zero before any AA tx");
 
     node.advance(1, move |_| {

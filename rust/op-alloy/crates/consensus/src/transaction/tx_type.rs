@@ -5,7 +5,8 @@ use core::fmt::Display;
 
 /// Identifier for an Optimism deposit transaction
 pub const DEPOSIT_TX_TYPE_ID: u8 = 126; // 0x7E
-/// Identifier for a XLayer EIP-8130 AA transaction and domain byte for XLayer EIP-8130 payer signatures.
+/// Identifier for a XLayer EIP-8130 AA transaction and domain byte for XLayer EIP-8130 payer
+/// signatures.
 pub const AA_TX_TYPE_ID: u8 = 123; // 0x7B
 /// Domain byte for XLayer EIP-8130 payer signatures.
 pub const AA_PAYER_TYPE_ID: u8 = 124; // 0x7C

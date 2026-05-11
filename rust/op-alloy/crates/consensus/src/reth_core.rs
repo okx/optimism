@@ -35,21 +35,21 @@ impl InMemorySize for TxEip8130 {
 
 impl InMemorySize for OpDepositReceipt {
     fn size(&self) -> usize {
-        self.inner.size()
-            + core::mem::size_of_val(&self.deposit_nonce)
-            + core::mem::size_of_val(&self.deposit_receipt_version)
+        self.inner.size() +
+            core::mem::size_of_val(&self.deposit_nonce) +
+            core::mem::size_of_val(&self.deposit_receipt_version)
     }
 }
 
 impl InMemorySize for OpReceipt {
     fn size(&self) -> usize {
         match self {
-            Self::Legacy(receipt)
-            | Self::Eip2930(receipt)
-            | Self::Eip1559(receipt)
-            | Self::Eip7702(receipt)
-            | Self::Eip8130(receipt)
-            | Self::PostExec(receipt) => receipt.size(),
+            Self::Legacy(receipt) |
+            Self::Eip2930(receipt) |
+            Self::Eip1559(receipt) |
+            Self::Eip7702(receipt) |
+            Self::Eip8130(receipt) |
+            Self::PostExec(receipt) => receipt.size(),
             Self::Deposit(receipt) => receipt.size(),
         }
     }

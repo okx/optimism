@@ -9,8 +9,7 @@ use op_alloy_rpc_types::{
     Eip8130ReceiptFields, L1BlockInfo, OpTransactionReceipt, OpTransactionReceiptFields,
 };
 use op_revm::{
-    OpEip8130TxTr, estimate_tx_compressed_size,
-    precompiles_xlayer::TX_CONTEXT_ADDRESS,
+    OpEip8130TxTr, estimate_tx_compressed_size, precompiles_xlayer::TX_CONTEXT_ADDRESS,
     transaction::eip8130::extract_phase_statuses_from_logs,
 };
 use reth_chainspec::{ChainSpecProvider, EthChainSpec};
@@ -339,11 +338,8 @@ impl OpReceiptBuilder {
                     .unwrap_or_else(|| {
                         infer_phase_statuses(aa_tx.calls.len(), input.receipt.status())
                     });
-            let payer = if aa_tx.is_self_pay() {
-                recovered_sender
-            } else {
-                aa_tx.effective_payer()
-            };
+            let payer =
+                if aa_tx.is_self_pay() { recovered_sender } else { aa_tx.effective_payer() };
             Eip8130ReceiptFields { payer, phase_statuses }
         });
 
@@ -1051,10 +1047,8 @@ mod test {
     /// otherwise generic OP tooling sees phantom AA fields on regular txs.
     #[test]
     fn non_aa_receipt_has_no_eip8130_fields() {
-        let tx = OpTransactionSigned::decode_2718(
-            &mut TX_1_OP_MAINNET_BLOCK_124665056.as_slice(),
-        )
-        .unwrap();
+        let tx = OpTransactionSigned::decode_2718(&mut TX_1_OP_MAINNET_BLOCK_124665056.as_slice())
+            .unwrap();
         let receipt = OpReceipt::Eip1559(Receipt {
             status: Eip658Value::Eip658(true),
             cumulative_gas_used: 100,

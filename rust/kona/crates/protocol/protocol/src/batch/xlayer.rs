@@ -16,8 +16,8 @@
 //!
 //! 1. Add a `Eip<NEW>Pre<Fork>` variant to [`crate::BatchDropReason`].
 //! 2. Add a `is_<fork>_active(timestamp)` method to [`kona_genesis::RollupConfig`].
-//! 3. Inline the gate in `SingleBatch::check_batch` and `SpanBatch::check_batch`,
-//!    mirroring the existing `Eip8130 / xlayer_v1` block.
+//! 3. Inline the gate in `SingleBatch::check_batch` and `SpanBatch::check_batch`, mirroring the
+//!    existing `Eip8130 / xlayer_v1` block.
 //! 4. Add coverage to `mod xlayer_tests` below.
 
 #[cfg(test)]

@@ -423,8 +423,7 @@ mod tests {
     /// otherwise non-AA receipts gain phantom fields that confuse generic OP tooling.
     #[test]
     fn eip8130_fields_skipped_when_none() {
-        let receipt: OpTransactionReceipt =
-            serde_json::from_str(baseline_receipt_json()).unwrap();
+        let receipt: OpTransactionReceipt = serde_json::from_str(baseline_receipt_json()).unwrap();
         assert!(receipt.eip8130_fields.is_none(), "baseline parses with no AA fields");
 
         let json = serde_json::to_value(&receipt).unwrap();

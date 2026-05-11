@@ -37,10 +37,10 @@ impl OpPrecompiles {
     #[inline]
     pub fn new_with_spec(spec: OpSpecId) -> Self {
         let precompiles = match spec {
-            spec @ (OpSpecId::BEDROCK
-            | OpSpecId::REGOLITH
-            | OpSpecId::CANYON
-            | OpSpecId::ECOTONE) => Precompiles::new(spec.into_eth_spec().into()),
+            spec @ (OpSpecId::BEDROCK |
+            OpSpecId::REGOLITH |
+            OpSpecId::CANYON |
+            OpSpecId::ECOTONE) => Precompiles::new(spec.into_eth_spec().into()),
             OpSpecId::FJORD => fjord(),
             OpSpecId::GRANITE | OpSpecId::HOLOCENE => granite(),
             OpSpecId::ISTHMUS => isthmus(),
@@ -241,9 +241,9 @@ where
 
     #[inline]
     fn contains(&self, address: &Address) -> bool {
-        (eip8130_precompiles_enabled(self.spec)
-            && (*address == NONCE_MANAGER_ADDRESS || *address == TX_CONTEXT_ADDRESS))
-            || self.inner.contains(address)
+        (eip8130_precompiles_enabled(self.spec) &&
+            (*address == NONCE_MANAGER_ADDRESS || *address == TX_CONTEXT_ADDRESS)) ||
+            self.inner.contains(address)
     }
 }
 

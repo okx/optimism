@@ -63,12 +63,12 @@ impl<T> OpReceipt<T> {
     /// Returns inner [`Receipt`].
     pub const fn as_receipt(&self) -> &Receipt<T> {
         match self {
-            Self::Legacy(receipt)
-            | Self::Eip2930(receipt)
-            | Self::Eip1559(receipt)
-            | Self::Eip7702(receipt)
-            | Self::Eip8130(receipt)
-            | Self::PostExec(receipt) => receipt,
+            Self::Legacy(receipt) |
+            Self::Eip2930(receipt) |
+            Self::Eip1559(receipt) |
+            Self::Eip7702(receipt) |
+            Self::Eip8130(receipt) |
+            Self::PostExec(receipt) => receipt,
             Self::Deposit(receipt) => &receipt.inner,
         }
     }
@@ -76,12 +76,12 @@ impl<T> OpReceipt<T> {
     /// Returns a mutable reference to the inner [`Receipt`].
     pub const fn as_receipt_mut(&mut self) -> &mut Receipt<T> {
         match self {
-            Self::Legacy(receipt)
-            | Self::Eip2930(receipt)
-            | Self::Eip1559(receipt)
-            | Self::Eip7702(receipt)
-            | Self::Eip8130(receipt)
-            | Self::PostExec(receipt) => receipt,
+            Self::Legacy(receipt) |
+            Self::Eip2930(receipt) |
+            Self::Eip1559(receipt) |
+            Self::Eip7702(receipt) |
+            Self::Eip8130(receipt) |
+            Self::PostExec(receipt) => receipt,
             Self::Deposit(receipt) => &mut receipt.inner,
         }
     }
@@ -89,12 +89,12 @@ impl<T> OpReceipt<T> {
     /// Consumes this and returns the inner [`Receipt`].
     pub fn into_receipt(self) -> Receipt<T> {
         match self {
-            Self::Legacy(receipt)
-            | Self::Eip2930(receipt)
-            | Self::Eip1559(receipt)
-            | Self::Eip7702(receipt)
-            | Self::Eip8130(receipt)
-            | Self::PostExec(receipt) => receipt,
+            Self::Legacy(receipt) |
+            Self::Eip2930(receipt) |
+            Self::Eip1559(receipt) |
+            Self::Eip7702(receipt) |
+            Self::Eip8130(receipt) |
+            Self::PostExec(receipt) => receipt,
             Self::Deposit(receipt) => receipt.inner,
         }
     }
@@ -122,12 +122,12 @@ impl<T> OpReceipt<T> {
         T: Encodable,
     {
         match self {
-            Self::Legacy(receipt)
-            | Self::Eip2930(receipt)
-            | Self::Eip1559(receipt)
-            | Self::Eip7702(receipt)
-            | Self::Eip8130(receipt)
-            | Self::PostExec(receipt) => receipt.rlp_encoded_fields_length_with_bloom(bloom),
+            Self::Legacy(receipt) |
+            Self::Eip2930(receipt) |
+            Self::Eip1559(receipt) |
+            Self::Eip7702(receipt) |
+            Self::Eip8130(receipt) |
+            Self::PostExec(receipt) => receipt.rlp_encoded_fields_length_with_bloom(bloom),
             Self::Deposit(receipt) => receipt.rlp_encoded_fields_length_with_bloom(bloom),
         }
     }
@@ -138,12 +138,12 @@ impl<T> OpReceipt<T> {
         T: Encodable,
     {
         match self {
-            Self::Legacy(receipt)
-            | Self::Eip2930(receipt)
-            | Self::Eip1559(receipt)
-            | Self::Eip7702(receipt)
-            | Self::Eip8130(receipt)
-            | Self::PostExec(receipt) => receipt.rlp_encode_fields_with_bloom(bloom, out),
+            Self::Legacy(receipt) |
+            Self::Eip2930(receipt) |
+            Self::Eip1559(receipt) |
+            Self::Eip7702(receipt) |
+            Self::Eip8130(receipt) |
+            Self::PostExec(receipt) => receipt.rlp_encode_fields_with_bloom(bloom, out),
             Self::Deposit(receipt) => receipt.rlp_encode_fields_with_bloom(bloom, out),
         }
     }
@@ -221,12 +221,12 @@ impl<T> OpReceipt<T> {
     {
         self.tx_type().encode(out);
         match self {
-            Self::Legacy(receipt)
-            | Self::Eip2930(receipt)
-            | Self::Eip1559(receipt)
-            | Self::Eip7702(receipt)
-            | Self::Eip8130(receipt)
-            | Self::PostExec(receipt) => {
+            Self::Legacy(receipt) |
+            Self::Eip2930(receipt) |
+            Self::Eip1559(receipt) |
+            Self::Eip7702(receipt) |
+            Self::Eip8130(receipt) |
+            Self::PostExec(receipt) => {
                 receipt.status.encode(out);
                 receipt.cumulative_gas_used.encode(out);
                 receipt.logs.encode(out);
@@ -250,24 +250,24 @@ impl<T> OpReceipt<T> {
     where
         T: Encodable,
     {
-        self.tx_type().length()
-            + match self {
-                Self::Legacy(receipt)
-                | Self::Eip2930(receipt)
-                | Self::Eip1559(receipt)
-                | Self::Eip7702(receipt)
-                | Self::Eip8130(receipt)
-                | Self::PostExec(receipt) => {
-                    receipt.status.length()
-                        + receipt.cumulative_gas_used.length()
-                        + receipt.logs.length()
+        self.tx_type().length() +
+            match self {
+                Self::Legacy(receipt) |
+                Self::Eip2930(receipt) |
+                Self::Eip1559(receipt) |
+                Self::Eip7702(receipt) |
+                Self::Eip8130(receipt) |
+                Self::PostExec(receipt) => {
+                    receipt.status.length() +
+                        receipt.cumulative_gas_used.length() +
+                        receipt.logs.length()
                 }
                 Self::Deposit(receipt) => {
-                    receipt.inner.status.length()
-                        + receipt.inner.cumulative_gas_used.length()
-                        + receipt.inner.logs.length()
-                        + receipt.deposit_nonce.map_or(0, |nonce| nonce.length())
-                        + receipt.deposit_receipt_version.map_or(0, |version| version.length())
+                    receipt.inner.status.length() +
+                        receipt.inner.cumulative_gas_used.length() +
+                        receipt.inner.logs.length() +
+                        receipt.deposit_nonce.map_or(0, |nonce| nonce.length()) +
+                        receipt.deposit_receipt_version.map_or(0, |version| version.length())
                 }
             }
     }
@@ -443,12 +443,12 @@ impl<T: Send + Sync + Clone + Debug + Eq + AsRef<Log>> TxReceipt for OpReceipt<T
 
     fn into_logs(self) -> Vec<Self::Log> {
         match self {
-            Self::Legacy(receipt)
-            | Self::Eip2930(receipt)
-            | Self::Eip1559(receipt)
-            | Self::Eip7702(receipt)
-            | Self::Eip8130(receipt)
-            | Self::PostExec(receipt) => receipt.logs,
+            Self::Legacy(receipt) |
+            Self::Eip2930(receipt) |
+            Self::Eip1559(receipt) |
+            Self::Eip7702(receipt) |
+            Self::Eip8130(receipt) |
+            Self::PostExec(receipt) => receipt.logs,
             Self::Deposit(receipt) => receipt.inner.logs,
         }
     }

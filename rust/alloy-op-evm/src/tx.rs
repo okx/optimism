@@ -1,7 +1,6 @@
 //! [`OpTx`] newtype wrapper around [`OpTransaction<TxEnv>`].
 
-use crate::block::OpTxEnv;
-use crate::eip8130::eip8130_parts;
+use crate::{block::OpTxEnv, eip8130::eip8130_parts};
 use alloy_consensus::{
     Signed, Transaction, TxEip1559, TxEip2930, TxEip4844, TxEip4844Variant, TxEip7702, TxLegacy,
 };
@@ -10,7 +9,10 @@ use alloy_evm::{FromRecoveredTx, FromTxWithEncoded, IntoTxEnv, TransactionEnvMut
 use alloy_primitives::{Address, B256, Bytes, TxKind, U256};
 use core::ops::{Deref, DerefMut};
 use op_alloy::consensus::{AA_TX_TYPE_ID, OpTxEnvelope, TxDeposit, TxEip8130, TxPostExec};
-use op_revm::{OpTransaction, transaction::deposit::DepositTransactionParts, transaction::eip8130::Eip8130Parts};
+use op_revm::{
+    OpTransaction,
+    transaction::{deposit::DepositTransactionParts, eip8130::Eip8130Parts},
+};
 use revm::context::TxEnv;
 
 /// Helper to convert a deposit transaction into a [`TxEnv`].

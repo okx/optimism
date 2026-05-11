@@ -19,9 +19,9 @@
 
 #[cfg(feature = "k256")]
 use alloy_consensus::crypto::{RecoveryError, secp256k1::recover_signer};
+use alloy_primitives::{Address, B256, Bytes, keccak256};
 #[cfg(feature = "k256")]
 use alloy_primitives::{Signature, U256};
-use alloy_primitives::{Address, B256, Bytes, keccak256};
 use alloy_sol_types::{SolCall, SolValue, sol};
 
 use super::{TxEip8130, xlayer::ConfigChangeEntry};

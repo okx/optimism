@@ -7,13 +7,12 @@
 //!
 //! Design parallels tempo's `tempo_gas_params(spec) -> GasParams`:
 //!
-//! - **Inherited EVM gas** (cold/warm SLOAD, `SSTORE_SET/RESET`, calldata token
-//!   cost, tx base stipend, EIP-7702 per-empty-account, …) comes from
-//!   [`GasParams::new_spec`] which is already fork-aware via the upstream
-//!   `SpecId` table. We don't duplicate those.
-//! - **XLayer-specific gas** lives in dedicated [`GasId`] slots in the upper
-//!   range (240+) so future revm `GasIds` (which currently extend through 39)
-//!   won't collide. The [`XlayerGasParams`] trait gives them named getters.
+//! - **Inherited EVM gas** (cold/warm SLOAD, `SSTORE_SET/RESET`, calldata token cost, tx base
+//!   stipend, EIP-7702 per-empty-account, …) comes from [`GasParams::new_spec`] which is already
+//!   fork-aware via the upstream `SpecId` table. We don't duplicate those.
+//! - **XLayer-specific gas** lives in dedicated [`GasId`] slots in the upper range (240+) so future
+//!   revm `GasIds` (which currently extend through 39) won't collide. The [`XlayerGasParams`] trait
+//!   gives them named getters.
 //!
 //! Why we don't follow op-revm's "per-fork named function" pattern (used in
 //! `l1block.rs::calculate_tx_l1_cost_*`): per-fork branching scatters the
@@ -21,8 +20,10 @@
 //! design keeps the fork-aware mapping in one place and lets handler /
 //! conversion code stay fork-agnostic.
 
-use revm::context::CfgEnv;
-use revm::context_interface::cfg::{GasId, GasParams};
+use revm::{
+    context::CfgEnv,
+    context_interface::cfg::{GasId, GasParams},
+};
 
 use crate::spec::OpSpecId;
 
@@ -228,17 +229,16 @@ impl XlayerGasParams for GasParams {
 ///
 /// Two classes of `XLayer` slot are populated here:
 ///
-/// - **EVM-derived**: `nonce_cold_gas`, `nonce_warm_gas`, `expiring_nonce_gas`
-///   are `SSTORE_SET` / `SSTORE_RESET` compositions from EIP-2929. We **compose
-///   them from the upstream `GasId::*` slots** at activation time so the
-///   `XLayer` values automatically track Ethereum's spec (e.g., a future
-///   upstream SSTORE-price fork that `XLAYER_V1` lands on top of will get the
-///   new values, no manual re-mirroring). The composed value is captured
-///   into the `XLayer` slot once and stays O(1) lookup at the call site.
+/// - **EVM-derived**: `nonce_cold_gas`, `nonce_warm_gas`, `expiring_nonce_gas` are `SSTORE_SET` /
+///   `SSTORE_RESET` compositions from EIP-2929. We **compose them from the upstream `GasId::*`
+///   slots** at activation time so the `XLayer` values automatically track Ethereum's spec (e.g., a
+///   future upstream SSTORE-price fork that `XLAYER_V1` lands on top of will get the new values, no
+///   manual re-mirroring). The composed value is captured into the `XLayer` slot once and stays
+///   O(1) lookup at the call site.
 ///
-/// - **XLayer-specific**: K1 / `P256Raw` / `P256WebAuthn` / Delegate verification
-///   gas are pure `XLayer` protocol-design numbers (no EVM equivalent), so
-///   they're hardcoded as explicit overrides.
+/// - **XLayer-specific**: K1 / `P256Raw` / `P256WebAuthn` / Delegate verification gas are pure
+///   `XLayer` protocol-design numbers (no EVM equivalent), so they're hardcoded as explicit
+///   overrides.
 ///
 /// Pre-`XLAYER_V1` returns a default (zeros) for `XLayer` slots — those slots
 /// are not exercised because the AA-tx type isn't accepted before that fork.
@@ -261,8 +261,8 @@ pub fn xlayer_gas_params(spec: OpSpecId) -> GasParams {
         // Berlin+ produces:
         //   nonce_cold = COLD_SLOAD (2100) + WARM_SLOAD (100) + (SSTORE_SET - WARM_SLOAD) (19900)
         //              = 22100  (cold + SSTORE_SET)
-        //   nonce_warm = COLD_SLOAD (2100) + WARM_SLOAD (100) + (WARM_SSTORE_RESET - WARM_SLOAD) (2800)
-        //              = 5000   (cold + SSTORE_RESET)
+        //   nonce_warm = COLD_SLOAD (2100) + WARM_SLOAD (100) + (WARM_SSTORE_RESET - WARM_SLOAD)
+        // (2800)              = 5000   (cold + SSTORE_RESET)
         //
         // expiring_nonce shares nonce_cold's formula (the ring-buffer write
         // is also cold + SET semantically).
@@ -271,12 +271,10 @@ pub fn xlayer_gas_params(spec: OpSpecId) -> GasParams {
         let sstore_set_payload = params.get(GasId::sstore_set_without_load_cost());
         let sstore_reset_payload = params.get(GasId::sstore_reset_without_cold_load_cost());
 
-        let derived_nonce_cold = cold_sload
-            .saturating_add(sstore_static)
-            .saturating_add(sstore_set_payload);
-        let derived_nonce_warm = cold_sload
-            .saturating_add(sstore_static)
-            .saturating_add(sstore_reset_payload);
+        let derived_nonce_cold =
+            cold_sload.saturating_add(sstore_static).saturating_add(sstore_set_payload);
+        let derived_nonce_warm =
+            cold_sload.saturating_add(sstore_static).saturating_add(sstore_reset_payload);
 
         params.override_gas([
             // ── XLayer-specific verifier prices ────────────────────────────
@@ -407,11 +405,7 @@ mod tests {
         assert_eq!(params.k1_verification_gas(), 0, "k1 leaked pre-fork");
         assert_eq!(params.p256_raw_verification_gas(), 0, "p256_raw leaked pre-fork");
         assert_eq!(params.p256_webauthn_verification_gas(), 0, "webauthn leaked pre-fork");
-        assert_eq!(
-            params.delegate_outer_verification_gas(),
-            0,
-            "delegate_outer leaked pre-fork",
-        );
+        assert_eq!(params.delegate_outer_verification_gas(), 0, "delegate_outer leaked pre-fork",);
         assert_eq!(params.nonce_cold_gas(), 0, "nonce_cold leaked pre-fork");
         assert_eq!(params.nonce_warm_gas(), 0, "nonce_warm leaked pre-fork");
         assert_eq!(params.expiring_nonce_gas(), 0, "expiring_nonce leaked pre-fork");
@@ -422,11 +416,7 @@ mod tests {
             0,
             "aa_config_change_per_op leaked pre-fork",
         );
-        assert_eq!(
-            params.aa_config_change_skip_gas(),
-            0,
-            "aa_config_change_skip leaked pre-fork",
-        );
+        assert_eq!(params.aa_config_change_skip_gas(), 0, "aa_config_change_skip leaked pre-fork",);
         assert_eq!(params.aa_delegation_gas(), 0, "aa_delegation leaked pre-fork");
         assert_eq!(params.aa_authorizer_sload_gas(), 0, "aa_authorizer_sload leaked pre-fork");
     }
@@ -506,10 +496,6 @@ mod tests {
         let mut sorted = ids.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
-        assert_eq!(
-            ids.len(),
-            sorted.len(),
-            "duplicate XLayer GasId slot detected: {ids:?}",
-        );
+        assert_eq!(ids.len(), sorted.len(), "duplicate XLayer GasId slot detected: {ids:?}",);
     }
 }
