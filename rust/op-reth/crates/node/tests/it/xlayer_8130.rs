@@ -31,12 +31,13 @@ use op_alloy_consensus::{
     Eip8130CallEntry, OpTxEnvelope, OpTxType, TxEip8130, sender_signature_hash,
 };
 use op_alloy_rpc_types_engine::OpPayloadAttributes;
-use op_revm::constants::K1_VERIFIER_ADDRESS;
+use op_revm::{constants::K1_VERIFIER_ADDRESS, precompiles_xlayer::aa_nonce_slot};
 use reth_chainspec::EthChainSpec;
 use reth_e2e_test_utils::setup_engine;
 use reth_optimism_chainspec::{OpChainSpec, OpChainSpecBuilder};
 use reth_optimism_node::OpNode;
 use reth_optimism_payload_builder::OpPayloadAttrs;
+use reth_provider::{StateProvider, StateProviderFactory};
 use std::sync::Arc;
 
 /// `NONCE_MANAGER_ADDRESS` (`address!("0x000000000000000000000000000000000000aa02")`).
@@ -58,6 +59,10 @@ const fn minimal_payload_attributes(timestamp: u64) -> OpPayloadAttrs {
             suggested_fee_recipient: Address::ZERO,
             withdrawals: Some(vec![]),
             parent_beacon_block_root: Some(B256::ZERO),
+            // Added upstream as `Option<u64>`; we don't drive a beacon
+            // chain in this test so `None` matches the engine builder's
+            // pre-PoSC default.
+            slot_number: None,
         },
         transactions: None,
         no_tx_pool: None,
@@ -261,6 +266,52 @@ async fn test_xlayer_8130_tx_corrupted_sender_auth_rejected() -> eyre::Result<()
     assert_eq!(
         recovered, claimed_from,
         "included AA tx must be the validly-signed one (recovered signer == wallet address)"
+    );
+
+    Ok(())
+}
+
+/// After a successful AA tx at `(nonce_key=0, nonce_sequence=0)` executes, the
+/// `NonceManager` storage slot for `(sender, nonce_key=0)` MUST read as `1` —
+/// the on-chain nonce was bumped by exactly one. This is the post-execution
+/// state-effect check that complements `test_xlayer_8130_tx_advance_repro`
+/// (which only verifies the tx made it into a block).
+#[tokio::test]
+async fn test_xlayer_8130_nonce_incremented() -> eyre::Result<()> {
+    reth_tracing::init_test_tracing();
+
+    let (chain_spec, chain_id) = xlayer_chain_spec();
+    let (mut nodes, wallet) = setup_engine::<OpNode>(
+        1,
+        chain_spec,
+        false,
+        Default::default(),
+        minimal_payload_attributes,
+    )
+    .await?;
+    let node = &mut nodes[0];
+    let signer = wallet.inner.clone();
+    let sender = signer.address();
+    let target = Address::repeat_byte(0x22);
+
+    let slot = aa_nonce_slot(sender, U256::ZERO);
+    let key = B256::from(slot.to_be_bytes());
+
+    let pre = node.inner.provider.latest()?.storage(NONCE_MANAGER_ADDRESS, key)?.unwrap_or_default();
+    assert_eq!(pre, U256::ZERO, "pre-state nonce slot must be zero before any AA tx");
+
+    node.advance(1, move |_| {
+        let signer = signer.clone();
+        Box::pin(async move { aa_raw_tx_bytes(chain_id, sender, &signer, target, 0) })
+    })
+    .await?;
+
+    let post =
+        node.inner.provider.latest()?.storage(NONCE_MANAGER_ADDRESS, key)?.unwrap_or_default();
+    assert_eq!(
+        post,
+        U256::from(1),
+        "NonceManager slot for (sender, nonce_key=0) must be 1 after one AA tx executed"
     );
 
     Ok(())

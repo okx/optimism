@@ -4,7 +4,7 @@ use crate::{
     OpEngineApiBuilder, OpEngineTypes,
     args::RollupArgs,
     engine::OpEngineValidator,
-    txpool::{OpTransactionPool, OpTransactionValidator},
+    txpool::{OpAaTransactionPool, OpAaTransactionValidator, OpDualPool, OpTransactionValidator},
 };
 use op_alloy_consensus::{OpPooledTransaction, interop::SafetyLevel};
 use reth_chainspec::{
@@ -1063,10 +1063,12 @@ impl<T> OpPoolBuilder<T> {
 impl<Node, T, Evm> PoolBuilder<Node, Evm> for OpPoolBuilder<T>
 where
     Node: FullNodeTypes<Types: NodeTypes<ChainSpec: OpHardforks>>,
-    T: EthPoolTransaction<Consensus = TxTy<Node::Types>> + OpPooledTx,
+    T: EthPoolTransaction<Consensus = TxTy<Node::Types>>
+        + OpPooledTx
+        + reth_optimism_txpool::Eip8130PoolTx,
     Evm: ConfigureEvm<Primitives = PrimitivesTy<Node::Types>> + Clone + 'static,
 {
-    type Pool = OpTransactionPool<Node::Provider, DiskFileBlobStore, Evm, T>;
+    type Pool = OpAaTransactionPool<Node::Provider, DiskFileBlobStore, Evm, T>;
 
     async fn build_pool(
         self,
@@ -1093,7 +1095,10 @@ where
         };
 
         let blob_store = reth_node_builder::components::create_blob_store(ctx)?;
-        let validator =
+        let provider = std::sync::Arc::new(ctx.provider().clone());
+        let validator = {
+            let provider_for_wrapper = provider.clone();
+            let supervisor_for_wrapper = supervisor_client.clone();
             TransactionValidationTaskExecutor::eth_builder(ctx.provider().clone(), evm_config)
                 .no_eip4844()
                 // Register XLayerAA (EIP-8130, 0x7B) so the generic validator
@@ -1110,17 +1115,32 @@ where
                         .unwrap_or_else(|| ctx.config().txpool.additional_validation_tasks),
                 )
                 .build_with_tasks(ctx.task_executor().clone(), blob_store.clone())
-                .map(|validator| {
+                .map(move |validator| {
                     let v = OpTransactionValidator::new(validator)
                         // In --dev mode we can't require gas fees because we're unable to decode
                         // the L1 block info
                         .require_l1_data_gas_fee(!ctx.config().dev.dev);
-                    if let Some(client) = supervisor_client.clone() {
+                    let v = if let Some(client) = supervisor_for_wrapper.clone() {
                         v.with_supervisor(client)
                     } else {
                         v
-                    }
-                });
+                    };
+                    // Layer EIP-8130 (XLayer AA) spec validation on top
+                    // of the standard reth pipeline. The wrapper is
+                    // shared (Arc) between the protocol pool's task
+                    // executor and `OpDualPool` below so AA admission
+                    // and the protocol pool see the same validator
+                    // state (`on_new_head_block` cache).
+                    //
+                    // Share the inner OP validator's `OpL1BlockInfo` Arc
+                    // so AA admission folds the same L1 data fee into
+                    // its payer-keyed balance check that the inner
+                    // wrapper would have used for non-AA txs.
+                    let l1_block_info = std::sync::Arc::clone(v.block_info());
+                    OpAaTransactionValidator::new(v, provider_for_wrapper.clone())
+                        .with_l1_block_info(l1_block_info)
+                })
+        };
 
         let final_pool_config = pool_config_overrides.apply(ctx.pool_config());
 
@@ -1131,13 +1151,48 @@ where
         // Enable the interop filter on reorg whenever interop is scheduled or already active
         let interop_filter_enabled =
             ctx.chain_spec().op_fork_activation(OpHardfork::Interop) != ForkCondition::Never;
-        let transaction_pool = OpPool::new(inner_pool, interop_filter_enabled);
+        // Wrap the OP pool with the EIP-8130 (XLayer AA) 2D-nonce side pool.
+        // AA txs are routed at admission to the side pool (not double-stored);
+        // canonical-state task below drives `on_bundle_state` for mined /
+        // invalidated lifecycle events.
+        let op_pool = OpPool::new(inner_pool, interop_filter_enabled);
+        // Reach the wrapper validator out of the task executor so the dual
+        // pool can call it directly for AA admission, sharing the
+        // `on_new_head_block` cache with the protocol pool's task
+        // executor. `TransactionValidationTaskExecutor::validator` is the
+        // inner `Arc<V>` we need.
+        let aa_validator = op_pool.inner().validator().validator.clone();
+        let provider_for_dual = provider.clone();
+        // F5: thread the operator's `--txpool.*` tuning through to the AA
+        // side pool's per-subpool caps. `with_node_config` copies
+        // `pending_limit` / `queued_limit` (count + byte caps) from the
+        // protocol pool's `PoolConfig`; pre-fix the AA side pool used
+        // `Eip8130PoolConfig::default()` and silently ignored overrides.
+        let transaction_pool = OpDualPool::with_node_config(
+            op_pool,
+            provider_for_dual,
+            aa_validator,
+            &final_pool_config,
+        );
 
         reth_node_builder::components::spawn_maintenance_tasks(
             ctx,
             transaction_pool.clone(),
             &final_pool_config,
         )?;
+
+        // Drive the AA side pool's state-update sweep from the canonical
+        // state stream. Always spawned (the side pool exists unconditionally);
+        // before XLayer V1 activation no AA txs are admitted so the task is
+        // a no-op per block.
+        ctx.task_executor().spawn_critical_task(
+            "Op txpool EIP-8130 state-update task",
+            reth_optimism_txpool::maintain::maintain_eip8130_state_future(
+                transaction_pool.clone(),
+                ctx.provider().canonical_state_stream(),
+            ),
+        );
+        debug!(target: "reth::cli", "Spawned EIP-8130 state-update task");
 
         info!(target: "reth::cli", "Transaction pool initialized (interop filter enabled = {interop_filter_enabled})");
         debug!(target: "reth::cli", "Spawned txpool maintenance task");

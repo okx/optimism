@@ -182,6 +182,7 @@ mod tests {
             // V3-shape (pre-Isthmus): no requests_hash. With this set, the payload
             // builder selects V4, which exercises a different sidecar path.
             requests_hash: None,
+            ..Default::default()
         };
         Block::new(
             header,
@@ -203,8 +204,7 @@ mod tests {
         let block = build_block(txs);
         let block_hash_a = block.header.hash_slow();
 
-        let (payload, sidecar) =
-            OpExecutionPayload::from_block_unchecked(block_hash_a, &block);
+        let (payload, sidecar) = OpExecutionPayload::from_block_unchecked(block_hash_a, &block);
 
         // Sanity: V3 path (post-Canyon, pre-Isthmus).
         assert!(matches!(payload, OpExecutionPayload::V3(_)), "expected V3 payload variant");
@@ -235,8 +235,7 @@ mod tests {
         assert_eq!(block.header.transactions_root, EMPTY_ROOT_HASH);
         let block_hash_a = block.header.hash_slow();
 
-        let (payload, sidecar) =
-            OpExecutionPayload::from_block_unchecked(block_hash_a, &block);
+        let (payload, sidecar) = OpExecutionPayload::from_block_unchecked(block_hash_a, &block);
         let parsed: Block<OpTxEnvelope> =
             payload.try_into_block_with_sidecar(&sidecar).expect("payload → block");
 
@@ -268,8 +267,7 @@ mod tests {
 
         let block_hash_a = block.header.hash_slow();
 
-        let (payload, sidecar) =
-            OpExecutionPayload::from_block_unchecked(block_hash_a, &block);
+        let (payload, sidecar) = OpExecutionPayload::from_block_unchecked(block_hash_a, &block);
         assert!(matches!(payload, OpExecutionPayload::V3(_)), "V3 selection requires the bug");
 
         let parsed: Block<OpTxEnvelope> =

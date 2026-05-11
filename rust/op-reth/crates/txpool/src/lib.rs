@@ -11,11 +11,22 @@
 mod validator;
 pub use validator::{OpL1BlockInfo, OpTransactionValidator};
 
+pub mod aa_validator;
+pub use aa_validator::OpAaTransactionValidator;
+
+pub mod best;
 pub mod conditional;
+pub mod dual_pool;
+pub mod eip8130_pool;
 pub mod eip8130_xlayer;
+pub use best::{BestAaTransactions, MergeBestTransactions};
+pub use dual_pool::OpDualPool;
+pub use eip8130_pool::{
+    Eip8130AddOutcome, Eip8130PendingAdded, Eip8130Pool, Eip8130PoolConfig, Eip8130PoolTx,
+    Eip8130SeqId, Eip8130StateUpdateOutcome, Eip8130TxId,
+};
 pub use eip8130_xlayer::{
-    Eip8130ValidationError, Eip8130ValidationOutcome, MAX_AA_TX_ENCODED_BYTES,
-    validate_eip8130_transaction,
+    Eip8130ValidationError, MAX_AA_TX_ENCODED_BYTES, validate_eip8130_transaction,
 };
 mod pool;
 pub use pool::OpPool;
@@ -41,4 +52,27 @@ pub type OpTransactionPool<Client, S, Evm, T = OpPooledTransaction> = OpPool<
         CoinbaseTipOrdering<T>,
         S,
     >,
+>;
+
+/// Optimism transaction pool augmented with the EIP-8130 (XLayer AA)
+/// 2D-nonce side pool.
+///
+/// `OpDualPool<P, Client>` stores an `OpPool<P>` internally; the type
+/// parameter `P` is the **raw** [`reth_transaction_pool::Pool`] — not
+/// [`OpTransactionPool`] — to avoid a double `OpPool` wrap. `Client` is
+/// the state-provider factory used during AA admission for nonce-slot
+/// reads. The protocol pool is parametrised on
+/// [`OpAaTransactionValidator`] (the unified wrapper) so non-AA txs and
+/// any AA tx that accidentally reaches the protocol pool both run the
+/// AA-spec layer in addition to reth's standard mempool gates.
+pub type OpAaTransactionPool<Client, S, Evm, T = OpPooledTransaction> = OpDualPool<
+    Pool<
+        TransactionValidationTaskExecutor<
+            OpAaTransactionValidator<OpTransactionValidator<Client, T, Evm>, Client>,
+        >,
+        CoinbaseTipOrdering<T>,
+        S,
+    >,
+    Client,
+    OpAaTransactionValidator<OpTransactionValidator<Client, T, Evm>, Client>,
 >;

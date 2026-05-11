@@ -1,13 +1,8 @@
-use crate::{
-    InvalidCrossTx, OpPooledTx,
-    eip8130_xlayer::{Eip8130ValidationError, validate_eip8130_transaction},
-    supervisor::SupervisorClient,
-};
+use crate::{InvalidCrossTx, OpPooledTx, supervisor::SupervisorClient};
 use alloy_consensus::{BlockHeader, Transaction};
-use op_alloy_consensus::AA_TX_TYPE_ID;
 use op_revm::L1BlockInfo;
 use parking_lot::RwLock;
-use reth_chainspec::{ChainSpecProvider, EthChainSpec};
+use reth_chainspec::ChainSpecProvider;
 use reth_evm::ConfigureEvm;
 use reth_optimism_evm::RethL1BlockInfo;
 use reth_optimism_forks::OpHardforks;
@@ -42,6 +37,13 @@ impl OpL1BlockInfo {
     pub fn timestamp(&self) -> u64 {
         self.timestamp.load(Ordering::Relaxed)
     }
+
+    /// Returns a clone of the cached [`L1BlockInfo`] snapshot. Used by the
+    /// AA validator wrapper which needs the same snapshot the OP wrapper
+    /// would have used to compute `l1_tx_data_fee`.
+    pub fn l1_block_info_snapshot(&self) -> L1BlockInfo {
+        self.l1_block_info.read().clone()
+    }
 }
 
 /// Validator for Optimism transactions.
@@ -73,6 +75,13 @@ impl<Client, Tx, Evm> OpTransactionValidator<Client, Tx, Evm> {
     /// Returns the configured client
     pub fn client(&self) -> &Client {
         self.inner.client()
+    }
+
+    /// Returns the shared [`OpL1BlockInfo`] handle. Exposed so AA admission
+    /// (which bypasses [`Self::apply_op_checks`]) can compute the L1 data
+    /// fee from the same source the OP wrapper would have used.
+    pub fn block_info(&self) -> &Arc<OpL1BlockInfo> {
+        &self.block_info
     }
 
     /// Returns the current block timestamp.
@@ -195,112 +204,6 @@ where
             );
         }
 
-        // EIP-8130 (XLayer AA) admission. Branches out before the EthTransactionValidator
-        // delegation because upstream rejects unknown tx types as `TxTypeNotSupported`.
-        // Reasserts chain_id, expiry, structural bounds, and reads the on-chain
-        // NONCE_MANAGER sequence for the lane; deferred items (EOA recovery, sponsored
-        // payer, account_changes, native verifier) are rejected as unsupported until
-        // their dedicated validation slices land.
-        if transaction.ty() == AA_TX_TYPE_ID {
-            if !self
-                .chain_spec()
-                .is_xlayer_v1_active_at_timestamp(self.block_timestamp())
-            {
-                return TransactionValidationOutcome::Invalid(
-                    transaction,
-                    InvalidTransactionError::TxTypeNotSupported.into(),
-                );
-            }
-
-            let Some(aa_tx) = transaction.as_eip8130() else {
-                // tx-type byte claims AA but the wrapper does not expose the variant —
-                // this should be unreachable for `OpTransactionSigned` and indicates a
-                // misrouted custom tx type.
-                return TransactionValidationOutcome::Invalid(
-                    transaction,
-                    InvalidTransactionError::TxTypeNotSupported.into(),
-                );
-            };
-
-            let chain_id = self.chain_spec().chain().id();
-            let block_ts = self.block_timestamp();
-            let encoded_len = transaction.encoded_2718().len();
-            return match validate_eip8130_transaction(
-                aa_tx,
-                encoded_len,
-                block_ts,
-                chain_id,
-                self.client(),
-            ) {
-                Ok(outcome) => {
-                    // L1 data-gas fee coverage check, mirroring `apply_op_checks` for
-                    // non-AA txs. Must be inlined here because the AA branch
-                    // short-circuits the upstream validator delegation, so
-                    // `apply_op_checks` (which gates on `requires_l1_data_gas_fee`) is
-                    // never invoked. Spec parity with the base reference impl.
-                    if self.requires_l1_data_gas_fee() {
-                        let mut l1_info = self.block_info.l1_block_info.read().clone();
-                        let encoded = transaction.encoded_2718();
-                        match l1_info.l1_tx_data_fee(
-                            self.chain_spec(),
-                            self.block_timestamp(),
-                            &encoded,
-                            false,
-                        ) {
-                            Ok(l1_cost) => {
-                                let total = transaction.cost().saturating_add(l1_cost);
-                                if total > outcome.balance {
-                                    return TransactionValidationOutcome::Invalid(
-                                        transaction,
-                                        InvalidTransactionError::InsufficientFunds(
-                                            GotExpected {
-                                                got: outcome.balance,
-                                                expected: total,
-                                            }
-                                            .into(),
-                                        )
-                                        .into(),
-                                    );
-                                }
-                            }
-                            Err(err) => {
-                                return TransactionValidationOutcome::Error(
-                                    *transaction.hash(),
-                                    Box::new(err),
-                                );
-                            }
-                        }
-                    }
-
-                    TransactionValidationOutcome::Valid {
-                        balance: outcome.balance,
-                        state_nonce: outcome.state_nonce,
-                        transaction: reth_transaction_pool::validate::ValidTransaction::Valid(
-                            transaction,
-                        ),
-                        propagate: matches!(origin, TransactionOrigin::External),
-                        bytecode_hash: None,
-                        authorities: None,
-                    }
-                }
-                Err(err) => {
-                    tracing::debug!(target: "txpool::eip8130", %err, "EIP-8130 mempool validation failed");
-                    if matches!(&err, Eip8130ValidationError::StateError(_)) {
-                        // State-read failure: bubble up as Error so the caller can
-                        // distinguish a node-side problem from a tx-side rejection.
-                        return TransactionValidationOutcome::Error(
-                            *transaction.hash(),
-                            Box::new(err),
-                        );
-                    }
-                    TransactionValidationOutcome::Invalid(
-                        transaction,
-                        InvalidPoolTransactionError::Other(Box::new(err)),
-                    )
-                }
-            };
-        }
-
         // Interop cross tx validation
         match self.is_valid_cross_tx(&transaction).await {
             Some(Err(err)) => {
@@ -344,6 +247,22 @@ where
             authorities,
         } = outcome
         {
+            // EIP-8130 (XLayer AA) txs bypass this guard: the L1 data fee
+            // must be charged to the AA payer, not the envelope signer that
+            // `valid_tx.transaction().cost()` and `balance` are keyed on.
+            // The AA validator wrapper (`OpAaTransactionValidator`) folds
+            // the L1 component into a payer-keyed balance check before
+            // emitting the final outcome.
+            if valid_tx.transaction().as_eip8130().is_some() {
+                return TransactionValidationOutcome::Valid {
+                    balance,
+                    state_nonce,
+                    transaction: valid_tx,
+                    propagate,
+                    bytecode_hash,
+                    authorities,
+                };
+            }
             let mut l1_block_info = self.block_info.l1_block_info.read().clone();
 
             let encoded = valid_tx.transaction().encoded_2718();

@@ -123,9 +123,17 @@ impl<Cons: SignedTransaction, Pooled> DataAvailabilitySized for OpPooledTransact
     }
 }
 
+/// Sentinel cost reported to reth's inner ETH validator for AA txs. The AA
+/// payer-keyed balance check (in [`crate::validate_eip8130_transaction`])
+/// is authoritative; the inner check (`cost > balance`) is keyed on the
+/// envelope signer, which is the wrong account on sponsored shapes.
+/// Returning `&U256::ZERO` makes the inner predicate vacuous without
+/// needing to mutate `self.inner.cost`.
+const AA_INNER_COST_SENTINEL: U256 = U256::ZERO;
+
 impl<Cons, Pooled> PoolTransaction for OpPooledTransaction<Cons, Pooled>
 where
-    Cons: SignedTransaction + From<Pooled>,
+    Cons: SignedTransaction + From<Pooled> + OpEip8130TxTr,
     Pooled: SignedTransaction + TryFrom<Cons, Error: core::error::Error>,
 {
     type TryFromConsensusError = <Pooled as TryFrom<Cons>>::Error;
@@ -167,11 +175,26 @@ where
     }
 
     fn cost(&self) -> &U256 {
+        // AA txs: see `AA_INNER_COST_SENTINEL`. The AA validator wrapper
+        // re-runs the balance check against the correct (payer) account
+        // before emitting the final outcome.
+        if self.inner.transaction.inner().as_eip8130().is_some() {
+            return &AA_INNER_COST_SENTINEL;
+        }
         &self.inner.cost
     }
 
     fn encoded_length(&self) -> usize {
         self.inner.encoded_length
+    }
+
+    fn requires_nonce_check(&self) -> bool {
+        // AA txs key off `NONCE_MANAGER_ADDRESS[aa_nonce_slot(sender, key)]`,
+        // which is unrelated to `account.nonce`. Skipping the inner check
+        // (also paired with the `nonce()` override below) lets AA admission
+        // run the spec layer's nonce check instead. Non-AA txs keep reth's
+        // default `true`.
+        self.inner.transaction.inner().as_eip8130().is_none()
     }
 }
 
@@ -189,7 +212,7 @@ impl<Cons: InMemorySize, Pooled> InMemorySize for OpPooledTransaction<Cons, Pool
 
 impl<Cons, Pooled> alloy_consensus::Transaction for OpPooledTransaction<Cons, Pooled>
 where
-    Cons: alloy_consensus::Transaction,
+    Cons: alloy_consensus::Transaction + OpEip8130TxTr,
     Pooled: Debug + Send + Sync + 'static,
 {
     fn chain_id(&self) -> Option<u64> {
@@ -197,6 +220,19 @@ where
     }
 
     fn nonce(&self) -> u64 {
+        // AA txs report `u64::MAX - 1` so reth's `tx.nonce() < account.nonce`
+        // predicate (transaction-pool `eth.rs:708`) never rejects on the
+        // inner stateful path. We can't use `u64::MAX` because reth's
+        // EIP-2681 stateless check rejects exactly that value
+        // (`eth.rs:437-441`). The AA validator wrapper computes the
+        // authoritative state nonce from `NONCE_MANAGER_ADDRESS` and
+        // overwrites the outcome's `state_nonce` before propagation.
+        // `requires_nonce_check()` is also `false` for AA, so this acts
+        // as belt-and-suspenders against future inner refactors that
+        // bypass the predicate flag.
+        if self.inner.transaction.inner().as_eip8130().is_some() {
+            return u64::MAX - 1;
+        }
         self.inner.nonce()
     }
 
@@ -263,7 +299,7 @@ where
 
 impl<Cons, Pooled> EthPoolTransaction for OpPooledTransaction<Cons, Pooled>
 where
-    Cons: SignedTransaction + From<Pooled>,
+    Cons: SignedTransaction + From<Pooled> + OpEip8130TxTr,
     Pooled: SignedTransaction + TryFrom<Cons>,
     <Pooled as TryFrom<Cons>>::Error: core::error::Error,
 {

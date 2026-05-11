@@ -74,6 +74,9 @@ pub const L1_BLOCK_CONTRACT: Address = address!("0x42000000000000000000000000000
 // EIP-8130 constants
 // ---------------------------------------------------------------------------
 
+/// Owner scope bit: allowed to sign generic signatures (spec line 226).
+pub const OWNER_SCOPE_SIGNATURE: u8 = 0x01;
+
 /// Owner scope bit: allowed to sign as the sender.
 pub const OWNER_SCOPE_SENDER: u8 = 0x02;
 

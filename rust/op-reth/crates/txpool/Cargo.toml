@@ -33,6 +33,7 @@ reth-transaction-pool.workspace = true
 
 # revm
 op-revm.workspace = true
+alloy-op-evm.workspace = true
 
 # optimism
 op-alloy-consensus.workspace = true
@@ -61,3 +62,5 @@ reth-optimism-chainspec.workspace = true
 reth-provider = { workspace = true, features = ["test-utils"] }
 reth-transaction-pool = { workspace = true, features = ["test-utils"] }
 tokio = { workspace = true, features = ["rt", "macros"] }
+alloy-signer.workspace = true
+alloy-signer-local.workspace = true

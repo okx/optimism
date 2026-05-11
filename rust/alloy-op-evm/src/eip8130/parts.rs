@@ -237,7 +237,11 @@ pub fn eip8130_parts(tx: &TxEip8130, caller: Address) -> Eip8130Parts {
 /// each `ConfigChange` counts as `owner_changes.len()` units, each Delegation
 /// counts as `1`. The handler caps the sum at
 /// [`op_revm::constants::MAX_ACCOUNT_CHANGES_PER_TX`].
-fn account_change_units(tx: &TxEip8130) -> usize {
+///
+/// Exposed (`pub`) so admission can mirror execution's accounting byte-for-byte;
+/// see `op_revm::handler` cap check at the comparison against
+/// `MAX_ACCOUNT_CHANGES_PER_TX`.
+pub fn account_change_units(tx: &TxEip8130) -> usize {
     tx.account_changes
         .iter()
         .map(|entry| match entry {

@@ -89,7 +89,10 @@ fn aa_expiring_ring_slot(index: u32) -> U256 {
 }
 
 /// Computes the `AccountConfig` storage slot for `lock_state(account)`.
-fn aa_lock_slot(account: Address) -> U256 {
+///
+/// Public so the txpool's invalidation index can use the same derivation
+/// the handler uses to mutate the slot.
+pub fn aa_lock_slot(account: Address) -> U256 {
     use alloy_sol_types::SolValue;
     U256::from_be_bytes(keccak256((account, LOCK_BASE_SLOT).abi_encode()).0)
 }
@@ -98,22 +101,45 @@ fn aa_lock_slot(account: Address) -> U256 {
 const OWNER_CONFIG_BASE_SLOT: U256 = U256::ZERO;
 
 /// Computes the `AccountConfig` storage slot for `owner_config(account, owner_id)`.
-fn aa_owner_config_slot(account: Address, owner_id: U256) -> U256 {
+///
+/// Public for the same reason as [`aa_lock_slot`] — txpool invalidation
+/// index needs the canonical slot derivation.
+pub fn aa_owner_config_slot(account: Address, owner_id: U256) -> U256 {
     use alloy_sol_types::SolValue;
     let inner = keccak256((owner_id, OWNER_CONFIG_BASE_SLOT).abi_encode());
     U256::from_be_bytes(keccak256((account, inner).abi_encode()).0)
 }
 
 /// Parses a packed `owner_config` word into `(verifier_address, scope)`.
-fn parse_owner_config_word(word: U256) -> (Address, u8) {
+///
+/// Public so the txpool's invalidation index can decode the same word the
+/// handler reads from `owner_config`. Layout: bytes[12..32] = verifier
+/// (20 bytes), byte[11] = scope (spec line 226).
+pub fn parse_owner_config_word(word: U256) -> (Address, u8) {
     let bytes = word.to_be_bytes::<32>();
     let scope = bytes[11];
     let verifier = Address::from_slice(&bytes[12..32]);
     (verifier, scope)
 }
 
+/// Extracts the `unlocksAt` field (uint40) from a packed `AccountState` word.
+///
+/// Public for the same reason as [`parse_owner_config_word`]. Layout:
+/// bytes[11..16] big-endian = u40 unlocksAt (see `pack_account_state` test
+/// helper for the full word layout).
+pub fn unlocks_at_from_account_state_word(word: U256) -> u64 {
+    let bytes = word.to_be_bytes::<32>();
+    let mut ua = [0u8; 8];
+    ua[3..8].copy_from_slice(&bytes[11..16]);
+    u64::from_be_bytes(ua)
+}
+
 /// Reads one sequence value from packed `AccountState`.
-fn read_packed_sequence(slot_value: U256, is_multichain: bool) -> u64 {
+///
+/// Public so the txpool's invalidation evaluator can decode the same word.
+/// `is_multichain == true` returns the low 8 bytes (`limbs[0]`); the local
+/// half lives in the next 8 bytes (`(word >> 64).limbs[0]`).
+pub fn read_packed_sequence(slot_value: U256, is_multichain: bool) -> u64 {
     if is_multichain { slot_value.as_limbs()[0] } else { (slot_value >> 64_u8).as_limbs()[0] }
 }
 
@@ -307,10 +333,7 @@ where
     evm.ctx().journal_mut().load_account(ACCOUNT_CONFIG_ADDRESS)?;
     let lock_slot = aa_lock_slot(account);
     let lock_word = evm.ctx().journal_mut().sload(ACCOUNT_CONFIG_ADDRESS, lock_slot)?.data;
-    let lock_bytes = lock_word.to_be_bytes::<32>();
-    let mut ua = [0u8; 8];
-    ua[3..8].copy_from_slice(&lock_bytes[11..16]);
-    Ok(u64::from_be_bytes(ua))
+    Ok(unlocks_at_from_account_state_word(lock_word))
 }
 
 /// Pre-deduction lock check covering both delegation entries and config changes.

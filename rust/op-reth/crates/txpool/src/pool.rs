@@ -139,6 +139,14 @@ where
         Self { inner, reorg_state, metrics: OpPoolMetrics::default() }
     }
 
+    /// Returns a reference to the wrapped inner pool. Used by composing
+    /// wrappers (e.g. [`crate::OpDualPool`]) that need to reach through
+    /// the interop filter to the underlying reth `Pool` for listener
+    /// broadcasts and similar passthrough operations.
+    pub const fn inner(&self) -> &P {
+        &self.inner
+    }
+
     /// Returns true if interop filtering should fire on this
     /// `add_external_transactions` call.
     ///

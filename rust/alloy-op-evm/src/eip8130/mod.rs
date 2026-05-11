@@ -10,16 +10,14 @@
 //! lives here so the consensus crate stays free of crypto deps.
 //!
 //! Layout:
-//! - [`native_verifier`]: dispatch for the four EIP-8130 native verifier
-//!   addresses (K1, P256-raw, P256-WebAuthn, Delegate).
-//! - [`auth_state`]: builders that turn `tx.sender_auth` / `tx.payer_auth`
-//!   into the [`op_revm::transaction::eip8130::AuthState`] enum the handler
-//!   matches on.
+//! - [`native_verifier`]: dispatch for the four EIP-8130 native verifier addresses (K1, P256-raw,
+//!   P256-WebAuthn, Delegate).
+//! - [`auth_state`]: builders that turn `tx.sender_auth` / `tx.payer_auth` into the
+//!   [`op_revm::transaction::eip8130::AuthState`] enum the handler matches on.
 //! - [`address`]: CREATE2 address derivation for Create entries.
-//! - [`storage`]: storage-slot derivation for `AccountConfiguration` and
-//!   `NonceManager`.
-//! - [`parts`]: the [`op_revm::transaction::eip8130::Eip8130Parts`]
-//!   builder, called from `crate::tx::eip8130_parts`.
+//! - [`storage`]: storage-slot derivation for `AccountConfiguration` and `NonceManager`.
+//! - [`parts`]: the [`op_revm::transaction::eip8130::Eip8130Parts`] builder, called from
+//!   `crate::tx::eip8130_parts`.
 
 pub mod address;
 pub mod auth_state;
@@ -30,5 +28,5 @@ pub mod storage;
 pub use address::derive_account_address;
 pub use auth_state::{build_payer_auth_state, build_sender_auth_state};
 pub use native_verifier::{NativeVerifier, NativeVerifyResult, try_native_verify};
-pub use parts::eip8130_parts;
+pub use parts::{account_change_units, eip8130_parts};
 pub use storage::{account_state_slot, encode_owner_config, owner_config_slot};

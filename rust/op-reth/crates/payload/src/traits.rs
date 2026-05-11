@@ -1,6 +1,7 @@
 use alloy_consensus::BlockBody;
 use alloy_primitives::B256;
 use alloy_rpc_types_engine::PayloadId;
+use op_revm::OpEip8130TxTr;
 use reth_optimism_primitives::{DepositReceipt, transaction::OpTransaction};
 use reth_payload_builder_primitives::PayloadBuilderError;
 use reth_primitives_traits::{FullBlockHeader, NodePrimitives, SignedTransaction, WithEncoded};
@@ -17,14 +18,14 @@ pub trait OpPayloadPrimitives:
     >
 {
     /// Helper AT to bound [`NodePrimitives::Block`] type without causing bound cycle.
-    type _TX: SignedTransaction + OpTransaction;
+    type _TX: SignedTransaction + OpTransaction + OpEip8130TxTr;
     /// Helper AT to bound [`NodePrimitives::Block`] type without causing bound cycle.
     type _Header: FullBlockHeader;
 }
 
 impl<Tx, T, Header> OpPayloadPrimitives for T
 where
-    Tx: SignedTransaction + OpTransaction,
+    Tx: SignedTransaction + OpTransaction + OpEip8130TxTr,
     T: NodePrimitives<
             SignedTx = Tx,
             Receipt: DepositReceipt,
