@@ -20,7 +20,7 @@ pub mod dual_pool;
 pub mod eip8130_pool;
 pub mod eip8130_xlayer;
 pub use best::{BestAaTransactions, MergeBestTransactions};
-pub use dual_pool::OpDualPool;
+pub use dual_pool::{Eip8130PoolView, OpDualPool};
 pub use eip8130_pool::{
     Eip8130AddOutcome, Eip8130PendingAdded, Eip8130Pool, Eip8130PoolConfig, Eip8130PoolTx,
     Eip8130SeqId, Eip8130StateUpdateOutcome, Eip8130TxId,

@@ -62,7 +62,7 @@ use reth_transaction_pool::{
 use tokio::sync::mpsc::Receiver;
 
 use crate::{
-    Eip8130Pool, Eip8130PoolConfig, Eip8130PoolTx, Eip8130StateUpdateOutcome,
+    Eip8130Pool, Eip8130PoolConfig, Eip8130PoolTx, Eip8130SeqId, Eip8130StateUpdateOutcome,
     MergeBestTransactions, OpPool, eip8130_pool::STATE_DIFF_ADDRESS,
 };
 use reth_transaction_pool::{
@@ -230,6 +230,18 @@ where
     /// Returns the side pool's tx count (sequenced + expiring).
     pub fn aa_pool_size(&self) -> usize {
         self.aa_pool.read().len()
+    }
+
+    /// Inherent passthrough; prefer the trait form
+    /// [`Eip8130PoolView::highest_consecutive_aa_pending_seq_in_lane`] from
+    /// generic downstream code (RPC handlers) so the call site doesn't have
+    /// to name the concrete `OpDualPool` type.
+    pub fn highest_consecutive_aa_pending_seq_in_lane(
+        &self,
+        seq: Eip8130SeqId,
+        on_chain_seq: u64,
+    ) -> Option<u64> {
+        self.aa_pool.read().highest_consecutive_pending_seq_in_lane(seq, on_chain_seq)
     }
 
     /// Subscribes to the side pool's new-pending broadcast channel. Used
@@ -664,6 +676,40 @@ struct AaPrevalidated<T> {
     state_nonce: u64,
     propagate: bool,
     required_balance: U256,
+}
+
+/// Read-only view onto the AA side pool exposed for generic downstream
+/// consumers (e.g. RPC handlers) so they can call per-lane queries
+/// without naming the concrete [`OpDualPool`] type.
+///
+/// Implemented for [`OpDualPool`] as a thin delegation to the inner
+/// [`Eip8130Pool`]. Callers that already have an `&OpDualPool` can call
+/// the inherent methods directly; this trait is the opt-in for
+/// trait-bound generic code that holds an `impl TransactionPool` and
+/// wants AA-aware lane queries.
+pub trait Eip8130PoolView {
+    /// See [`Eip8130Pool::highest_consecutive_pending_seq_in_lane`].
+    fn highest_consecutive_aa_pending_seq_in_lane(
+        &self,
+        seq: Eip8130SeqId,
+        on_chain_seq: u64,
+    ) -> Option<u64>;
+}
+
+impl<P, Client, AaV> Eip8130PoolView for OpDualPool<P, Client, AaV>
+where
+    P: TransactionPool,
+    P::Transaction: Eip8130PoolTx,
+    Client: StateProviderFactory + Send + Sync + 'static,
+    AaV: AaPoolPreValidator<P::Transaction>,
+{
+    fn highest_consecutive_aa_pending_seq_in_lane(
+        &self,
+        seq: Eip8130SeqId,
+        on_chain_seq: u64,
+    ) -> Option<u64> {
+        Self::highest_consecutive_aa_pending_seq_in_lane(self, seq, on_chain_seq)
+    }
 }
 
 /// Trait alias bound used by [`OpDualPool::new`] to ensure the supplied
