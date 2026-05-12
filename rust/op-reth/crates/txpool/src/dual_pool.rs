@@ -232,18 +232,6 @@ where
         self.aa_pool.read().len()
     }
 
-    /// Inherent passthrough; prefer the trait form
-    /// [`Eip8130PoolView::highest_consecutive_aa_pending_seq_in_lane`] from
-    /// generic downstream code (RPC handlers) so the call site doesn't have
-    /// to name the concrete `OpDualPool` type.
-    pub fn highest_consecutive_aa_pending_seq_in_lane(
-        &self,
-        seq: Eip8130SeqId,
-        on_chain_seq: u64,
-    ) -> Option<u64> {
-        self.aa_pool.read().highest_consecutive_pending_seq_in_lane(seq, on_chain_seq)
-    }
-
     /// Subscribes to the side pool's new-pending broadcast channel. Used
     /// by the listener-forwarder task to feed AA tx hashes into the
     /// protocol pool's `pending_transactions_listener_for(...)` channels.
@@ -678,15 +666,16 @@ struct AaPrevalidated<T> {
     required_balance: U256,
 }
 
-/// Read-only view onto the AA side pool exposed for generic downstream
-/// consumers (e.g. RPC handlers) so they can call per-lane queries
-/// without naming the concrete [`OpDualPool`] type.
+/// Read-only view onto the AA side pool exposed for downstream consumers
+/// (e.g. RPC handlers) so they can call per-lane queries without naming
+/// the concrete [`OpDualPool`] type.
 ///
-/// Implemented for [`OpDualPool`] as a thin delegation to the inner
-/// [`Eip8130Pool`]. Callers that already have an `&OpDualPool` can call
-/// the inherent methods directly; this trait is the opt-in for
-/// trait-bound generic code that holds an `impl TransactionPool` and
-/// wants AA-aware lane queries.
+/// The single canonical entry point for AA lane queries; implemented for
+/// [`OpDualPool`] as a thin delegation to the inner [`Eip8130Pool`]. Both
+/// generic call sites (`pool: &impl Eip8130PoolView`) and concrete call
+/// sites (`pool: &OpDualPool<...>`) reach the same body via this trait —
+/// no separate inherent passthrough — so there's a single source of
+/// truth.
 pub trait Eip8130PoolView {
     /// See [`Eip8130Pool::highest_consecutive_pending_seq_in_lane`].
     fn highest_consecutive_aa_pending_seq_in_lane(
@@ -708,7 +697,7 @@ where
         seq: Eip8130SeqId,
         on_chain_seq: u64,
     ) -> Option<u64> {
-        Self::highest_consecutive_aa_pending_seq_in_lane(self, seq, on_chain_seq)
+        self.aa_pool.read().highest_consecutive_pending_seq_in_lane(seq, on_chain_seq)
     }
 }
 
