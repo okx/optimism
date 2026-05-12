@@ -666,16 +666,13 @@ struct AaPrevalidated<T> {
     required_balance: U256,
 }
 
-/// Read-only view onto the AA side pool exposed for downstream consumers
-/// (e.g. RPC handlers) so they can call per-lane queries without naming
-/// the concrete [`OpDualPool`] type.
+/// Per-lane query surface for the AA side pool.
 ///
-/// The single canonical entry point for AA lane queries; implemented for
-/// [`OpDualPool`] as a thin delegation to the inner [`Eip8130Pool`]. Both
-/// generic call sites (`pool: &impl Eip8130PoolView`) and concrete call
-/// sites (`pool: &OpDualPool<...>`) reach the same body via this trait —
-/// no separate inherent passthrough — so there's a single source of
-/// truth.
+/// Canonical entry point on [`OpDualPool`] for AA lane reads — concrete
+/// and generic call sites both reach the body via this trait. The trait
+/// bound also lets generic downstream code (e.g. RPC handlers) hold an
+/// `&impl Eip8130PoolView` without naming the concrete
+/// `OpDualPool<P, Client, AaV>` type.
 pub trait Eip8130PoolView {
     /// See [`Eip8130Pool::highest_consecutive_pending_seq_in_lane`].
     fn highest_consecutive_aa_pending_seq_in_lane(
