@@ -1674,6 +1674,28 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
         self.on_chain_nonces.get(&seq).copied()
     }
 
+    /// Returns the highest `nonce_sequence` in lane `seq` that's pending
+    /// in an unbroken chain starting at `on_chain_seq`, or `None` if no
+    /// tx at `on_chain_seq` is pending.
+    ///
+    pub fn highest_consecutive_pending_seq_in_lane(
+        &self,
+        seq: Eip8130SeqId,
+        on_chain_seq: u64,
+    ) -> Option<u64> {
+        let start = Eip8130TxId::new(seq, on_chain_seq);
+        let mut expected = on_chain_seq;
+        let mut last = None;
+        for (tx_id, entry) in self.by_id.range(start..) {
+            if tx_id.seq != seq || tx_id.nonce != expected || !entry.is_pending() {
+                break;
+            }
+            last = Some(tx_id.nonce);
+            expected = expected.checked_add(1)?;
+        }
+        last
+    }
+
     /// Iterates over the *independent* pending heads (one tx per lane plus
     /// every expiring-mode tx). Block builders consume this; the side pool
     /// is never the only source of pending txs, so the caller is expected
@@ -3391,6 +3413,86 @@ mod tests {
         // txs at `>= new_head` with a gap below.
         assert_eq!(outcome.mined.len(), 1, "nonce-1 tx after head-jump-to-5 is treated as mined");
         assert!(pool.is_empty());
+    }
+
+    /// `highest_consecutive_pending_seq_in_lane`: empty lane returns
+    /// `None` so RPC callers know to fall back to the slot baseline.
+    #[test]
+    fn highest_consecutive_empty_lane_returns_none() {
+        let pool: Eip8130Pool<OpPooledTransaction> = Eip8130Pool::new(Default::default());
+        let seq = Eip8130SeqId::new(sender_from_seed(0xD1), U256::from(0u64));
+        assert_eq!(pool.highest_consecutive_pending_seq_in_lane(seq, 0), None);
+    }
+
+    /// `highest_consecutive_pending_seq_in_lane`: with three pending
+    /// txs at seq 0, 1, 2 the walk returns 2 (the tail of the
+    /// consecutive run).
+    #[test]
+    fn highest_consecutive_returns_tail_of_consecutive_run() {
+        let sender = sender_from_seed(0xD2);
+        let mut pool: Eip8130Pool<OpPooledTransaction> = Eip8130Pool::new(Default::default());
+        let key = U256::from(7u64);
+        for nonce in 0u64..=2 {
+            pool.add_transaction(make_valid(aa_tx(sender, key, nonce, 1_000), sender), 0, 0)
+                .unwrap();
+        }
+        let seq = Eip8130SeqId::new(sender, key);
+        assert_eq!(pool.highest_consecutive_pending_seq_in_lane(seq, 0), Some(2));
+    }
+
+    /// `highest_consecutive_pending_seq_in_lane`: a gap above the
+    /// baseline parks higher txs as *queued*, so the walk halts at the
+    /// last pending entry below the gap and never observes the queued
+    /// ones.
+    #[test]
+    fn highest_consecutive_stops_at_first_gap() {
+        let sender = sender_from_seed(0xD3);
+        let mut pool: Eip8130Pool<OpPooledTransaction> = Eip8130Pool::new(Default::default());
+        let key = U256::from(9u64);
+        // seqs 0, 1 admitted as pending; 3 admitted but parked queued (gap at 2).
+        for nonce in [0u64, 1, 3] {
+            pool.add_transaction(make_valid(aa_tx(sender, key, nonce, 1_000), sender), 0, 0)
+                .unwrap();
+        }
+        let seq = Eip8130SeqId::new(sender, key);
+        assert_eq!(pool.highest_consecutive_pending_seq_in_lane(seq, 0), Some(1));
+    }
+
+    /// `highest_consecutive_pending_seq_in_lane`: returns `None` if no
+    /// tx at the baseline is pending, even when later seqs exist.
+    /// Callers compose with the on-chain slot value, so `None` here
+    /// surfaces as "no pool-resident contribution; use the slot value".
+    #[test]
+    fn highest_consecutive_returns_none_when_baseline_missing() {
+        let sender = sender_from_seed(0xD4);
+        let mut pool: Eip8130Pool<OpPooledTransaction> = Eip8130Pool::new(Default::default());
+        let key = U256::from(13u64);
+        // Only seq=2 admitted with head=0 — it's queued (gap at 0, 1).
+        pool.add_transaction(make_valid(aa_tx(sender, key, 2, 1_000), sender), 0, 0).unwrap();
+        let seq = Eip8130SeqId::new(sender, key);
+        assert_eq!(pool.highest_consecutive_pending_seq_in_lane(seq, 0), None);
+    }
+
+    /// `highest_consecutive_pending_seq_in_lane`: lanes with different
+    /// `nonce_key` are isolated — admissions in lane A don't bleed into
+    /// the answer for lane B on the same sender.
+    #[test]
+    fn highest_consecutive_isolates_lanes_per_nonce_key() {
+        let sender = sender_from_seed(0xD5);
+        let mut pool: Eip8130Pool<OpPooledTransaction> = Eip8130Pool::new(Default::default());
+        let key_a = U256::from(1u64);
+        let key_b = U256::from(2u64);
+        // Lane A: seq 0, 1 pending. Lane B: seq 0 pending.
+        for nonce in [0u64, 1] {
+            pool.add_transaction(make_valid(aa_tx(sender, key_a, nonce, 1_000), sender), 0, 0)
+                .unwrap();
+        }
+        pool.add_transaction(make_valid(aa_tx(sender, key_b, 0, 1_000), sender), 0, 0).unwrap();
+
+        let seq_a = Eip8130SeqId::new(sender, key_a);
+        let seq_b = Eip8130SeqId::new(sender, key_b);
+        assert_eq!(pool.highest_consecutive_pending_seq_in_lane(seq_a, 0), Some(1));
+        assert_eq!(pool.highest_consecutive_pending_seq_in_lane(seq_b, 0), Some(0));
     }
 
     /// Lifecycle: replacement at the same `(sender, nonce_key, nonce)`
