@@ -11404,7 +11404,6 @@ dependencies = [
  "alloy-rpc-types-debug",
  "alloy-rpc-types-engine",
  "derive_more",
- "either",
  "op-alloy-consensus",
  "op-alloy-rpc-types-engine",
  "op-revm",

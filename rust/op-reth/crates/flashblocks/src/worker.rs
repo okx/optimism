@@ -356,6 +356,7 @@ where
                     &bundle,
                     &state_provider,
                     state_root,
+                    None,
                 ))
                 .map_err(RethError::other)?;
             let block = RecoveredBlock::new_unhashed(block, senders);
