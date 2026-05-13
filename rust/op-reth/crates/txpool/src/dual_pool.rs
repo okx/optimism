@@ -1920,7 +1920,7 @@ mod tests {
     fn make_aa_tx(sender: Address, nonce_sequence: u64) -> OpPooledTransaction {
         let tx = TxEip8130 {
             chain_id: 10,
-            from: Some(sender),
+            sender: Some(sender),
             nonce_key: U256::ZERO,
             nonce_sequence,
             expiry: 0,
@@ -1945,7 +1945,7 @@ mod tests {
     fn make_expiring_aa_tx(sender: Address, expiry: u64) -> OpPooledTransaction {
         let tx = TxEip8130 {
             chain_id: 10,
-            from: Some(sender),
+            sender: Some(sender),
             nonce_key: op_revm::handler::NONCE_KEY_MAX,
             nonce_sequence: 0,
             expiry,
@@ -2542,7 +2542,7 @@ mod tests {
     ) -> OpPooledTransaction {
         let tx = TxEip8130 {
             chain_id: E2E_CHAIN_ID,
-            from: Some(sender),
+            sender: Some(sender),
             nonce_key: U256::ZERO,
             nonce_sequence,
             expiry,

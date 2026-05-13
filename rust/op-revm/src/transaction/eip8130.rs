@@ -210,7 +210,7 @@ pub struct Eip8130Parts {
     /// Fork-independent because EIP-8130's signing encoding is locked and
     /// EIP-2028's per-byte rates are part of the consensus baseline.
     pub sender_payload_calldata_cost: u64,
-    /// Whether the tx is in EOA mode (`tx.from.is_none()` upstream).
+    /// Whether the tx is in EOA mode (`tx.sender.is_none()` upstream).
     ///
     /// Cached so the gas path doesn't need the underlying `TxEip8130`. EOA
     /// mode forces K1 verification cost (the bare 65-byte sig path).

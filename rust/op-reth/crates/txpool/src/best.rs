@@ -422,7 +422,7 @@ mod tests {
     ) -> Arc<ValidPoolTransaction<OpPooledTransaction>> {
         let tx = TxEip8130 {
             chain_id: 10,
-            from: Some(sender),
+            sender: Some(sender),
             nonce_key,
             nonce_sequence,
             expiry: 0,
@@ -701,7 +701,7 @@ mod tests {
         let mk = |priority: u128, expiry: u64| -> Arc<ValidPoolTransaction<OpPooledTransaction>> {
             let mut tx = TxEip8130 {
                 chain_id: 10,
-                from: Some(sender),
+                sender: Some(sender),
                 nonce_key: NONCE_KEY_MAX,
                 nonce_sequence: 0,
                 expiry,

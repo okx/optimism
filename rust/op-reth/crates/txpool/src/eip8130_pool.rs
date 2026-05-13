@@ -2232,7 +2232,7 @@ where
         let inner = OpPooledTx::as_eip8130(self)?;
         // `Deref` exposes `EthPooledTransaction<Cons>::transaction:
         // Recovered<Cons>`; the recovered signer is the envelope signer.
-        Some(inner.from.unwrap_or_else(|| self.transaction.signer()))
+        Some(inner.sender.unwrap_or_else(|| self.transaction.signer()))
     }
 
     fn aa_nonce_key(&self) -> Option<U256> {
@@ -2564,7 +2564,7 @@ mod tests {
 
         let mut tx = TxEip8130 {
             chain_id: 10,
-            from: Some(sender),
+            sender: Some(sender),
             nonce_key,
             nonce_sequence,
             expiry: 0,
@@ -4692,7 +4692,7 @@ mod tests {
         // K1, so the inner signer can be any address).
         let mut tx = TxEip8130 {
             chain_id: 10,
-            from: Some(sender),
+            sender: Some(sender),
             nonce_key: U256::ZERO,
             nonce_sequence: 0,
             expiry: 0,
@@ -4768,7 +4768,7 @@ mod tests {
 
         let mut tx = TxEip8130 {
             chain_id: 10,
-            from: Some(sender),
+            sender: Some(sender),
             nonce_key: U256::ZERO,
             nonce_sequence: 0,
             expiry: 0,

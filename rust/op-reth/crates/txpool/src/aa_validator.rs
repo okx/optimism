@@ -409,7 +409,7 @@ mod tests {
     ) -> OpPooledTransaction {
         let mut tx = TxEip8130 {
             chain_id: TEST_CHAIN_ID,
-            from: Some(signer.address()),
+            sender: Some(signer.address()),
             nonce_key: U256::ZERO,
             nonce_sequence,
             expiry,
@@ -518,7 +518,7 @@ mod tests {
         // (`block_gas_limit`) will reject before our AA layer fires.
         let mut tx_inner = TxEip8130 {
             chain_id: 10,
-            from: Some(sender),
+            sender: Some(sender),
             nonce_key: U256::ZERO,
             nonce_sequence: 0,
             expiry: 0,
@@ -657,7 +657,7 @@ mod tests {
 
         let mut tx = TxEip8130 {
             chain_id: TEST_CHAIN_ID,
-            from: Some(sender),
+            sender: Some(sender),
             nonce_key: U256::from(42_u64),
             nonce_sequence: 0,
             expiry: 0,
@@ -713,7 +713,7 @@ mod tests {
 
         let mut tx = TxEip8130 {
             chain_id: TEST_CHAIN_ID,
-            from: Some(sender),
+            sender: Some(sender),
             payer: Some(payer),
             nonce_key: U256::ZERO,
             nonce_sequence: 0,
@@ -769,7 +769,7 @@ mod tests {
 
         let mut tx = TxEip8130 {
             chain_id: TEST_CHAIN_ID,
-            from: Some(sender),
+            sender: Some(sender),
             payer: Some(payer),
             nonce_key: U256::ZERO,
             nonce_sequence: 0,

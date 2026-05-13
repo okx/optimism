@@ -580,7 +580,7 @@ impl<'a> arbitrary::Arbitrary<'a> for OpTransactionSigned {
             OpTypedTransaction::Deposit(_) => TxDeposit::signature(),
             OpTypedTransaction::PostExec(_) => TxPostExec::signature(),
             OpTypedTransaction::Eip8130(tx) => {
-                tx.from = None;
+                tx.sender = None;
                 tx.sender_auth = Bytes::new();
                 let sender_auth = reth_primitives_traits::crypto::secp256k1::sign_message(
                     B256::from_slice(&key_pair.secret_bytes()[..]),
@@ -734,7 +734,7 @@ mod xlayer_tests {
         let explicit_sender = Address::repeat_byte(0x42);
         let tx = TxEip8130 {
             chain_id: 84532,
-            from: Some(explicit_sender),
+            sender: Some(explicit_sender),
             sender_auth: Bytes::from(vec![0xAB; 85]),
             ..Default::default()
         };

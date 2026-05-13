@@ -922,7 +922,7 @@ where
     // - `Empty` / `Invalid(reason)` reject up-front. Empty in the pool is the `eth_estimateGas`
     //   shape — admitting it would let an attacker push unauthenticated txs into the gossip mesh.
     let sender_auth = build_sender_auth_state(tx);
-    let sender = match (&sender_auth, tx.from) {
+    let sender = match (&sender_auth, tx.sender) {
         (AuthState::Invalid(reason), _) => {
             return Err(Eip8130ValidationError::InvalidSenderAuth(reason.clone()));
         }
@@ -1626,7 +1626,7 @@ mod xlayer_tests {
     fn make_signed_tx(chain_id: u64, signer: &PrivateKeySigner, nonce_sequence: u64) -> TxEip8130 {
         let mut tx = TxEip8130 {
             chain_id,
-            from: Some(signer.address()),
+            sender: Some(signer.address()),
             nonce_key: U256::ZERO,
             nonce_sequence,
             expiry: 0,
@@ -1651,7 +1651,7 @@ mod xlayer_tests {
     fn make_tx(chain_id: u64, sender: Address, nonce_sequence: u64) -> TxEip8130 {
         TxEip8130 {
             chain_id,
-            from: Some(sender),
+            sender: Some(sender),
             nonce_key: U256::ZERO,
             nonce_sequence,
             expiry: 0,
@@ -2659,7 +2659,7 @@ mod xlayer_tests {
 
         let mut tx = TxEip8130 {
             chain_id: CHAIN_ID,
-            from: None, // EOA mode
+            sender: None, // EOA mode
             nonce_key: U256::ZERO,
             nonce_sequence: 0,
             expiry: 0,
@@ -2913,7 +2913,7 @@ mod xlayer_tests {
         use op_alloy_consensus::payer_signature_hash;
         let mut tx = TxEip8130 {
             chain_id,
-            from: Some(sender_signer.address()),
+            sender: Some(sender_signer.address()),
             payer: Some(payer_signer.address()),
             nonce_key: U256::ZERO,
             nonce_sequence,

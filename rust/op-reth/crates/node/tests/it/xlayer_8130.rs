@@ -105,7 +105,7 @@ fn xlayer_chain_spec() -> (Arc<OpChainSpec>, u64) {
 fn aa_unsigned_tx(chain_id: u64, from: Address, target: Address, nonce_sequence: u64) -> TxEip8130 {
     TxEip8130 {
         chain_id,
-        from: Some(from),
+        sender: Some(from),
         nonce_key: U256::ZERO,
         nonce_sequence,
         expiry: 0,

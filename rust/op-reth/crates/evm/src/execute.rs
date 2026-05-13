@@ -254,7 +254,7 @@ mod xlayer_tests {
 
         let mut tx = TxEip8130 {
             chain_id: chain_spec.chain.id(),
-            from: Some(sender),
+            sender: Some(sender),
             nonce_key: U256::ZERO,
             nonce_sequence: 0,
             expiry: 0,

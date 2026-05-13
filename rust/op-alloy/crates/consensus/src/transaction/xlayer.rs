@@ -327,8 +327,14 @@ pub struct TxEip8130 {
     /// Chain id this transaction targets.
     #[cfg_attr(feature = "serde", serde(with = "alloy_serde::quantity"))]
     pub chain_id: u64,
-    /// Explicit sender. `None` is EOA recovery mode.
-    pub from: Option<Address>,
+    /// Explicit sender. `None` is EOA recovery mode (sender is recovered from `sender_auth`).
+    ///
+    /// JSON name is `sender` (not `from`) to avoid clashing with the RPC wrapper's recovered
+    /// `from` field at `op_alloy_rpc_types::TransactionSerdeHelper.other.from`. Without this rename,
+    /// EOA-mode AA txs serialized `"from": null` while the wrapper serialized
+    /// `"from": "0x..."` (recovered), producing a duplicate JSON key that broke
+    /// `BlockTransactions` untagged-enum deserialization downstream (e.g. kona's `AlloyL2ChainProvider`).
+    pub sender: Option<Address>,
     /// 2D nonce key.
     pub nonce_key: U256,
     /// Sequence number for the nonce key.
@@ -364,7 +370,7 @@ pub struct TxEip8130 {
 impl TxEip8130 {
     /// Returns `true` if the sender is recovered from auth data.
     pub const fn is_eoa(&self) -> bool {
-        self.from.is_none()
+        self.sender.is_none()
     }
 
     /// Returns `true` if the sender pays fees.
@@ -376,7 +382,7 @@ impl TxEip8130 {
     ///
     /// This is only a pre-recovery placeholder and must not be used as the recovered signer.
     pub fn effective_sender(&self) -> Address {
-        self.from.unwrap_or(Address::ZERO)
+        self.sender.unwrap_or(Address::ZERO)
     }
 
     /// Effective payer.
@@ -399,7 +405,7 @@ impl TxEip8130 {
     /// Length of RLP-encoded fields without list header.
     pub fn rlp_encoded_fields_length(&self) -> usize {
         self.chain_id.length() +
-            optional_address_len(&self.from) +
+            optional_address_len(&self.sender) +
             self.nonce_key.length() +
             self.nonce_sequence.length() +
             self.expiry.length() +
@@ -416,7 +422,7 @@ impl TxEip8130 {
     /// RLP-encode fields without list header.
     pub fn rlp_encode_fields(&self, out: &mut dyn BufMut) {
         self.chain_id.encode(out);
-        encode_optional_address(&self.from, out);
+        encode_optional_address(&self.sender, out);
         self.nonce_key.encode(out);
         self.nonce_sequence.encode(out);
         self.expiry.encode(out);
@@ -474,7 +480,7 @@ impl TxEip8130 {
         let remaining = buf.len();
         let this = Self {
             chain_id: Decodable::decode(buf)?,
-            from: decode_optional_address(buf)?,
+            sender: decode_optional_address(buf)?,
             nonce_key: Decodable::decode(buf)?,
             nonce_sequence: Decodable::decode(buf)?,
             expiry: Decodable::decode(buf)?,
@@ -501,7 +507,7 @@ impl TxEip8130 {
         1 + Header {
             list: true,
             payload_length: self.chain_id.length() +
-                optional_address_len(&self.from) +
+                optional_address_len(&self.sender) +
                 self.nonce_key.length() +
                 self.nonce_sequence.length() +
                 self.expiry.length() +
@@ -514,7 +520,7 @@ impl TxEip8130 {
         }
         .length() +
             self.chain_id.length() +
-            optional_address_len(&self.from) +
+            optional_address_len(&self.sender) +
             self.nonce_key.length() +
             self.nonce_sequence.length() +
             self.expiry.length() +
@@ -529,7 +535,7 @@ impl TxEip8130 {
     /// Encodes the EIP-8130 sender signing preimage into `out`.
     pub fn encode_for_sender_signing(&self, out: &mut dyn BufMut) {
         let payload_length = self.chain_id.length() +
-            optional_address_len(&self.from) +
+            optional_address_len(&self.sender) +
             self.nonce_key.length() +
             self.nonce_sequence.length() +
             self.expiry.length() +
@@ -543,7 +549,7 @@ impl TxEip8130 {
         out.put_u8(AA_TX_TYPE_ID);
         Header { list: true, payload_length }.encode(out);
         self.chain_id.encode(out);
-        encode_optional_address(&self.from, out);
+        encode_optional_address(&self.sender, out);
         self.nonce_key.encode(out);
         self.nonce_sequence.encode(out);
         self.expiry.encode(out);
@@ -570,7 +576,7 @@ impl TxEip8130 {
         1 + Header {
             list: true,
             payload_length: self.chain_id.length() +
-                optional_address_len(&self.from) +
+                optional_address_len(&self.sender) +
                 self.nonce_key.length() +
                 self.nonce_sequence.length() +
                 self.expiry.length() +
@@ -582,7 +588,7 @@ impl TxEip8130 {
         }
         .length() +
             self.chain_id.length() +
-            optional_address_len(&self.from) +
+            optional_address_len(&self.sender) +
             self.nonce_key.length() +
             self.nonce_sequence.length() +
             self.expiry.length() +
@@ -596,7 +602,7 @@ impl TxEip8130 {
     /// Encodes the EIP-8130 payer signing preimage into `out`.
     pub fn encode_for_payer_signing(&self, out: &mut dyn BufMut) {
         let payload_length = self.chain_id.length() +
-            optional_address_len(&self.from) +
+            optional_address_len(&self.sender) +
             self.nonce_key.length() +
             self.nonce_sequence.length() +
             self.expiry.length() +
@@ -609,7 +615,7 @@ impl TxEip8130 {
         out.put_u8(AA_PAYER_TYPE_ID);
         Header { list: true, payload_length }.encode(out);
         self.chain_id.encode(out);
-        encode_optional_address(&self.from, out);
+        encode_optional_address(&self.sender, out);
         self.nonce_key.encode(out);
         self.nonce_sequence.encode(out);
         self.expiry.encode(out);
@@ -914,7 +920,7 @@ mod tests {
     fn sample_tx() -> TxEip8130 {
         TxEip8130 {
             chain_id: 8453,
-            from: Some(Address::repeat_byte(0x01)),
+            sender: Some(Address::repeat_byte(0x01)),
             nonce_key: U256::ZERO,
             nonce_sequence: 42,
             expiry: 0,
@@ -1039,7 +1045,7 @@ mod tests {
         assert_eq!(tx.effective_sender(), Address::repeat_byte(0x01));
         assert_eq!(tx.effective_payer(), Address::repeat_byte(0x01));
 
-        tx.from = None;
+        tx.sender = None;
         assert!(tx.is_eoa());
         assert_eq!(tx.effective_sender(), Address::ZERO);
         assert_eq!(tx.effective_payer(), Address::ZERO);

@@ -83,7 +83,7 @@ fn auto_delegation_designator() -> Bytes {
 /// Builds [`Eip8130Parts`] for a tx, given the caller (effective sender) address.
 ///
 /// `caller` comes from upstream sender recovery (`recover_eip8130_sender` for
-/// EOA-mode txs; `tx.from` otherwise) and is used to fill `parts.sender`.
+/// EOA-mode txs; `tx.sender` otherwise) and is used to fill `parts.sender`.
 pub fn eip8130_parts(tx: &TxEip8130, caller: Address) -> Eip8130Parts {
     let sender_authstate = build_sender_auth_state(tx);
     let payer_authstate = build_payer_auth_state(tx);
@@ -504,7 +504,7 @@ mod tests {
     fn empty_tx() -> TxEip8130 {
         TxEip8130 {
             chain_id: 8453,
-            from: Some(Address::repeat_byte(0x01)),
+            sender: Some(Address::repeat_byte(0x01)),
             nonce_key: U256::ZERO,
             nonce_sequence: 0,
             expiry: 0,
@@ -663,7 +663,7 @@ mod tests {
     fn config_change_revoke_self_writes_revoked_sentinel() {
         let sender = Address::repeat_byte(0xAA);
         let mut tx = empty_tx();
-        tx.from = Some(sender);
+        tx.sender = Some(sender);
         tx.account_changes = vec![AccountChangeEntry::ConfigChange(ConfigChangeEntry {
             chain_id: tx.chain_id,
             sequence: 0,

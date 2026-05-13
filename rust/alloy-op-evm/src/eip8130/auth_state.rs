@@ -2,7 +2,7 @@
 //!
 //! The wire format is one of two shapes:
 //!
-//! - **EOA mode** (`tx.is_eoa()`, i.e. `tx.from.is_none()`): bare 65-byte K1 signature, no verifier
+//! - **EOA mode** (`tx.is_eoa()`, i.e. `tx.sender.is_none()`): bare 65-byte K1 signature, no verifier
 //!   prefix. Always treated as K1.
 //! - **Explicit-from / sponsored mode**: `[verifier_addr(20) || data(N)]`. The first 20 bytes name
 //!   the verifier; the remaining bytes are verifier-specific (K1: 65-byte sig, `P256Raw`: 128
@@ -36,15 +36,15 @@ use super::native_verifier::{NativeVerifyResult, address_to_owner_id, try_native
 
 /// Builds the [`AuthState`] for `tx.sender_auth`.
 ///
-/// EOA mode (`tx.from.is_none()`): bare 65-byte K1 sig over
+/// EOA mode (`tx.sender.is_none()`): bare 65-byte K1 sig over
 /// `sender_signature_hash(tx)`. The sender of the tx is whoever the sig
 /// recovers to — this is what `recover_eip8130_sender` returns and what the
 /// txpool seeds as `caller`. The on-chain `owner_config` check at execution
 /// time covers `caller == owner_id` via the implicit-EOA fallback.
 ///
-/// Explicit-from mode (`tx.from.is_some()`):
+/// Explicit-from mode (`tx.sender.is_some()`):
 /// - empty auth → [`AuthState::Empty`] (estimateGas escape)
-/// - K1 verifier prefix: recover, **require recovered == `tx.from`** (xlayer K1 strict-self-owner
+/// - K1 verifier prefix: recover, **require recovered == `tx.sender`** (xlayer K1 strict-self-owner
 ///   invariant), produce [`AuthState::Native`]
 /// - P256-raw verifier prefix: native verify, `owner_id` = `keccak256(pubkey)`
 /// - P256-WebAuthn verifier prefix: native verify (SHA-256 challenge match + P256 ECDSA),
@@ -79,10 +79,10 @@ pub fn build_sender_auth_state(tx: &TxEip8130) -> AuthState {
         };
     }
 
-    // Explicit-from mode: tx.from must be Some.
-    let from = match tx.from {
+    // Explicit-from mode: tx.sender must be Some.
+    let from = match tx.sender {
         Some(addr) => addr,
-        None => return AuthState::Invalid("sender_auth: explicit-from missing tx.from".into()),
+        None => return AuthState::Invalid("sender_auth: explicit-from missing tx.sender".into()),
     };
 
     if tx.sender_auth.is_empty() {
@@ -113,7 +113,7 @@ pub fn build_sender_auth_state(tx: &TxEip8130) -> AuthState {
 ///
 /// Sponsored mode mirrors explicit-from sender resolution, but with two
 /// differences: K1 strict-self-owner is checked against `tx.payer` (not
-/// `tx.from`), and `required_scope` is [`OWNER_SCOPE_PAYER`].
+/// `tx.sender`), and `required_scope` is [`OWNER_SCOPE_PAYER`].
 pub fn build_payer_auth_state(tx: &TxEip8130) -> AuthState {
     if tx.is_self_pay() {
         return AuthState::SelfPay;
@@ -150,7 +150,7 @@ pub fn build_payer_auth_state(tx: &TxEip8130) -> AuthState {
 /// Whether to enforce the K1 strict-self-owner invariant.
 ///
 /// xlayer-specific: for K1 native verification in *explicit-from / sponsored*
-/// mode, the recovered K1 address must equal the claimed `tx.from` (sender) or
+/// mode, the recovered K1 address must equal the claimed `tx.sender` (sender) or
 /// `tx.payer` (payer). This makes K1 explicit-from authenticate "the account
 /// itself signed" — different K1 owners must use a different verifier or be
 /// reached via an `owner_config` registration of their bytes20 `owner_id` which
@@ -303,7 +303,7 @@ mod tests {
     fn sample_tx_payer(payer: Option<Address>, payer_auth: Bytes) -> TxEip8130 {
         TxEip8130 {
             chain_id: 8453,
-            from: Some(Address::repeat_byte(0x01)),
+            sender: Some(Address::repeat_byte(0x01)),
             nonce_key: U256::ZERO,
             nonce_sequence: 42,
             expiry: 0,

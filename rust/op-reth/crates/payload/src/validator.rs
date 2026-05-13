@@ -137,7 +137,7 @@ mod tests {
     fn aa_envelope() -> OpTxEnvelope {
         let tx = TxEip8130 {
             chain_id: 8453,
-            from: Some(Address::repeat_byte(0x01)),
+            sender: Some(Address::repeat_byte(0x01)),
             nonce_key: U256::ZERO,
             nonce_sequence: 42,
             expiry: 0,

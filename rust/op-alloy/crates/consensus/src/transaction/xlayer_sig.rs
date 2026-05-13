@@ -4,7 +4,7 @@
 //!
 //! - [`sender_signature_hash`] / [`payer_signature_hash`]: keccak256 over the protocol-defined
 //!   preimage. No crypto deps; used everywhere the auth payload is hashed.
-//! - [`recover_eip8130_sender`]: K1 recovery for EOA-mode txs (`tx.from == None`). Used by
+//! - [`recover_eip8130_sender`]: K1 recovery for EOA-mode txs (`tx.sender == None`). Used by
 //!   `OpTxEnvelope` / `OpPooledTransaction` to surface the tx-level caller address, the same way
 //!   EIP-1559/2930/etc. do via their own ECDSA signatures.
 //! - [`encode_verify_call`] + [`IEip8130Verifier`]: ABI-encoded `verify(...)` calldata for
@@ -118,17 +118,17 @@ pub fn payer_signature_hash(tx: &TxEip8130) -> B256 {
 
 /// Recovers the EIP-8130 sender from either explicit `from` or EOA `sender_auth`.
 ///
-/// For explicit-`from` mode (`tx.from.is_some()`) this returns `tx.from` **without**
+/// For explicit-`from` mode (`tx.sender.is_some()`) this returns `tx.sender` **without**
 /// verifying `sender_auth`. That's by design for the caller-recovery interface
 /// used by reth's tx-iterator hook (it just needs an Address there). The full
 /// EIP-8130 signature verification — including verifying the recovered key
-/// matches `tx.from` in explicit-from mode and dispatching custom-verifier
+/// matches `tx.sender` in explicit-from mode and dispatching custom-verifier
 /// STATICCALLs — happens in `alloy_op_evm::eip8130::auth_state` at conversion
 /// time and is rejected at the handler-level via `validate_env`.
 #[cfg(feature = "k256")]
 pub fn recover_eip8130_sender(tx: &TxEip8130) -> Result<Address, RecoveryError> {
     if !tx.is_eoa() {
-        return tx.from.ok_or_else(RecoveryError::new);
+        return tx.sender.ok_or_else(RecoveryError::new);
     }
     ecrecover_eoa_sender_auth(tx)
 }
@@ -136,7 +136,7 @@ pub fn recover_eip8130_sender(tx: &TxEip8130) -> Result<Address, RecoveryError> 
 /// Decodes a bare 65-byte K1 signature blob (EOA mode) and recovers the signer
 /// over `sender_signature_hash(tx)`.
 ///
-/// EOA mode is `tx.from == None`; in that case the entire `sender_auth` is the 65-byte sig.
+/// EOA mode is `tx.sender == None`; in that case the entire `sender_auth` is the 65-byte sig.
 #[cfg(feature = "k256")]
 fn ecrecover_eoa_sender_auth(tx: &TxEip8130) -> Result<Address, RecoveryError> {
     if tx.sender_auth.len() != 65 {
@@ -175,7 +175,7 @@ mod tests {
     fn sender_payer_hashes_are_deterministic() {
         let tx = TxEip8130 {
             chain_id: 8453,
-            from: Some(Address::repeat_byte(0x01)),
+            sender: Some(Address::repeat_byte(0x01)),
             nonce_key: U256::ZERO,
             nonce_sequence: 42,
             expiry: 0,
