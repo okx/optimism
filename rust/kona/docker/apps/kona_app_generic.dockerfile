@@ -22,6 +22,13 @@ ENV RUST_VERSION=1.94
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y --default-toolchain ${RUST_VERSION} --profile minimal
 ENV PATH="/root/.cargo/bin:${PATH}"
 
+RUN --mount=type=secret,id=copilot,target=/tmp/copilot.pem,required=false \
+    if [ -s /tmp/copilot.pem ]; then \
+         cp /tmp/copilot.pem /usr/local/share/ca-certificates/copilot.crt && \
+         update-ca-certificates; \
+    fi
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+
 # Install cargo-binstall
 RUN curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
 
