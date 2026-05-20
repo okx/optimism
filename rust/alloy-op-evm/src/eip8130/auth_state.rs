@@ -278,11 +278,11 @@ mod tests {
         PrivateKeySigner::from_bytes(&bytes).expect("valid private key")
     }
 
-    /// Build a sample tx with parameterized `from` and `sender_auth`.
-    fn sample_tx(from: Option<Address>, sender_auth: Bytes) -> TxEip8130 {
+    /// Build a sample tx with parameterized `sender` and `sender_auth`.
+    fn sample_tx(sender: Option<Address>, sender_auth: Bytes) -> TxEip8130 {
         TxEip8130 {
             chain_id: 8453,
-            from,
+            sender,
             nonce_key: U256::ZERO,
             nonce_sequence: 42,
             expiry: 0,

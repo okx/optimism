@@ -3440,6 +3440,34 @@ mod xlayer_tests {
             .expect("clean Create target must admit");
     }
 
+    /// Regression: the Create replay guard is an EIP-684-style
+    /// code/nonce check, not an account-existence or balance check.
+    /// Counterfactual funding of the derived address must remain valid.
+    #[test]
+    fn accepts_create_at_prefunded_empty_address() {
+        const CHAIN_ID: u64 = 10;
+        let signer = signer_for(0x4C);
+        let sender = signer.address();
+        let client = fresh_client(sender);
+
+        let create = make_create_entry(0x09, &[0x60, 0x05], vec![]);
+        let derived = derive_account_address(
+            ACCOUNT_CONFIG_ADDRESS,
+            create.user_salt,
+            &create.bytecode,
+            &create.initial_owners,
+        );
+        client.add_account(derived, ExtendedAccount::new(0, U256::from(123_u64)));
+
+        let mut tx = make_signed_tx(CHAIN_ID, &signer, 0);
+        tx.account_changes = vec![AccountChangeEntry::Create(create)];
+        tx.gas_limit = 500_000;
+        re_sign_sender_auth(&mut tx, &signer);
+
+        validate_eip8130_transaction(&tx, 1024, 0, CHAIN_ID, &client, U256::ZERO)
+            .expect("prefunded empty Create target must admit");
+    }
+
     /// Spec: a Create entry whose derived address has existing code
     /// rejects as `CreateTargetCollision`. Mirrors op-revm
     /// `handler.rs:1520-1530`.
