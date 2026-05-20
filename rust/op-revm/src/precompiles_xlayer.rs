@@ -1,9 +1,5 @@
 //! `XLayer` (EIP-8130) AA system precompiles: `NonceManager` + `TxContext`.
-use crate::{
-    OpSpecId,
-    constants::XLAYER_AA_CUSTOM_VERIFIER_GAS_CAP,
-    transaction::{OpTxTr, eip8130::AuthState},
-};
+use crate::{OpSpecId, transaction::OpTxTr};
 use alloy_sol_types::{SolCall, SolValue, sol};
 use revm::{
     Database,
@@ -66,51 +62,17 @@ pub fn aa_nonce_slot(account: Address, nonce_key: U256) -> U256 {
     U256::from_be_bytes(keccak256((nonce_key, inner).abi_encode()).0)
 }
 
-/// Computes the AA execution-only gas limit (`tx.gas_limit - aa_intrinsic_gas`).
-///
-/// Reads the active fork's [`revm::context_interface::cfg::GasParams`] from
-/// `cfg` and computes intrinsic gas on demand from the cached gas-path
-/// inputs on `tx.eip8130_parts()`. Synthetic AA test fixtures that build
-/// `Eip8130Parts::default()` directly get a minimal intrinsic and never
-/// underflow the saturating subtraction.
-fn aa_execution_gas_limit<CTX>(context: &CTX) -> u64
-where
-    CTX: ContextTr<Cfg: Cfg<Spec = OpSpecId>, Tx: OpTxTr>,
-{
-    let params = context.cfg().gas_params();
-    let tx = context.tx();
-    let aa_intrinsic = crate::eip8130_gas::aa_intrinsic_gas(tx.eip8130_parts(), params);
-    tx.gas_limit().saturating_sub(aa_intrinsic)
-}
-
 /// Computes the AA `max_cost` available to verifier contracts via `getMaxCost()`.
 ///
-/// `max_cost = (gas_limit - payer_intrinsic_gas + custom_verifier_gas_cap)
-///             * tx.max_fee_per_gas`
-///
-/// `payer_intrinsic_gas` is computed on demand from `cfg.gas_params()` and
-/// `tx.eip8130_parts()`. The custom-verifier cap is the static fork-bound
-/// [`XLAYER_AA_CUSTOM_VERIFIER_GAS_CAP`], gated on whether either auth side
-/// is [`AuthState::Deferred`].
+/// Per EIP-8130, this is the sender-side gas budget signed by the payer:
+/// `gas_limit * tx.max_fee_per_gas`. Separately metered payer auth gas is
+/// intentionally excluded.
 fn aa_max_cost<CTX>(context: &CTX) -> U256
 where
     CTX: ContextTr<Cfg: Cfg<Spec = OpSpecId>, Tx: OpTxTr>,
 {
-    let params = context.cfg().gas_params();
     let tx = context.tx();
-    let parts = tx.eip8130_parts();
-    let payer_intrinsic = crate::eip8130_gas::payer_intrinsic_gas(parts, params);
-    let custom_cap = if matches!(parts.sender_authstate, AuthState::Deferred { .. }) ||
-        matches!(parts.payer_authstate, AuthState::Deferred { .. })
-    {
-        XLAYER_AA_CUSTOM_VERIFIER_GAS_CAP
-    } else {
-        0
-    };
-    let total_gas = U256::from(tx.gas_limit())
-        .saturating_sub(U256::from(payer_intrinsic))
-        .saturating_add(U256::from(custom_cap));
-    total_gas.saturating_mul(U256::from(tx.max_fee_per_gas()))
+    U256::from(tx.gas_limit()).saturating_mul(U256::from(tx.max_fee_per_gas()))
 }
 
 /// Returns whether EIP-8130 system precompiles are available at the given spec.
@@ -185,11 +147,7 @@ where
             ITxContext::getMaxCostCall::abi_encode_returns(&max_cost)
         }
         ITxContext::getGasLimitCall::SELECTOR => {
-            let gas_limit = if parts.is_some() {
-                U256::from(aa_execution_gas_limit(context))
-            } else {
-                U256::ZERO
-            };
+            let gas_limit = if parts.is_some() { U256::from(tx.gas_limit()) } else { U256::ZERO };
             ITxContext::getGasLimitCall::abi_encode_returns(&gas_limit)
         }
         ITxContext::getCallsCall::SELECTOR => {

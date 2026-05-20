@@ -1,12 +1,12 @@
-//! EIP-8130 intrinsic gas computation.
+//! EIP-8130 gas computation.
 //!
-//! Protocol-fixed gas charged before any phase execution. The handler invokes
-//! these helpers on demand at validation / execution time, reading the active
-//! fork's [`GasParams`] from the cfg context (`cfg.gas_params()`); the values
-//! are no longer cached as scalars on `Eip8130Parts`. Split into one fn per
-//! cost component (auth payload, sender/payer auth load, sender/payer
-//! verification, nonce key, account changes, bytecode, authorizer
-//! verification) plus an aggregator [`aa_intrinsic_gas`].
+//! Protocol-fixed sender-side gas is charged before any phase execution and
+//! consumes `gas_limit`. Payer authentication is metered separately via
+//! [`payer_intrinsic_gas`] so the payer's verifier choice does not reduce the
+//! gas available to calls. The handler invokes these helpers on demand at
+//! validation / execution time, reading the active fork's [`GasParams`] from
+//! the cfg context (`cfg.gas_params()`); the values are no longer cached as
+//! scalars on `Eip8130Parts`.
 //!
 //! ## Inputs
 //!
@@ -193,8 +193,7 @@ fn delegate_inner_verifier_addr(verifier: Address, verifier_data: &[u8]) -> Opti
     Some(Address::from_slice(&verifier_data[..20]))
 }
 
-/// Payer-only intrinsic gas portion (used by the payer precompile to report
-/// `getMaxCost()`).
+/// Payer-only authentication gas, metered separately from `gas_limit`.
 #[inline]
 pub fn payer_intrinsic_gas(parts: &Eip8130Parts, params: &GasParams) -> u64 {
     payer_auth_cost(parts, params).saturating_add(payer_verification_gas(parts, params))
@@ -344,13 +343,16 @@ pub fn authorizer_verification_gas(parts: &Eip8130Parts, params: &GasParams) -> 
     total
 }
 
-/// EIP-8130 intrinsic gas: AA-base + per-component costs aggregated.
+/// EIP-8130 sender-side intrinsic gas that consumes `gas_limit`.
 ///
-/// The handler reads this back during `validate_initial_tx_gas`, gas
-/// deduction, and the AA execution-gas-limit / max-cost computations.
-/// Computed on demand from `(parts, cfg.gas_params())`; the
-/// fork-independent payload-cost input is precomputed at conversion time
-/// into [`Eip8130Parts::sender_payload_calldata_cost`].
+/// This intentionally excludes [`payer_intrinsic_gas`]. Per EIP-8130, payer
+/// authentication is chosen by the payer and metered separately so it cannot
+/// reduce gas available to `calls`; `gas_limit` bounds sender authentication,
+/// transaction payload cost, nonce/account-change costs, and call execution.
+///
+/// Computed on demand from `(parts, cfg.gas_params())`; the fork-independent
+/// payload-cost input is precomputed at conversion time into
+/// [`Eip8130Parts::sender_payload_calldata_cost`].
 #[inline]
 pub fn aa_intrinsic_gas(parts: &Eip8130Parts, params: &GasParams) -> u64 {
     use revm::context_interface::cfg::GasId;
@@ -358,9 +360,7 @@ pub fn aa_intrinsic_gas(parts: &Eip8130Parts, params: &GasParams) -> u64 {
         .get(GasId::tx_base_stipend())
         .saturating_add(parts.sender_payload_calldata_cost)
         .saturating_add(sender_auth_cost(parts, params))
-        .saturating_add(payer_auth_cost(parts, params))
         .saturating_add(sender_verification_gas(parts, params))
-        .saturating_add(payer_verification_gas(parts, params))
         .saturating_add(authorizer_verification_gas(parts, params))
         .saturating_add(nonce_key_cost(parts, params))
         .saturating_add(bytecode_cost(parts, params))
@@ -983,21 +983,43 @@ mod tests {
     }
 
     #[test]
-    fn intrinsic_gas_explicit_from_k1_matches_components() {
+    fn intrinsic_gas_explicit_from_k1_matches_sender_side_components() {
         let p = params();
-        // Explicit-from sender (K1 prefix), sponsored payer (empty payer_auth
-        // → K1 fallback in sender_verification_gas helper).
         let mut parts = parts_with_sender_auth(auth_blob(K1_VERIFIER_ADDRESS, &[0u8; 65]));
         parts.sender_payload_calldata_cost = 1_234;
         let cold = p.get(GasId::cold_storage_cost());
         let expected = p.get(GasId::tx_base_stipend())
             + parts.sender_payload_calldata_cost
-            + cold                          // sender_auth_cost (non-empty)
-            + cold                          // payer_auth_cost (sponsored)
-            + p.k1_verification_gas()       // sender_verification_gas (K1 prefix)
-            + p.k1_verification_gas()       // payer_verification_gas (empty payer_auth → K1)
+            + cold                    // sender_auth_cost (non-empty)
+            + p.k1_verification_gas() // sender_verification_gas (K1 prefix)
             + p.nonce_cold_gas();
         assert_eq!(aa_intrinsic_gas(&parts, &p), expected);
+        assert_eq!(
+            payer_intrinsic_gas(&parts, &p),
+            cold + p.k1_verification_gas(),
+            "payer auth gas is accounted separately from gas_limit",
+        );
+    }
+
+    #[test]
+    fn intrinsic_gas_excludes_payer_verifier_choice() {
+        let p = params();
+        let mut k1_payer = parts_with_sender_auth(auth_blob(K1_VERIFIER_ADDRESS, &[0u8; 65]));
+        k1_payer.payer_auth = auth_blob(K1_VERIFIER_ADDRESS, &[0u8; 65]);
+
+        let mut webauthn_payer = k1_payer.clone();
+        webauthn_payer.payer_auth = auth_blob(P256_WEBAUTHN_VERIFIER_ADDRESS, &[0u8; 200]);
+
+        assert_eq!(
+            aa_intrinsic_gas(&k1_payer, &p),
+            aa_intrinsic_gas(&webauthn_payer, &p),
+            "payer verifier choice must not reduce gas available to calls",
+        );
+        assert_ne!(
+            payer_intrinsic_gas(&k1_payer, &p),
+            payer_intrinsic_gas(&webauthn_payer, &p),
+            "payer verifier cost is still metered separately",
+        );
     }
 
     #[test]
@@ -1081,17 +1103,17 @@ mod tests {
         assert_eq!(payer_verification_gas(&parts, &p), 0);
         assert_eq!(nonce_key_cost(&parts, &p), 0);
 
-        // Aggregator: only the upstream-EVM components contribute.
+        // Aggregator: only the sender-side upstream-EVM components contribute.
         // empty_parts() has explicit-from (is_eoa=false), sender_auth = 85
-        // zero bytes, sponsored payer with empty payer_auth.
+        // zero bytes, sponsored payer with empty payer_auth. The payer-side
+        // cold SLOAD is reported by payer_intrinsic_gas, not aa_intrinsic_gas.
         let expected = p.get(GasId::tx_base_stipend())
             + parts.sender_payload_calldata_cost
-            + p.get(GasId::cold_storage_cost())  // sender_auth_cost (non-empty)
-            + p.get(GasId::cold_storage_cost()); // payer_auth_cost (sponsored)
+            + p.get(GasId::cold_storage_cost()); // sender_auth_cost (non-empty)
         assert_eq!(
             aa_intrinsic_gas(&parts, &p),
             expected,
-            "pre-fork aggregator must equal base + payload + auth_costs (no XLayer components)",
+            "pre-fork aggregator must equal sender-side base + payload + auth_cost",
         );
     }
 }

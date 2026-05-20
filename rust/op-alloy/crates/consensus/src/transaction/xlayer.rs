@@ -13,12 +13,6 @@ use alloy_rlp::{BufMut, Decodable, Encodable, Header, length_of_length};
 
 use crate::transaction::tx_type::{AA_PAYER_TYPE_ID, AA_TX_TYPE_ID};
 
-fn k1_verifier_address() -> Address {
-    let mut bytes = [0u8; 20];
-    bytes[19] = 1;
-    Address::from(bytes)
-}
-
 /// A single call inside an EIP-8130 phase.
 ///
 /// Distinct from [`op_revm::transaction::eip8130::Eip8130Call`], which is the EVM-execution form
@@ -574,35 +568,19 @@ impl TxEip8130 {
         buf
     }
 
-    /// Returns the sender verifier address committed to by `payer_auth`.
-    pub fn sender_verifier_for_payer_signing(&self) -> Address {
-        if self.is_eoa() {
-            return k1_verifier_address();
-        }
-
-        if self.sender_auth.len() < 20 {
-            return Address::ZERO;
-        }
-
-        Address::from_slice(&self.sender_auth[..20])
-    }
-
     /// EIP-8130 signing preimage for `payer_auth`.
     ///
-    /// Encodes `AA_PAYER_TYPE || rlp([chain_id, sender, sender_verifier, nonce_key,
-    /// nonce_sequence, expiry, max_priority_fee_per_gas, max_fee_per_gas, gas_limit,
-    /// account_changes, calls])`.
+    /// Encodes `AA_PAYER_TYPE || rlp([chain_id, sender, nonce_key, nonce_sequence, expiry,
+    /// max_priority_fee_per_gas, max_fee_per_gas, gas_limit, account_changes, calls])`.
     ///
     /// In EOA mode the wire transaction carries `sender = None`; callers must pass the recovered
     /// sender so the payer signs the concrete account being sponsored.
     pub fn payer_payload_len_for_signature_with_sender(&self, resolved_sender: Address) -> usize {
         let sender = self.sender.or(Some(resolved_sender));
-        let sender_verifier = self.sender_verifier_for_payer_signing();
         1 + Header {
             list: true,
             payload_length: self.chain_id.length() +
                 optional_address_len(&sender) +
-                sender_verifier.length() +
                 self.nonce_key.length() +
                 self.nonce_sequence.length() +
                 self.expiry.length() +
@@ -615,7 +593,6 @@ impl TxEip8130 {
         .length() +
             self.chain_id.length() +
             optional_address_len(&sender) +
-            sender_verifier.length() +
             self.nonce_key.length() +
             self.nonce_sequence.length() +
             self.expiry.length() +
@@ -641,10 +618,8 @@ impl TxEip8130 {
         resolved_sender: Address,
     ) {
         let sender = self.sender.or(Some(resolved_sender));
-        let sender_verifier = self.sender_verifier_for_payer_signing();
         let payload_length = self.chain_id.length() +
             optional_address_len(&sender) +
-            sender_verifier.length() +
             self.nonce_key.length() +
             self.nonce_sequence.length() +
             self.expiry.length() +
@@ -658,7 +633,6 @@ impl TxEip8130 {
         Header { list: true, payload_length }.encode(out);
         self.chain_id.encode(out);
         encode_optional_address(&sender, out);
-        sender_verifier.encode(out);
         self.nonce_key.encode(out);
         self.nonce_sequence.encode(out);
         self.expiry.encode(out);
@@ -1273,18 +1247,11 @@ mod tests {
         assert_eq!(sender_hash, keccak256(&sender_preimage));
         assert_eq!(payer_hash, keccak256(&payer_preimage));
 
-        let mut changed_auth_data = tx.clone();
-        let mut same_verifier = tx.sender_auth.to_vec();
-        same_verifier[20..].fill(0x66);
-        changed_auth_data.sender_auth = Bytes::from(same_verifier);
-        changed_auth_data.payer_auth = Bytes::from(vec![0x77; 65]);
-        assert_eq!(sender_hash, sender_signature_hash(&changed_auth_data));
-        assert_eq!(payer_hash, payer_signature_hash(&changed_auth_data));
-
-        let mut changed_sender_verifier = tx.clone();
-        changed_sender_verifier.sender_auth = Bytes::from(vec![0x66; 65]);
-        assert_eq!(sender_hash, sender_signature_hash(&changed_sender_verifier));
-        assert_ne!(payer_hash, payer_signature_hash(&changed_sender_verifier));
+        let mut changed_auth = tx.clone();
+        changed_auth.sender_auth = Bytes::from(vec![0x66; 65]);
+        changed_auth.payer_auth = Bytes::from(vec![0x77; 65]);
+        assert_eq!(sender_hash, sender_signature_hash(&changed_auth));
+        assert_eq!(payer_hash, payer_signature_hash(&changed_auth));
 
         let mut changed_payer = tx.clone();
         changed_payer.payer = Some(Address::repeat_byte(0x88));

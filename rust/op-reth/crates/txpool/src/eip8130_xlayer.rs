@@ -29,7 +29,7 @@ use op_revm::{
         ACCOUNT_CONFIG_ADDRESS, K1_VERIFIER_ADDRESS, OP_AUTHORIZE_OWNER, OP_REVOKE_OWNER,
         OWNER_SCOPE_CONFIG, OWNER_SCOPE_PAYER, OWNER_SCOPE_SENDER, REVOKED_VERIFIER,
     },
-    eip8130_gas::aa_intrinsic_gas,
+    eip8130_gas::{aa_intrinsic_gas, payer_intrinsic_gas},
     eip8130_policy::{PendingOwnerState, pending_owner_state_for_change},
     gas_params::xlayer_gas_params,
     handler::{
@@ -159,17 +159,16 @@ pub enum Eip8130ValidationError {
     /// of letting it consume gas at execution time.
     #[error("EIP-8130 nonce-free transaction already seen (replay)")]
     NonceFreeReplay,
-    /// Payer balance does not cover `gas_limit * max_fee_per_gas + l1_data_fee`.
+    /// Payer balance does not cover `(gas_limit + payer_auth_gas) * max_fee_per_gas +
+    /// l1_data_fee`.
     ///
     /// AA-aware balance check (mirrors the gas-based balance assertion in base's
     /// `validate_eip8130_transaction`). The L1-data-fee component is folded in
     /// by the AA wrapper from the cached `OpL1BlockInfo`; non-AA txs use the
-    /// inner OP wrapper's `apply_op_checks` instead. Intrinsic-gas accounting
-    /// is intentionally absent here: until the xlayer-aa gas-schedule resolver
-    /// lands, the universally available bound is `gas_limit * max_fee_per_gas`.
+    /// inner OP wrapper's `apply_op_checks` instead.
     #[error("EIP-8130 insufficient payer balance: required {required}, available {available}")]
     InsufficientBalance {
-        /// `gas_limit * max_fee_per_gas + l1_data_fee`.
+        /// `(gas_limit + payer_auth_gas) * max_fee_per_gas + l1_data_fee`.
         required: U256,
         /// On-chain payer balance.
         available: U256,
@@ -1230,7 +1229,11 @@ where
     }
 
     // Step 11: balance check. AA-aware lower bound is
-    // `gas_limit * max_fee_per_gas + l1_data_fee`, keyed on the payer.
+    // `(gas_limit + payer_auth_gas) * max_fee_per_gas + l1_data_fee`, keyed on the payer.
+    //
+    // Payer auth is metered separately from `gas_limit`: it does not reduce call gas,
+    // but the payer still pays for it. Deferred payer verifiers are rejected earlier
+    // in txpool admission, so `payer_intrinsic_gas` is the complete payer-auth bound here.
     //
     // The OP wrapper's `apply_op_checks` skips the L1 guard for AA txs (see
     // `OpTransactionValidator::apply_op_checks`) because that guard reads
@@ -1241,7 +1244,8 @@ where
         .account_balance(&payer)
         .map_err(|e| Eip8130ValidationError::StateError(e.to_string()))?
         .unwrap_or_default();
-    let max_gas_cost = U256::from(tx.gas_limit)
+    let payer_auth_gas = payer_intrinsic_gas(&parts, &gas_params);
+    let max_gas_cost = U256::from(tx.gas_limit.saturating_add(payer_auth_gas))
         .saturating_mul(U256::from(tx.max_fee_per_gas))
         .saturating_add(l1_data_fee);
     if balance < max_gas_cost {
@@ -3062,6 +3066,46 @@ mod xlayer_tests {
         let err = validate_eip8130_transaction(&tx, 1024, 0, CHAIN_ID, &client, U256::ZERO)
             .expect_err("under-funded payer (sender funded) must reject");
         assert!(matches!(err, Eip8130ValidationError::InsufficientBalance { .. }));
+    }
+
+    /// Sponsored payer must cover separately metered payer authentication gas
+    /// in addition to the signed sender-side `gas_limit`.
+    #[test]
+    fn rejects_sponsored_payer_missing_payer_auth_gas_balance() {
+        use op_alloy_consensus::payer_signature_hash;
+        const CHAIN_ID: u64 = 10;
+        let sender_signer = signer_for(0x76);
+        let payer_signer = signer_for(0x77);
+        let sender = sender_signer.address();
+        let payer = payer_signer.address();
+
+        let client = MockEthProvider::<OpPrimitives>::new();
+        client.add_account(NONCE_MANAGER_ADDRESS, ExtendedAccount::new(0, U256::ZERO));
+        client.add_account(sender, ExtendedAccount::new(0, U256::from(u128::MAX)));
+
+        let mut tx = make_sponsored_tx(CHAIN_ID, &sender_signer, &payer_signer, 0);
+        tx.gas_limit = 100_000;
+        tx.max_fee_per_gas = 1;
+        let s_hash = sender_signature_hash(&tx);
+        tx.sender_auth = k1_explicit_auth(&sender_signer, s_hash);
+        let p_hash = payer_signature_hash(&tx);
+        tx.payer_auth = k1_explicit_payer_auth(&payer_signer, p_hash);
+
+        let parts = alloy_op_evm::eip8130::eip8130_parts(&tx, sender);
+        let payer_auth_gas = payer_intrinsic_gas(&parts, &xlayer_gas_params(OpSpecId::XLAYER_V1));
+        assert!(payer_auth_gas > 0);
+
+        client.add_account(payer, ExtendedAccount::new(0, U256::from(tx.gas_limit)));
+
+        let err = validate_eip8130_transaction(&tx, 1024, 0, CHAIN_ID, &client, U256::ZERO)
+            .expect_err("payer must cover payer_auth gas outside gas_limit");
+        match err {
+            Eip8130ValidationError::InsufficientBalance { required, available } => {
+                assert_eq!(required, U256::from(tx.gas_limit + payer_auth_gas));
+                assert_eq!(available, U256::from(tx.gas_limit));
+            }
+            other => panic!("expected InsufficientBalance, got {other:?}"),
+        }
     }
 
     /// On-chain `owner_config[payer][owner_id] = (REVOKED_VERIFIER, _)`

@@ -616,46 +616,6 @@ mod tests {
     }
 
     #[test]
-    fn payer_hash_rejects_sender_verifier_swap() {
-        let sender = Address::repeat_byte(0x01);
-        let payer = signer_from_seed(0xC1);
-        let cheap_verifier = Address::repeat_byte(0x02);
-        let expensive_verifier = Address::repeat_byte(0xFE);
-
-        let mut tx = sample_tx_payer(Some(payer.address()), Bytes::new());
-        tx.sender = Some(sender);
-
-        let mut sender_auth = Vec::with_capacity(52);
-        sender_auth.extend_from_slice(cheap_verifier.as_slice());
-        sender_auth.extend_from_slice(&[0xAA; 32]);
-        tx.sender_auth = Bytes::from(sender_auth);
-
-        let payer_hash = payer_signature_hash_with_sender(&tx, tx.effective_sender());
-        tx.payer_auth = k1_explicit_auth(&payer, payer_hash);
-
-        assert_eq!(
-            build_payer_auth_state(&tx, tx.effective_sender()),
-            AuthState::Native {
-                verifier: K1_VERIFIER_ADDRESS,
-                owner_id: expected_owner_id(payer.address()),
-                delegate_inner: None,
-            }
-        );
-
-        let mut swapped = tx;
-        let mut swapped_sender_auth = swapped.sender_auth.to_vec();
-        swapped_sender_auth[..20].copy_from_slice(expensive_verifier.as_slice());
-        swapped.sender_auth = Bytes::from(swapped_sender_auth);
-
-        match build_payer_auth_state(&swapped, swapped.effective_sender()) {
-            AuthState::Invalid(reason) => {
-                assert!(reason.contains("strict-self-owner"), "unexpected reason: {reason}");
-            }
-            other => panic!("expected Invalid, got {other:?}"),
-        }
-    }
-
-    #[test]
     fn payer_sponsored_custom_returns_deferred() {
         let payer = Address::repeat_byte(0xCD);
         let custom = Address::repeat_byte(0xEF);

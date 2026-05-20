@@ -170,21 +170,23 @@ where
     crate::eip8130_gas::aa_intrinsic_gas(ctx.tx().eip8130_parts(), ctx.cfg().gas_params())
 }
 
-/// Aggregate custom-verifier gas cap, gated on the presence of any
-/// off-chain custom-verifier STATICCALL the handler might run:
-///
-/// - sender / payer custom auth ([`AuthState::Deferred`]), or
-/// - any config-change authorizer that resolves through a custom verifier (i.e.
-///   `authorizer_validations[*].verify_call.is_some()`).
-///
-/// `0` when none of those paths are present — preserves the prior
-/// conversion-time `parts.custom_verifier_gas_cap` semantics, where the cap
-/// was provisioned exactly when at least one custom STATICCALL was anticipated.
-fn aa_custom_verifier_gas_cap(parts: &Eip8130Parts) -> u64 {
+/// Sender-side custom-verifier gas cap. This portion consumes `gas_limit`
+/// before calls because sender authentication and config-change authorizers
+/// are sender-controlled.
+fn aa_sender_custom_verifier_gas_cap(parts: &Eip8130Parts) -> u64 {
     let needs_cap = matches!(parts.sender_authstate, AuthState::Deferred { .. }) ||
-        matches!(parts.payer_authstate, AuthState::Deferred { .. }) ||
         parts.account_changes.authorizer_validations.iter().any(|v| v.verify_call.is_some());
     if needs_cap { crate::constants::XLAYER_AA_CUSTOM_VERIFIER_GAS_CAP } else { 0 }
+}
+
+/// Payer-side custom-verifier gas cap. This is metered separately from
+/// `gas_limit` so the payer's verifier choice cannot reduce call gas.
+fn aa_payer_custom_verifier_gas_cap(parts: &Eip8130Parts) -> u64 {
+    if !parts.is_self_pay() && matches!(parts.payer_authstate, AuthState::Deferred { .. }) {
+        crate::constants::XLAYER_AA_CUSTOM_VERIFIER_GAS_CAP
+    } else {
+        0
+    }
 }
 
 /// Creates an `InvalidTransaction` error from a message string.
@@ -1201,6 +1203,11 @@ where
             // coexists with `&mut journal` because `all_mut` returns
             // disjoint sub-borrows of the context. No deep clone needed.
             let eip8130 = tx.eip8130_parts();
+            let payer_auth_gas_limit = crate::eip8130_gas::payer_intrinsic_gas(
+                eip8130,
+                cfg.gas_params(),
+            )
+            .saturating_add(aa_payer_custom_verifier_gas_cap(eip8130));
 
             // --- Gas deduction from payer ---
             let payer = eip8130.payer;
@@ -1221,7 +1228,26 @@ where
                 balance = new_balance;
             }
 
-            let balance = calculate_caller_fee(balance, tx, block, cfg)?;
+            let mut balance = calculate_caller_fee(balance, tx, block, cfg)?;
+            if !cfg.is_fee_charge_disabled() && payer_auth_gas_limit != 0 {
+                let basefee = block.basefee() as u128;
+                let effective_gas_price = tx.effective_gas_price(basefee);
+                let payer_auth_fee = U256::from(
+                    effective_gas_price.saturating_mul(payer_auth_gas_limit as u128),
+                );
+                if cfg.is_balance_check_disabled() {
+                    balance = balance.saturating_sub(payer_auth_fee);
+                } else {
+                    let Some(new_balance) = balance.checked_sub(payer_auth_fee) else {
+                        return Err(InvalidTransaction::LackOfFundForMaxFee {
+                            fee: Box::new(payer_auth_fee),
+                            balance: Box::new(balance),
+                        }
+                        .into());
+                    };
+                    balance = new_balance;
+                }
+            }
             payer_account.set_balance(balance);
             drop(payer_account);
 
@@ -1378,7 +1404,9 @@ where
         // Vec/Bytes payloads stay un-cloned — we re-fetch by index inside
         // the loops.
         let (
-            custom_verifier_gas_cap,
+            sender_custom_verifier_gas_cap,
+            payer_custom_verifier_gas_cap,
+            payer_intrinsic_gas,
             nonce_key,
             payer_address,
             sender_address,
@@ -1388,7 +1416,9 @@ where
             let ctx = evm.ctx();
             let parts = ctx.tx().eip8130_parts();
             (
-                aa_custom_verifier_gas_cap(parts),
+                aa_sender_custom_verifier_gas_cap(parts),
+                aa_payer_custom_verifier_gas_cap(parts),
+                crate::eip8130_gas::payer_intrinsic_gas(parts, ctx.cfg().gas_params()),
                 parts.nonce_key,
                 parts.payer,
                 parts.sender,
@@ -1415,19 +1445,20 @@ where
         };
 
         let overhead = if is_estimation { estimation_overhead } else { 0 };
-        let gas_limit = evm
+        let sender_gas_budget = evm
             .ctx()
             .tx()
             .gas_limit()
-            .saturating_sub(aa_intrinsic_gas + custom_verifier_gas_cap + overhead)
+            .saturating_sub(aa_intrinsic_gas + overhead)
             .saturating_add(nonce_warm_adjustment);
+        let sender_custom_verifier_gas_cap = sender_custom_verifier_gas_cap.min(sender_gas_budget);
 
-        let mut gas_remaining = gas_limit;
         let mut phase_results = Vec::with_capacity(call_phase_count);
 
         evm.ctx().journal_mut().load_account(sender)?;
 
-        let mut verification_gas_used: u64 = 0;
+        let mut sender_verification_gas_used: u64 = 0;
+        let mut payer_verification_gas_used: u64 = 0;
 
         if !is_estimation {
             validate_config_change_preconditions::<Self::Evm, Self::Error>(evm, sender)?;
@@ -1437,8 +1468,8 @@ where
                     &mut self.mainnet,
                     evm,
                     sender,
-                    custom_verifier_gas_cap,
-                    &mut verification_gas_used,
+                    sender_custom_verifier_gas_cap,
+                    &mut sender_verification_gas_used,
                 )?;
 
             // Delegation requires sender authenticated as EOA self-owner with
@@ -1462,8 +1493,8 @@ where
                 sender,
                 sender,
                 crate::constants::OWNER_SCOPE_SENDER,
-                custom_verifier_gas_cap,
-                &mut verification_gas_used,
+                sender_custom_verifier_gas_cap,
+                &mut sender_verification_gas_used,
                 Some(&pending_sender_owner_overrides),
             )?;
 
@@ -1479,12 +1510,14 @@ where
                     payer_address,
                     sender,
                     crate::constants::OWNER_SCOPE_PAYER,
-                    custom_verifier_gas_cap,
-                    &mut verification_gas_used,
+                    payer_custom_verifier_gas_cap,
+                    &mut payer_verification_gas_used,
                     payer_pending_overrides,
                 )?;
             }
         }
+
+        let mut gas_remaining = sender_gas_budget.saturating_sub(sender_verification_gas_used);
 
         // ── Account-change processing in EIP-8130 spec order ───────────────
         // Step 1 (Create): register `initial_owners` for the new account and
@@ -1699,7 +1732,10 @@ where
             drop(acc);
         }
 
-        let unused_verification_gas = custom_verifier_gas_cap.saturating_sub(verification_gas_used);
+        let unused_payer_verification_gas =
+            payer_custom_verifier_gas_cap.saturating_sub(payer_verification_gas_used);
+        let payer_auth_gas_limit =
+            payer_intrinsic_gas.saturating_add(payer_custom_verifier_gas_cap);
 
         let mut accumulated_refunds: i64 = 0;
 
@@ -1802,8 +1838,10 @@ where
                 .log(phase_statuses_system_log(TX_CONTEXT_ADDRESS, &phase_results));
         }
 
-        let mut result_gas = Gas::new_spent(evm.ctx().tx().gas_limit());
-        result_gas.erase_cost(gas_remaining + unused_verification_gas);
+        let mut result_gas = Gas::new_spent(
+            evm.ctx().tx().gas_limit().saturating_add(payer_auth_gas_limit),
+        );
+        result_gas.erase_cost(gas_remaining.saturating_add(unused_payer_verification_gas));
         if accumulated_refunds > 0 {
             result_gas.record_refund(accumulated_refunds);
         }
@@ -1839,9 +1877,17 @@ where
         let refunded = gas.refunded();
         let reservoir = gas.reservoir();
         let state_gas_spent = gas.state_gas_spent();
+        let final_gas_limit = if tx.tx_type() == EIP8130_TX_TYPE {
+            // EIP-8130 may meter payer_auth outside the signed sender-side
+            // gas_limit. Preserve that larger accounting limit instead of
+            // normalizing it back to tx.gas_limit().
+            gas.limit()
+        } else {
+            tx_gas_limit
+        };
 
         // Spend the gas limit. Gas is reimbursed when the tx returns successfully.
-        *gas = Gas::new_spent(tx_gas_limit);
+        *gas = Gas::new_spent(final_gas_limit);
 
         if instruction_result.is_ok() {
             // On Optimism, deposit transactions report gas usage uniquely to other
@@ -3676,6 +3722,77 @@ mod xlayer_eip8130_tests {
         assert!(result.is_success());
         assert!(result.tx_gas_used() > 0, "intrinsic gas should be charged");
         assert!(result.tx_gas_used() <= gas_limit, "cannot spend more than limit");
+    }
+
+    #[test]
+    fn test_eip8130_payer_custom_verifier_does_not_reduce_call_gas() {
+        let sender = Address::from([0x11; 20]);
+        let payer = Address::from([0x44; 20]);
+        let target = Address::from([0x22; 20]);
+        let verifier = Address::from([0xAA; 20]);
+        let owner_id = B256::from([0xBB; 32]);
+        let owner_config_slot = aa_owner_config_slot(payer, U256::from_be_bytes(owner_id.0));
+
+        let mut payer_auth = Vec::with_capacity(56);
+        payer_auth.extend_from_slice(verifier.as_slice());
+        payer_auth.extend_from_slice(&[0xCA; 36]);
+
+        let parts = Eip8130Parts {
+            sender,
+            payer,
+            payer_auth: Bytes::from(payer_auth),
+            payer_authstate: AuthState::Deferred {
+                spec: Eip8130VerifyCall {
+                    verifier,
+                    calldata: Bytes::from(vec![0xCA; 36]),
+                    account: payer,
+                    required_scope: crate::constants::OWNER_SCOPE_PAYER,
+                },
+                delegate_outer: None,
+            },
+            call_phases: vec![vec![Eip8130Call {
+                to: target,
+                data: Bytes::new(),
+                value: U256::ZERO,
+            }]],
+            ..Default::default()
+        };
+
+        let gas_params = crate::gas_params::xlayer_gas_params(crate::OpSpecId::XLAYER_V1);
+        let sender_intrinsic = crate::eip8130_gas::aa_intrinsic_gas(&parts, &gas_params);
+        let gas_limit = sender_intrinsic + 1;
+
+        let (result, _) = run_eip8130_tx_with_opts(
+            sender,
+            &[
+                (target, Bytecode::new_legacy(bytes!("00"))),
+                (verifier, make_verifier_bytecode(owner_id)),
+            ],
+            &[(
+                ACCOUNT_CONFIG_ADDRESS,
+                owner_config_slot,
+                pack_owner_config(verifier, crate::constants::OWNER_SCOPE_PAYER),
+            )],
+            0,
+            parts,
+            gas_limit,
+            0,
+            Eip8130TxOpts {
+                funded_accounts: vec![(payer, U256::from(10_000_000u64))],
+                use_xlayer_gas_params: true,
+                ..Default::default()
+            },
+        );
+
+        let result = result.expect("payer custom verifier should validate");
+        assert!(
+            result.is_success(),
+            "payer-auth verifier gas must be metered separately instead of exhausting call gas",
+        );
+        assert!(
+            result.tx_gas_used() > gas_limit,
+            "payer auth gas should be charged in addition to the signed sender-side gas_limit",
+        );
     }
 
     /// EIP-8130 spec: "Intrinsic gas (including auth costs) is not refundable."
