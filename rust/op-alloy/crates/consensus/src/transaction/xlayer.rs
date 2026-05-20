@@ -570,13 +570,17 @@ impl TxEip8130 {
 
     /// EIP-8130 signing preimage for `payer_auth`.
     ///
-    /// Encodes `AA_PAYER_TYPE || rlp([chain_id, from, nonce_key, nonce_sequence, expiry,
+    /// Encodes `AA_PAYER_TYPE || rlp([chain_id, sender, nonce_key, nonce_sequence, expiry,
     /// max_priority_fee_per_gas, max_fee_per_gas, gas_limit, account_changes, calls])`.
-    pub fn payer_payload_len_for_signature(&self) -> usize {
+    ///
+    /// In EOA mode the wire transaction carries `sender = None`; callers must pass the recovered
+    /// sender so the payer signs the concrete account being sponsored.
+    pub fn payer_payload_len_for_signature_with_sender(&self, resolved_sender: Address) -> usize {
+        let sender = self.sender.or(Some(resolved_sender));
         1 + Header {
             list: true,
             payload_length: self.chain_id.length() +
-                optional_address_len(&self.sender) +
+                optional_address_len(&sender) +
                 self.nonce_key.length() +
                 self.nonce_sequence.length() +
                 self.expiry.length() +
@@ -588,7 +592,7 @@ impl TxEip8130 {
         }
         .length() +
             self.chain_id.length() +
-            optional_address_len(&self.sender) +
+            optional_address_len(&sender) +
             self.nonce_key.length() +
             self.nonce_sequence.length() +
             self.expiry.length() +
@@ -599,10 +603,23 @@ impl TxEip8130 {
             nested_calls_len(&self.calls)
     }
 
+    /// EIP-8130 payer signing preimage length using the wire sender field when present.
+    ///
+    /// For EOA-mode transactions, prefer
+    /// [`Self::payer_payload_len_for_signature_with_sender`] with the recovered sender.
+    pub fn payer_payload_len_for_signature(&self) -> usize {
+        self.payer_payload_len_for_signature_with_sender(self.effective_sender())
+    }
+
     /// Encodes the EIP-8130 payer signing preimage into `out`.
-    pub fn encode_for_payer_signing(&self, out: &mut dyn BufMut) {
+    pub fn encode_for_payer_signing_with_sender(
+        &self,
+        out: &mut dyn BufMut,
+        resolved_sender: Address,
+    ) {
+        let sender = self.sender.or(Some(resolved_sender));
         let payload_length = self.chain_id.length() +
-            optional_address_len(&self.sender) +
+            optional_address_len(&sender) +
             self.nonce_key.length() +
             self.nonce_sequence.length() +
             self.expiry.length() +
@@ -615,7 +632,7 @@ impl TxEip8130 {
         out.put_u8(AA_PAYER_TYPE_ID);
         Header { list: true, payload_length }.encode(out);
         self.chain_id.encode(out);
-        encode_optional_address(&self.sender, out);
+        encode_optional_address(&sender, out);
         self.nonce_key.encode(out);
         self.nonce_sequence.encode(out);
         self.expiry.encode(out);
@@ -626,11 +643,28 @@ impl TxEip8130 {
         encode_nested_calls(&self.calls, out);
     }
 
+    /// Encodes the EIP-8130 payer signing preimage using the wire sender field when present.
+    ///
+    /// For EOA-mode transactions, prefer [`Self::encode_for_payer_signing_with_sender`] with the
+    /// recovered sender.
+    pub fn encode_for_payer_signing(&self, out: &mut dyn BufMut) {
+        self.encode_for_payer_signing_with_sender(out, self.effective_sender());
+    }
+
     /// Returns the EIP-8130 payer signing preimage bytes.
-    pub fn encoded_for_payer_signing(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(self.payer_payload_len_for_signature());
-        self.encode_for_payer_signing(&mut buf);
+    pub fn encoded_for_payer_signing_with_sender(&self, resolved_sender: Address) -> Vec<u8> {
+        let mut buf =
+            Vec::with_capacity(self.payer_payload_len_for_signature_with_sender(resolved_sender));
+        self.encode_for_payer_signing_with_sender(&mut buf, resolved_sender);
         buf
+    }
+
+    /// Returns the EIP-8130 payer signing preimage bytes using the wire sender field when present.
+    ///
+    /// For EOA-mode transactions, prefer [`Self::encoded_for_payer_signing_with_sender`] with the
+    /// recovered sender.
+    pub fn encoded_for_payer_signing(&self) -> Vec<u8> {
+        self.encoded_for_payer_signing_with_sender(self.effective_sender())
     }
 
     /// Approximate in-memory size.
@@ -909,7 +943,9 @@ mod tests {
     use super::*;
     use crate::{
         DEPOSIT_TX_TYPE_ID,
-        transaction::xlayer_sig::{payer_signature_hash, sender_signature_hash},
+        transaction::xlayer_sig::{
+            payer_signature_hash, payer_signature_hash_with_sender, sender_signature_hash,
+        },
     };
     use alloy_rlp::{Decodable, Encodable};
 
@@ -1244,6 +1280,30 @@ mod tests {
 
         let changed_nonce = TxEip8130 { nonce_sequence: tx.nonce_sequence + 1, ..tx.clone() };
         assert_ne!(payer_signature_hash(&tx), payer_signature_hash(&changed_nonce));
+    }
+
+    #[test]
+    fn payer_hash_eoa_path_binds_resolved_sender() {
+        let tx = TxEip8130 {
+            sender: None,
+            payer: Some(Address::repeat_byte(0x33)),
+            sender_auth: Bytes::from(vec![0x44; 65]),
+            payer_auth: Bytes::from(vec![0x55; 65]),
+            ..sample_tx()
+        };
+        let sender_a = Address::repeat_byte(0xAA);
+        let sender_b = Address::repeat_byte(0xBB);
+
+        assert_ne!(
+            payer_signature_hash_with_sender(&tx, sender_a),
+            payer_signature_hash_with_sender(&tx, sender_b),
+            "EOA-mode payer hash must bind the recovered sender, not the empty wire field",
+        );
+        assert_ne!(
+            payer_signature_hash_with_sender(&tx, sender_a),
+            payer_signature_hash(&tx),
+            "the unresolved helper must not reproduce the old empty-sender preimage",
+        );
     }
 
     #[test]

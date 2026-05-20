@@ -32,7 +32,8 @@ pub use transaction::{
     OpTransaction, OpTxEnvelope, OpTxType, OpTypedTransaction, Owner, OwnerChange, TxDeposit,
     TxEip8130,
     xlayer_sig::{
-        config_change_digest, encode_verify_call, payer_signature_hash, sender_signature_hash,
+        config_change_digest, encode_verify_call, payer_signature_hash,
+        payer_signature_hash_with_sender, sender_signature_hash,
     },
 };
 

@@ -2373,7 +2373,7 @@ where
             let effective_payer = inner_tx.payer.unwrap_or(sender);
             if effective_payer != sender {
                 if let AuthState::Native { verifier, owner_id, delegate_inner } =
-                    build_payer_auth_state(inner_tx)
+                    build_payer_auth_state(inner_tx, sender)
                 {
                     rules.push((
                         (

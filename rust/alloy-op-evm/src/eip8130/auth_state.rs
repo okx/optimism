@@ -23,7 +23,7 @@ use alloy_primitives::{Address, B256, Bytes};
 // strictly preferred over `Bytes::copy_from_slice(&bytes[range])` which
 // allocates a fresh buffer. Hot-path conversion code uses slice.
 use op_alloy::consensus::{
-    TxEip8130, encode_verify_call, payer_signature_hash, sender_signature_hash,
+    TxEip8130, encode_verify_call, payer_signature_hash_with_sender, sender_signature_hash,
 };
 use op_revm::{
     constants::{
@@ -114,7 +114,7 @@ pub fn build_sender_auth_state(tx: &TxEip8130) -> AuthState {
 /// Sponsored mode mirrors explicit-from sender resolution, but with two
 /// differences: K1 strict-self-owner is checked against `tx.payer` (not
 /// `tx.sender`), and `required_scope` is [`OWNER_SCOPE_PAYER`].
-pub fn build_payer_auth_state(tx: &TxEip8130) -> AuthState {
+pub fn build_payer_auth_state(tx: &TxEip8130, resolved_sender: Address) -> AuthState {
     if tx.is_self_pay() {
         return AuthState::SelfPay;
     }
@@ -133,7 +133,7 @@ pub fn build_payer_auth_state(tx: &TxEip8130) -> AuthState {
         return AuthState::Invalid("payer_auth: too short for verifier prefix".into());
     }
 
-    let sig_hash = payer_signature_hash(tx);
+    let sig_hash = payer_signature_hash_with_sender(tx, resolved_sender);
     let verifier_addr = Address::from_slice(&tx.payer_auth[..20]);
     let verifier_data = tx.payer_auth.slice(20..);
 
@@ -542,25 +542,25 @@ mod tests {
     fn payer_self_pay() {
         let tx = sample_tx_payer(None, Bytes::new());
         assert!(tx.is_self_pay());
-        assert_eq!(build_payer_auth_state(&tx), AuthState::SelfPay);
+        assert_eq!(build_payer_auth_state(&tx, tx.effective_sender()), AuthState::SelfPay);
     }
 
     #[test]
     fn payer_sponsored_empty_returns_empty() {
         let payer = Address::repeat_byte(0x33);
         let tx = sample_tx_payer(Some(payer), Bytes::new());
-        assert_eq!(build_payer_auth_state(&tx), AuthState::Empty);
+        assert_eq!(build_payer_auth_state(&tx, tx.effective_sender()), AuthState::Empty);
     }
 
     #[test]
     fn payer_sponsored_k1_round_trip() {
         let payer_signer = signer_from_seed(0x88);
         let mut tx = sample_tx_payer(Some(payer_signer.address()), Bytes::new());
-        let hash = payer_signature_hash(&tx);
+        let hash = payer_signature_hash_with_sender(&tx, tx.effective_sender());
         tx.payer_auth = k1_explicit_auth(&payer_signer, hash);
 
         assert_eq!(
-            build_payer_auth_state(&tx),
+            build_payer_auth_state(&tx, tx.effective_sender()),
             AuthState::Native {
                 verifier: K1_VERIFIER_ADDRESS,
                 owner_id: expected_owner_id(payer_signer.address()),
@@ -574,12 +574,42 @@ mod tests {
         let payer = signer_from_seed(0x99);
         let attacker = signer_from_seed(0xAA);
         let mut tx = sample_tx_payer(Some(payer.address()), Bytes::new());
-        let hash = payer_signature_hash(&tx);
+        let hash = payer_signature_hash_with_sender(&tx, tx.effective_sender());
         tx.payer_auth = k1_explicit_auth(&attacker, hash);
 
-        match build_payer_auth_state(&tx) {
+        match build_payer_auth_state(&tx, tx.effective_sender()) {
             AuthState::Invalid(reason) => {
                 assert!(reason.contains("strict-self-owner"), "unexpected reason: {reason}",);
+            }
+            other => panic!("expected Invalid, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn payer_eoa_hash_rejects_cross_sender_replay() {
+        let sender = signer_from_seed(0xB1);
+        let other_sender = signer_from_seed(0xB2);
+        let payer = signer_from_seed(0xB3);
+        let mut tx = sample_tx(None, Bytes::new());
+        tx.payer = Some(payer.address());
+
+        let sender_hash = sender_signature_hash(&tx);
+        tx.sender_auth = Bytes::from(k1_sig_blob(&sender, sender_hash));
+        let payer_hash = payer_signature_hash_with_sender(&tx, sender.address());
+        tx.payer_auth = k1_explicit_auth(&payer, payer_hash);
+
+        assert_eq!(
+            build_payer_auth_state(&tx, sender.address()),
+            AuthState::Native {
+                verifier: K1_VERIFIER_ADDRESS,
+                owner_id: expected_owner_id(payer.address()),
+                delegate_inner: None,
+            }
+        );
+
+        match build_payer_auth_state(&tx, other_sender.address()) {
+            AuthState::Invalid(reason) => {
+                assert!(reason.contains("strict-self-owner"), "unexpected reason: {reason}");
             }
             other => panic!("expected Invalid, got {other:?}"),
         }
@@ -594,7 +624,7 @@ mod tests {
         blob.extend_from_slice(&[0x42u8; 80]);
         let tx = sample_tx_payer(Some(payer), Bytes::from(blob));
 
-        match build_payer_auth_state(&tx) {
+        match build_payer_auth_state(&tx, tx.effective_sender()) {
             AuthState::Deferred { spec, delegate_outer } => {
                 assert_eq!(spec.verifier, custom);
                 assert_eq!(spec.account, payer);

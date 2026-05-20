@@ -973,7 +973,7 @@ where
     // - Native / Deferred: admit; on-chain owner_config re-check happens below for Native +
     //   sponsored, executor STATICCALL handles Deferred.
     let effective_payer = tx.payer.unwrap_or(sender);
-    let payer_auth = build_payer_auth_state(tx);
+    let payer_auth = build_payer_auth_state(tx, sender);
     match &payer_auth {
         AuthState::Invalid(reason) => {
             return Err(Eip8130ValidationError::InvalidPayerAuth(reason.clone()));

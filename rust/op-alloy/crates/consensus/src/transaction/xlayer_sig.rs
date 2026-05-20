@@ -111,9 +111,21 @@ pub fn sender_signature_hash(tx: &TxEip8130) -> B256 {
     keccak256(tx.encoded_for_sender_signing())
 }
 
-/// Returns the hash signed by `payer_auth`.
+/// Returns the hash signed by `payer_auth` for a concrete resolved sender.
+///
+/// In EOA mode, `resolved_sender` must be the address recovered from `sender_auth`; the wire
+/// transaction encodes `sender` as empty, but the payer signs the resolved account.
+pub fn payer_signature_hash_with_sender(tx: &TxEip8130, resolved_sender: Address) -> B256 {
+    keccak256(tx.encoded_for_payer_signing_with_sender(resolved_sender))
+}
+
+/// Returns the hash signed by `payer_auth` using the wire sender field when present.
+///
+/// For EOA-mode transactions, prefer [`payer_signature_hash_with_sender`] with the recovered
+/// sender. This wrapper encodes `Address::ZERO` for unresolved EOA-mode callers, which avoids the
+/// replay-prone empty sender preimage but is not a valid substitute for the recovered sender.
 pub fn payer_signature_hash(tx: &TxEip8130) -> B256 {
-    keccak256(tx.encoded_for_payer_signing())
+    payer_signature_hash_with_sender(tx, tx.effective_sender())
 }
 
 /// Recovers the EIP-8130 sender from either explicit `from` or EOA `sender_auth`.

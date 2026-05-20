@@ -86,7 +86,7 @@ fn auto_delegation_designator() -> Bytes {
 /// EOA-mode txs; `tx.sender` otherwise) and is used to fill `parts.sender`.
 pub fn eip8130_parts(tx: &TxEip8130, caller: Address) -> Eip8130Parts {
     let sender_authstate = build_sender_auth_state(tx);
-    let payer_authstate = build_payer_auth_state(tx);
+    let payer_authstate = build_payer_auth_state(tx, caller);
     let sender = caller;
     let payer = tx.payer.unwrap_or(caller);
 
