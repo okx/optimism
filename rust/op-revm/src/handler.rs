@@ -4670,6 +4670,52 @@ mod xlayer_eip8130_tests {
     }
 
     #[test]
+    fn test_eip8130_custom_verifier_cannot_use_implicit_eoa_owner() {
+        let sender = Address::from([0x11; 20]);
+        let verifier = Address::from([0xAA; 20]);
+
+        let mut owner_id_bytes = [0u8; 32];
+        owner_id_bytes[..20].copy_from_slice(sender.as_slice());
+        let implicit_eoa_owner_id = B256::from(owner_id_bytes);
+
+        let (result, _) = run_eip8130_tx(
+            sender,
+            &[(verifier, make_verifier_bytecode(implicit_eoa_owner_id))],
+            &[],
+            0,
+            Eip8130Parts {
+                sender,
+                payer: sender,
+                sender_authstate: AuthState::Deferred {
+                    spec: Eip8130VerifyCall {
+                        verifier,
+                        calldata: Bytes::from(vec![0xCA; 36]),
+                        account: sender,
+                        required_scope: 0x02, // SENDER
+                    },
+                    delegate_outer: None,
+                },
+                call_phases: vec![],
+                ..Default::default()
+            },
+            500_000,
+            0,
+        );
+
+        match result {
+            Err(EVMError::Transaction(OpTransactionError::Base(
+                revm::context_interface::result::InvalidTransaction::Str(msg),
+            ))) => {
+                assert!(
+                    msg.contains("owner_config not found"),
+                    "custom verifier must not satisfy implicit EOA auth, got: {msg}",
+                );
+            }
+            other => panic!("expected missing-owner-config rejection, got: {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_eip8130_custom_verifier_wrong_verifier_rejected() {
         let sender = Address::from([0x11; 20]);
         let verifier = Address::from([0xAA; 20]);
