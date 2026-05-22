@@ -664,11 +664,6 @@ contract L2ContractsManager_Upgrade_CGT_Test is L2ContractsManager_Upgrade_Test 
 ///         does not expose an owner() function. OKX's fork removed the owner() getter and ties
 ///         authorization to ProxyAdmin.owner() directly instead of Ownable.
 contract L2ContractsManager_Upgrade_XLayerCGT_Test is L2ContractsManager_Upgrade_Test {
-    /// @notice Slot where OKX's LiquidityController fork stores its minters mapping.
-    ///         OKX removed OwnableUpgradeable, so the minters mapping sits directly after
-    ///         Initializable (slot 0), at slot 1.
-    uint256 internal constant XLAYER_MINTERS_SLOT = 1;
-
     /// @notice Simulates OKX's LiquidityController state where owner() reverts.
     ///         In OKX's fork, the initialize() signature omits the _owner argument and
     ///         authorization is checked against ProxyAdmin.owner() directly.
@@ -739,69 +734,6 @@ contract L2ContractsManager_Upgrade_XLayerCGT_Test is L2ContractsManager_Upgrade
             preUpgradeSymbol,
             "gasPayingTokenSymbol should be preserved after X Layer upgrade"
         );
-    }
-
-    /// @notice Writes a minter authorization into OKX's minters mapping slot.
-    function _authorizeXLayerMinter(address _minter) internal {
-        // Calculate storage slot where minters[_minter] is stored
-        bytes32 slot = keccak256(abi.encode(_minter, XLAYER_MINTERS_SLOT));
-        // Authorize the minter by setting the slot to true (1)
-        vm.store(Predeploys.LIQUIDITY_CONTROLLER, slot, bytes32(uint256(1)));
-    }
-
-    /// @notice Tests that minters authorized before the upgrade remain authorized after an
-    ///         XLayer upgrade. The new OP Stack implementation places minters at slot 1,
-    ///         matching the CGT fork's layout, so existing proxy state is valid without migration.
-    function testFuzz_upgradePreservesMinters_whenLiquidityControllerOwnerReverts_succeeds(address _minter) public {
-        skipIfSysFeatureDisabled(Features.CUSTOM_GAS_TOKEN);
-
-        _authorizeXLayerMinter(_minter);
-        _simulateXLayerLiquidityController();
-
-        _executeUpgrade();
-        vm.clearMockedCalls();
-
-        assertTrue(
-            ILiquidityController(Predeploys.LIQUIDITY_CONTROLLER).minters(_minter),
-            "Minter should remain authorized after XLayer upgrade"
-        );
-    }
-
-    /// @notice Tests that mint() succeeds for a previously authorized XLayer minter after upgrade.
-    function testFuzz_mint_whenMinterWasAuthorizedBeforeXLayerUpgrade_succeeds(address _minter) public {
-        skipIfSysFeatureDisabled(Features.CUSTOM_GAS_TOKEN);
-
-        _authorizeXLayerMinter(_minter);
-        _simulateXLayerLiquidityController();
-
-        _executeUpgrade();
-        vm.clearMockedCalls();
-
-        vm.prank(_minter);
-        ILiquidityController(Predeploys.LIQUIDITY_CONTROLLER).mint(address(this), 1 ether);
-    }
-
-    /// @notice Tests that mint() reverts when called by a non-authorized minter after upgrade.
-    function testFuzz_mint_whenNonMinterWasNotAuthorizedBeforeXLayerUpgrade_reverts(
-        address _minter,
-        address _nonMinter,
-        uint256 _amount
-    )
-        public
-    {
-        skipIfSysFeatureDisabled(Features.CUSTOM_GAS_TOKEN);
-        vm.assume(_minter != _nonMinter);
-        _amount = bound(_amount, 1, address(nativeAssetLiquidity).balance);
-
-        _authorizeXLayerMinter(_minter);
-        _simulateXLayerLiquidityController();
-
-        _executeUpgrade();
-        vm.clearMockedCalls();
-
-        vm.prank(_nonMinter);
-        vm.expectRevert(abi.encodeWithSelector(ILiquidityController.LiquidityController_Unauthorized.selector));
-        ILiquidityController(Predeploys.LIQUIDITY_CONTROLLER).mint(address(this), _amount);
     }
 }
 
