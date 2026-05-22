@@ -280,11 +280,7 @@ contract L2ForkUpgrade_Initialization_Test is L2ForkUpgrade_TestInit {
         // Capture LiquidityController configuration (only on CGT networks)
         if (commonState.isCustomGasToken) {
             ILiquidityController liquidityController = ILiquidityController(Predeploys.LIQUIDITY_CONTROLLER);
-            try liquidityController.owner() returns (address owner_) {
-                state_.liquidityControllerOwner = owner_;
-            } catch {
-                state_.liquidityControllerOwner = IProxyAdmin(Predeploys.PROXY_ADMIN).owner();
-            }
+            state_.liquidityControllerOwner = liquidityController.owner();
             state_.liquidityControllerGasPayingTokenName = liquidityController.gasPayingTokenName();
             state_.liquidityControllerGasPayingTokenSymbol = liquidityController.gasPayingTokenSymbol();
             // Capture L1Block gas paying token metadata for post-upgrade verification.

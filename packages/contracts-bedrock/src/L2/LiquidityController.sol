@@ -14,29 +14,12 @@ import { Predeploys } from "src/libraries/Predeploys.sol";
 import { INativeAssetLiquidity } from "interfaces/L2/INativeAssetLiquidity.sol";
 import { ISemver } from "interfaces/universal/ISemver.sol";
 
-/// @title LiquidityControllerStorage
-/// @dev Data variables are declared before OwnableUpgradeable in the inheritance chain so that
-///      their storage slots (minters = 1, gasPayingTokenName = 2, gasPayingTokenSymbol = 3) match
-///      CGT forks that removed OwnableUpgradeable and placed data directly after Initializable (e.g. OKX XLayer).
-///      DO NOT reorder or insert variables before `minters`. The slot positions must remain stable
-///      across upgrades so that existing proxy state is valid under the new implementation.
-abstract contract LiquidityControllerStorage is Initializable {
-    /// @notice Mapping of addresses authorized to control liquidity operations
-    mapping(address => bool) public minters;
-
-    /// @notice The name of the native asset
-    string public gasPayingTokenName;
-
-    /// @notice The symbol of the native asset
-    string public gasPayingTokenSymbol;
-}
-
 /// @custom:proxied true
 /// @custom:predeploy 0x420000000000000000000000000000000000002A
 /// @title LiquidityController
 /// @notice The LiquidityController contract is responsible for controlling the liquidity of the native asset on the L2
 ///         chain.
-contract LiquidityController is ISemver, LiquidityControllerStorage, ProxyAdminOwnedBase, OwnableUpgradeable {
+contract LiquidityController is ProxyAdminOwnedBase, ISemver, Initializable, OwnableUpgradeable {
     /// @notice Emitted when an address is authorized to mint/burn liquidity
     /// @param minter The address that was authorized
     event MinterAuthorized(address indexed minter);
@@ -60,8 +43,17 @@ contract LiquidityController is ISemver, LiquidityControllerStorage, ProxyAdminO
     error LiquidityController_Unauthorized();
 
     /// @notice Semantic version.
-    /// @custom:semver 1.2.0
-    string public constant version = "1.2.0";
+    /// @custom:semver 1.1.0
+    string public constant version = "1.1.0";
+
+    /// @notice Mapping of addresses authorized to control liquidity operations
+    mapping(address => bool) public minters;
+
+    /// @notice The name of the native asset
+    string public gasPayingTokenName;
+
+    /// @notice The symbol of the native asset
+    string public gasPayingTokenSymbol;
 
     constructor() {
         _disableInitializers();
