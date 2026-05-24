@@ -4,7 +4,7 @@ use crate::{
     error::OpPayloadBuilderError, payload::OpBuiltPayload,
 };
 use alloy_consensus::{BlockHeader, Transaction, Typed2718};
-use alloy_evm::Evm as AlloyEvm;
+use alloy_evm::{Evm as AlloyEvm, EvmFactory, FromTxWithEncoded};
 use alloy_primitives::{B256, U256};
 use alloy_rpc_types_debug::ExecutionWitness;
 use alloy_rpc_types_engine::PayloadId;
@@ -12,13 +12,14 @@ use op_revm::{L1BlockInfo, constants::L1_BLOCK_CONTRACT};
 use reth_basic_payload_builder::*;
 use reth_chainspec::{ChainSpecProvider, EthChainSpec};
 use reth_evm::{
-    ConfigureEvm, Database,
+    ConfigureEvm, Database, EvmFactoryFor,
     block::BlockExecutorFor,
     execute::{
         BlockBuilder, BlockBuilderOutcome, BlockExecutionError, BlockExecutor, BlockValidationError,
     },
 };
 use reth_execution_types::BlockExecutionOutput;
+use reth_optimism_evm::OpTx;
 use reth_optimism_forks::OpHardforks;
 use reth_optimism_primitives::{L2_TO_L1_MESSAGE_PASSER_ADDRESS, transaction::OpTransaction};
 use reth_optimism_txpool::{
@@ -39,8 +40,19 @@ use reth_revm::{
 use reth_storage_api::{StateProvider, StateProviderFactory, errors::ProviderError};
 use reth_transaction_pool::{BestTransactionsAttributes, PoolTransaction, TransactionPool};
 use revm::context::{Block, BlockEnv};
-use std::{marker::PhantomData, sync::Arc};
-use tracing::{debug, trace, warn};
+use std::{
+    marker::PhantomData,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+use tracing::{debug, info, trace, warn};
+
+fn duration_us(duration: Duration) -> u64 {
+    duration.as_micros().min(u128::from(u64::MAX)) as u64
+}
+
+const MAX_CONSECUTIVE_OVER_LIMIT_TXS: usize = 512;
+const FULL_PAYLOAD_FREEZE_GAS_SLACK: u64 = 100_000;
 
 /// Optimism's payload builder
 #[derive(Debug)]
@@ -153,7 +165,7 @@ impl<Pool, Client, Evm, Txs, Attrs> OpPayloadBuilder<Pool, Client, Evm, Txs, Att
 
 impl<Pool, Client, Evm, N, T, Attrs> OpPayloadBuilder<Pool, Client, Evm, T, Attrs>
 where
-    Pool: TransactionPool<Transaction: OpPooledTx<Consensus = N::SignedTx>>,
+    Pool: TransactionPool<Transaction: OpPooledTx<Consensus = N::SignedTx> + Clone>,
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec: OpHardforks>,
     N: OpPayloadPrimitives,
     Evm: ConfigureEvm<
@@ -176,8 +188,11 @@ where
         best: impl FnOnce(BestTransactionsAttributes) -> Txs + Send + Sync + 'a,
     ) -> Result<BuildOutcome<OpBuiltPayload<N>>, PayloadBuilderError>
     where
-        Txs:
-            PayloadTransactions<Transaction: PoolTransaction<Consensus = N::SignedTx> + OpPooledTx>,
+        Txs: PayloadTransactions<
+            Transaction: PoolTransaction<Consensus = N::SignedTx> + OpPooledTx + Clone,
+        >,
+        EvmFactoryFor<Evm>: EvmFactory<Tx = OpTx>,
+        OpTx: FromTxWithEncoded<N::SignedTx>,
     {
         let BuildArguments { mut cached_reads, config, cancel, best_payload, .. } = args;
 
@@ -192,7 +207,18 @@ where
 
         let builder = OpBuilder::new(best);
 
+        let state_provider_start = Instant::now();
         let state_provider = self.client.state_by_block_hash(ctx.parent().hash())?;
+        let state_provider_elapsed = state_provider_start.elapsed();
+        info!(
+            target: "payload_builder::diag",
+            id = %ctx.payload_id(),
+            parent_hash = %ctx.parent().hash(),
+            parent_number = ctx.parent().number(),
+            state_provider_elapsed = ?state_provider_elapsed,
+            state_provider_us = duration_us(state_provider_elapsed),
+            "xlayer payload state provider loaded"
+        );
         let state = StateProviderDatabase::new(&state_provider);
 
         if ctx.attributes().no_tx_pool() {
@@ -239,7 +265,7 @@ impl<Pool, Client, Evm, N, Txs> PayloadBuilder
 where
     N: OpPayloadPrimitives,
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec: OpHardforks> + Clone,
-    Pool: TransactionPool<Transaction: OpPooledTx<Consensus = N::SignedTx>>,
+    Pool: TransactionPool<Transaction: OpPooledTx<Consensus = N::SignedTx> + Clone>,
     Evm: ConfigureEvm<
             Primitives = N,
             NextBlockEnvCtx: BuildNextEnv<
@@ -248,6 +274,8 @@ where
                 Client::ChainSpec,
             >,
         >,
+    EvmFactoryFor<Evm>: EvmFactory<Tx = OpTx>,
+    OpTx: FromTxWithEncoded<N::SignedTx>,
     Txs: OpPayloadTransactions<Pool::Transaction>,
 {
     type Attributes = crate::payload::OpPayloadAttrs;
@@ -369,13 +397,25 @@ impl<Txs> OpBuilder<'_, Txs> {
             >,
         ChainSpec: EthChainSpec + OpHardforks,
         N: OpPayloadPrimitives,
-        Txs:
-            PayloadTransactions<Transaction: PoolTransaction<Consensus = N::SignedTx> + OpPooledTx>,
+        Txs: PayloadTransactions<
+            Transaction: PoolTransaction<Consensus = N::SignedTx> + OpPooledTx + Clone,
+        >,
+        EvmFactoryFor<Evm>: EvmFactory<Tx = OpTx>,
+        OpTx: FromTxWithEncoded<N::SignedTx>,
         Attrs: OpAttributes<Transaction = N::SignedTx>,
     {
         let Self { best } = self;
-        debug!(target: "payload_builder", id=%ctx.payload_id(), parent_header = ?ctx.parent().hash(), parent_number = ctx.parent().number(), "building new payload");
+        let build_start = Instant::now();
+        let parent_hash = ctx.parent().hash();
+        let parent_number = ctx.parent().number();
+        let block_number = parent_number + 1;
+        let payload_id = ctx.payload_id();
+        let timestamp = ctx.attributes().timestamp();
+        let no_tx_pool = ctx.attributes().no_tx_pool();
+        let sequencer_attr_txs = ctx.attributes().sequencer_transactions().len();
+        debug!(target: "payload_builder", id=%payload_id, parent_header = ?parent_hash, parent_number, "building new payload");
 
+        let setup_start = Instant::now();
         let mut db = State::builder().with_database(db).with_bundle_update().build();
 
         // Load the L1 block contract into the database cache. If the L1 block contract is not
@@ -384,32 +424,91 @@ impl<Txs> OpBuilder<'_, Txs> {
         db.load_cache_account(L1_BLOCK_CONTRACT).map_err(BlockExecutionError::other)?;
 
         let mut builder = ctx.block_builder(&mut db)?;
+        let setup_elapsed = setup_start.elapsed();
 
+        let pre_execution_start = Instant::now();
         // 1. apply pre-execution changes
         builder.apply_pre_execution_changes().map_err(|err| {
             warn!(target: "payload_builder", %err, "failed to apply pre-execution changes");
             PayloadBuilderError::Internal(err.into())
         })?;
+        let pre_execution_elapsed = pre_execution_start.elapsed();
 
         // 2. execute sequencer transactions
+        let sequencer_start = Instant::now();
         let mut info = ctx.execute_sequencer_transactions(&mut builder)?;
+        let sequencer_elapsed = sequencer_start.elapsed();
+
+        let mut txpool_elapsed = None;
 
         // 3. if mem pool transactions are requested we execute them
         if !ctx.attributes().no_tx_pool() {
+            let txpool_start = Instant::now();
             let best_txs = best(ctx.best_transaction_attributes(builder.evm_mut().block()));
             if ctx.execute_best_transactions(&mut info, &mut builder, best_txs)?.is_some() {
+                txpool_elapsed = Some(txpool_start.elapsed());
+                info!(
+                    target: "payload_builder::diag",
+                    id = %payload_id,
+                    parent_hash = %parent_hash,
+                    parent_number,
+                    block_number,
+                    timestamp,
+                    no_tx_pool,
+                    sequencer_attr_txs,
+                    total_fees = %info.total_fees,
+                    setup_elapsed = ?setup_elapsed,
+                    pre_execution_elapsed = ?pre_execution_elapsed,
+                    sequencer_elapsed = ?sequencer_elapsed,
+                    txpool_elapsed = ?txpool_elapsed.unwrap_or_default(),
+                    setup_us = duration_us(setup_elapsed),
+                    pre_execution_us = duration_us(pre_execution_elapsed),
+                    sequencer_execution_us = duration_us(sequencer_elapsed),
+                    txpool_execution_us = duration_us(txpool_elapsed.unwrap_or_default()),
+                    total_us = duration_us(build_start.elapsed()),
+                    total_elapsed = ?build_start.elapsed(),
+                    "xlayer payload build cancelled"
+                );
                 return Ok(BuildOutcomeKind::Cancelled);
             }
+            txpool_elapsed = Some(txpool_start.elapsed());
 
             // check if the new payload is even more valuable
             if !ctx.is_better_payload(info.total_fees) {
+                info!(
+                    target: "payload_builder::diag",
+                    id = %payload_id,
+                    parent_hash = %parent_hash,
+                    parent_number,
+                    block_number,
+                    timestamp,
+                    no_tx_pool,
+                    sequencer_attr_txs,
+                    total_fees = %info.total_fees,
+                    setup_elapsed = ?setup_elapsed,
+                    pre_execution_elapsed = ?pre_execution_elapsed,
+                    sequencer_elapsed = ?sequencer_elapsed,
+                    txpool_elapsed = ?txpool_elapsed.unwrap_or_default(),
+                    setup_us = duration_us(setup_elapsed),
+                    pre_execution_us = duration_us(pre_execution_elapsed),
+                    sequencer_execution_us = duration_us(sequencer_elapsed),
+                    txpool_execution_us = duration_us(txpool_elapsed.unwrap_or_default()),
+                    total_us = duration_us(build_start.elapsed()),
+                    total_elapsed = ?build_start.elapsed(),
+                    "xlayer payload build aborted: not better than current payload"
+                );
                 // can skip building the block
                 return Ok(BuildOutcomeKind::Aborted { fees: info.total_fees });
             }
         }
 
+        let finish_start = Instant::now();
         let BlockBuilderOutcome { execution_result, hashed_state, trie_updates, block } =
             builder.finish(state_provider, None)?;
+        let finish_elapsed = finish_start.elapsed();
+        let block_tx_count = block.body().transactions().count();
+        let block_gas_used = block.header().gas_used();
+        let block_gas_limit = block.header().gas_limit();
 
         let sealed_block = Arc::new(block.sealed_block().clone());
         debug!(target: "payload_builder", id=%ctx.attributes().payload_id(), sealed_block_header = ?sealed_block.header(), "sealed built block");
@@ -429,12 +528,61 @@ impl<Txs> OpBuilder<'_, Txs> {
         let no_tx_pool = ctx.attributes().no_tx_pool();
 
         let payload =
-            OpBuiltPayload::new(ctx.payload_id(), sealed_block, info.total_fees, Some(executed));
+            OpBuiltPayload::new(payload_id, sealed_block, info.total_fees, Some(executed));
+        let should_freeze_full_zero_fee_payload = !no_tx_pool
+            && info.block_limits_exhausted
+            && info.total_fees == U256::ZERO
+            && block_gas_limit.saturating_sub(block_gas_used) <= FULL_PAYLOAD_FREEZE_GAS_SLACK;
+
+        info!(
+            target: "payload_builder::diag",
+            id = %payload_id,
+            block_hash = %payload.block().hash(),
+            parent_hash = %parent_hash,
+            parent_number,
+            block_number,
+            timestamp,
+            no_tx_pool,
+            sequencer_attr_txs,
+            txs = block_tx_count,
+            gas_used = block_gas_used,
+            gas_limit = block_gas_limit,
+            total_fees = %info.total_fees,
+            setup_elapsed = ?setup_elapsed,
+            pre_execution_elapsed = ?pre_execution_elapsed,
+            sequencer_elapsed = ?sequencer_elapsed,
+            txpool_elapsed = ?txpool_elapsed.unwrap_or_default(),
+            finish_elapsed = ?finish_elapsed,
+            setup_us = duration_us(setup_elapsed),
+            pre_execution_us = duration_us(pre_execution_elapsed),
+            sequencer_execution_us = duration_us(sequencer_elapsed),
+            txpool_execution_us = duration_us(txpool_elapsed.unwrap_or_default()),
+            finish_state_root_us = duration_us(finish_elapsed),
+            total_us = duration_us(build_start.elapsed()),
+            total_elapsed = ?build_start.elapsed(),
+            "xlayer payload build timing"
+        );
 
         if no_tx_pool {
             // if `no_tx_pool` is set only transactions from the payload attributes will be included
             // in the payload. In other words, the payload is deterministic and we can
             // freeze it once we've successfully built it.
+            Ok(BuildOutcomeKind::Freeze(payload))
+        } else if should_freeze_full_zero_fee_payload {
+            info!(
+                target: "payload_builder::diag",
+                id = %payload_id,
+                block_hash = %payload.block().hash(),
+                parent_hash = %parent_hash,
+                parent_number,
+                block_number,
+                txs = block_tx_count,
+                gas_used = block_gas_used,
+                gas_limit = block_gas_limit,
+                gas_remaining = block_gas_limit.saturating_sub(block_gas_used),
+                total_fees = %info.total_fees,
+                "xlayer payload frozen: full zero-fee payload"
+            );
             Ok(BuildOutcomeKind::Freeze(payload))
         } else {
             Ok(BuildOutcomeKind::Better { payload })
@@ -528,12 +676,19 @@ pub struct ExecutionInfo {
     pub cumulative_da_bytes_used: u64,
     /// Tracks fees from executed mempool transactions
     pub total_fees: U256,
+    /// True if transaction selection stopped because the remaining block capacity was exhausted.
+    pub block_limits_exhausted: bool,
 }
 
 impl ExecutionInfo {
     /// Create a new instance with allocated slots.
     pub const fn new() -> Self {
-        Self { cumulative_gas_used: 0, cumulative_da_bytes_used: 0, total_fees: U256::ZERO }
+        Self {
+            cumulative_gas_used: 0,
+            cumulative_da_bytes_used: 0,
+            total_fees: U256::ZERO,
+            block_limits_exhausted: false,
+        }
     }
 
     /// Returns true if the transaction would exceed the block limits:
@@ -662,9 +817,14 @@ where
         &self,
         builder: &mut impl BlockBuilder<Primitives = Evm::Primitives>,
     ) -> Result<ExecutionInfo, PayloadBuilderError> {
+        let start = Instant::now();
+        let mut attempted = 0usize;
+        let mut included = 0usize;
+        let mut skipped_invalid = 0usize;
         let mut info = ExecutionInfo::new();
 
         for sequencer_tx in self.attributes().sequencer_transactions() {
+            attempted += 1;
             // A sequencer's block should never contain blob transactions.
             if sequencer_tx.value().is_eip4844() {
                 return Err(PayloadBuilderError::other(
@@ -686,6 +846,7 @@ where
                     error,
                     ..
                 })) => {
+                    skipped_invalid += 1;
                     trace!(target: "payload_builder", %error, ?sequencer_tx, "Error in sequencer transaction, skipping.");
                     continue;
                 }
@@ -696,7 +857,24 @@ where
             };
 
             // add gas used by the transaction to cumulative gas used, before creating the receipt
+            included += 1;
             info.cumulative_gas_used += gas_used;
+        }
+
+        if attempted > 0 {
+            info!(
+                target: "payload_builder::diag",
+                id = %self.payload_id(),
+                parent_number = self.parent().number(),
+                block_number = self.parent().number() + 1,
+                attempted,
+                included,
+                skipped_invalid,
+                gas_used = info.cumulative_gas_used,
+                execution_us = duration_us(start.elapsed()),
+                elapsed = ?start.elapsed(),
+                "xlayer sequencer attribute transaction execution timing"
+            );
         }
 
         Ok(info)
@@ -710,11 +888,14 @@ where
         info: &mut ExecutionInfo,
         builder: &mut Builder,
         mut best_txs: impl PayloadTransactions<
-            Transaction: PoolTransaction<Consensus = TxTy<Evm::Primitives>> + OpPooledTx,
+            Transaction: PoolTransaction<Consensus = TxTy<Evm::Primitives>> + OpPooledTx + Clone,
         >,
     ) -> Result<Option<()>, PayloadBuilderError>
     where
         Builder: BlockBuilder<Primitives = Evm::Primitives>,
+        <Builder::Executor as BlockExecutor>::Evm: AlloyEvm<Tx = OpTx>,
+        EvmFactoryFor<Evm>: EvmFactory<Tx = OpTx>,
+        OpTx: FromTxWithEncoded<TxTy<Evm::Primitives>>,
         <<Builder::Executor as BlockExecutor>::Evm as AlloyEvm>::DB: Database,
     {
         let mut block_gas_limit = builder.evm_mut().block().gas_limit();
@@ -726,11 +907,24 @@ where
         let block_da_limit = self.builder_config.da_config.max_da_block_size();
         let tx_da_limit = self.builder_config.da_config.max_da_tx_size();
         let base_fee = builder.evm_mut().block().basefee();
+        let execution_start = Instant::now();
+        let start_cumulative_gas_used = info.cumulative_gas_used;
+        let start_cumulative_da_bytes_used = info.cumulative_da_bytes_used;
+        let mut considered = 0usize;
+        let mut included = 0usize;
+        let mut over_limit = 0usize;
+        let mut over_limit_streak = 0usize;
+        let mut stopped_after_over_limit_streak = false;
+        let mut unsupported = 0usize;
+        let mut interop_invalid = 0usize;
+        let mut nonce_too_low = 0usize;
+        let mut invalid = 0usize;
 
         while let Some(tx) = best_txs.next(()) {
+            considered += 1;
             let interop = tx.interop_deadline();
             let tx_da_size = tx.estimated_da_size();
-            let tx = tx.into_consensus();
+            let consensus_tx = tx.clone().into_consensus();
 
             let da_footprint_gas_scalar = self
                 .chain_spec
@@ -746,49 +940,85 @@ where
                 block_gas_limit,
                 tx_da_limit,
                 block_da_limit,
-                tx.gas_limit(),
+                consensus_tx.gas_limit(),
                 da_footprint_gas_scalar,
             ) {
                 // we can't fit this transaction into the block, so we need to mark it as
                 // invalid which also removes all dependent transaction from
                 // the iterator before we can continue
-                best_txs.mark_invalid(tx.signer(), tx.nonce());
+                over_limit += 1;
+                over_limit_streak += 1;
+                best_txs.mark_invalid(consensus_tx.signer(), consensus_tx.nonce());
+                if over_limit_streak >= MAX_CONSECUTIVE_OVER_LIMIT_TXS {
+                    info.block_limits_exhausted = true;
+                    stopped_after_over_limit_streak = true;
+                    break;
+                }
                 continue;
             }
 
+            over_limit_streak = 0;
+
             // A sequencer's block should never contain blob or deposit transactions from the pool.
-            if tx.is_eip4844() || tx.is_deposit() {
-                best_txs.mark_invalid(tx.signer(), tx.nonce());
+            if consensus_tx.is_eip4844() || consensus_tx.is_deposit() {
+                unsupported += 1;
+                best_txs.mark_invalid(consensus_tx.signer(), consensus_tx.nonce());
                 continue;
             }
 
             // We skip invalid cross chain txs, they would be removed on the next block update in
             // the maintenance job
-            if let Some(interop) = interop &&
-                !is_valid_interop(interop, self.config.attributes.timestamp())
+            if let Some(interop) = interop
+                && !is_valid_interop(interop, self.config.attributes.timestamp())
             {
-                best_txs.mark_invalid(tx.signer(), tx.nonce());
+                interop_invalid += 1;
+                best_txs.mark_invalid(consensus_tx.signer(), consensus_tx.nonce());
                 continue;
             }
             // check if the job was cancelled, if so we can exit early
             if self.cancel.is_cancelled() {
+                info!(
+                    target: "payload_builder::diag",
+                    id = %self.payload_id(),
+                    parent_number = self.parent().number(),
+                    block_number = self.parent().number() + 1,
+                    considered,
+                    included,
+                    over_limit,
+                    stopped_after_over_limit_streak,
+                    unsupported,
+                    interop_invalid,
+                    nonce_too_low,
+                    invalid,
+                    gas_used_delta = info
+                        .cumulative_gas_used
+                        .saturating_sub(start_cumulative_gas_used),
+                    da_bytes_delta = info
+                        .cumulative_da_bytes_used
+                        .saturating_sub(start_cumulative_da_bytes_used),
+                    execution_us = duration_us(execution_start.elapsed()),
+                    elapsed = ?execution_start.elapsed(),
+                    "xlayer txpool transaction execution cancelled"
+                );
                 return Ok(Some(()));
             }
 
-            let gas_used = match builder.execute_transaction(tx.clone()) {
+            let gas_used = match builder.execute_transaction(tx.into_with_tx_env()) {
                 Ok(gas_used) => gas_used,
                 Err(BlockExecutionError::Validation(BlockValidationError::InvalidTx {
                     error,
                     ..
                 })) => {
                     if error.is_nonce_too_low() {
+                        nonce_too_low += 1;
                         // if the nonce is too low, we can skip this transaction
-                        trace!(target: "payload_builder", %error, ?tx, "skipping nonce too low transaction");
+                        trace!(target: "payload_builder", %error, ?consensus_tx, "skipping nonce too low transaction");
                     } else {
+                        invalid += 1;
                         // if the transaction is invalid, we can skip it and all of its
                         // descendants
-                        trace!(target: "payload_builder", %error, ?tx, "skipping invalid transaction and its descendants");
-                        best_txs.mark_invalid(tx.signer(), tx.nonce());
+                        trace!(target: "payload_builder", %error, ?consensus_tx, "skipping invalid transaction and its descendants");
+                        best_txs.mark_invalid(consensus_tx.signer(), consensus_tx.nonce());
                     }
                     continue;
                 }
@@ -800,14 +1030,42 @@ where
 
             // add gas used by the transaction to cumulative gas used, before creating the
             // receipt
+            included += 1;
             info.cumulative_gas_used += gas_used;
             info.cumulative_da_bytes_used += tx_da_size;
 
             // update and add to total fees
-            let miner_fee = tx
+            let miner_fee = consensus_tx
                 .effective_tip_per_gas(base_fee)
                 .expect("fee is always valid; execution succeeded");
             info.total_fees += U256::from(miner_fee) * U256::from(gas_used);
+        }
+
+        let elapsed = execution_start.elapsed();
+        if considered > 0 || elapsed.as_millis() >= 10 {
+            info!(
+                target: "payload_builder::diag",
+                id = %self.payload_id(),
+                parent_number = self.parent().number(),
+                block_number = self.parent().number() + 1,
+                considered,
+                included,
+                over_limit,
+                stopped_after_over_limit_streak,
+                unsupported,
+                interop_invalid,
+                nonce_too_low,
+                invalid,
+                gas_used_delta = info
+                    .cumulative_gas_used
+                    .saturating_sub(start_cumulative_gas_used),
+                da_bytes_delta = info
+                    .cumulative_da_bytes_used
+                    .saturating_sub(start_cumulative_da_bytes_used),
+                execution_us = duration_us(elapsed),
+                elapsed = ?elapsed,
+                "xlayer txpool transaction execution timing"
+            );
         }
 
         Ok(None)

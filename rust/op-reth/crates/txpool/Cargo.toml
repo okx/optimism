@@ -15,6 +15,7 @@ workspace = true
 # ethereum
 alloy-consensus.workspace = true
 alloy-eips.workspace = true
+alloy-evm.workspace = true
 alloy-primitives.workspace = true
 alloy-rpc-types-eth.workspace = true
 alloy-rpc-client = { workspace = true, features = ["reqwest", "default"] }

@@ -6,11 +6,12 @@ use crate::{
     engine::OpEngineValidator,
     txpool::{OpAaTransactionPool, OpAaTransactionValidator, OpDualPool, OpTransactionValidator},
 };
+use alloy_evm::{EvmFactory, FromTxWithEncoded};
 use op_alloy_consensus::{OpPooledTransaction, interop::SafetyLevel};
 use reth_chainspec::{
     BaseFeeParams, ChainSpecProvider, EthChainSpec, EthereumHardforks, ForkCondition, Hardforks,
 };
-use reth_evm::ConfigureEvm;
+use reth_evm::{ConfigureEvm, EvmFactoryFor};
 use reth_network::{
     NetworkConfig, NetworkHandle, NetworkManager, NetworkPrimitives, PeersInfo,
     types::BasicNetworkPrimitives,
@@ -35,7 +36,7 @@ use reth_node_builder::{
 };
 use reth_optimism_chainspec::{OpChainSpec, OpHardfork};
 use reth_optimism_consensus::OpBeaconConsensus;
-use reth_optimism_evm::{OpEvmConfig, OpRethReceiptBuilder};
+use reth_optimism_evm::{OpEvmConfig, OpRethReceiptBuilder, OpTx};
 use reth_optimism_forks::OpHardforks;
 use reth_optimism_payload_builder::{
     OpBuiltPayload, OpExecData, OpPayloadBuilderAttributes, OpPayloadPrimitives,
@@ -1067,6 +1068,8 @@ where
         + OpPooledTx
         + reth_optimism_txpool::Eip8130PoolTx,
     Evm: ConfigureEvm<Primitives = PrimitivesTy<Node::Types>> + Clone + 'static,
+    EvmFactoryFor<Evm>: EvmFactory<Tx = OpTx>,
+    OpTx: FromTxWithEncoded<TxTy<Node::Types>>,
 {
     type Pool = OpAaTransactionPool<Node::Provider, DiskFileBlobStore, Evm, T>;
 
@@ -1320,6 +1323,8 @@ where
             >,
         > + 'static,
     Pool: TransactionPool<Transaction: OpPooledTx<Consensus = TxTy<Node::Types>>> + Unpin + 'static,
+    EvmFactoryFor<Evm>: EvmFactory<Tx = OpTx>,
+    OpTx: FromTxWithEncoded<TxTy<Node::Types>>,
     Txs: OpPayloadTransactions<Pool::Transaction>,
 {
     type PayloadBuilder = reth_optimism_payload_builder::OpPayloadBuilder<

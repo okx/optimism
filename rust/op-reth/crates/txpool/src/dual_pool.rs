@@ -44,10 +44,12 @@ use parking_lot::RwLock;
 
 use alloy_consensus::Transaction;
 use alloy_eips::eip2718::Encodable2718;
+use alloy_evm::FromTxWithEncoded;
 use alloy_primitives::{Address, B256, TxHash, U256};
 use op_alloy_consensus::AA_TX_TYPE_ID;
 use op_revm::constants::ACCOUNT_CONFIG_ADDRESS;
 use reth_chainspec::EthChainSpec;
+use reth_optimism_evm::OpTx;
 use reth_storage_api::StateProviderFactory;
 use reth_transaction_pool::{
     AllPoolTransactions, AllTransactionsEvents, BestTransactions, BestTransactionsAttributes,
@@ -290,8 +292,7 @@ where
         // Pass 2: evict on payer balance. Run after pass 1 so any tx
         // already removed by `mined` / `invalidated` is no longer walked,
         // and so we don't double-count evictions.
-        let balance_changes = bundle_state_aa_balances(bundle);
-        let insolvent = self.aa_pool.write().on_balance_updates(balance_changes);
+        let insolvent = self.aa_pool.write().on_balance_updates(bundle_state_aa_balances(bundle));
         // Surface as `invalidated` so `fire_aa_lifecycle_events` routes
         // them to the same `Discarded` lifecycle hook used by rule-based
         // evictions; subscribers don't need to distinguish the cause.
@@ -510,18 +511,32 @@ where
             .await;
 
         // Step 2 (sequential): finalize each admission against the side
-        // pool. The `aa_pool` write lock would serialize this anyway, and
-        // sequential insert keeps ordering deterministic for replacements /
-        // capacity eviction.
+        // pool. Grab the AA side-pool write lock once for the whole RPC
+        // batch; otherwise concurrent JSON-RPC batches park and unpark on
+        // the same lock once per transaction, which dominates AA admission
+        // under load.
         let mut results = Vec::with_capacity(prevalidations.len());
+        let mut notify_added = Vec::new();
+        let base_fee = self.protocol_pool.block_info().pending_basefee;
+        let mut aa_pool = self.aa_pool.write();
         for (idx, prevalidated) in prevalidations {
-            let outcome = prevalidated.and_then(|p| {
-                let added = self.finalize_admit_aa(p)?;
-                let hash = *added.hash();
-                let state = added.transaction_state();
-                Ok(AddedTransactionOutcome { hash, state })
-            });
+            let outcome = match prevalidated {
+                Ok(p) => match finalize_admit_aa_locked(&mut aa_pool, p, base_fee) {
+                    Ok(added) => {
+                        let hash = *added.hash();
+                        let state = added.transaction_state();
+                        notify_added.push(added);
+                        Ok(AddedTransactionOutcome { hash, state })
+                    }
+                    Err(err) => Err(err),
+                },
+                Err(err) => Err(err),
+            };
             results.push((idx, outcome));
+        }
+        drop(aa_pool);
+        for added in notify_added {
+            self.protocol_pool.notify_aa_added(added);
         }
         results
     }
@@ -555,7 +570,6 @@ where
         }
 
         let outcome = self.aa_validator.validate(origin, transaction).await;
-
         let (transaction, state_nonce, propagate) = match outcome {
             TransactionValidationOutcome::Valid {
                 transaction: ValidTransaction::Valid(tx),
@@ -619,38 +633,16 @@ where
     where
         P: NotifyAaLifecycle<P::Transaction>,
     {
-        let AaPrevalidated { hash, transaction, origin, state_nonce, propagate, required_balance } =
-            prevalidated;
-
-        let valid = Arc::new(ValidPoolTransaction {
-            transaction,
-            transaction_id: TransactionId::new(SenderId::from(0), state_nonce),
-            propagate,
-            timestamp: Instant::now(),
-            origin,
-            authority_ids: None,
-        });
         let base_fee = self.protocol_pool.block_info().pending_basefee;
-        let side_added = self
-            .aa_pool
-            .write()
-            .add_transaction_with_required(valid, state_nonce, base_fee, required_balance)
-            .map_err(|err| match err.kind {
-                PoolErrorKind::AlreadyImported => {
-                    PoolError::new(hash, PoolErrorKind::AlreadyImported)
-                }
-                other => PoolError::new(hash, other),
-            })?;
-        let added = into_reth_added(side_added);
 
-        if let Some(pending) = added.as_pending() {
-            if pending.discarded.iter().any(|tx| tx.hash() == &hash) {
-                return Err(PoolError::new(hash, PoolErrorKind::DiscardedOnInsert));
-            }
+        let mut aa_pool = self.aa_pool.write();
+        let result = finalize_admit_aa_locked(&mut aa_pool, prevalidated, base_fee);
+        drop(aa_pool);
+
+        if let Ok(added) = &result {
+            self.protocol_pool.notify_aa_added(added.clone());
         }
-
-        self.protocol_pool.notify_aa_added(added.clone());
-        Ok(added)
+        result
     }
 }
 
@@ -664,6 +656,43 @@ struct AaPrevalidated<T> {
     state_nonce: u64,
     propagate: bool,
     required_balance: U256,
+}
+
+fn finalize_admit_aa_locked<T>(
+    aa_pool: &mut Eip8130Pool<T>,
+    prevalidated: AaPrevalidated<T>,
+    base_fee: u64,
+) -> Result<AddedTransaction<T>, PoolError>
+where
+    T: PoolTransaction + Eip8130PoolTx,
+{
+    let AaPrevalidated { hash, transaction, origin, state_nonce, propagate, required_balance } =
+        prevalidated;
+
+    let valid = Arc::new(ValidPoolTransaction {
+        transaction,
+        transaction_id: TransactionId::new(SenderId::from(0), state_nonce),
+        propagate,
+        timestamp: Instant::now(),
+        origin,
+        authority_ids: None,
+    });
+
+    let side_added = aa_pool
+        .add_transaction_with_required(valid, state_nonce, base_fee, required_balance)
+        .map_err(|err| match err.kind {
+            PoolErrorKind::AlreadyImported => PoolError::new(hash, PoolErrorKind::AlreadyImported),
+            other => PoolError::new(hash, other),
+        })?;
+    let added = into_reth_added(side_added);
+
+    if let Some(pending) = added.as_pending() {
+        if pending.discarded.iter().any(|tx| tx.hash() == &hash) {
+            return Err(PoolError::new(hash, PoolErrorKind::DiscardedOnInsert));
+        }
+    }
+
+    Ok(added)
 }
 
 /// Per-lane query surface for the AA side pool.
@@ -799,6 +828,7 @@ where
         + 'static,
     V: reth_transaction_pool::TransactionValidator + 'static,
     V::Transaction: Eip8130PoolTx + crate::OpPooledTx,
+    OpTx: FromTxWithEncoded<<V::Transaction as PoolTransaction>::Consensus>,
 {
     fn validate(
         &self,

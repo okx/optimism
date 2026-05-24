@@ -18,20 +18,22 @@ use std::sync::{
 };
 
 use alloy_consensus::BlockHeader;
+use alloy_evm::FromTxWithEncoded;
 use alloy_primitives::U256;
 use op_alloy_consensus::AA_TX_TYPE_ID;
 use reth_chainspec::{ChainSpecProvider, EthChainSpec};
-use reth_optimism_evm::RethL1BlockInfo;
+use reth_optimism_evm::{OpTx, RethL1BlockInfo};
 use reth_optimism_forks::OpHardforks;
 use reth_primitives_traits::{SealedBlock, transaction::error::InvalidTransactionError};
 use reth_storage_api::StateProviderFactory;
 use reth_transaction_pool::{
-    TransactionOrigin, TransactionValidationOutcome, TransactionValidator,
+    PoolTransaction, TransactionOrigin, TransactionValidationOutcome, TransactionValidator,
     error::InvalidPoolTransactionError,
 };
 
 use crate::{
-    Eip8130PoolTx, Eip8130ValidationError, OpL1BlockInfo, OpPooledTx, validate_eip8130_transaction,
+    Eip8130PoolTx, Eip8130ValidationError, OpL1BlockInfo, OpPooledTx,
+    eip8130_xlayer::validate_eip8130_transaction_with_recovered_sender_and_parts,
 };
 
 /// Wraps an inner [`TransactionValidator`] and layers EIP-8130 (XLayer AA)
@@ -135,6 +137,7 @@ impl<V, Client> OpAaTransactionValidator<V, Client>
 where
     V: TransactionValidator,
     V::Transaction: Eip8130PoolTx + OpPooledTx,
+    OpTx: FromTxWithEncoded<<V::Transaction as PoolTransaction>::Consensus>,
     Client: ChainSpecProvider<ChainSpec: OpHardforks + EthChainSpec>
         + StateProviderFactory
         + Send
@@ -249,28 +252,33 @@ where
         // `Vec<Vec<Eip8130CallEntry>>` + `Vec<AccountChangeEntry>` per
         // admission (cf PERF-2). Scope the borrow so it's dropped before
         // the error arm calls `valid_tx.into_transaction()`.
-        let validation_result = validate_eip8130_transaction(
+        let validation_result = validate_eip8130_transaction_with_recovered_sender_and_parts(
             aa_tx,
             encoded_len,
             block_ts,
             chain_id,
             self.client.as_ref(),
             l1_data_fee,
+            Some(valid_tx.transaction().sender()),
         );
 
         match validation_result {
-            Ok(aa_state_nonce) => TransactionValidationOutcome::Valid {
-                balance,
-                // The AA spec layer is authoritative on `state_nonce` — it
-                // reads `aa_nonce_slot(sender, key)` from
-                // `NONCE_MANAGER_ADDRESS`, which is unrelated to the
-                // ETH-style `account.nonce` reported by the inner validator.
-                state_nonce: aa_state_nonce,
-                bytecode_hash,
-                transaction: valid_tx,
-                propagate,
-                authorities,
-            },
+            Ok(validated) => {
+                let aa_state_nonce = validated.state_nonce;
+                valid_tx.transaction().precompute_eip8130_tx_env(validated.parts);
+                TransactionValidationOutcome::Valid {
+                    balance,
+                    // The AA spec layer is authoritative on `state_nonce` — it
+                    // reads `aa_nonce_slot(sender, key)` from
+                    // `NONCE_MANAGER_ADDRESS`, which is unrelated to the
+                    // ETH-style `account.nonce` reported by the inner validator.
+                    state_nonce: aa_state_nonce,
+                    bytecode_hash,
+                    transaction: valid_tx,
+                    propagate,
+                    authorities,
+                }
+            }
             Err(err) => {
                 tracing::debug!(target: "txpool::eip8130", %err, "EIP-8130 mempool validation failed");
                 if matches!(&err, Eip8130ValidationError::StateError(_)) {
@@ -302,6 +310,7 @@ impl<V, Client> TransactionValidator for OpAaTransactionValidator<V, Client>
 where
     V: TransactionValidator,
     V::Transaction: Eip8130PoolTx + OpPooledTx,
+    OpTx: FromTxWithEncoded<<V::Transaction as PoolTransaction>::Consensus>,
     Client: ChainSpecProvider<ChainSpec: OpHardforks + EthChainSpec>
         + StateProviderFactory
         + Send

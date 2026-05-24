@@ -1,12 +1,12 @@
 //! [`OpTx`] newtype wrapper around [`OpTransaction<TxEnv>`].
 
-use crate::{block::OpTxEnv, eip8130::eip8130_parts};
+use crate::{block::OpTxEnv, eip8130::eip8130_parts_with_nonce_free_hash};
 use alloy_consensus::{
     Signed, Transaction, TxEip1559, TxEip2930, TxEip4844, TxEip4844Variant, TxEip7702, TxLegacy,
 };
 use alloy_eips::{Encodable2718, Typed2718, eip7594::Encodable7594};
 use alloy_evm::{FromRecoveredTx, FromTxWithEncoded, IntoTxEnv, TransactionEnvMut};
-use alloy_primitives::{Address, B256, Bytes, TxKind, U256};
+use alloy_primitives::{Address, B256, Bytes, TxKind, U256, keccak256};
 use core::ops::{Deref, DerefMut};
 use op_alloy::consensus::{AA_TX_TYPE_ID, OpTxEnvelope, TxDeposit, TxEip8130, TxPostExec};
 use op_revm::{
@@ -51,6 +51,23 @@ pub struct OpTx(pub OpTransaction<TxEnv>);
 impl From<OpTx> for OpTransaction<TxEnv> {
     fn from(tx: OpTx) -> Self {
         tx.0
+    }
+}
+
+impl OpTx {
+    /// Builds an executable EIP-8130 transaction with already-resolved parts.
+    pub fn from_eip8130_parts(
+        tx: &TxEip8130,
+        caller: Address,
+        encoded: Bytes,
+        eip8130: Eip8130Parts,
+    ) -> Self {
+        Self(OpTransaction {
+            base: eip8130_tx_env(tx, caller),
+            enveloped_tx: Some(encoded),
+            deposit: Default::default(),
+            eip8130,
+        })
     }
 }
 
@@ -289,11 +306,12 @@ impl FromRecoveredTx<TxEip8130> for OpTx {
 
 impl FromTxWithEncoded<TxEip8130> for OpTx {
     fn from_encoded_tx(tx: &TxEip8130, caller: Address, encoded: Bytes) -> Self {
+        let nonce_free_hash = (tx.nonce_key == U256::MAX).then(|| keccak256(encoded.as_ref()));
         Self(OpTransaction {
             base: eip8130_tx_env(tx, caller),
             enveloped_tx: Some(encoded),
             deposit: Default::default(),
-            eip8130: eip8130_parts(tx, caller),
+            eip8130: eip8130_parts_with_nonce_free_hash(tx, caller, nonce_free_hash),
         })
     }
 }

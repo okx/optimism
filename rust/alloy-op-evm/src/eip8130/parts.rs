@@ -54,9 +54,9 @@ use op_revm::{
     },
     eip8130_gas::calldata_cost,
     transaction::eip8130::{
-        Eip8130AccountChanges, Eip8130AuthorizerValidation, Eip8130Call, Eip8130CodePlacement,
-        Eip8130ConfigLog, Eip8130ConfigOp, Eip8130Parts, Eip8130SequenceUpdate,
-        Eip8130StorageWrite, Eip8130VerifyCall,
+        AuthState, Eip8130AccountChanges, Eip8130AuthorizerValidation, Eip8130Call,
+        Eip8130CodePlacement, Eip8130ConfigLog, Eip8130ConfigOp, Eip8130Parts,
+        Eip8130SequenceUpdate, Eip8130StorageWrite, Eip8130VerifyCall,
     },
 };
 // Note: `Bytes::slice(range)` is zero-copy (Arc-backed) — strictly preferred
@@ -65,7 +65,7 @@ use op_revm::{
 
 use super::{
     address::derive_account_address,
-    auth_state::{build_payer_auth_state, build_sender_auth_state},
+    auth_state::{build_payer_auth_state, build_sender_auth_state_with_recovered},
     native_verifier::{NativeVerifyResult, address_to_owner_id, try_native_verify},
     storage::{account_state_slot, encode_owner_config, owner_config_slot},
 };
@@ -85,8 +85,55 @@ fn auto_delegation_designator() -> Bytes {
 /// `caller` comes from upstream sender recovery (`recover_eip8130_sender` for
 /// EOA-mode txs; `tx.sender` otherwise) and is used to fill `parts.sender`.
 pub fn eip8130_parts(tx: &TxEip8130, caller: Address) -> Eip8130Parts {
-    let sender_authstate = build_sender_auth_state(tx);
+    eip8130_parts_with_nonce_free_hash(tx, caller, None)
+}
+
+/// Builds [`Eip8130Parts`] while reusing a precomputed nonce-free hash when
+/// the caller already has the EIP-2718 transaction hash available.
+pub fn eip8130_parts_with_nonce_free_hash(
+    tx: &TxEip8130,
+    caller: Address,
+    precomputed_nonce_free_hash: Option<B256>,
+) -> Eip8130Parts {
+    let sender_authstate = build_sender_auth_state_with_recovered(tx, caller);
     let payer_authstate = build_payer_auth_state(tx, caller);
+
+    eip8130_parts_with_resolved_auth(
+        tx,
+        caller,
+        precomputed_nonce_free_hash,
+        sender_authstate,
+        payer_authstate,
+    )
+}
+
+/// Builds [`Eip8130Parts`] with auth states already resolved by a caller.
+///
+/// This is used by txpool admission: validation has already performed native
+/// verification for sender/payer, so rebuilding parts for intrinsic-gas
+/// accounting should not repeat the same cryptography.
+pub fn eip8130_parts_with_auth_states(
+    tx: &TxEip8130,
+    caller: Address,
+    sender_authstate: AuthState,
+    payer_authstate: AuthState,
+) -> Eip8130Parts {
+    eip8130_parts_with_resolved_auth(
+        tx,
+        caller,
+        None,
+        sender_authstate,
+        payer_authstate,
+    )
+}
+
+fn eip8130_parts_with_resolved_auth(
+    tx: &TxEip8130,
+    caller: Address,
+    precomputed_nonce_free_hash: Option<B256>,
+    sender_authstate: AuthState,
+    payer_authstate: AuthState,
+) -> Eip8130Parts {
     let sender = caller;
     let payer = tx.payer.unwrap_or(caller);
 
@@ -180,7 +227,11 @@ pub fn eip8130_parts(tx: &TxEip8130, caller: Address) -> Eip8130Parts {
     // mempool admits the tx as nonce-free (`nonce_key == U256::MAX`); the
     // handler's `validate_env` enforces presence via `nonce_free_hash` for
     // those txs.
-    let nonce_free_hash = (tx.nonce_key == U256::MAX).then(|| tx.tx_hash());
+    let nonce_free_hash = if tx.nonce_key == U256::MAX {
+        precomputed_nonce_free_hash.or_else(|| Some(tx.tx_hash()))
+    } else {
+        None
+    };
 
     let account_changes = Eip8130AccountChanges {
         has_create_entry,
@@ -200,6 +251,18 @@ pub fn eip8130_parts(tx: &TxEip8130, caller: Address) -> Eip8130Parts {
         account_creation_logs,
         config_change_logs,
     };
+    let sender_payload_calldata_cost = calldata_cost(&tx.encoded_for_sender_signing());
+
+    let call_phases: Vec<Vec<Eip8130Call>> = tx
+        .calls
+        .iter()
+        .map(|phase| {
+            phase
+                .iter()
+                .map(|call| Eip8130Call { to: call.to, data: call.data.clone(), value: U256::ZERO })
+                .collect()
+        })
+        .collect();
 
     Eip8130Parts {
         expiry: tx.expiry,
@@ -210,24 +273,11 @@ pub fn eip8130_parts(tx: &TxEip8130, caller: Address) -> Eip8130Parts {
         nonce_key: tx.nonce_key,
         nonce_free_hash,
         account_changes,
-        sender_payload_calldata_cost: calldata_cost(&tx.encoded_for_sender_signing()),
+        sender_payload_calldata_cost,
         is_eoa: tx.is_eoa(),
         sender_auth: tx.sender_auth.clone(),
         payer_auth: tx.payer_auth.clone(),
-        call_phases: tx
-            .calls
-            .iter()
-            .map(|phase| {
-                phase
-                    .iter()
-                    .map(|call| Eip8130Call {
-                        to: call.to,
-                        data: call.data.clone(),
-                        value: U256::ZERO,
-                    })
-                    .collect()
-            })
-            .collect(),
+        call_phases,
     }
 }
 

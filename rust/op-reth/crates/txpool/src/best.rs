@@ -13,7 +13,7 @@
 
 use std::{
     cmp::Ordering as CmpOrdering,
-    collections::{BTreeMap, BinaryHeap, HashMap, HashSet},
+    collections::{BinaryHeap, HashMap, HashSet},
     sync::Arc,
 };
 
@@ -219,9 +219,9 @@ impl Ord for HeapKey {
 /// independent (no successor lookup needed).
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum AaSlot {
-    /// Sequenced AA tx: `(seq, nonce_seq)`. After yielding, the iterator
-    /// looks up `(seq, nonce_seq + 1)` in `by_lane` to advance the lane.
-    Sequenced(Eip8130TxId),
+    /// Sequenced AA tx by index into `by_lane`. After yielding, the iterator
+    /// checks the next row for a contiguous same-lane successor.
+    Sequenced(usize),
     /// Expiring-mode tx: yielded as-is, no follow-up.
     Expiring(TxHash),
 }
@@ -273,11 +273,12 @@ pub struct BestAaTransactions<T: Eip8130PoolTx> {
     /// tx. After a lane head is yielded, its successor is pushed in.
     heap: BinaryHeap<HeapNode>,
 
-    /// Snapshot of all *pending* sequenced AA txs by `(seq, nonce)`. Used
-    /// by `next()` to find the lane successor of a just-yielded head.
-    /// Removed entries (yielded or marked invalid) are pruned to keep
-    /// memory bounded.
-    by_lane: BTreeMap<Eip8130TxId, AaSnapshotEntry<T>>,
+    /// Snapshot of all *pending* sequenced AA txs by `(seq, nonce)` in
+    /// `Eip8130TxId` order. The heap owns priority ordering; after a lane
+    /// head is yielded, its successor is the next vector row iff it has the
+    /// same lane and `nonce + 1`. This avoids allocating a per-payload hash
+    /// table for every pending tx.
+    by_lane: Vec<(Eip8130TxId, AaSnapshotEntry<T>)>,
 
     /// Snapshot of expiring-mode txs by hash. Pruned on yield / invalidate.
     expiring: HashMap<TxHash, AaSnapshotEntry<T>>,
@@ -307,10 +308,11 @@ impl<T: Eip8130PoolTx> BestAaTransactions<T> {
     /// `heap` already contains one node per lane head plus every expiring
     /// tx, keyed on `(priority, !submission_id, hash)`. `by_lane` is the
     /// full set of pending sequenced txs (heads + their contiguous
-    /// successors). `expiring` is every expiring-mode tx by hash.
+    /// successors) in lane order. `expiring` is every expiring-mode tx by
+    /// hash.
     pub(crate) fn from_parts(
         heap: BinaryHeap<HeapNode>,
-        by_lane: BTreeMap<Eip8130TxId, AaSnapshotEntry<T>>,
+        by_lane: Vec<(Eip8130TxId, AaSnapshotEntry<T>)>,
         expiring: HashMap<TxHash, AaSnapshotEntry<T>>,
     ) -> Self {
         Self { heap, by_lane, expiring, invalid_lanes: HashSet::new() }
@@ -324,38 +326,34 @@ impl<T: Eip8130PoolTx> Iterator for BestAaTransactions<T> {
         loop {
             let node = self.heap.pop()?;
             match node.slot {
-                AaSlot::Sequenced(id) => {
-                    if self.invalid_lanes.contains(&id.seq) {
-                        // Lane was poisoned by a prior `mark_invalid`;
-                        // drop the entry without yielding and continue
-                        // popping. The corresponding `by_lane` entry is
-                        // also dropped to free memory.
-                        self.by_lane.remove(&id);
-                        continue;
-                    }
-                    let Some(entry) = self.by_lane.remove(&id) else {
-                        // Concurrent removal (mark_invalid path may have
-                        // pruned a lane) — skip.
+                AaSlot::Sequenced(index) => {
+                    let Some((id, entry)) = self.by_lane.get(index) else {
                         continue;
                     };
+                    if self.invalid_lanes.contains(&id.seq) {
+                        // Lane was poisoned by a prior `mark_invalid`; skip
+                        // this entry and any successor that was already queued.
+                        continue;
+                    }
 
                     // Push the next nonce in the same lane, if it was
-                    // pending in the snapshot. We only re-push when the
-                    // successor is contiguous (`prev_nonce + 1`); if the
-                    // snapshot had a gap (queued tail), the lane stops
-                    // here.
-                    let next_id = Eip8130TxId::new(id.seq, id.nonce.saturating_add(1));
-                    if let Some(next_entry) = self.by_lane.get(&next_id) {
-                        self.heap.push(HeapNode {
-                            key: HeapKey {
-                                priority: next_entry.priority,
-                                submission_id: next_entry.submission_id,
-                                hash: *next_entry.tx.hash(),
-                            },
-                            slot: AaSlot::Sequenced(next_id),
-                        });
+                    // pending in the snapshot. Because `by_lane` follows
+                    // `BTreeMap<Eip8130TxId, _>` order, a contiguous successor
+                    // is adjacent to the current row.
+                    let next_index = index.saturating_add(1);
+                    if let Some((next_id, next_entry)) = self.by_lane.get(next_index) {
+                        if next_id.seq == id.seq && next_id.nonce == id.nonce.saturating_add(1) {
+                            self.heap.push(HeapNode {
+                                key: HeapKey {
+                                    priority: next_entry.priority,
+                                    submission_id: next_entry.submission_id,
+                                    hash: *next_entry.tx.hash(),
+                                },
+                                slot: AaSlot::Sequenced(next_index),
+                            });
+                        }
                     }
-                    return Some(entry.tx);
+                    return Some(entry.tx.clone());
                 }
                 AaSlot::Expiring(hash) => {
                     let Some(entry) = self.expiring.remove(&hash) else {

@@ -9,12 +9,15 @@ use alloy_eips::{
     eip7594::BlobTransactionSidecarVariant,
     eip7702::SignedAuthorization,
 };
+use alloy_evm::FromTxWithEncoded;
 use alloy_primitives::{Address, B256, Bytes, TxHash, TxKind, U256};
 use alloy_rpc_types_eth::erc4337::TransactionConditional;
 use c_kzg::KzgSettings;
 use core::fmt::Debug;
 use op_alloy_consensus::TxEip8130;
-use op_revm::OpEip8130TxTr;
+use op_revm::{OpEip8130TxTr, transaction::eip8130::Eip8130Parts};
+use reth_evm::execute::WithTxEnv;
+use reth_optimism_evm::OpTx;
 use reth_optimism_primitives::OpTransactionSigned;
 use reth_primitives_traits::{InMemorySize, SignedTransaction};
 use reth_transaction_pool::{
@@ -56,6 +59,14 @@ pub struct OpPooledTransaction<
 
     /// Cached EIP-2718 encoded bytes of the transaction, lazily computed.
     encoded_2718: OnceLock<Bytes>,
+
+    /// Cached executable transaction environment for payload building.
+    tx_env: OnceLock<OpTx>,
+
+    /// Cached EIP-8130 parts resolved during AA validation. The side AA pool
+    /// reuses this to derive invalidation rules without rebuilding native
+    /// auth state while holding its write lock.
+    eip8130_parts: OnceLock<Eip8130Parts>,
 }
 
 impl<Cons: SignedTransaction, Pooled> OpPooledTransaction<Cons, Pooled> {
@@ -68,6 +79,8 @@ impl<Cons: SignedTransaction, Pooled> OpPooledTransaction<Cons, Pooled> {
             interop: Arc::new(AtomicU64::new(NO_INTEROP_TX)),
             _pd: core::marker::PhantomData,
             encoded_2718: Default::default(),
+            tx_env: Default::default(),
+            eip8130_parts: Default::default(),
         }
     }
 
@@ -84,6 +97,35 @@ impl<Cons: SignedTransaction, Pooled> OpPooledTransaction<Cons, Pooled> {
     /// Returns lazily computed EIP-2718 encoded bytes of the transaction.
     pub fn encoded_2718(&self) -> &Bytes {
         self.encoded_2718.get_or_init(|| self.inner.transaction().encoded_2718().into())
+    }
+
+    /// Builds the executable transaction environment for this pooled transaction.
+    fn tx_env_slow(&self) -> OpTx
+    where
+        OpTx: FromTxWithEncoded<Cons>,
+    {
+        OpTx::from_encoded_tx(
+            self.inner.transaction.inner(),
+            self.inner.transaction.signer(),
+            self.encoded_2718().clone(),
+        )
+    }
+
+    /// Returns the cached executable transaction environment.
+    pub fn tx_env(&self) -> &OpTx
+    where
+        OpTx: FromTxWithEncoded<Cons>,
+    {
+        self.tx_env.get_or_init(|| self.tx_env_slow())
+    }
+
+    /// Returns a [`WithTxEnv`] wrapper containing the cached transaction environment.
+    pub fn into_with_tx_env(mut self) -> WithTxEnv<OpTx, Recovered<Cons>>
+    where
+        OpTx: FromTxWithEncoded<Cons>,
+    {
+        let tx_env = self.tx_env.take().unwrap_or_else(|| self.tx_env_slow());
+        WithTxEnv { tx_env, tx: Arc::new(self.inner.transaction) }
     }
 
     /// Conditional setter.
@@ -346,6 +388,35 @@ pub trait OpPooledTx:
     fn as_eip8130(&self) -> Option<&TxEip8130> {
         None
     }
+
+    /// Precomputes the executable transaction environment, if the concrete
+    /// pooled transaction stores one.
+    fn precompute_tx_env(&self)
+    where
+        OpTx: FromTxWithEncoded<Self::Consensus>,
+    {
+    }
+
+    /// Precomputes an EIP-8130 transaction environment with parts that were
+    /// already built during validation. Implementations that cannot store the
+    /// prepared environment may fall back to the generic precompute path.
+    fn precompute_eip8130_tx_env(&self, _parts: Eip8130Parts)
+    where
+        OpTx: FromTxWithEncoded<Self::Consensus>,
+    {
+        self.precompute_tx_env();
+    }
+
+    /// Returns cached EIP-8130 parts if the validator already resolved them.
+    fn cached_eip8130_parts(&self) -> Option<&Eip8130Parts> {
+        None
+    }
+
+    /// Consumes this pool transaction with a prepared transaction environment.
+    fn into_with_tx_env(self) -> WithTxEnv<OpTx, Recovered<Self::Consensus>>
+    where
+        Self: Sized,
+        OpTx: FromTxWithEncoded<Self::Consensus>;
 }
 
 impl<Cons, Pooled> OpPooledTx for OpPooledTransaction<Cons, Pooled>
@@ -360,6 +431,43 @@ where
 
     fn as_eip8130(&self) -> Option<&TxEip8130> {
         self.inner.transaction.inner().as_eip8130().map(|sealed| sealed.inner())
+    }
+
+    fn precompute_tx_env(&self)
+    where
+        OpTx: FromTxWithEncoded<Cons>,
+    {
+        let _ = self.tx_env();
+    }
+
+    fn precompute_eip8130_tx_env(&self, parts: Eip8130Parts)
+    where
+        OpTx: FromTxWithEncoded<Cons>,
+    {
+        let _ = self.eip8130_parts.set(parts.clone());
+        if let Some(tx) = self.inner.transaction.inner().as_eip8130().map(|sealed| sealed.inner()) {
+            let tx_env = OpTx::from_eip8130_parts(
+                tx,
+                self.inner.transaction.signer(),
+                self.encoded_2718().clone(),
+                parts,
+            );
+            let _ = self.tx_env.set(tx_env);
+        } else {
+            let _ = self.tx_env();
+        }
+    }
+
+    fn cached_eip8130_parts(&self) -> Option<&Eip8130Parts> {
+        self.eip8130_parts.get()
+    }
+
+    fn into_with_tx_env(self) -> WithTxEnv<OpTx, Recovered<Self::Consensus>>
+    where
+        Self: Sized,
+        OpTx: FromTxWithEncoded<Cons>,
+    {
+        OpPooledTransaction::into_with_tx_env(self)
     }
 }
 

@@ -27,6 +27,7 @@ pub use eip8130_pool::{
 };
 pub use eip8130_xlayer::{
     Eip8130ValidationError, MAX_AA_TX_ENCODED_BYTES, validate_eip8130_transaction,
+    validate_eip8130_transaction_with_recovered_sender,
 };
 mod pool;
 pub use pool::OpPool;

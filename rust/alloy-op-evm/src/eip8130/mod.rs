@@ -26,7 +26,12 @@ pub mod parts;
 pub mod storage;
 
 pub use address::derive_account_address;
-pub use auth_state::{build_payer_auth_state, build_sender_auth_state};
+pub use auth_state::{
+    build_payer_auth_state, build_sender_auth_state, build_sender_auth_state_with_recovered,
+};
 pub use native_verifier::{NativeVerifier, NativeVerifyResult, try_native_verify};
-pub use parts::{account_change_units, eip8130_parts};
+pub use parts::{
+    account_change_units, eip8130_parts, eip8130_parts_with_auth_states,
+    eip8130_parts_with_nonce_free_hash,
+};
 pub use storage::{account_state_slot, encode_owner_config, owner_config_slot};

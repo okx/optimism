@@ -471,9 +471,9 @@ struct EvictionKey {
 
 impl PartialEq for EvictionKey {
     fn eq(&self, other: &Self) -> bool {
-        self.priority == other.priority &&
-            self.submission_id == other.submission_id &&
-            self.hash == other.hash
+        self.priority == other.priority
+            && self.submission_id == other.submission_id
+            && self.hash == other.hash
     }
 }
 
@@ -627,9 +627,22 @@ pub struct Eip8130Pool<T: Eip8130PoolTx> {
     /// tx per lane at a time.
     independent: HashMap<Eip8130SeqId, Arc<PooledEntry<T>>>,
 
+    /// Exclusive upper bound of the contiguous pending prefix for each lane.
+    /// This lets admission append to the pending prefix without rescanning
+    /// from the on-chain lane head on every tx.
+    pending_tip_by_seq: HashMap<Eip8130SeqId, u64>,
+
     /// Expiring-nonce txs keyed by their unique
     /// `sender_signature_hash`. Always immediately pending.
     expiring: HashMap<B256, Arc<PooledEntry<T>>>,
+
+    /// Running pending/queued transaction counts. Expiring-mode entries
+    /// contribute to `pending_count`; sequenced entries move between
+    /// `pending_count` and `queued_count` when promoted/demoted. Keeping
+    /// these counters incremental avoids an O(pool) scan on every canonical
+    /// update just to refresh gauges or enforce caps.
+    pending_count: usize,
+    queued_count: usize,
 
     /// Reverse index: `aa_nonce_slot(sender, key)` storage slot in
     /// `NONCE_MANAGER_ADDRESS` → lane id. Lets `on_state_updates` resolve a
@@ -722,7 +735,10 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
             txs_by_seq: HashMap::new(),
             by_hash: HashMap::new(),
             independent: HashMap::new(),
+            pending_tip_by_seq: HashMap::new(),
             expiring: HashMap::new(),
+            pending_count: 0,
+            queued_count: 0,
             slot_to_seq: HashMap::new(),
             slot_to_expiring: HashMap::new(),
             txs_by_sender: HashMap::new(),
@@ -857,11 +873,36 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
         }
     }
 
-    /// Moves `bytes` between the pending and queued counters when an entry
-    /// transitions sub-pools (F5).
+    /// Adds `count` to the appropriate subpool transaction counter.
+    fn add_subpool_count(&mut self, is_pending: bool, count: usize) {
+        if is_pending {
+            self.pending_count = self.pending_count.saturating_add(count);
+        } else {
+            self.queued_count = self.queued_count.saturating_add(count);
+        }
+    }
+
+    /// Subtracts `count` from the appropriate subpool transaction counter.
+    fn sub_subpool_count(&mut self, is_pending: bool, count: usize) {
+        if is_pending {
+            self.pending_count = self.pending_count.saturating_sub(count);
+        } else {
+            self.queued_count = self.queued_count.saturating_sub(count);
+        }
+    }
+
+    /// Moves `bytes` between the pending and queued byte counters when an
+    /// entry transitions sub-pools (F5). Count deltas are maintained at the
+    /// call site because callers usually already know how many flags flipped.
     fn shift_subpool_bytes(&mut self, from_pending: bool, bytes: usize) {
         self.sub_subpool_bytes(from_pending, bytes);
         self.add_subpool_bytes(!from_pending, bytes);
+    }
+
+    /// Moves `count` transactions between the pending and queued counters.
+    fn shift_subpool_count(&mut self, from_pending: bool, count: usize) {
+        self.sub_subpool_count(from_pending, count);
+        self.add_subpool_count(!from_pending, count);
     }
 
     /// Admits a validated AA tx into the pool. `on_chain_nonce` is the
@@ -1048,6 +1089,7 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
                 // back to pending if the lane prefix is contiguous.
                 let prev_was_pending = prev_entry.is_pending();
                 self.sub_subpool_bytes(prev_was_pending, Self::entry_bytes(prev));
+                self.sub_subpool_count(prev_was_pending, 1);
             }
             self.unregister_expiry(prev);
         }
@@ -1057,6 +1099,7 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
         // below will shift it into pending if the lane prefix is
         // contiguous.
         self.add_subpool_bytes(false, Self::entry_bytes(&tx));
+        self.add_subpool_count(false, 1);
         let slot = aa_nonce_slot(seq.sender, seq.nonce_key);
         self.slot_to_seq.entry(slot).or_insert(seq);
         self.by_eviction.insert(EvictionKey { priority, submission_id, hash });
@@ -1074,6 +1117,9 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
         // pending. The just-inserted tx (`tx_id.nonce`) shouldn't appear
         // in the caller-facing `promoted` list — it's surfaced as the
         // outcome's `transaction` field. Filter it out.
+        if replaced.is_some() {
+            self.pending_tip_by_seq.remove(&seq);
+        }
         let mut promoted = self.promote_lane(seq, on_chain_nonce);
         promoted.retain(|t| t.hash() != &hash);
         let inserted_pending = new_entry.is_pending();
@@ -1172,6 +1218,7 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
         self.by_hash.insert(hash, tx.clone());
         // Expiring-mode txs are unconditionally pending.
         self.add_subpool_bytes(true, Self::entry_bytes(&tx));
+        self.add_subpool_count(true, 1);
         *self.txs_by_sender.entry(sender).or_insert(0) += 1;
         self.by_eviction.insert(EvictionKey { priority, submission_id, hash });
         self.register_invalidation_keys(hash, &entry.cached_invalidation_rules);
@@ -1213,6 +1260,56 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
     /// the caller can emit `TransactionEvent::Mined(block_hash)` instead.
     fn remove_by_hash_no_event(&mut self, hash: &TxHash) -> Option<Arc<ValidPoolTransaction<T>>> {
         self.remove_by_hash_inner(hash, false)
+    }
+
+    /// Removes a mined sequenced tx by id without demoting descendants.
+    ///
+    /// `advance_lane` drains a contiguous prefix below the new on-chain
+    /// nonce and then re-promotes/demotes the remaining lane exactly once.
+    /// Calling the generic remove path for every mined nonce would create a
+    /// temporary gap on each step and repeatedly demote the same descendants.
+    fn remove_mined_sequenced_by_id_no_demote(
+        &mut self,
+        tx_id: Eip8130TxId,
+    ) -> Option<Arc<ValidPoolTransaction<T>>> {
+        let entry = self.by_id.remove(&tx_id)?;
+        let tx = entry.tx.clone();
+        let hash = *tx.hash();
+
+        self.by_hash.remove(&hash);
+        self.metrics.txs_removed.increment(1);
+        self.unregister_expiry(&tx);
+        let sender = tx.transaction.aa_sender().unwrap_or_else(|| tx.sender());
+
+        self.pending_tip_by_seq.remove(&tx_id.seq);
+        let entry_was_pending = entry.is_pending();
+        self.sub_subpool_bytes(entry_was_pending, Self::entry_bytes(&tx));
+        self.sub_subpool_count(entry_was_pending, 1);
+
+        if let Some(count) = self.txs_by_seq.get_mut(&tx_id.seq) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                self.txs_by_seq.remove(&tx_id.seq);
+            }
+        }
+        self.unregister_invalidation_keys(hash, &entry.cached_invalidation_rules);
+        self.by_eviction.remove(&EvictionKey {
+            priority: entry.priority,
+            submission_id: entry.submission_id,
+            hash,
+        });
+        if self.independent.get(&tx_id.seq).is_some_and(|h| Arc::ptr_eq(h, &entry)) {
+            self.independent.remove(&tx_id.seq);
+        }
+
+        if self.lane_count(tx_id.seq) == 0 {
+            let slot = aa_nonce_slot(tx_id.seq.sender, tx_id.seq.nonce_key);
+            self.slot_to_seq.remove(&slot);
+            self.on_chain_nonces.remove(&tx_id.seq);
+            self.pending_tip_by_seq.remove(&tx_id.seq);
+        }
+        self.decrement_sender(sender);
+        Some(tx)
     }
 
     fn remove_by_hash_inner(
@@ -1261,6 +1358,7 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
             });
             // Expiring-mode entries always live in the pending bucket.
             self.sub_subpool_bytes(true, Self::entry_bytes(&tx));
+            self.sub_subpool_count(true, 1);
             self.decrement_sender(sender);
             // Per-tx removal: gauge refresh deferred to the batch-end caller.
             return Some(tx);
@@ -1268,10 +1366,12 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
 
         let tx_id = tx.transaction.aa_tx_id()?;
         let entry = self.by_id.remove(&tx_id)?;
+        self.pending_tip_by_seq.remove(&tx_id.seq);
         // Subtract the removed entry's byte cost from whichever
         // sub-pool it occupied at the moment of removal.
         let entry_was_pending = entry.is_pending();
         self.sub_subpool_bytes(entry_was_pending, Self::entry_bytes(&tx));
+        self.sub_subpool_count(entry_was_pending, 1);
         // Decrement the maintained lane counter in lock-step with the
         // `by_id` removal (cf PERF-4); drop the row when the lane is
         // empty so `lane_count` returns 0 without retaining stale keys.
@@ -1309,6 +1409,7 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
             let slot = aa_nonce_slot(tx_id.seq.sender, tx_id.seq.nonce_key);
             self.slot_to_seq.remove(&slot);
             self.on_chain_nonces.remove(&tx_id.seq);
+            self.pending_tip_by_seq.remove(&tx_id.seq);
         }
         self.decrement_sender(sender);
         // Per-tx removal: gauge refresh deferred to the batch-end caller.
@@ -1364,6 +1465,7 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
         }
         if shift_bytes > 0 {
             self.shift_subpool_bytes(true, shift_bytes);
+            self.shift_subpool_count(true, count);
         }
         count
     }
@@ -1393,8 +1495,14 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
         from_nonce: u64,
     ) -> Vec<Arc<ValidPoolTransaction<T>>> {
         let mut promoted = Vec::new();
-        let mut expected = from_nonce;
-        let lo = Eip8130TxId::new(seq, from_nonce);
+        let start_nonce = self
+            .pending_tip_by_seq
+            .get(&seq)
+            .copied()
+            .filter(|tip| *tip >= from_nonce)
+            .unwrap_or(from_nonce);
+        let mut expected = start_nonce;
+        let lo = Eip8130TxId::new(seq, start_nonce);
         let hi = Eip8130TxId::new(seq, u64::MAX);
         let mut head: Option<Arc<PooledEntry<T>>> = None;
         // Accumulate the byte shift while iterating, apply after the
@@ -1416,9 +1524,21 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
         }
         if let Some(h) = head {
             self.independent.insert(seq, h);
+        } else if start_nonce > from_nonce
+            && let Some(entry) = self.by_id.get(&Eip8130TxId::new(seq, from_nonce))
+            && entry.is_pending()
+        {
+            // The cursor may let us skip a prefix that was already marked
+            // pending. Keep the independent head anchored at the current
+            // on-chain nonce even when no newly-promoted entry was scanned.
+            self.independent.insert(seq, entry.clone());
+        }
+        if expected > start_nonce || start_nonce > from_nonce {
+            self.pending_tip_by_seq.insert(seq, expected);
         }
         if shift_bytes > 0 {
             self.shift_subpool_bytes(false, shift_bytes);
+            self.shift_subpool_count(false, promoted.len());
         }
         promoted
     }
@@ -1427,6 +1547,7 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
     /// where the on-chain head moved past txs we held, leaving a gap).
     /// Returns the txs that transitioned pending → queued.
     fn demote_lane(&mut self, seq: Eip8130SeqId) -> Vec<Arc<ValidPoolTransaction<T>>> {
+        self.pending_tip_by_seq.remove(&seq);
         let lo = Eip8130TxId::new(seq, 0);
         let hi = Eip8130TxId::new(seq, u64::MAX);
         let mut demoted = Vec::new();
@@ -1442,6 +1563,7 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
         self.independent.remove(&seq);
         if shift_bytes > 0 {
             self.shift_subpool_bytes(true, shift_bytes);
+            self.shift_subpool_count(true, demoted.len());
         }
         demoted
     }
@@ -1484,6 +1606,16 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
     /// AA side pool only honored `max_txs`, so an operator-configured
     /// byte cap silently leaked.
     fn discard_to_cap(&mut self) -> Vec<Arc<ValidPoolTransaction<T>>> {
+        let len = self.len();
+        if len <= self.config.max_pool_size
+            && len <= self.config.pending_limit.max_txs
+            && len <= self.config.queued_limit.max_txs
+            && self.pending_bytes <= self.config.pending_limit.max_size
+            && self.queued_bytes <= self.config.queued_limit.max_size
+        {
+            return Vec::new();
+        }
+
         let mut discarded = Vec::new();
         let (pending_count, queued_count) = self.pending_and_queued_counts();
 
@@ -1537,16 +1669,7 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
     }
 
     fn pending_and_queued_counts(&self) -> (usize, usize) {
-        let mut pending = self.expiring.len();
-        let mut queued = 0usize;
-        for entry in self.by_id.values() {
-            if entry.is_pending() {
-                pending += 1;
-            } else {
-                queued += 1;
-            }
-        }
-        (pending, queued)
+        (self.pending_count, self.queued_count)
     }
 
     fn evict_lowest_priority(
@@ -1724,66 +1847,43 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
     /// `next()`, in priority-aware ordering against other lanes.
     pub fn best_aa_transactions(&self, base_fee: u64) -> crate::best::BestAaTransactions<T> {
         use crate::best::{AaSlot, AaSnapshotEntry, HeapKey, HeapNode};
-        use std::collections::{BTreeMap, BinaryHeap, HashMap};
+        use std::collections::{BinaryHeap, HashMap};
 
         let mut heap: BinaryHeap<HeapNode> =
             BinaryHeap::with_capacity(self.independent.len() + self.expiring.len());
-        let mut by_lane: BTreeMap<Eip8130TxId, AaSnapshotEntry<T>> = BTreeMap::new();
+        let mut by_lane: Vec<(Eip8130TxId, AaSnapshotEntry<T>)> =
+            Vec::with_capacity(self.pending_count.saturating_sub(self.expiring.len()));
         let mut expiring: HashMap<TxHash, AaSnapshotEntry<T>> =
             HashMap::with_capacity(self.expiring.len());
 
-        // Pass 1 — pending sequenced txs. The iterator's BTreeMap is keyed
-        // by `(seq, nonce_seq)` and used to look up the successor when a
-        // head is yielded. Includes the heads themselves so
-        // `by_lane.remove(&id)` after `pop_best` works uniformly. Priority
-        // is computed (and the Arc cloned) once per pending tx.
+        // Pass 1 — pending sequenced txs. `by_id` is already ordered by
+        // `(seq, nonce_seq)`, so a lane successor is adjacent in the snapshot
+        // vector. This keeps construction O(P) without per-entry map inserts.
         for (id, entry) in &self.by_id {
             if !entry.is_pending() {
                 continue;
             }
             let priority = entry.tx.transaction.aa_priority_fee(base_fee);
-            by_lane.insert(
-                *id,
-                AaSnapshotEntry {
-                    priority,
-                    submission_id: entry.submission_id,
-                    tx: entry.tx.clone(),
-                },
-            );
-        }
-
-        // Pass 2 — lane heads. `independent` is the authoritative index for
-        // "next executable in lane X"; we read priority/submission_id/hash
-        // from the entry we just inserted in `by_lane`, so no recompute and
-        // no extra Arc clone.
-        for (seq, head_entry) in &self.independent {
-            let id = match head_entry.tx.transaction.aa_tx_id() {
-                Some(id) => id,
-                // Defensive: an `independent` entry must always be a
-                // sequenced AA tx with a tx_id. Skip if drift breaks
-                // that invariant rather than panicking on the iterator
-                // path.
-                None => continue,
+            let snapshot_index = by_lane.len();
+            let snap = AaSnapshotEntry {
+                priority,
+                submission_id: entry.submission_id,
+                tx: entry.tx.clone(),
             };
-            // Re-key on the lane id from `independent` — the entry's tx may
-            // have been replaced; `seq` is canonical.
-            debug_assert_eq!(id.seq, *seq);
-            // Unreachable under the pool invariant: every `independent` entry
-            // shares its `Arc<PooledEntry>` with `by_id` at the same id, and
-            // Pass 1 inserts every pending `by_id` entry into `by_lane`. Skip
-            // rather than panic if a future refactor breaks that.
-            let Some(snap) = by_lane.get(&id) else { continue };
-            heap.push(HeapNode {
-                key: HeapKey {
-                    priority: snap.priority,
-                    submission_id: snap.submission_id,
-                    hash: *snap.tx.hash(),
-                },
-                slot: AaSlot::Sequenced(id),
-            });
+            if self.independent.get(&id.seq).is_some_and(|head| Arc::ptr_eq(head, entry)) {
+                heap.push(HeapNode {
+                    key: HeapKey {
+                        priority: snap.priority,
+                        submission_id: snap.submission_id,
+                        hash: *snap.tx.hash(),
+                    },
+                    slot: AaSlot::Sequenced(snapshot_index),
+                });
+            }
+            by_lane.push((*id, snap));
         }
 
-        // Pass 3 — expiring-mode txs. Unconditionally pending and have no
+        // Pass 2 — expiring-mode txs. Unconditionally pending and have no
         // successor relationship; keyed by hash. Priority is computed (and
         // the Arc cloned) once per tx — same entry feeds both heap and map.
         for entry in self.expiring.values() {
@@ -1977,8 +2077,8 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
                     let new_head: u64 = value.saturating_to();
                     lane_advances.push((seq, new_head));
                 }
-                if !value.is_zero() &&
-                    let Some(exp_hash) = self.slot_to_expiring.get(&slot).copied()
+                if !value.is_zero()
+                    && let Some(exp_hash) = self.slot_to_expiring.get(&slot).copied()
                 {
                     expiring_evictions.push(exp_hash);
                 }
@@ -2135,9 +2235,7 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
             self.by_id.range(lo..hi).map(|(id, _)| *id).collect()
         };
         for id in drain_ids {
-            let hash =
-                self.by_id.get(&id).map(|e| *e.tx.hash()).expect("id from by_id must still exist");
-            if let Some(tx) = self.remove_by_hash_no_event(&hash) {
+            if let Some(tx) = self.remove_mined_sequenced_by_id_no_demote(id) {
                 outcome.mined.push(tx);
             }
         }
@@ -2311,7 +2409,9 @@ where
     /// - **Empty / Invalid / SelfPay**: admission rejects these on the sender side, so they cannot
     ///   reach this trait method via the admission path. Defensive empty-rules return otherwise.
     fn aa_invalidation_rules(&self) -> Vec<((Address, U256), InvalidationRule)> {
-        use alloy_op_evm::eip8130::auth_state::{build_payer_auth_state, build_sender_auth_state};
+        use alloy_op_evm::eip8130::auth_state::{
+            build_payer_auth_state, build_sender_auth_state_with_recovered,
+        };
         use op_revm::transaction::eip8130::AuthState;
         let Some(sender) = self.aa_sender() else {
             return Vec::new();
@@ -2322,28 +2422,23 @@ where
         // slot. Pre-allocating avoids repeated grows on the hot path
         // (cf PERF-11).
         let mut rules: Vec<((Address, U256), InvalidationRule)> = Vec::with_capacity(4);
-        if let Some(inner_tx) = OpPooledTx::as_eip8130(self) {
-            if let AuthState::Native { verifier, owner_id, delegate_inner } =
-                build_sender_auth_state(inner_tx)
-            {
+        let cached_parts = OpPooledTx::cached_eip8130_parts(self);
+        let mut push_native_owner_rules =
+            |account: Address,
+             verifier: Address,
+             owner_id: B256,
+             delegate_inner: Option<&op_revm::transaction::eip8130::DelegateInner>,
+             required_scope_bit: u8| {
                 rules.push((
                     (
                         ACCOUNT_CONFIG_ADDRESS,
-                        aa_owner_config_slot(sender, U256::from_be_bytes(owner_id.0)),
+                        aa_owner_config_slot(account, U256::from_be_bytes(owner_id.0)),
                     ),
                     InvalidationRule::OwnerConfig {
                         expected_verifier: verifier,
-                        required_scope_bit: op_revm::constants::OWNER_SCOPE_SENDER,
+                        required_scope_bit,
                     },
                 ));
-                // Delegate→Native inner slot: the executor's
-                // `dispatch_auth_state` runs a SECOND owner_config read at
-                // `owner_config[delegate_address][delegate_inner.owner_id]`
-                // (op-revm `handler.rs:697-708`). Register an invalidation
-                // rule for that slot too so a diff to the inner row evicts
-                // the tx — same shape and scope bit as the outer rule
-                // (the executor passes `required_scope` through to both
-                // bindings unchanged).
                 if let Some(di) = delegate_inner {
                     let delegate_address = alloy_primitives::Address::from_slice(&owner_id.0[..20]);
                     rules.push((
@@ -2356,10 +2451,33 @@ where
                         ),
                         InvalidationRule::OwnerConfig {
                             expected_verifier: di.verifier,
-                            required_scope_bit: op_revm::constants::OWNER_SCOPE_SENDER,
+                            required_scope_bit,
                         },
                     ));
                 }
+            };
+
+        if let Some(inner_tx) = OpPooledTx::as_eip8130(self) {
+            if let Some(AuthState::Native { verifier, owner_id, delegate_inner }) =
+                cached_parts.map(|parts| &parts.sender_authstate)
+            {
+                push_native_owner_rules(
+                    sender,
+                    *verifier,
+                    *owner_id,
+                    delegate_inner.as_ref(),
+                    op_revm::constants::OWNER_SCOPE_SENDER,
+                );
+            } else if let AuthState::Native { verifier, owner_id, delegate_inner } =
+                build_sender_auth_state_with_recovered(inner_tx, sender)
+            {
+                push_native_owner_rules(
+                    sender,
+                    verifier,
+                    owner_id,
+                    delegate_inner.as_ref(),
+                    op_revm::constants::OWNER_SCOPE_SENDER,
+                );
             }
             // Deferred / Empty / Invalid / SelfPay: no rule A entry. See
             // doc comment above for rationale.
@@ -2370,40 +2488,30 @@ where
             // covers it. Deferred payer auth: skip the slot entry — the
             // owner_id is unknown until the executor's STATICCALL runs, same
             // rationale as the Deferred sender branch.
-            let effective_payer = inner_tx.payer.unwrap_or(sender);
+            let effective_payer = cached_parts
+                .map(|parts| parts.payer)
+                .unwrap_or_else(|| inner_tx.payer.unwrap_or(sender));
             if effective_payer != sender {
-                if let AuthState::Native { verifier, owner_id, delegate_inner } =
+                if let Some(AuthState::Native { verifier, owner_id, delegate_inner }) =
+                    cached_parts.map(|parts| &parts.payer_authstate)
+                {
+                    push_native_owner_rules(
+                        effective_payer,
+                        *verifier,
+                        *owner_id,
+                        delegate_inner.as_ref(),
+                        op_revm::constants::OWNER_SCOPE_PAYER,
+                    );
+                } else if let AuthState::Native { verifier, owner_id, delegate_inner } =
                     build_payer_auth_state(inner_tx, sender)
                 {
-                    rules.push((
-                        (
-                            ACCOUNT_CONFIG_ADDRESS,
-                            aa_owner_config_slot(effective_payer, U256::from_be_bytes(owner_id.0)),
-                        ),
-                        InvalidationRule::OwnerConfig {
-                            expected_verifier: verifier,
-                            required_scope_bit: op_revm::constants::OWNER_SCOPE_PAYER,
-                        },
-                    ));
-                    // Delegate→Native inner slot for the payer side
-                    // (mirror of the sender block above).
-                    if let Some(di) = delegate_inner {
-                        let delegate_address =
-                            alloy_primitives::Address::from_slice(&owner_id.0[..20]);
-                        rules.push((
-                            (
-                                ACCOUNT_CONFIG_ADDRESS,
-                                aa_owner_config_slot(
-                                    delegate_address,
-                                    U256::from_be_bytes(di.owner_id.0),
-                                ),
-                            ),
-                            InvalidationRule::OwnerConfig {
-                                expected_verifier: di.verifier,
-                                required_scope_bit: op_revm::constants::OWNER_SCOPE_PAYER,
-                            },
-                        ));
-                    }
+                    push_native_owner_rules(
+                        effective_payer,
+                        verifier,
+                        owner_id,
+                        delegate_inner.as_ref(),
+                        op_revm::constants::OWNER_SCOPE_PAYER,
+                    );
                 }
             }
         }
@@ -2425,9 +2533,9 @@ where
             inner.account_changes.iter().any(|e| {
                 matches!(
                     e,
-                    op_alloy_consensus::AccountChangeEntry::Create(_) |
-                        op_alloy_consensus::AccountChangeEntry::Delegation(_) |
-                        op_alloy_consensus::AccountChangeEntry::ConfigChange(_)
+                    op_alloy_consensus::AccountChangeEntry::Create(_)
+                        | op_alloy_consensus::AccountChangeEntry::Delegation(_)
+                        | op_alloy_consensus::AccountChangeEntry::ConfigChange(_)
                 )
             })
         } else {

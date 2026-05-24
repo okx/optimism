@@ -63,6 +63,7 @@ op-revm.workspace = true
 
 # ethereum
 alloy-primitives.workspace = true
+alloy-evm.workspace = true
 op-alloy-consensus.workspace = true
 op-alloy-rpc-types-engine.workspace = true
 alloy-rpc-types-engine.workspace = true

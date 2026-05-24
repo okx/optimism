@@ -124,6 +124,24 @@ impl SequencerEngineClient for QueuedSequencerEngineClient {
         match result_rx.recv().await {
             Some(Ok(payload)) => {
                 trace!(target: "sequencer", ?payload, "Seal succeeded.");
+                let sealed_hash = payload.execution_payload.block_hash();
+                let sealed_number = payload.execution_payload.block_number();
+                let mut unsafe_head_rx = self.unsafe_head_rx.clone();
+                loop {
+                    let unsafe_head = *unsafe_head_rx.borrow();
+                    if unsafe_head.block_info.hash == sealed_hash {
+                        break;
+                    }
+                    if unsafe_head.block_info.number > sealed_number {
+                        return Err(EngineClientError::ResponseError(format!(
+                            "unsafe head advanced past sealed payload: sealed={sealed_number}/{sealed_hash}, unsafe={}/{}",
+                            unsafe_head.block_info.number, unsafe_head.block_info.hash
+                        )));
+                    }
+                    unsafe_head_rx.changed().await.map_err(|_| {
+                        EngineClientError::ResponseError("unsafe head channel closed.".to_string())
+                    })?;
+                }
                 Ok(payload)
             }
             Some(Err(err)) => {

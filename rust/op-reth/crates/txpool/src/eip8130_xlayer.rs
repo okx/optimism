@@ -17,7 +17,9 @@
 
 use alloy_op_evm::eip8130::{
     address::derive_account_address,
-    auth_state::{build_payer_auth_state, build_sender_auth_state},
+    auth_state::{
+        build_payer_auth_state, build_sender_auth_state, build_sender_auth_state_with_recovered,
+    },
 };
 use alloy_primitives::{Address, B256, U256, keccak256};
 use op_alloy_consensus::{
@@ -39,6 +41,7 @@ use op_revm::{
     },
     precompiles_xlayer::NONCE_MANAGER_ADDRESS,
     transaction::eip8130::AuthState,
+    transaction::eip8130::Eip8130Parts,
 };
 use reth_storage_api::{StateProvider, StateProviderFactory};
 use reth_transaction_pool::error::PoolTransactionError;
@@ -56,6 +59,13 @@ pub const MAX_AA_TX_ENCODED_BYTES: usize = 256 * 1024;
 /// tempo's `AA_VALID_BEFORE_MIN_SECS` (tempo `crates/transaction-pool/src/validator.rs:36`)
 /// and `EVICTION_BUFFER_SECS` (tempo `crates/transaction-pool/src/maintain.rs:35`).
 pub const EXPIRY_ADMISSION_BUFFER_SECS: u64 = 3;
+
+/// Successful EIP-8130 admission result with reusable execution parts.
+#[derive(Clone, Debug)]
+pub(crate) struct Eip8130ValidatedTx {
+    pub(crate) state_nonce: u64,
+    pub(crate) parts: Eip8130Parts,
+}
 
 /// Maximum bytes of `data` per call entry. Bounds per-tx memory and gossip bandwidth so a
 /// single AA tx cannot exhaust pool buffers via a single oversized call. Matches tempo's
@@ -820,6 +830,57 @@ pub fn validate_eip8130_transaction<Client>(
 where
     Client: StateProviderFactory,
 {
+    validate_eip8130_transaction_with_recovered_sender(
+        tx,
+        encoded_len,
+        block_timestamp,
+        chain_id,
+        client,
+        l1_data_fee,
+        None,
+    )
+}
+
+/// Validates an EIP-8130 transaction, optionally reusing a sender address that
+/// was already recovered by the outer transaction recovery path.
+pub fn validate_eip8130_transaction_with_recovered_sender<Client>(
+    tx: &TxEip8130,
+    encoded_len: usize,
+    block_timestamp: u64,
+    chain_id: u64,
+    client: &Client,
+    l1_data_fee: U256,
+    recovered_sender: Option<Address>,
+) -> Result<u64, Eip8130ValidationError>
+where
+    Client: StateProviderFactory,
+{
+    validate_eip8130_transaction_with_recovered_sender_and_parts(
+        tx,
+        encoded_len,
+        block_timestamp,
+        chain_id,
+        client,
+        l1_data_fee,
+        recovered_sender,
+    )
+    .map(|validated| validated.state_nonce)
+}
+
+/// Validates an EIP-8130 transaction and returns the `Eip8130Parts` built
+/// from auth states already resolved during validation.
+pub(crate) fn validate_eip8130_transaction_with_recovered_sender_and_parts<Client>(
+    tx: &TxEip8130,
+    encoded_len: usize,
+    block_timestamp: u64,
+    chain_id: u64,
+    client: &Client,
+    l1_data_fee: U256,
+    recovered_sender: Option<Address>,
+) -> Result<Eip8130ValidatedTx, Eip8130ValidationError>
+where
+    Client: StateProviderFactory,
+{
     // Step 0: encoded-size guard (mempool ingress; not in the EIP itself, present in
     // base to bound RLP fan-out memory cost).
     if encoded_len > MAX_AA_TX_ENCODED_BYTES {
@@ -920,7 +981,10 @@ where
     //   Delegate→Custom). `sender` is `tx.from` for both.
     // - `Empty` / `Invalid(reason)` reject up-front. Empty in the pool is the `eth_estimateGas`
     //   shape — admitting it would let an attacker push unauthenticated txs into the gossip mesh.
-    let sender_auth = build_sender_auth_state(tx);
+    let sender_auth = recovered_sender.map_or_else(
+        || build_sender_auth_state(tx),
+        |sender| build_sender_auth_state_with_recovered(tx, sender),
+    );
     let sender = match (&sender_auth, tx.sender) {
         (AuthState::Invalid(reason), _) => {
             return Err(Eip8130ValidationError::InvalidSenderAuth(reason.clone()));
@@ -1137,7 +1201,12 @@ where
     // would under-count intrinsic gas for any tx widening admission past
     // the self-pay / no-account_changes shape and let txs through that
     // the executor will reject for intrinsic-gas underestimation.
-    let parts = alloy_op_evm::eip8130::eip8130_parts(tx, sender);
+    let parts = alloy_op_evm::eip8130::eip8130_parts_with_auth_states(
+        tx,
+        sender,
+        sender_auth.clone(),
+        payer_auth.clone(),
+    );
     let gas_params = xlayer_gas_params(OpSpecId::XLAYER_V1);
     let intrinsic_gas = aa_intrinsic_gas(&parts, &gas_params);
     if tx.gas_limit < intrinsic_gas {
@@ -1567,7 +1636,7 @@ where
     // `max_gas_cost` (the admission-time payer-balance predicate) is recomputed
     // at the side-pool admission site from `compute_l1_data_fee` + tx fields;
     // no need to surface it here. F5.
-    Ok(state_nonce)
+    Ok(Eip8130ValidatedTx { state_nonce, parts })
 }
 
 #[cfg(test)]

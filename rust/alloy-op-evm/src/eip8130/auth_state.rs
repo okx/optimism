@@ -106,6 +106,32 @@ pub fn build_sender_auth_state(tx: &TxEip8130) -> AuthState {
     )
 }
 
+/// Builds the sender [`AuthState`] when the EOA-mode caller has already been
+/// recovered by the transaction envelope recovery path.
+///
+/// EOA-mode 8130 transactions use the same K1 signature both for reth's
+/// recovered signer and for the native sender verifier. Once the caller has
+/// been recovered successfully, reconstructing the native auth state from that
+/// caller avoids a second encode+keccak+ecrecover on the execution hot path.
+pub fn build_sender_auth_state_with_recovered(
+    tx: &TxEip8130,
+    recovered_sender: Address,
+) -> AuthState {
+    if !tx.is_eoa() {
+        return build_sender_auth_state(tx);
+    }
+
+    if tx.sender_auth.len() != 65 {
+        return AuthState::Invalid("sender_auth: EOA mode missing or malformed sig".into());
+    }
+
+    AuthState::Native {
+        verifier: K1_VERIFIER_ADDRESS,
+        owner_id: address_to_owner_id(recovered_sender),
+        delegate_inner: None,
+    }
+}
+
 /// Builds the [`AuthState`] for `tx.payer_auth`.
 ///
 /// Self-pay (`tx.is_self_pay() == true`) short-circuits to [`AuthState::SelfPay`]
