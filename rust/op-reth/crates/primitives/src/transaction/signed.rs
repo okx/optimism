@@ -475,9 +475,9 @@ impl PartialEq for OpTransactionSigned {
             _ => other.signature,
         };
 
-        self_signature == other_signature &&
-            self.transaction == other.transaction &&
-            self.tx_hash() == other.tx_hash()
+        self_signature == other_signature
+            && self.transaction == other.transaction
+            && self.tx_hash() == other.tx_hash()
     }
 }
 
@@ -714,7 +714,7 @@ mod xlayer_tests {
         let key_pair = secp256k1::Keypair::new(&secp, &mut rand::rng());
         let sender = public_key_to_address(key_pair.public_key());
 
-        let mut tx = TxEip8130 { from: None, sender_auth: Bytes::new(), ..Default::default() };
+        let mut tx = TxEip8130 { sender: None, sender_auth: Bytes::new(), ..Default::default() };
         let signature = reth_primitives_traits::crypto::secp256k1::sign_message(
             B256::from_slice(&key_pair.secret_bytes()[..]),
             sender_signature_hash(&tx),

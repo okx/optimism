@@ -2422,7 +2422,11 @@ where
         // slot. Pre-allocating avoids repeated grows on the hot path
         // (cf PERF-11).
         let mut rules: Vec<((Address, U256), InvalidationRule)> = Vec::with_capacity(4);
-        let cached_parts = OpPooledTx::cached_eip8130_parts(self);
+        // Pull validator-resolved parts via the narrow `Eip8130PartsCache` trait
+        // (impl is on `OpPooledTransaction` and reads its `eip8130_parts` OnceLock).
+        // The `else` arms below remain as fallback for the rare case the cache is
+        // missed (e.g. tx admitted via a non-AA path).
+        let cached_parts = self.cached_eip8130_parts();
         let mut push_native_owner_rules =
             |account: Address,
              verifier: Address,

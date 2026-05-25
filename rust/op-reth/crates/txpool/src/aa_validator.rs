@@ -265,7 +265,9 @@ where
         match validation_result {
             Ok(validated) => {
                 let aa_state_nonce = validated.state_nonce;
-                valid_tx.transaction().precompute_eip8130_tx_env(validated.parts);
+                // Stash the resolved parts so `Eip8130Pool::aa_invalidation_rules` can
+                // read auth state without rebuilding via `build_*_auth_state`.
+                valid_tx.transaction().set_txenv(validated.parts);
                 TransactionValidationOutcome::Valid {
                     balance,
                     // The AA spec layer is authoritative on `state_nonce` — it
