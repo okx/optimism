@@ -475,9 +475,9 @@ impl PartialEq for OpTransactionSigned {
             _ => other.signature,
         };
 
-        self_signature == other_signature
-            && self.transaction == other.transaction
-            && self.tx_hash() == other.tx_hash()
+        self_signature == other_signature &&
+            self.transaction == other.transaction &&
+            self.tx_hash() == other.tx_hash()
     }
 }
 

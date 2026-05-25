@@ -118,13 +118,7 @@ pub fn eip8130_parts_with_auth_states(
     sender_authstate: AuthState,
     payer_authstate: AuthState,
 ) -> Eip8130Parts {
-    eip8130_parts_with_resolved_auth(
-        tx,
-        caller,
-        None,
-        sender_authstate,
-        payer_authstate,
-    )
+    eip8130_parts_with_resolved_auth(tx, caller, None, sender_authstate, payer_authstate)
 }
 
 fn eip8130_parts_with_resolved_auth(

@@ -40,8 +40,7 @@ use op_revm::{
         unlocks_at_from_account_state_word,
     },
     precompiles_xlayer::NONCE_MANAGER_ADDRESS,
-    transaction::eip8130::AuthState,
-    transaction::eip8130::Eip8130Parts,
+    transaction::eip8130::{AuthState, Eip8130Parts},
 };
 use reth_storage_api::{StateProvider, StateProviderFactory};
 use reth_transaction_pool::error::PoolTransactionError;

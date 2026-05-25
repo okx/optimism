@@ -1203,11 +1203,9 @@ where
             // coexists with `&mut journal` because `all_mut` returns
             // disjoint sub-borrows of the context. No deep clone needed.
             let eip8130 = tx.eip8130_parts();
-            let payer_auth_gas_limit = crate::eip8130_gas::payer_intrinsic_gas(
-                eip8130,
-                cfg.gas_params(),
-            )
-            .saturating_add(aa_payer_custom_verifier_gas_cap(eip8130));
+            let payer_auth_gas_limit =
+                crate::eip8130_gas::payer_intrinsic_gas(eip8130, cfg.gas_params())
+                    .saturating_add(aa_payer_custom_verifier_gas_cap(eip8130));
 
             // --- Gas deduction from payer ---
             let payer = eip8130.payer;
@@ -1232,9 +1230,8 @@ where
             if !cfg.is_fee_charge_disabled() && payer_auth_gas_limit != 0 {
                 let basefee = block.basefee() as u128;
                 let effective_gas_price = tx.effective_gas_price(basefee);
-                let payer_auth_fee = U256::from(
-                    effective_gas_price.saturating_mul(payer_auth_gas_limit as u128),
-                );
+                let payer_auth_fee =
+                    U256::from(effective_gas_price.saturating_mul(payer_auth_gas_limit as u128));
                 if cfg.is_balance_check_disabled() {
                     balance = balance.saturating_sub(payer_auth_fee);
                 } else {
@@ -1838,9 +1835,8 @@ where
                 .log(phase_statuses_system_log(TX_CONTEXT_ADDRESS, &phase_results));
         }
 
-        let mut result_gas = Gas::new_spent(
-            evm.ctx().tx().gas_limit().saturating_add(payer_auth_gas_limit),
-        );
+        let mut result_gas =
+            Gas::new_spent(evm.ctx().tx().gas_limit().saturating_add(payer_auth_gas_limit));
         result_gas.erase_cost(gas_remaining.saturating_add(unused_payer_verification_gas));
         if accumulated_refunds > 0 {
             result_gas.record_refund(accumulated_refunds);

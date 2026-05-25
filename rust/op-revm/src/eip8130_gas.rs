@@ -1107,9 +1107,9 @@ mod tests {
         // empty_parts() has explicit-from (is_eoa=false), sender_auth = 85
         // zero bytes, sponsored payer with empty payer_auth. The payer-side
         // cold SLOAD is reported by payer_intrinsic_gas, not aa_intrinsic_gas.
-        let expected = p.get(GasId::tx_base_stipend())
-            + parts.sender_payload_calldata_cost
-            + p.get(GasId::cold_storage_cost()); // sender_auth_cost (non-empty)
+        let expected = p.get(GasId::tx_base_stipend()) +
+            parts.sender_payload_calldata_cost +
+            p.get(GasId::cold_storage_cost()); // sender_auth_cost (non-empty)
         assert_eq!(
             aa_intrinsic_gas(&parts, &p),
             expected,

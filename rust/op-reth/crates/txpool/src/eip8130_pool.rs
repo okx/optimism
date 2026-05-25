@@ -471,9 +471,9 @@ struct EvictionKey {
 
 impl PartialEq for EvictionKey {
     fn eq(&self, other: &Self) -> bool {
-        self.priority == other.priority
-            && self.submission_id == other.submission_id
-            && self.hash == other.hash
+        self.priority == other.priority &&
+            self.submission_id == other.submission_id &&
+            self.hash == other.hash
     }
 }
 
@@ -1524,9 +1524,9 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
         }
         if let Some(h) = head {
             self.independent.insert(seq, h);
-        } else if start_nonce > from_nonce
-            && let Some(entry) = self.by_id.get(&Eip8130TxId::new(seq, from_nonce))
-            && entry.is_pending()
+        } else if start_nonce > from_nonce &&
+            let Some(entry) = self.by_id.get(&Eip8130TxId::new(seq, from_nonce)) &&
+            entry.is_pending()
         {
             // The cursor may let us skip a prefix that was already marked
             // pending. Keep the independent head anchored at the current
@@ -1607,11 +1607,11 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
     /// byte cap silently leaked.
     fn discard_to_cap(&mut self) -> Vec<Arc<ValidPoolTransaction<T>>> {
         let len = self.len();
-        if len <= self.config.max_pool_size
-            && len <= self.config.pending_limit.max_txs
-            && len <= self.config.queued_limit.max_txs
-            && self.pending_bytes <= self.config.pending_limit.max_size
-            && self.queued_bytes <= self.config.queued_limit.max_size
+        if len <= self.config.max_pool_size &&
+            len <= self.config.pending_limit.max_txs &&
+            len <= self.config.queued_limit.max_txs &&
+            self.pending_bytes <= self.config.pending_limit.max_size &&
+            self.queued_bytes <= self.config.queued_limit.max_size
         {
             return Vec::new();
         }
@@ -1800,7 +1800,6 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
     /// Returns the highest `nonce_sequence` in lane `seq` that's pending
     /// in an unbroken chain starting at `on_chain_seq`, or `None` if no
     /// tx at `on_chain_seq` is pending.
-    ///
     pub fn highest_consecutive_pending_seq_in_lane(
         &self,
         seq: Eip8130SeqId,
@@ -2077,8 +2076,8 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
                     let new_head: u64 = value.saturating_to();
                     lane_advances.push((seq, new_head));
                 }
-                if !value.is_zero()
-                    && let Some(exp_hash) = self.slot_to_expiring.get(&slot).copied()
+                if !value.is_zero() &&
+                    let Some(exp_hash) = self.slot_to_expiring.get(&slot).copied()
                 {
                     expiring_evictions.push(exp_hash);
                 }
@@ -2537,9 +2536,9 @@ where
             inner.account_changes.iter().any(|e| {
                 matches!(
                     e,
-                    op_alloy_consensus::AccountChangeEntry::Create(_)
-                        | op_alloy_consensus::AccountChangeEntry::Delegation(_)
-                        | op_alloy_consensus::AccountChangeEntry::ConfigChange(_)
+                    op_alloy_consensus::AccountChangeEntry::Create(_) |
+                        op_alloy_consensus::AccountChangeEntry::Delegation(_) |
+                        op_alloy_consensus::AccountChangeEntry::ConfigChange(_)
                 )
             })
         } else {

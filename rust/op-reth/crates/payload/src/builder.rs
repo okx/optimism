@@ -529,10 +529,10 @@ impl<Txs> OpBuilder<'_, Txs> {
 
         let payload =
             OpBuiltPayload::new(payload_id, sealed_block, info.total_fees, Some(executed));
-        let should_freeze_full_zero_fee_payload = !no_tx_pool
-            && info.block_limits_exhausted
-            && info.total_fees == U256::ZERO
-            && block_gas_limit.saturating_sub(block_gas_used) <= FULL_PAYLOAD_FREEZE_GAS_SLACK;
+        let should_freeze_full_zero_fee_payload = !no_tx_pool &&
+            info.block_limits_exhausted &&
+            info.total_fees == U256::ZERO &&
+            block_gas_limit.saturating_sub(block_gas_used) <= FULL_PAYLOAD_FREEZE_GAS_SLACK;
 
         info!(
             target: "payload_builder::diag",
@@ -968,8 +968,8 @@ where
 
             // We skip invalid cross chain txs, they would be removed on the next block update in
             // the maintenance job
-            if let Some(interop) = interop
-                && !is_valid_interop(interop, self.config.attributes.timestamp())
+            if let Some(interop) = interop &&
+                !is_valid_interop(interop, self.config.attributes.timestamp())
             {
                 interop_invalid += 1;
                 best_txs.mark_invalid(consensus_tx.signer(), consensus_tx.nonce());

@@ -330,10 +330,11 @@ pub struct TxEip8130 {
     /// Explicit sender. `None` is EOA recovery mode (sender is recovered from `sender_auth`).
     ///
     /// JSON name is `sender` (not `from`) to avoid clashing with the RPC wrapper's recovered
-    /// `from` field at `op_alloy_rpc_types::TransactionSerdeHelper.other.from`. Without this rename,
-    /// EOA-mode AA txs serialized `"from": null` while the wrapper serialized
+    /// `from` field at `op_alloy_rpc_types::TransactionSerdeHelper.other.from`. Without this
+    /// rename, EOA-mode AA txs serialized `"from": null` while the wrapper serialized
     /// `"from": "0x..."` (recovered), producing a duplicate JSON key that broke
-    /// `BlockTransactions` untagged-enum deserialization downstream (e.g. kona's `AlloyL2ChainProvider`).
+    /// `BlockTransactions` untagged-enum deserialization downstream (e.g. kona's
+    /// `AlloyL2ChainProvider`).
     pub sender: Option<Address>,
     /// 2D nonce key.
     pub nonce_key: U256,

@@ -2,8 +2,8 @@
 //!
 //! The wire format is one of two shapes:
 //!
-//! - **EOA mode** (`tx.is_eoa()`, i.e. `tx.sender.is_none()`): bare 65-byte K1 signature, no verifier
-//!   prefix. Always treated as K1.
+//! - **EOA mode** (`tx.is_eoa()`, i.e. `tx.sender.is_none()`): bare 65-byte K1 signature, no
+//!   verifier prefix. Always treated as K1.
 //! - **Explicit-from / sponsored mode**: `[verifier_addr(20) || data(N)]`. The first 20 bytes name
 //!   the verifier; the remaining bytes are verifier-specific (K1: 65-byte sig, `P256Raw`: 128
 //!   bytes, `WebAuthn`: variable, Delegate: nested, custom: opaque).
