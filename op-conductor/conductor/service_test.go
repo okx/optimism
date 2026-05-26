@@ -41,6 +41,8 @@ func mockConfig(t *testing.T) Config {
 		NodeRPC:        "http://node:8545",
 		ExecutionRPC:   "http://geth:8545",
 		Paused:         false,
+		// Due to XLayer specific code
+		HTTPBodyLimitMB: 5,
 		HealthCheck: HealthCheckConfig{
 			Interval:       1,
 			UnsafeInterval: 3,
