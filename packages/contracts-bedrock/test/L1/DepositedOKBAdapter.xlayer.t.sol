@@ -166,7 +166,11 @@ contract MockOptimismPortal2 is IOptimismPortal2 {
         return address(0);
     }
 
-    function initialize(ISystemConfig, IAnchorStateRegistry) external pure override { }
+    function initialize(ISystemConfig, IAnchorStateRegistry, IETHLockbox) external pure override { }
+
+    function migrateLiquidity() external pure override { }
+
+    function migrateToSharedDisputeGame(IETHLockbox, IAnchorStateRegistry) external pure override { }
 
     function initVersion() external pure override returns (uint8) {
         return 0;
