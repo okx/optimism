@@ -5,7 +5,7 @@
 //! Reth's standard txpool keys ordering by `(sender, nonce: u64)`. EIP-8130
 //! AA transactions identify themselves by `(sender, nonce_key: U256, nonce_sequence: u64)`,
 //! and a special expiring-nonce mode replaces the sequenced ordering with a
-//! one-shot `(sender, sig_hash)` admission keyed off a `NonceManager` ring buffer.
+//! one-shot tx-hash admission keyed off a `NonceManager` ring buffer.
 //! The standard pool's ordering invariants don't compose with either, so we
 //! maintain a dedicated structure and merge the two pools at `best_transactions()`
 //! time.
@@ -22,7 +22,7 @@
 //! # Expiring-nonce path
 //!
 //! For `nonce_key == NONCE_KEY_MAX`, replay protection comes from a `NonceManager`
-//! storage slot derived from `sender_signature_hash(tx)` (see
+//! storage slot derived from the sealed transaction hash (see
 //! [`op_revm::handler::aa_expiring_seen_slot`]). These txs have no sequencing
 //! relationship: each is independently *pending* on insertion and removed when
 //! the seen-slot is observed non-zero in a state diff.
@@ -343,7 +343,7 @@ pub trait Eip8130PoolTx: PoolTransaction {
     /// (validated upstream).
     fn aa_nonce_sequence(&self) -> Option<u64>;
 
-    /// `aa_expiring_seen_slot(sender_signature_hash(tx))` — the storage slot
+    /// `aa_expiring_seen_slot(tx_hash)` — the storage slot
     /// in `NONCE_MANAGER_ADDRESS` whose non-zero value invalidates the tx.
     /// Returns `None` for sequenced txs.
     fn aa_expiring_nonce_slot(&self) -> Option<U256>;
@@ -355,7 +355,7 @@ pub trait Eip8130PoolTx: PoolTransaction {
         Some(self.as_eip8130()?.expiry)
     }
 
-    /// `sender_signature_hash(tx)` — the unique identifier for an
+    /// `tx_hash` — the unique identifier for an
     /// expiring-nonce tx within the pool. Returns `None` for sequenced txs.
     fn aa_expiring_nonce_hash(&self) -> Option<B256>;
 
@@ -633,7 +633,7 @@ pub struct Eip8130Pool<T: Eip8130PoolTx> {
     pending_tip_by_seq: HashMap<Eip8130SeqId, u64>,
 
     /// Expiring-nonce txs keyed by their unique
-    /// `sender_signature_hash`. Always immediately pending.
+    /// `tx_hash`. Always immediately pending.
     expiring: HashMap<B256, Arc<PooledEntry<T>>>,
 
     /// Running pending/queued transaction counts. Expiring-mode entries
@@ -649,7 +649,7 @@ pub struct Eip8130Pool<T: Eip8130PoolTx> {
     /// state diff to the affected lane in O(1) without re-deriving the slot.
     slot_to_seq: HashMap<U256, Eip8130SeqId>,
 
-    /// Reverse index: `aa_expiring_seen_slot(sig_hash)` storage slot →
+    /// Reverse index: `aa_expiring_seen_slot(tx_hash)` storage slot →
     /// expiring-nonce hash. Lets `on_state_updates` evict an expiring tx
     /// whose seen-slot was flipped non-zero by inclusion.
     slot_to_expiring: HashMap<U256, B256>,
@@ -1183,7 +1183,7 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
             .expect("expiring AA tx must have expiring_nonce_hash");
 
         if self.expiring.contains_key(&exp_hash) {
-            // Expiring-nonce txs are uniquely identified by `sig_hash`.
+            // Expiring-nonce txs are uniquely identified by tx hash.
             // Same-hash resubmission is treated as a duplicate, not a
             // replacement candidate (no nonce → no underprice contest).
             return Err(PoolError::new(hash, PoolErrorKind::AlreadyImported));
@@ -2037,7 +2037,7 @@ impl<T: Eip8130PoolTx> Eip8130Pool<T> {
     ///   * `addr == STATE_DIFF_ADDRESS` (`NONCE_MANAGER_ADDRESS`):
     ///     - tracked **lane slot** `aa_nonce_slot(sender, key)` → advance lane head, drain mined
     ///       txs, re-promote contiguous prefix;
-    ///     - tracked **expiring-seen slot** `aa_expiring_seen_slot(sig_hash)` → evict the expiring
+    ///     - tracked **expiring-seen slot** `aa_expiring_seen_slot(tx_hash)` → evict the expiring
     ///       tx (only when the value flipped non-zero; the zero case means the slot was just
     ///       provisioned, not consumed).
     ///
@@ -2290,14 +2290,10 @@ pub use op_revm::precompiles_xlayer::NONCE_MANAGER_ADDRESS as STATE_DIFF_ADDRESS
 // the pool's trait stays the single source of truth for AA-tx accessors.
 
 use crate::transaction::{OpPooledTransaction, OpPooledTx};
-use op_alloy_consensus::sender_signature_hash;
 use op_revm::{
     OpEip8130TxTr,
     constants::ACCOUNT_CONFIG_ADDRESS,
-    handler::{
-        NONCE_KEY_MAX as REVM_NONCE_KEY_MAX, aa_expiring_seen_slot, aa_lock_slot,
-        aa_owner_config_slot,
-    },
+    handler::{aa_lock_slot, aa_owner_config_slot},
 };
 use reth_primitives_traits::SignedTransaction;
 use std::cmp::min;
@@ -2340,20 +2336,16 @@ where
         Some(OpPooledTx::as_eip8130(self)?.nonce_sequence)
     }
 
+    fn aa_nonce_key_slot(&self) -> Option<U256> {
+        self.cached_aa_nonce_key_slot()
+    }
+
     fn aa_expiring_nonce_slot(&self) -> Option<U256> {
-        let inner = OpPooledTx::as_eip8130(self)?;
-        if inner.nonce_key != REVM_NONCE_KEY_MAX {
-            return None;
-        }
-        Some(aa_expiring_seen_slot(sender_signature_hash(inner)))
+        self.cached_aa_expiring_nonce_slot()
     }
 
     fn aa_expiring_nonce_hash(&self) -> Option<B256> {
-        let inner = OpPooledTx::as_eip8130(self)?;
-        if inner.nonce_key != REVM_NONCE_KEY_MAX {
-            return None;
-        }
-        Some(sender_signature_hash(inner))
+        self.cached_aa_expiring_nonce_hash()
     }
 
     /// `min(max_priority_fee, max_fee - base_fee)` — the standard EIP-1559
@@ -3672,9 +3664,9 @@ mod tests {
         assert!(matches!(err.kind, PoolErrorKind::InvalidTransaction(_)));
     }
 
-    /// Lifecycle (expiring): re-submitting the same `sender_signature_hash`
+    /// Lifecycle (expiring): re-submitting the same tx hash
     /// is rejected as `AlreadyImported` — expiring-mode txs key on the
-    /// signature hash, not on `(sender, nonce_key, nonce)`.
+    /// sealed tx hash, not on `(sender, nonce_key, nonce)`.
     #[test]
     fn expiring_nonce_resubmit_dedups() {
         let sender = sender_from_seed(0xC7);
@@ -3684,7 +3676,7 @@ mod tests {
         t.expiry = 1_000_000;
         let hash_a = *make_valid(t.clone(), sender).hash();
         pool.add_transaction(make_valid(t.clone(), sender), 0, 0).unwrap();
-        // Same fields → same sig_hash → duplicate.
+        // Same fields → same tx hash → duplicate.
         let _ = hash_a;
         let err = pool
             .add_transaction(make_valid(t.clone(), sender), 0, 0)
@@ -4231,7 +4223,8 @@ mod tests {
         let exp_slot =
             valid.transaction.aa_expiring_nonce_slot().expect("expiring tx exposes a seen-slot");
         let exp_hash =
-            valid.transaction.aa_expiring_nonce_hash().expect("expiring tx exposes a sig-hash");
+            valid.transaction.aa_expiring_nonce_hash().expect("expiring tx exposes a tx hash");
+        assert_eq!(exp_hash, hash, "nonce-free pool index must match handler tx hash");
         pool.add_transaction(valid, 0, 0).unwrap();
         assert_eq!(pool.len(), 1);
         assert!(pool.expiry_index.contains_key(&100));

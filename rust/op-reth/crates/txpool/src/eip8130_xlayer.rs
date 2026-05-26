@@ -22,9 +22,7 @@ use alloy_op_evm::eip8130::{
     },
 };
 use alloy_primitives::{Address, B256, U256, keccak256};
-use op_alloy_consensus::{
-    AccountChangeEntry, ConfigChangeEntry, TxEip8130, config_change_digest, sender_signature_hash,
-};
+use op_alloy_consensus::{AccountChangeEntry, ConfigChangeEntry, TxEip8130, config_change_digest};
 use op_revm::{
     OpSpecId,
     constants::{
@@ -162,7 +160,7 @@ pub enum Eip8130ValidationError {
         /// `block_timestamp + NONCE_FREE_MAX_EXPIRY_WINDOW`.
         max_allowed: u64,
     },
-    /// Nonce-free tx whose `sender_signature_hash` is already recorded in the
+    /// Nonce-free tx whose sealed transaction hash is already recorded in the
     /// NONCE_MANAGER's expiring-seen ring with an expiry beyond the current block.
     /// Replaying the same nonce-free tx within its window is rejected up-front instead
     /// of letting it consume gas at execution time.
@@ -1143,7 +1141,7 @@ where
     let state_nonce = if tx.nonce_key == NONCE_KEY_MAX {
         // Nonce-free branch:
         //   (a) cap the expiry window so the on-chain seen-set ring stays bounded;
-        //   (b) pre-check the `sender_signature_hash`-keyed seen slot — a non-zero
+        //   (b) pre-check the tx-hash-keyed seen slot — a non-zero
         //       `seen_expiry > block_ts` means a previous tx with the same signing
         //       preimage is still live in the replay window. This rejects replays
         //       up-front instead of letting them burn gas at execution time.
@@ -1154,8 +1152,8 @@ where
                 max_allowed,
             });
         }
-        let sig_hash = sender_signature_hash(tx);
-        let seen_slot = aa_expiring_seen_slot(sig_hash);
+        let nonce_free_hash = tx.tx_hash();
+        let seen_slot = aa_expiring_seen_slot(nonce_free_hash);
         let seen_storage_key = B256::from(seen_slot.to_be_bytes());
         let seen_expiry = state
             .storage(NONCE_MANAGER_ADDRESS, seen_storage_key)
@@ -1644,7 +1642,9 @@ mod xlayer_tests {
     use alloy_primitives::{Address, B256, Bytes, U256};
     use alloy_signer::SignerSync;
     use alloy_signer_local::PrivateKeySigner;
-    use op_alloy_consensus::{ConfigChangeEntry, Eip8130CallEntry, TxEip8130};
+    use op_alloy_consensus::{
+        ConfigChangeEntry, Eip8130CallEntry, TxEip8130, sender_signature_hash,
+    };
     use op_revm::constants::{K1_VERIFIER_ADDRESS, OWNER_SCOPE_PAYER, OWNER_SCOPE_SENDER};
     use reth_optimism_primitives::OpPrimitives;
     use reth_provider::test_utils::{ExtendedAccount, MockEthProvider};

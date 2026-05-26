@@ -15,7 +15,12 @@ use alloy_rpc_types_eth::erc4337::TransactionConditional;
 use c_kzg::KzgSettings;
 use core::fmt::Debug;
 use op_alloy_consensus::TxEip8130;
-use op_revm::{OpEip8130TxTr, OpTxTr, transaction::eip8130::Eip8130Parts};
+use op_revm::{
+    OpEip8130TxTr, OpTxTr,
+    handler::{NONCE_KEY_MAX as REVM_NONCE_KEY_MAX, aa_expiring_seen_slot},
+    precompiles_xlayer::aa_nonce_slot,
+    transaction::eip8130::Eip8130Parts,
+};
 use reth_evm::execute::WithTxEnv;
 use reth_optimism_evm::OpTx;
 use reth_optimism_primitives::OpTransactionSigned;
@@ -62,6 +67,15 @@ pub struct OpPooledTransaction<
 
     /// Cached executable transaction environment for payload building.
     tx_env: OnceLock<OpTx>,
+
+    /// Cached `NonceManager.nonce[sender][nonce_key]` storage slot for 2D AA lanes.
+    nonce_key_slot: OnceLock<Option<U256>>,
+
+    /// Cached sealed transaction hash for nonce-free AA transactions.
+    expiring_nonce_hash: OnceLock<Option<B256>>,
+
+    /// Cached `expiringNonceSeen[tx_hash]` storage slot.
+    expiring_nonce_slot: OnceLock<Option<U256>>,
 }
 
 impl<Cons: SignedTransaction, Pooled> OpPooledTransaction<Cons, Pooled> {
@@ -75,6 +89,9 @@ impl<Cons: SignedTransaction, Pooled> OpPooledTransaction<Cons, Pooled> {
             _pd: core::marker::PhantomData,
             encoded_2718: Default::default(),
             tx_env: Default::default(),
+            nonce_key_slot: Default::default(),
+            expiring_nonce_hash: Default::default(),
+            expiring_nonce_slot: Default::default(),
         }
     }
 
@@ -130,6 +147,45 @@ impl<Cons: SignedTransaction, Pooled> OpPooledTransaction<Cons, Pooled> {
 
     pub(crate) fn cached_eip8130_parts(&self) -> Option<&Eip8130Parts> {
         self.tx_env.get().map(|t| t.eip8130_parts())
+    }
+
+    /// Returns cached AA lane storage slot for sequenced EIP-8130 transactions.
+    pub(crate) fn cached_aa_nonce_key_slot(&self) -> Option<U256>
+    where
+        Cons: OpEip8130TxTr,
+    {
+        *self.nonce_key_slot.get_or_init(|| {
+            let inner = self.inner.transaction.inner().as_eip8130()?.inner();
+            if inner.nonce_key == REVM_NONCE_KEY_MAX {
+                return None;
+            }
+            let sender = inner.sender.unwrap_or_else(|| self.inner.transaction.signer());
+            Some(aa_nonce_slot(sender, inner.nonce_key))
+        })
+    }
+
+    /// Returns cached sealed transaction hash for nonce-free EIP-8130 transactions.
+    pub(crate) fn cached_aa_expiring_nonce_hash(&self) -> Option<B256>
+    where
+        Cons: OpEip8130TxTr,
+    {
+        *self.expiring_nonce_hash.get_or_init(|| {
+            let inner = self.inner.transaction.inner().as_eip8130()?.inner();
+            if inner.nonce_key != REVM_NONCE_KEY_MAX {
+                return None;
+            }
+            Some(*self.inner.transaction.tx_hash())
+        })
+    }
+
+    /// Returns cached nonce-free replay-protection storage slot.
+    pub(crate) fn cached_aa_expiring_nonce_slot(&self) -> Option<U256>
+    where
+        Cons: OpEip8130TxTr,
+    {
+        *self
+            .expiring_nonce_slot
+            .get_or_init(|| self.cached_aa_expiring_nonce_hash().map(aa_expiring_seen_slot))
     }
 }
 
