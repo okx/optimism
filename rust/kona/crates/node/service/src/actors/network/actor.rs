@@ -9,6 +9,8 @@ use thiserror::Error;
 use tokio::{self, select, sync::mpsc};
 use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
 
+const UNSAFE_BLOCK_FORWARD_CHANNEL_CAPACITY: usize = 64;
+
 use crate::{
     CancellableContext, NetworkEngineClient, NodeActor,
     actors::network::{
@@ -149,7 +151,8 @@ impl<NetworkEngineClient_: NetworkEngineClient + 'static> NodeActor
         let mut handler = self.builder.build()?.start().await?;
 
         // New unsafe block channel.
-        let (unsafe_block_tx, mut unsafe_block_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (unsafe_block_tx, mut unsafe_block_rx) =
+            tokio::sync::mpsc::channel(UNSAFE_BLOCK_FORWARD_CHANNEL_CAPACITY);
 
         loop {
             select! {
@@ -222,9 +225,9 @@ impl<NetworkEngineClient_: NetworkEngineClient + 'static> NodeActor
                     };
 
                     if let Some(payload) = handler.gossip.handle_event(event)
-                        && unsafe_block_tx.send(payload.into()).is_err()
+                        && unsafe_block_tx.try_send(payload.into()).is_err()
                     {
-                        warn!(target: "node::p2p", "Failed to send unsafe block to network handler");
+                        warn!(target: "node::p2p", "Dropping unsafe block because network forward queue is full");
                     }
                 },
                 enr = handler.enr_receiver.recv() => {
@@ -239,7 +242,7 @@ impl<NetworkEngineClient_: NetworkEngineClient + 'static> NodeActor
                 },
                 Some(NetworkAdminQuery::PostUnsafePayload { payload }) = self.admin_rpc.recv(), if !self.admin_rpc.is_closed() => {
                     debug!(target: "node::p2p", "Broadcasting unsafe payload from admin api");
-                    if unsafe_block_tx.send(payload).is_err() {
+                    if unsafe_block_tx.send(payload).await.is_err() {
                         warn!(target: "node::p2p", "Failed to send unsafe block to network handler");
                     }
                 },
