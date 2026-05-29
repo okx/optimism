@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum-optimism/optimism/op-service/bigs"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -1057,13 +1058,13 @@ func (c *XLayerRemoteClient) buildChallengerResolveClaimOtherInfo(tx *types.Tran
 
 	if len(tx.Data()) >= 36 { // 4 bytes signature + 32 bytes uint256
 		claimIndexBig := new(big.Int).SetBytes(tx.Data()[4:36])
-		claimIndexVal := claimIndexBig.Uint64()
+		claimIndexVal := bigs.Uint64Strict(claimIndexBig)
 		claimIndex = &claimIndexVal
 	}
 
 	if len(tx.Data()) >= 68 { // 4 bytes signature + 32 bytes + 32 bytes
 		numToResolveBig := new(big.Int).SetBytes(tx.Data()[36:68])
-		numToResolveVal := numToResolveBig.Uint64()
+		numToResolveVal := bigs.Uint64Strict(numToResolveBig)
 		numToResolve = &numToResolveVal
 	}
 
@@ -1219,12 +1220,12 @@ func (c *XLayerRemoteClient) unpackProposerTransaction(tx *types.Transaction) (*
 	copy(rootClaim[:], methodData[32:64])
 
 	// Parse bytes calldata _extraData (dynamic type)
-	extraDataOffset := new(big.Int).SetBytes(methodData[64:96]).Uint64()
+	extraDataOffset := bigs.Uint64Strict(new(big.Int).SetBytes(methodData[64:96]))
 	if extraDataOffset+32 > uint64(len(methodData)) {
 		return nil, fmt.Errorf("invalid extraData offset: %d", extraDataOffset)
 	}
 
-	extraDataLength := new(big.Int).SetBytes(methodData[extraDataOffset : extraDataOffset+32]).Uint64()
+	extraDataLength := bigs.Uint64Strict(new(big.Int).SetBytes(methodData[extraDataOffset : extraDataOffset+32]))
 	if extraDataOffset+32+extraDataLength > uint64(len(methodData)) {
 		return nil, fmt.Errorf("invalid extraData length: %d", extraDataLength)
 	}

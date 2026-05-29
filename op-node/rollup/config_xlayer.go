@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 
+	"github.com/ethereum-optimism/optimism/op-service/bigs"
 	"github.com/ethereum/go-ethereum/log"
 )
 
@@ -53,7 +54,7 @@ func ApplyXLayerHardcodedForks(cfg *Config) *Config {
 		return cfg
 	}
 
-	chainID := cfg.L2ChainID.Uint64()
+	chainID := bigs.Uint64Strict(cfg.L2ChainID)
 	xlayerForks, exists := XLayerHardcodedForks[chainID]
 
 	if !exists {
@@ -96,7 +97,7 @@ func FixXLayerL2Time(cfg *Config, rollupConfigPath string) {
 		return
 	}
 
-	chainID := cfg.L2ChainID.Uint64()
+	chainID := bigs.Uint64Strict(cfg.L2ChainID)
 	if chainID == XLayerMainnetChainID && cfg.Genesis.L2Time != MainnetFixedL2Time {
 		log.Warn("X Layer: auto fixed mainnet l2 time")
 		cfg.Genesis.L2Time = MainnetFixedL2Time
