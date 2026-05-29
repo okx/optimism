@@ -326,4 +326,10 @@ impl OpTxEnv for CustomTxEnv {
             Self::Payment(_) => None,
         }
     }
+
+    fn set_gasless(&mut self, is_gasless: bool) {
+        if let Self::Op(tx) = self {
+            tx.set_gasless(is_gasless);
+        }
+    }
 }

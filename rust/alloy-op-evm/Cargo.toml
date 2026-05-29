@@ -23,7 +23,10 @@ alloy-primitives = { workspace = true }
 alloy-op-hardforks.workspace = true
 op-alloy = { workspace = true, features = ["consensus"] }
 
-revm = { workspace = true }
+revm = { workspace = true, features = [
+	"optional_no_base_fee",
+	"optional_fee_charge",
+] }
 op-revm = { workspace = true }
 
 thiserror = { workspace = true }
@@ -49,7 +52,11 @@ std = [
 gmp = ["alloy-evm/gmp"]
 engine = ["op-alloy/rpc-types-engine"]
 rpc = ["alloy-evm/rpc", "op-alloy/rpc-types"]
-asm-keccak = ["alloy-evm/asm-keccak", "alloy-primitives/asm-keccak", "revm/asm-keccak"]
+asm-keccak = [
+	"alloy-evm/asm-keccak",
+	"alloy-primitives/asm-keccak",
+	"revm/asm-keccak",
+]
 arbitrary = [
 	"alloy-consensus/arbitrary",
 	"alloy-eips/arbitrary",

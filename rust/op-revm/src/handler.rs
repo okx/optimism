@@ -143,9 +143,11 @@ where
             return Ok(());
         }
 
-        // L1 block info is stored in the context for later use.
-        // and it will be reloaded from the database if it is not for the current block.
-        if chain.l2_block != Some(block.number()) {
+        let is_gasless = tx.is_gasless();
+
+        // L1 block info is used for OP fee accounting. Gasless txs do not charge or reward those
+        // fees, so they should not require fee metadata to be loaded.
+        if !is_gasless && chain.l2_block != Some(block.number()) {
             *chain = L1BlockInfo::try_fetch(journal.db_mut(), block.number(), spec)?;
         }
 
@@ -154,10 +156,10 @@ where
         // validates account nonce and code
         validate_account_nonce_and_code_with_components(&caller_account.account().info, tx, cfg)?;
 
-        // check additional cost and deduct it from the caller's balances
+        // check additional cost and deduct it from the caller balance
         let mut balance = caller_account.account().info.balance;
 
-        if !cfg.is_fee_charge_disabled() {
+        if !is_gasless && !cfg.is_fee_charge_disabled() {
             let Some(additional_cost) = chain.tx_cost_with_tx(tx, spec) else {
                 return Err(OpTransactionError::MissingEnvelopedTx.into());
             };
@@ -171,7 +173,18 @@ where
             balance = new_balance
         }
 
-        let balance = calculate_caller_fee(balance, tx, block, cfg)?;
+        let balance = if is_gasless {
+            if !cfg.is_balance_check_disabled() && balance < tx.value() {
+                return Err(InvalidTransaction::LackOfFundForMaxFee {
+                    fee: Box::new(tx.value()),
+                    balance: Box::new(balance),
+                }
+                .into());
+            }
+            balance
+        } else {
+            calculate_caller_fee(balance, tx, block, cfg)?
+        };
 
         // make changes to the account
         caller_account.set_balance(balance);
@@ -190,6 +203,7 @@ where
         let ctx = evm.ctx();
         let tx = ctx.tx();
         let is_deposit = tx.tx_type() == DEPOSIT_TRANSACTION_TYPE;
+        let is_gasless = tx.is_gasless();
         let tx_gas_limit = tx.gas_limit();
         let is_regolith = ctx.cfg().spec().is_enabled_in(OpSpecId::REGOLITH);
 
@@ -219,7 +233,9 @@ where
             if !is_deposit || is_regolith {
                 // Return unused regular gas and unused reservoir gas.
                 gas.erase_cost(remaining);
-                gas.record_refund(refunded);
+                if !is_gasless {
+                    gas.record_refund(refunded);
+                }
             } else if is_deposit && tx.is_system_transaction() {
                 // System transactions were a special type of deposit transaction in
                 // the Bedrock hardfork that did not incur any gas costs.
@@ -263,6 +279,10 @@ where
         evm: &mut Self::Evm,
         frame_result: &mut <<Self::Evm as EvmTr>::Frame as FrameTr>::FrameResult,
     ) -> Result<(), Self::Error> {
+        if evm.ctx().tx().is_gasless() {
+            return Ok(());
+        }
+
         let additional_refund = if evm.ctx().tx().tx_type() != DEPOSIT_TRANSACTION_TYPE &&
             !evm.ctx().cfg().is_fee_charge_disabled()
         {
@@ -281,6 +301,10 @@ where
         frame_result: &mut <<Self::Evm as EvmTr>::Frame as FrameTr>::FrameResult,
         eip7702_refund: i64,
     ) {
+        if evm.ctx().tx().is_gasless() {
+            return;
+        }
+
         frame_result.gas_mut().record_refund(eip7702_refund);
 
         let is_deposit = evm.ctx().tx().tx_type() == DEPOSIT_TRANSACTION_TYPE;
@@ -300,10 +324,14 @@ where
         evm: &mut Self::Evm,
         frame_result: &mut <<Self::Evm as EvmTr>::Frame as FrameTr>::FrameResult,
     ) -> Result<(), Self::Error> {
-        let is_deposit = evm.ctx().tx().tx_type() == DEPOSIT_TRANSACTION_TYPE;
+        let (is_deposit, is_gasless) = {
+            let ctx = evm.ctx();
+            let tx = ctx.tx();
+            (tx.tx_type() == DEPOSIT_TRANSACTION_TYPE, tx.is_gasless())
+        };
 
         // Transfer fee to coinbase/beneficiary.
-        if is_deposit {
+        if is_deposit || is_gasless {
             return Ok(());
         }
 
@@ -545,6 +573,26 @@ mod tests {
     }
 
     #[test]
+    fn test_gasless_consume_gas_without_refund() {
+        let ctx = Context::op()
+            .with_tx(
+                OpTransaction::builder()
+                    .base(TxEnv::builder().gas_limit(100))
+                    .gasless(true)
+                    .build_fill(),
+            )
+            .with_cfg(CfgEnv::new_with_spec(OpSpecId::REGOLITH));
+
+        let mut ret_gas = Gas::new(90);
+        ret_gas.record_refund(20);
+
+        let gas = call_last_frame_return(ctx, InstructionResult::Stop, ret_gas);
+        assert_eq!(gas.remaining(), 90);
+        assert_eq!(gas.total_gas_spent(), 10);
+        assert_eq!(gas.refunded(), 0);
+    }
+
+    #[test]
     fn test_consume_gas_deposit_tx() {
         let ctx = Context::op()
             .with_tx(
@@ -611,6 +659,96 @@ mod tests {
         // Check the account balance is updated.
         let account = evm.ctx().journal_mut().load_account(caller).unwrap();
         assert_eq!(account.info.balance, U256::from(1010));
+    }
+
+    #[test]
+    fn test_gasless_validate_against_state_does_not_deduct_fees() {
+        let caller = Address::ZERO;
+        let mut db = InMemoryDB::default();
+        db.insert_account_info(
+            caller,
+            AccountInfo { balance: U256::from(7), ..Default::default() },
+        );
+
+        let ctx = Context::op()
+            .with_db(db)
+            .with_chain(L1BlockInfo {
+                l1_base_fee: U256::from(1_000),
+                l1_fee_overhead: Some(U256::from(1_000)),
+                l1_base_fee_scalar: U256::from(1_000),
+                operator_fee_scalar: Some(U256::from(10_000_000)),
+                operator_fee_constant: Some(U256::from(50)),
+                l2_block: Some(U256::from(0)),
+                ..Default::default()
+            })
+            .with_cfg(CfgEnv::new_with_spec(OpSpecId::ISTHMUS))
+            .with_tx(
+                OpTransaction::builder()
+                    .base(
+                        TxEnv::builder()
+                            .caller(caller)
+                            .gas_limit(100)
+                            .gas_price(1_000)
+                            .value(U256::from(7)),
+                    )
+                    .enveloped_tx(Some(bytes!("FACADE")))
+                    .gasless(true)
+                    .build()
+                    .unwrap(),
+            );
+
+        let mut evm = ctx.build_op();
+        let handler =
+            OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
+
+        handler
+            .validate_against_state_and_deduct_caller(&mut evm, &mut Default::default())
+            .unwrap();
+
+        let account = evm.ctx().journal_mut().load_account(caller).unwrap();
+        assert_eq!(account.info.balance, U256::from(7));
+        assert_eq!(account.info.nonce, 1);
+    }
+
+    #[test]
+    fn test_gasless_reimburse_and_reward_are_noops() {
+        let caller = Address::ZERO;
+        let beneficiary = Address::from([0x11; 20]);
+        let ctx = Context::op()
+            .with_block(BlockEnv { beneficiary, basefee: 10, ..Default::default() })
+            .with_tx(
+                OpTransaction::builder()
+                    .base(TxEnv::builder().caller(caller).gas_limit(100).gas_price(100))
+                    .enveloped_tx(Some(bytes!("FACADE")))
+                    .gasless(true)
+                    .build()
+                    .unwrap(),
+            )
+            .with_cfg(CfgEnv::new_with_spec(OpSpecId::REGOLITH));
+
+        let mut evm = ctx.build_op();
+        let handler =
+            OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
+
+        let mut gas = Gas::new(100);
+        gas.set_spent(10);
+        let mut exec_result = FrameResult::Call(CallOutcome::new(
+            InterpreterResult {
+                result: InstructionResult::Return,
+                output: Default::default(),
+                gas,
+            },
+            0..0,
+        ));
+
+        handler.reimburse_caller(&mut evm, &mut exec_result).unwrap();
+        handler.reward_beneficiary(&mut evm, &mut exec_result).unwrap();
+
+        assert_eq!(evm.ctx().journal_mut().load_account(caller).unwrap().info.balance, U256::ZERO);
+        assert_eq!(
+            evm.ctx().journal_mut().load_account(beneficiary).unwrap().info.balance,
+            U256::ZERO
+        );
     }
 
     #[test]
@@ -1322,6 +1460,7 @@ mod tests {
             base: TxEnv::builder().build_fill(),
             enveloped_tx: None, // Missing enveloped_tx for non-deposit transaction
             deposit: DepositTransactionParts::default(), // No source_hash means non-deposit
+            is_gasless: false,
         });
 
         let mut evm = ctx.build_op();

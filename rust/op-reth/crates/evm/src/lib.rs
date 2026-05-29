@@ -15,8 +15,7 @@ use alloc::sync::Arc;
 use alloy_consensus::{BlockHeader, Header};
 use alloy_evm::{EvmFactory, FromRecoveredTx, FromTxWithEncoded};
 use alloy_op_evm::{
-    block::{OpTxEnv, receipt_builder::OpReceiptBuilder},
-    evm_env_for_op_block, evm_env_for_op_next_block,
+    block::receipt_builder::OpReceiptBuilder, evm_env_for_op_block, evm_env_for_op_next_block,
 };
 use core::fmt::Debug;
 use op_alloy_consensus::EIP1559ParamError;
@@ -63,7 +62,10 @@ pub use error::{L1BlockInfoError, OpBlockExecutionError};
 pub mod tx;
 pub use tx::OpTx;
 
-pub use alloy_op_evm::{OpBlockExecutionCtx, OpBlockExecutorFactory, OpEvm, OpEvmFactory};
+pub use alloy_op_evm::{
+    GaslessContract, GaslessFeeHook, OpBlockExecutionCtx, OpBlockExecutorFactory, OpEvm,
+    OpEvmFactory, OpFeeCheckState, XLayerGaslessFeeHook, XLayerGaslessFeeHookFactory,
+};
 
 /// Optimism-related EVM configuration.
 #[derive(Debug)]
@@ -124,6 +126,18 @@ where
     pub const fn chain_spec(&self) -> &Arc<ChainSpec> {
         self.executor_factory.spec()
     }
+
+    /// Enables the gasless fee hook. Each call tx execution checks `isGaslessEnabled()` and
+    /// `isWhitelisted(tx.to, tx.input)` on the gasless contract; when both return `true`, the
+    /// executor bypasses fee-related validation and fee charging for that single tx. Passing `None`
+    /// disables the hook.
+    ///
+    /// Deposit and create transactions are never affected. See
+    /// [`alloy_op_evm::block::gasless_contract`] for details.
+    pub fn with_gasless_contract(mut self, gasless_contract: Option<GaslessContract>) -> Self {
+        self.executor_factory = self.executor_factory.with_gasless_contract(gasless_contract);
+        self
+    }
 }
 
 impl<ChainSpec, N, R, EvmF> ConfigureEvm for OpEvmConfig<ChainSpec, N, R, EvmF>
@@ -142,11 +156,12 @@ where
             Tx: FromRecoveredTx<R::Transaction>
                     + FromTxWithEncoded<R::Transaction>
                     + alloy_evm::TransactionEnvMut
-                    + OpTxEnv,
+                    + alloy_op_evm::block::OpTxEnv,
             Precompiles = PrecompilesMap,
             Spec = OpSpecId,
             BlockEnv = BlockEnv,
-        > + Debug,
+        > + XLayerGaslessFeeHookFactory
+        + Debug,
     Self: Send + Sync + Unpin + Clone + 'static,
 {
     type Primitives = N;

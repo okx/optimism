@@ -41,8 +41,13 @@ use revm::{
 pub mod tx;
 pub use tx::OpTx;
 
+pub mod xlayer;
+pub use xlayer::gasless::{
+    GaslessFeeHook, OpFeeCheckState, XLayerGaslessFeeHook, XLayerGaslessFeeHookFactory,
+};
+
 pub mod block;
-pub use block::{OpBlockExecutionCtx, OpBlockExecutor, OpBlockExecutorFactory};
+pub use block::{GaslessContract, OpBlockExecutionCtx, OpBlockExecutor, OpBlockExecutorFactory};
 
 /// The OP EVM context type.
 pub type OpEvmContext<DB> = Context<BlockEnv, OpTx, CfgEnv<OpSpecId>, DB, Journal<DB>, L1BlockInfo>;

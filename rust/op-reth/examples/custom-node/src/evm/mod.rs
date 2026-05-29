@@ -5,7 +5,7 @@ mod config;
 mod env;
 mod executor;
 
-pub use alloy::{CustomContext, CustomEvm};
+pub use alloy::{CustomContext, CustomEvm, CustomGaslessFeeHook};
 pub use assembler::CustomBlockAssembler;
 pub use builder::CustomExecutorBuilder;
 pub use config::CustomEvmConfig;

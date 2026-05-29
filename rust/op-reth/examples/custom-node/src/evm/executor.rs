@@ -1,6 +1,6 @@
 use crate::{
     evm::{
-        CustomEvmConfig, CustomTxEnv,
+        CustomEvmConfig, CustomGaslessFeeHook, CustomTxEnv,
         alloy::{CustomEvm, CustomEvmFactory},
     },
     primitives::CustomTransaction,
@@ -14,19 +14,22 @@ use alloy_evm::{
     },
     precompiles::PrecompilesMap,
 };
-use alloy_op_evm::{OpBlockExecutionCtx, OpBlockExecutor, OpEvmContext, block::OpTxResult};
+use alloy_op_evm::{
+    GaslessFeeHook, OpBlockExecutionCtx, OpBlockExecutor, OpEvmContext, block::OpTxResult,
+};
 use reth_op::{OpReceipt, OpTxType, chainspec::OpChainSpec, node::OpRethReceiptBuilder};
 use revm::Inspector;
 use std::sync::Arc;
 
 pub struct CustomBlockExecutor<Evm> {
-    inner: OpBlockExecutor<Evm, OpRethReceiptBuilder, Arc<OpChainSpec>>,
+    inner: OpBlockExecutor<Evm, OpRethReceiptBuilder, Arc<OpChainSpec>, CustomGaslessFeeHook>,
 }
 
 impl<DB, E> BlockExecutor for CustomBlockExecutor<E>
 where
     DB: StateDB,
     E: Evm<DB = DB, Tx = CustomTxEnv>,
+    CustomGaslessFeeHook: GaslessFeeHook<E>,
 {
     type Transaction = CustomTransaction;
     type Receipt = OpReceipt;
@@ -98,7 +101,7 @@ impl BlockExecutorFactory for CustomEvmConfig {
         I: Inspector<OpEvmContext<DB>> + 'a,
     {
         CustomBlockExecutor {
-            inner: OpBlockExecutor::new(
+            inner: OpBlockExecutor::<_, _, _, CustomGaslessFeeHook>::new(
                 evm,
                 ctx.inner,
                 self.inner.chain_spec().clone(),

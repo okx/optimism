@@ -1,6 +1,9 @@
 use crate::evm::{CustomTxEnv, PaymentTxEnv};
 use alloy_evm::{Database, Evm, EvmEnv, EvmFactory, precompiles::PrecompilesMap};
-use alloy_op_evm::{OpEvm, OpEvmContext, OpEvmFactory, OpTx, OpTxError};
+use alloy_op_evm::{
+    GaslessFeeHook, OpEvm, OpEvmContext, OpEvmFactory, OpFeeCheckState, OpTx, OpTxError,
+    XLayerGaslessFeeHook, XLayerGaslessFeeHookFactory,
+};
 use alloy_primitives::{Address, Bytes};
 use op_revm::{L1BlockInfo, OpHaltReason, OpSpecId, OpTransaction, precompiles::OpPrecompiles};
 use revm::{
@@ -90,6 +93,30 @@ where
     }
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CustomGaslessFeeHook;
+
+impl<DB, I, P> GaslessFeeHook<CustomEvm<DB, I, P>> for CustomGaslessFeeHook
+where
+    DB: Database,
+    I: Inspector<OpEvmContext<DB>>,
+    P: PrecompileProvider<OpEvmContext<DB>, Output = InterpreterResult>,
+{
+    fn disable_gasless_fee_checks(
+        evm: &mut CustomEvm<DB, I, P>,
+        disabled: bool,
+    ) -> Option<OpFeeCheckState> {
+        XLayerGaslessFeeHook::disable_gasless_fee_checks(&mut evm.inner, disabled)
+    }
+
+    fn restore_gasless_fee_checks(
+        evm: &mut CustomEvm<DB, I, P>,
+        previous: Option<OpFeeCheckState>,
+    ) {
+        XLayerGaslessFeeHook::restore_gasless_fee_checks(&mut evm.inner, previous);
+    }
+}
+
 #[derive(Default, Debug, Clone, Copy)]
 pub struct CustomEvmFactory(pub OpEvmFactory);
 
@@ -97,6 +124,10 @@ impl CustomEvmFactory {
     pub fn new() -> Self {
         Self::default()
     }
+}
+
+impl XLayerGaslessFeeHookFactory for CustomEvmFactory {
+    type Hook<DB: Database, I: Inspector<OpEvmContext<DB>>> = CustomGaslessFeeHook;
 }
 
 impl EvmFactory for CustomEvmFactory {
