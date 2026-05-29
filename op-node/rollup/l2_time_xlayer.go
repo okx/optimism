@@ -1,6 +1,10 @@
 package rollup
 
-import "math/big"
+import (
+	"math/big"
+
+	"github.com/ethereum-optimism/optimism/op-service/bigs"
+)
 
 const (
 	// MainnetL2TimeForkTime is the absolute timestamp when the fixed timestamp is used to derive L1 span batches.
@@ -23,11 +27,11 @@ const (
 )
 
 func isXLayerMainnet(chainID *big.Int) bool {
-	return chainID != nil && chainID.Uint64() == XLayerMainnetChainID
+	return chainID != nil && bigs.Uint64Strict(chainID) == XLayerMainnetChainID
 }
 
 func isXLayerTestnet(chainID *big.Int) bool {
-	return chainID != nil && chainID.Uint64() == XLayerTestnetChainID
+	return chainID != nil && bigs.Uint64Strict(chainID) == XLayerTestnetChainID
 }
 
 func GetBatchStartTime(genesisTimestamp, relTimestamp uint64, chainID *big.Int) uint64 {
