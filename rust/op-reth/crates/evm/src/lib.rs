@@ -64,7 +64,9 @@ pub use tx::OpTx;
 
 pub use alloy_op_evm::{
     GaslessContract, GaslessFeeHook, OpBlockExecutionCtx, OpBlockExecutorFactory, OpEvm,
-    OpEvmFactory, OpFeeCheckState, XLayerGaslessFeeHook, XLayerGaslessFeeHookFactory,
+    OpEvmFactory, OpFeeCheckState, XLAYER_DEVNET_GASLESS_CONTRACT, XLAYER_MAINNET_GASLESS_CONTRACT,
+    XLAYER_TESTNET_GASLESS_CONTRACT, XLayerGaslessFeeHook, XLayerGaslessFeeHookFactory,
+    xlayer_gasless_contract,
 };
 
 /// Optimism-related EVM configuration.
@@ -95,23 +97,31 @@ impl<ChainSpec, N: NodePrimitives, R: Clone, EvmFactory: Clone> Clone
     }
 }
 
-impl<ChainSpec: OpHardforks> OpEvmConfig<ChainSpec> {
+impl<ChainSpec: OpHardforks + EthChainSpec> OpEvmConfig<ChainSpec> {
     /// Creates a new [`OpEvmConfig`] with the given chain spec for OP chains.
     pub fn optimism(chain_spec: Arc<ChainSpec>) -> Self {
         Self::new(chain_spec, OpRethReceiptBuilder::default())
     }
 }
 
-impl<ChainSpec: OpHardforks, N: NodePrimitives, R> OpEvmConfig<ChainSpec, N, R> {
+impl<ChainSpec: OpHardforks + EthChainSpec, N: NodePrimitives, R> OpEvmConfig<ChainSpec, N, R> {
     /// Creates a new [`OpEvmConfig`] with the given chain spec.
+    ///
+    /// The gasless whitelist contract is derived from the chain id (see
+    /// [`xlayer_gasless_contract`]) so every config is gasless-aware by construction, keeping
+    /// gasless detection consensus-uniform across building and validation. Use
+    /// [`Self::with_gasless_contract`] to override (e.g. in tests).
     pub fn new(chain_spec: Arc<ChainSpec>, receipt_builder: R) -> Self {
+        let gasless_contract =
+            xlayer_gasless_contract(chain_spec.chain().id()).map(GaslessContract::new);
         Self {
             block_assembler: OpBlockAssembler::new(chain_spec.clone()),
             executor_factory: OpBlockExecutorFactory::new(
                 receipt_builder,
                 chain_spec,
                 OpEvmFactory::<OpTx>::default(),
-            ),
+            )
+            .with_gasless_contract(gasless_contract),
             _pd: core::marker::PhantomData,
         }
     }
@@ -133,10 +143,19 @@ where
     /// disables the hook.
     ///
     /// Deposit and create transactions are never affected. See
-    /// [`alloy_op_evm::block::gasless_contract`] for details.
+    /// [`alloy_op_evm::block::xlayer_gasless_contract`] for details.
     pub fn with_gasless_contract(mut self, gasless_contract: Option<GaslessContract>) -> Self {
         self.executor_factory = self.executor_factory.with_gasless_contract(gasless_contract);
         self
+    }
+
+    /// Returns the gasless whitelist contract this config will apply, if any. Derived from the
+    /// chain id at construction (see [`Self::new`]); consumers that perform their own gasless
+    /// detection (e.g. the flashblocks builder) should read it from here so they stay
+    /// consensus-uniform with the block executor.
+    #[inline]
+    pub const fn gasless_contract(&self) -> Option<GaslessContract> {
+        self.executor_factory.gasless_contract()
     }
 }
 

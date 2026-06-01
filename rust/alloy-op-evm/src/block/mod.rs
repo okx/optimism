@@ -33,8 +33,11 @@ use revm::{
 
 mod canyon;
 pub mod receipt_builder;
-pub mod gasless_contract;
-pub use gasless_contract::GaslessContract;
+pub mod xlayer_gasless_contract;
+pub use xlayer_gasless_contract::{
+    GaslessContract, XLAYER_DEVNET_GASLESS_CONTRACT, XLAYER_MAINNET_GASLESS_CONTRACT,
+    XLAYER_TESTNET_GASLESS_CONTRACT, xlayer_gasless_contract,
+};
 
 /// Trait for OP transaction environments. Allows the executor to recover OP-specific tx
 /// metadata that is not exposed by the generic EVM trait.
@@ -287,12 +290,24 @@ where
             0
         };
 
-        // Gasless fee hook: when enabled and the target/input pair is whitelisted, the tx is
-        // allowed to bypass fee checks and fee charging so it can execute with gas price 0.
-        // Deposit txs already have special fee handling and are skipped.
+        // Gasless fee hook: a gasless tx bypasses fee checks/charging and executes with gas price
+        // 0. Deposit txs already have special fee handling and are skipped. Post-XLayerV1, a tx is
+        // gasless only when it is zero-priced (`max_fee_per_gas == 0`, which covers a legacy
+        // `gas_price == 0` and a 1559 `max_fee == 0 && max_priority == 0`) AND the configured
+        // on-chain gasless contract whitelists it (`isGaslessEnabled()` and `isWhitelisted(to,
+        // input)` both return true). This pairs with the gasless mempool, which accepts and
+        // mock-prices zero-priced txs.
         let is_gasless = if !is_deposit {
-            if let Some(gasless_contract) = self.gasless_contract {
-                gasless_contract.is_gasless(&mut self.evm, tx.tx())?
+            let block_ts = self.evm.block().timestamp().saturating_to();
+            if self.spec.is_xlayer_v1_active_at_timestamp(block_ts) &&
+                tx.tx().max_fee_per_gas() == 0
+            {
+                match self.gasless_contract {
+                    Some(gasless_contract) => {
+                        gasless_contract.is_gasless(&mut self.evm, tx.tx())?
+                    }
+                    None => false,
+                }
             } else {
                 false
             }

@@ -19,7 +19,7 @@ mod tests {
     use reth_revm::{database::StateProviderDatabase, test_utils::StateProviderTest};
     use std::{collections::HashMap, str::FromStr};
 
-    fn create_op_state_provider() -> StateProviderTest {
+    pub(crate) fn create_op_state_provider() -> StateProviderTest {
         let mut db = StateProviderTest::default();
 
         let l1_block_contract_account =
@@ -46,7 +46,7 @@ mod tests {
         db
     }
 
-    fn evm_config(chain_spec: Arc<OpChainSpec>) -> OpEvmConfig {
+    pub(crate) fn evm_config(chain_spec: Arc<OpChainSpec>) -> OpEvmConfig {
         OpEvmConfig::new(chain_spec, OpRethReceiptBuilder::default())
     }
 
@@ -194,5 +194,218 @@ mod tests {
 
         // deposit_nonce is present only in deposit transactions
         assert!(deposit_receipt.deposit_nonce.is_some());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// XLayer gasless tests
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod xlayer_test {
+    use super::tests::{create_op_state_provider, evm_config};
+    use crate::GaslessContract;
+    use alloc::sync::Arc;
+    use alloy_consensus::{Block, BlockBody, Header, SignableTransaction, TxEip1559};
+    use alloy_primitives::{Address, Bytes, Signature, U256};
+    use op_revm::constants::L1_BLOCK_CONTRACT;
+    use reth_chainspec::{ForkCondition, MIN_TRANSACTION_GAS};
+    use reth_evm::execute::{BasicBlockExecutor, Executor};
+    use reth_optimism_chainspec::{OpChainSpecBuilder, OpHardfork};
+    use reth_optimism_primitives::OpTransactionSigned;
+    use reth_primitives_traits::{Account, RecoveredBlock};
+    use reth_revm::database::StateProviderDatabase;
+    use std::collections::HashMap;
+
+    /// Minimal contract bytecode that returns ABI `true` (a 32-byte word == 1) for any call:
+    /// `PUSH1 1, PUSH1 0, MSTORE, PUSH1 32, PUSH1 0, RETURN`.
+    const ALWAYS_TRUE_BYTECODE: [u8; 10] =
+        [0x60, 0x01, 0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3];
+
+    /// Minimal contract bytecode that returns ABI `false` (32 zero bytes) for any call:
+    /// `PUSH1 0, PUSH1 0, MSTORE, PUSH1 32, PUSH1 0, RETURN`.
+    const ALWAYS_FALSE_BYTECODE: [u8; 10] =
+        [0x60, 0x00, 0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3];
+
+    /// A zero-priced tx (`max_fee_per_gas == 0`) executes gaslessly once `XLayerV1` is active
+    /// **and**
+    /// the configured on-chain gasless contract whitelists it (`isGaslessEnabled()` and
+    /// `isWhitelisted(to, input)` both return true): the executor marks it `is_gasless`, the
+    /// base-fee check is disabled, and it produces a receipt even though the block base fee is
+    /// non-zero.
+    #[test]
+    fn gasless_zero_price_tx_whitelisted_succeeds() {
+        let header = Header {
+            timestamp: 2,
+            number: 1,
+            gas_limit: 1_000_000,
+            base_fee_per_gas: Some(1_000_000_000),
+            ..Default::default()
+        };
+
+        let mut db = create_op_state_provider();
+        let addr = Address::ZERO;
+        db.insert_account(
+            addr,
+            Account { balance: U256::MAX, ..Account::default() },
+            None,
+            HashMap::default(),
+        );
+
+        // Deploy a gasless contract that approves everything (`isGaslessEnabled()` and
+        // `isWhitelisted(..)` both return true).
+        let gasless_addr = Address::from([0x42; 20]);
+        db.insert_account(
+            gasless_addr,
+            Account { nonce: 1, ..Account::default() },
+            Some(Bytes::from_static(&ALWAYS_TRUE_BYTECODE)),
+            HashMap::default(),
+        );
+
+        // XLayerV1 active from genesis.
+        let chain_spec = Arc::new(
+            OpChainSpecBuilder::base_mainnet()
+                .canyon_activated()
+                .with_fork(OpHardfork::XLayerV1, ForkCondition::Timestamp(0))
+                .build(),
+        );
+
+        // Default `TxEip1559` has `max_fee_per_gas == 0 && max_priority_fee_per_gas == 0`.
+        let tx: OpTransactionSigned = TxEip1559 {
+            chain_id: chain_spec.chain.id(),
+            nonce: 0,
+            gas_limit: MIN_TRANSACTION_GAS,
+            to: addr.into(),
+            ..Default::default()
+        }
+        .into_signed(Signature::test_signature())
+        .into();
+
+        let provider =
+            evm_config(chain_spec).with_gasless_contract(Some(GaslessContract::new(gasless_addr)));
+        let mut executor = BasicBlockExecutor::new(provider, StateProviderDatabase::new(&db));
+        executor.with_state_mut(|state| {
+            state.load_cache_account(L1_BLOCK_CONTRACT).unwrap();
+        });
+
+        let output = executor
+            .execute(&RecoveredBlock::new_unhashed(
+                Block { header, body: BlockBody { transactions: vec![tx], ..Default::default() } },
+                vec![addr],
+            ))
+            .expect("zero-priced whitelisted tx should execute gaslessly when XLayerV1 is active");
+
+        assert_eq!(output.receipts.len(), 1);
+    }
+
+    /// With `XLayerV1` active and a zero-priced tx, but the gasless contract denies it
+    /// (`isGaslessEnabled()` / `isWhitelisted(..)` return false — e.g. the `to` is not
+    /// whitelisted), the tx is not gasless, so base-fee validation rejects it when the block base
+    /// fee is non-zero and block execution fails.
+    #[test]
+    fn gasless_zero_price_tx_not_whitelisted_rejected() {
+        let header = Header {
+            timestamp: 2,
+            number: 1,
+            gas_limit: 1_000_000,
+            base_fee_per_gas: Some(1_000_000_000),
+            ..Default::default()
+        };
+
+        let mut db = create_op_state_provider();
+        let addr = Address::ZERO;
+        db.insert_account(
+            addr,
+            Account { balance: U256::MAX, ..Account::default() },
+            None,
+            HashMap::default(),
+        );
+
+        // Gasless contract that denies everything.
+        let gasless_addr = Address::from([0x42; 20]);
+        db.insert_account(
+            gasless_addr,
+            Account { nonce: 1, ..Account::default() },
+            Some(Bytes::from_static(&ALWAYS_FALSE_BYTECODE)),
+            HashMap::default(),
+        );
+
+        let chain_spec = Arc::new(
+            OpChainSpecBuilder::base_mainnet()
+                .canyon_activated()
+                .with_fork(OpHardfork::XLayerV1, ForkCondition::Timestamp(0))
+                .build(),
+        );
+
+        let tx: OpTransactionSigned = TxEip1559 {
+            chain_id: chain_spec.chain.id(),
+            nonce: 0,
+            gas_limit: MIN_TRANSACTION_GAS,
+            to: addr.into(),
+            ..Default::default()
+        }
+        .into_signed(Signature::test_signature())
+        .into();
+
+        let provider =
+            evm_config(chain_spec).with_gasless_contract(Some(GaslessContract::new(gasless_addr)));
+        let mut executor = BasicBlockExecutor::new(provider, StateProviderDatabase::new(&db));
+        executor.with_state_mut(|state| {
+            state.load_cache_account(L1_BLOCK_CONTRACT).unwrap();
+        });
+
+        let result = executor.execute(&RecoveredBlock::new_unhashed(
+            Block { header, body: BlockBody { transactions: vec![tx], ..Default::default() } },
+            vec![addr],
+        ));
+
+        assert!(result.is_err(), "non-whitelisted zero-priced tx must be rejected");
+    }
+
+    /// Without `XLayerV1`, a zero-priced tx is rejected by base-fee validation when the block base
+    /// fee is non-zero (it is not gasless), so block execution fails.
+    #[test]
+    fn gasless_zero_price_tx_no_xlayer_v1_rejected() {
+        let header = Header {
+            timestamp: 2,
+            number: 1,
+            gas_limit: 1_000_000,
+            base_fee_per_gas: Some(1_000_000_000),
+            ..Default::default()
+        };
+
+        let mut db = create_op_state_provider();
+        let addr = Address::ZERO;
+        db.insert_account(
+            addr,
+            Account { balance: U256::MAX, ..Account::default() },
+            None,
+            HashMap::default(),
+        );
+
+        // No XLayerV1 -> zero-priced txs are not gasless.
+        let chain_spec = Arc::new(OpChainSpecBuilder::base_mainnet().canyon_activated().build());
+
+        let tx: OpTransactionSigned = TxEip1559 {
+            chain_id: chain_spec.chain.id(),
+            nonce: 0,
+            gas_limit: MIN_TRANSACTION_GAS,
+            to: addr.into(),
+            ..Default::default()
+        }
+        .into_signed(Signature::test_signature())
+        .into();
+
+        let provider = evm_config(chain_spec);
+        let mut executor = BasicBlockExecutor::new(provider, StateProviderDatabase::new(&db));
+        executor.with_state_mut(|state| {
+            state.load_cache_account(L1_BLOCK_CONTRACT).unwrap();
+        });
+
+        let result = executor.execute(&RecoveredBlock::new_unhashed(
+            Block { header, body: BlockBody { transactions: vec![tx], ..Default::default() } },
+            vec![addr],
+        ));
+
+        assert!(result.is_err(), "zero-priced tx must be rejected without XLayerV1");
     }
 }

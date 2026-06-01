@@ -8,8 +8,47 @@ use alloc::vec::Vec;
 use alloy_consensus::Transaction;
 use alloy_eips::eip4788::SYSTEM_ADDRESS;
 use alloy_evm::{Evm, block::BlockExecutionError};
-use alloy_primitives::{Address, Bytes};
+use alloy_primitives::{Address, Bytes, address};
 use revm::context_interface::result::{ExecutionResult, Output};
+
+/// XLayer mainnet (chain id 196) gasless whitelist predeploy address.
+///
+/// TODO: confirm the final mainnet address — this is a placeholder.
+pub const XLAYER_MAINNET_GASLESS_CONTRACT: Address =
+    address!("0x4200000000000000000000000000000000000901");
+
+/// XLayer testnet (chain id 1952) gasless whitelist predeploy address.
+///
+/// TODO: confirm the final testnet address — this is a placeholder.
+pub const XLAYER_TESTNET_GASLESS_CONTRACT: Address =
+    address!("0x4200000000000000000000000000000000000901");
+
+/// XLayer devnet (chain id 195) gasless whitelist predeploy address.
+pub const XLAYER_DEVNET_GASLESS_CONTRACT: Address =
+    address!("0x0000000000000000000000000000000000009999");
+
+/// Returns the XLayer gasless whitelist predeploy address for the given chain id, or `None` for a
+/// non-XLayer chain (gasless disabled).
+///
+/// The per-network mapping lives here (in `deps/optimism`) rather than in xlayer-chainspec so the
+/// gasless contract can be derived from the chain spec at every [`OpEvmConfig`] construction (see
+/// `OpEvmConfig::new`). This makes gasless detection **consensus-uniform across block building and
+/// validation by construction** — there is no per-construction-site wiring to forget, and a node's
+/// local config cannot change it.
+///
+/// The contract at the returned address must expose `isGaslessEnabled()` and
+/// `isWhitelisted(address,bytes)`.
+///
+/// [`OpEvmConfig`]: https://docs.rs/reth-optimism-evm
+#[inline]
+pub const fn xlayer_gasless_contract(chain_id: u64) -> Option<Address> {
+    match chain_id {
+        196 => Some(XLAYER_MAINNET_GASLESS_CONTRACT),
+        1952 => Some(XLAYER_TESTNET_GASLESS_CONTRACT),
+        195 => Some(XLAYER_DEVNET_GASLESS_CONTRACT),
+        _ => None,
+    }
+}
 
 /// 4-byte selector of `isGaslessEnabled()`.
 ///
@@ -37,11 +76,13 @@ pub struct GaslessContract {
 
 impl GaslessContract {
     /// Creates a new [`GaslessContract`] pointed at `contract`.
+    #[inline]
     pub const fn new(contract: Address) -> Self {
         Self { contract }
     }
 
     /// Returns the contract address
+    #[inline]
     pub const fn contract(&self) -> Address {
         self.contract
     }
@@ -106,7 +147,7 @@ fn call_bool<E: Evm>(
 }
 
 #[cfg(test)]
-mod tests {
+mod xlayer_test {
     use super::*;
 
     #[test]

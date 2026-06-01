@@ -47,7 +47,11 @@ pub use xlayer::gasless::{
 };
 
 pub mod block;
-pub use block::{GaslessContract, OpBlockExecutionCtx, OpBlockExecutor, OpBlockExecutorFactory};
+pub use block::{
+    GaslessContract, OpBlockExecutionCtx, OpBlockExecutor, OpBlockExecutorFactory,
+    XLAYER_DEVNET_GASLESS_CONTRACT, XLAYER_MAINNET_GASLESS_CONTRACT,
+    XLAYER_TESTNET_GASLESS_CONTRACT, xlayer_gasless_contract,
+};
 
 /// The OP EVM context type.
 pub type OpEvmContext<DB> = Context<BlockEnv, OpTx, CfgEnv<OpSpecId>, DB, Journal<DB>, L1BlockInfo>;

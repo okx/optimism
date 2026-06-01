@@ -2,15 +2,16 @@ use crate::{InvalidCrossTx, OpPooledTx, supervisor::SupervisorClient};
 use alloy_consensus::{BlockHeader, Transaction};
 use op_revm::L1BlockInfo;
 use parking_lot::RwLock;
-use reth_chainspec::ChainSpecProvider;
-use reth_evm::ConfigureEvm;
-use reth_optimism_evm::RethL1BlockInfo;
+use reth_chainspec::{ChainSpecProvider, EthChainSpec};
+use reth_evm::{ConfigureEvm, block::BlockExecutionError};
+use reth_optimism_evm::{GaslessContract, RethL1BlockInfo, xlayer_gasless_contract};
 use reth_optimism_forks::OpHardforks;
 use reth_primitives_traits::{
-    Block, BlockBody, BlockTy, GotExpected, SealedBlock,
+    Block, BlockBody, BlockTy, GotExpected, HeaderTy, SealedBlock,
     transaction::error::InvalidTransactionError,
 };
-use reth_storage_api::{AccountInfoReader, BlockReaderIdExt, StateProviderFactory};
+use reth_revm::database::StateProviderDatabase;
+use reth_storage_api::{AccountInfoReader, BlockReaderIdExt, HeaderProvider, StateProviderFactory};
 use reth_transaction_pool::{
     EthPoolTransaction, EthTransactionValidator, TransactionOrigin, TransactionValidationOutcome,
     TransactionValidator, error::InvalidPoolTransactionError,
@@ -54,6 +55,9 @@ pub struct OpTransactionValidator<Client, Tx, Evm> {
     supervisor_client: Option<SupervisorClient>,
     /// tracks activated forks relevant for transaction validation
     fork_tracker: Arc<OpForkTracker>,
+    /// When true, zero-priced ("gasless") transactions are admitted only if XLayerV1 is active
+    /// and the on-chain gasless contract whitelists them (see `apply_xlayer_gasless_check`).
+    enable_gasless: bool,
 }
 
 impl<Client, Tx, Evm> OpTransactionValidator<Client, Tx, Evm> {
@@ -90,8 +94,11 @@ impl<Client, Tx, Evm> OpTransactionValidator<Client, Tx, Evm> {
 
 impl<Client, Tx, Evm> OpTransactionValidator<Client, Tx, Evm>
 where
-    Client:
-        ChainSpecProvider<ChainSpec: OpHardforks> + StateProviderFactory + BlockReaderIdExt + Sync,
+    Client: ChainSpecProvider<ChainSpec: OpHardforks + EthChainSpec>
+        + StateProviderFactory
+        + BlockReaderIdExt
+        + HeaderProvider<Header = HeaderTy<Evm::Primitives>>
+        + Sync,
     Tx: EthPoolTransaction + OpPooledTx,
     Evm: ConfigureEvm,
 {
@@ -124,12 +131,20 @@ where
             require_l1_data_gas_fee: true,
             supervisor_client: None,
             fork_tracker: Arc::new(OpForkTracker { interop: AtomicBool::from(false) }),
+            enable_gasless: false,
         }
     }
 
     /// Set the supervisor client and safety level
     pub fn with_supervisor(mut self, supervisor_client: SupervisorClient) -> Self {
         self.supervisor_client = Some(supervisor_client);
+        self
+    }
+
+    /// Enables the XLayer gasless admission gate: zero-priced transactions are accepted only when
+    /// XLayerV1 is active and the on-chain gasless contract whitelists them.
+    pub const fn with_gasless(mut self, enable_gasless: bool) -> Self {
+        self.enable_gasless = enable_gasless;
         self
     }
 
@@ -211,7 +226,102 @@ where
 
         let outcome = self.inner.validate_one_with_state(origin, transaction, state);
 
-        self.apply_op_checks(outcome)
+        let outcome = self.apply_op_checks(outcome);
+        self.apply_xlayer_gasless_check(outcome)
+    }
+
+    /// XLayer gasless admission gate.
+    ///
+    /// A zero-priced transaction (`max_fee_per_gas == 0`) is only admissible once XLayerV1 is
+    /// active and the on-chain gasless contract whitelists it. This mirrors the executor's gasless
+    /// decision so non-eligible zero-priced txs are rejected at `add_transaction` time rather than
+    /// being admitted and failing at block execution. No-op unless gasless is enabled or the tx is
+    /// not zero-priced.
+    #[inline]
+    fn apply_xlayer_gasless_check(
+        &self,
+        outcome: TransactionValidationOutcome<Tx>,
+    ) -> TransactionValidationOutcome<Tx> {
+        if !self.enable_gasless {
+            return outcome;
+        }
+        let TransactionValidationOutcome::Valid {
+            balance,
+            state_nonce,
+            transaction: valid_tx,
+            propagate,
+            bytecode_hash,
+            authorities,
+        } = outcome
+        else {
+            return outcome;
+        };
+
+        // Only zero-priced transactions are subject to the gasless gate; everything else passes
+        // through unchanged.
+        if valid_tx.transaction().max_fee_per_gas() != 0 {
+            return TransactionValidationOutcome::Valid {
+                balance,
+                state_nonce,
+                transaction: valid_tx,
+                propagate,
+                bytecode_hash,
+                authorities,
+            };
+        }
+
+        // A zero-priced tx is only allowed once XLayerV1 is active.
+        if !self.chain_spec().is_xlayer_v1_active_at_timestamp(self.block_timestamp()) {
+            return TransactionValidationOutcome::Invalid(
+                valid_tx.into_transaction(),
+                InvalidPoolTransactionError::Underpriced,
+            );
+        }
+
+        // Post-XLayerV1: the zero-priced tx must be whitelisted by the on-chain gasless contract,
+        // mirroring the executor's `is_gasless` decision so admission matches execution. Run the
+        // contract view call against the latest committed state; reject if not whitelisted, and
+        // surface an error if the state read / EVM call fails.
+        match self.is_gasless_whitelisted(valid_tx.transaction()) {
+            Ok(true) => TransactionValidationOutcome::Valid {
+                balance,
+                state_nonce,
+                transaction: valid_tx,
+                propagate,
+                bytecode_hash,
+                authorities,
+            },
+            Ok(false) => TransactionValidationOutcome::Invalid(
+                valid_tx.into_transaction(),
+                InvalidPoolTransactionError::Underpriced,
+            ),
+            Err(err) => TransactionValidationOutcome::Error(*valid_tx.hash(), Box::new(err)),
+        }
+    }
+
+    /// Runs the on-chain gasless contract (`isGaslessEnabled()` + `isWhitelisted(to, input)`)
+    /// against the latest committed state to decide whether `tx` is gasless-eligible.
+    ///
+    /// This reuses the exact same [`GaslessContract`] the block executor uses, so a tx admitted
+    /// here is the one the executor will treat as gasless.
+    fn is_gasless_whitelisted(&self, tx: &Tx) -> Result<bool, BlockExecutionError> {
+        // No gasless contract on this chain => never gasless. Derived from the chain id so the
+        // address matches what the executor uses (see `xlayer_gasless_contract`).
+        let Some(contract) = xlayer_gasless_contract(self.chain_spec().chain().id()) else {
+            return Ok(false);
+        };
+        let Some(header) = self.client().latest_header().map_err(BlockExecutionError::other)?
+        else {
+            return Ok(false);
+        };
+        let state = self.client().latest().map_err(BlockExecutionError::other)?;
+        let mut evm = self
+            .inner
+            .evm_config()
+            .evm_for_block(StateProviderDatabase::new(state), header.header())
+            .map_err(BlockExecutionError::other)?;
+        let consensus = tx.clone_into_consensus().into_inner();
+        GaslessContract::new(contract).is_gasless(&mut evm, &consensus)
     }
 
     /// Performs the necessary opstack specific checks based on top of the regular eth outcome.
@@ -292,8 +402,11 @@ where
 
 impl<Client, Tx, Evm> TransactionValidator for OpTransactionValidator<Client, Tx, Evm>
 where
-    Client:
-        ChainSpecProvider<ChainSpec: OpHardforks> + StateProviderFactory + BlockReaderIdExt + Sync,
+    Client: ChainSpecProvider<ChainSpec: OpHardforks + EthChainSpec>
+        + StateProviderFactory
+        + BlockReaderIdExt
+        + HeaderProvider<Header = HeaderTy<Evm::Primitives>>
+        + Sync,
     Tx: EthPoolTransaction + OpPooledTx,
     Evm: ConfigureEvm,
 {

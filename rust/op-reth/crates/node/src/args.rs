@@ -38,6 +38,25 @@ pub struct RollupArgs {
     #[arg(long = "rollup.enable-tx-conditional", default_value = "false")]
     pub enable_tx_conditional: bool,
 
+    /// Enable gasless transactions in the mempool.
+    ///
+    /// When enabled, transactions with a zero gas price (legacy `gas_price == 0`, or EIP-1559
+    /// `max_fee_per_gas == 0 && max_priority_fee_per_gas == 0`) are accepted into the pool: the
+    /// node-wide minimum protocol base-fee floor is lowered to 0 so these txs pass pool insertion.
+    #[arg(long = "rollup.enable-gasless", default_value = "false")]
+    pub enable_gasless: bool,
+
+    /// Percentile of the previous block's transaction gas prices used as the mock gas price
+    /// assigned to gasless transactions for pool ordering. Accepts a fraction in `0.0..=1.0`
+    /// (e.g. `0.1` ≈ low, `0.9` ≈ high); stored as basis points (`0..=10000`) so that
+    /// [`RollupArgs`] stays `Eq`.
+    #[arg(
+        long = "rollup.gasless-mock-gas-price-percentile",
+        default_value = "0.5",
+        value_parser = parse_gasless_percentile_bps
+    )]
+    pub gasless_mock_gas_price_percentile_bps: u16,
+
     /// HTTP endpoint for the supervisor. When not set, interop transaction validation is disabled.
     #[arg(long = "rollup.supervisor-http", value_name = "SUPERVISOR_HTTP_URL")]
     pub supervisor_http: Option<String>,
@@ -141,6 +160,15 @@ pub struct RollupArgs {
     pub proofs_history_verification_interval: u64,
 }
 
+/// Parses a `[0.0, 1.0]` percentile fraction into basis points (`0..=10000`).
+fn parse_gasless_percentile_bps(s: &str) -> Result<u16, String> {
+    let value: f64 = s.parse().map_err(|e| format!("invalid percentile `{s}`: {e}"))?;
+    if !(0.0..=1.0).contains(&value) {
+        return Err(format!("percentile must be in [0.0, 1.0], got {value}"));
+    }
+    Ok((value * 10_000.0).round() as u16)
+}
+
 impl Default for RollupArgs {
     fn default() -> Self {
         Self {
@@ -149,6 +177,8 @@ impl Default for RollupArgs {
             compute_pending_block: false,
             discovery_v4: false,
             enable_tx_conditional: false,
+            enable_gasless: false,
+            gasless_mock_gas_price_percentile_bps: 5000,
             supervisor_http: None,
             supervisor_safety_level: SafetyLevel::CrossUnsafe,
             sequencer_headers: Vec::new(),
@@ -247,6 +277,28 @@ mod tests {
             "--rollup.enable-tx-conditional",
             "--rollup.sequencer-http",
             "http://host:port",
+        ])
+        .args;
+        assert_eq!(args, expected_args);
+    }
+}
+
+#[cfg(test)]
+mod xlayer_tests {
+    use super::*;
+    use clap::{Args, Parser};
+    #[test]
+    fn test_parse_optimism_enable_gasless() {
+        let expected_args = RollupArgs {
+            enable_gasless: true,
+            gasless_mock_gas_price_percentile_bps: 9000,
+            ..Default::default()
+        };
+        let args = CommandParser::<RollupArgs>::parse_from([
+            "reth",
+            "--rollup.enable-gasless",
+            "--rollup.gasless-mock-gas-price-percentile",
+            "0.9",
         ])
         .args;
         assert_eq!(args, expected_args);

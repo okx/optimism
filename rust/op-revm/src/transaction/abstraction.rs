@@ -56,13 +56,13 @@ pub struct OpTransaction<T: Transaction> {
     /// Whether this transaction should execute without gas fees ("gasless").
     ///
     /// This is the source of truth for the OP gasless fee policy applied in `OpHandler`: it forces
-    /// `effective_gas_price` to `0`, skips L1/operator fee charging, suppresses the gas refund, and
-    /// skips caller reimbursement and beneficiary reward. It lives on the tx (not in `cfg`) because
-    /// the OP handler can only read `cfg` through `OpContextTr`, and because "gas price 0 / no
-    /// refund" are intrinsic per-tx properties with no `cfg` representation.
+    /// `effective_gas_price` to `0`, skips L1/operator fee charging, suppresses the gas refund,
+    /// and skips caller reimbursement and beneficiary reward. It lives on the tx (not in
+    /// `cfg`) because the OP handler can only read `cfg` through `OpContextTr`, and because
+    /// "gas price 0 / no refund" are intrinsic per-tx properties with no `cfg` representation.
     ///
-    /// It is deliberately stricter than the `cfg.disable_*` fee flags: a gasless tx is still a real
-    /// transaction that must be able to afford its `value`, so the handler keeps the
+    /// It is deliberately stricter than the `cfg.disable_*` fee flags: a gasless tx is still a
+    /// real transaction that must be able to afford its `value`, so the handler keeps the
     /// `balance >= value` check — whereas `disable_fee_charge` (used for `eth_call` simulation)
     /// would skip even that.
     pub is_gasless: bool,
