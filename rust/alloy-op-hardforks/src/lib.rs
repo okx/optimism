@@ -52,10 +52,6 @@ hardfork!(
         Karst,
         /// TODO: add interop hardfork overview when available
         Interop,
-        /// XLayerV1: activates the XLayer gasless transaction feature (zero-priced transactions
-        /// execute without fees). XLayer-specific; not part of the upstream OP hardfork schedule,
-        /// so it is absent from the OP/Base `op_mainnet`/`op_sepolia`/`base_*` fork lists below.
-        XLayerV1,
     }
 );
 
@@ -244,11 +240,6 @@ pub trait OpHardforks: EthereumHardforks {
     fn is_interop_active_at_timestamp(&self, timestamp: u64) -> bool {
         self.op_fork_activation(OpHardfork::Interop).active_at_timestamp(timestamp)
     }
-
-    /// Returns `true` if [`XLayerV1`](OpHardfork::XLayerV1) is active at given block timestamp.
-    fn is_xlayer_v1_active_at_timestamp(&self, timestamp: u64) -> bool {
-        self.op_fork_activation(OpHardfork::XLayerV1).active_at_timestamp(timestamp)
-    }
 }
 
 /// A type allowing to configure activation [`ForkCondition`]s for a given list of
@@ -340,7 +331,7 @@ impl Index<OpHardfork> for OpChainHardforks {
     fn index(&self, hf: OpHardfork) -> &Self::Output {
         use OpHardfork::{
             Bedrock, Canyon, Ecotone, Fjord, Granite, Holocene, Interop, Isthmus, Jovian, Karst,
-            Regolith, XLayerV1,
+            Regolith,
         };
 
         match hf {
@@ -355,7 +346,6 @@ impl Index<OpHardfork> for OpChainHardforks {
             Jovian => &self.forks[Jovian.idx()].1,
             Karst => &self.forks[Karst.idx()].1,
             Interop => &self.forks[Interop.idx()].1,
-            XLayerV1 => &self.forks[XLayerV1.idx()].1,
         }
     }
 }

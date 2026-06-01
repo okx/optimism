@@ -51,8 +51,8 @@ use reth_optimism_rpc::{
 };
 use reth_optimism_storage::OpStorage;
 use reth_optimism_txpool::{
-    GaslessMockPrice, OpPool, OpPooledTx, XLayerGaslessOrdering, maintain_gasless_mock_price,
-    supervisor::SupervisorClient,
+    GASLESS_DEFAULT_MOCK_PRICE_WEI, GaslessMockPrice, OpPool, OpPooledTx, XLayerGaslessOrdering,
+    maintain_gasless_mock_price, supervisor::SupervisorClient,
 };
 use reth_primitives_traits::header::HeaderMut;
 use reth_provider::{CanonStateSubscriptions, providers::ProviderFactoryBuilder};
@@ -1156,8 +1156,8 @@ where
                         // In --dev mode we can't require gas fees because we're unable to decode
                         // the L1 block info
                         .require_l1_data_gas_fee(!ctx.config().dev.dev)
-                        // Admit zero-priced (gasless) txs only when enabled (XLayerV1 + whitelist
-                        // gate applied in the validator).
+                        // Admit zero-priced (gasless) txs only when enabled (on-chain gasless
+                        // contract gate applied in the validator).
                         .with_gasless(enable_gasless);
                     if let Some(client) = supervisor_client.clone() {
                         v.with_supervisor(client)
@@ -1172,7 +1172,10 @@ where
         // block by the maintenance task spawned below when gasless is enabled). For all non-gasless
         // txs this ordering is identical to the upstream `CoinbaseTipOrdering`, so the rest of the
         // pool ordering is unchanged. Mirrors `TxPoolBuilder::build` (a thin `Pool::new`).
-        let gasless_mock_price = GaslessMockPrice::default();
+        // Start at a non-zero floor (0.02 GWEI) so gasless txs never order at price 0 before the
+        // first block sets a real percentile; the maintenance task then tracks the last non-zero
+        // percentile (see `GASLESS_DEFAULT_MOCK_PRICE_WEI`).
+        let gasless_mock_price = GaslessMockPrice::new(GASLESS_DEFAULT_MOCK_PRICE_WEI);
         let inner_pool = Pool::new(
             validator,
             XLayerGaslessOrdering::new(gasless_mock_price.clone()),

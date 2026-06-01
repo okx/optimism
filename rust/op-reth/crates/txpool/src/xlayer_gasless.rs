@@ -34,6 +34,16 @@ use std::{
     },
 };
 
+/// Default mock gas price (wei) assigned to gasless (zero-priced) transactions before the first
+/// canonical block establishes a real percentile: 0.02 GWEI (`20_000_000` wei).
+///
+/// Acts as the startup floor so gasless txs never order at price 0 — a mock price of 0 would order
+/// every gasless tx at priority 0, and the percentile sample (which excludes zero-priced txs) could
+/// never lift it back up. After the first block with paid txs, [`maintain_gasless_mock_price`]
+/// tracks the last non-zero percentile and only overrides it when a newer one is available, so the
+/// value behaves as a persisted "last non-zero gas price".
+pub const GASLESS_DEFAULT_MOCK_PRICE_WEI: u64 = 20_000_000;
+
 /// Shared mock gas price (in wei) assigned to gasless (zero-priced) transactions for pool ordering.
 ///
 /// Updated on every new canonical block by [`maintain_gasless_mock_price`] and read by
@@ -270,28 +280,34 @@ mod xlayer_test {
         assert_eq!(ordering.priority(&gasless_tx, 0), Priority::Value(777));
     }
 
-    /// Minimal contract bytecode returning ABI `true` (a 32-byte word == 1) for any call.
-    const ALWAYS_TRUE_BYTECODE: [u8; 10] =
-        [0x60, 0x01, 0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3];
-    /// Minimal contract bytecode returning ABI `false` (32 zero bytes) for any call.
-    const ALWAYS_FALSE_BYTECODE: [u8; 10] =
-        [0x60, 0x00, 0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3];
+    /// Minimal contract bytecode returning ABI `(true, 0xffffff)` for any call — approves with a
+    /// gas allowance far above the test tx's gas limit. Layout: `mem[0..32]=1` (allowed),
+    /// `mem[32..64]=0xffffff` (gasLimit), `return mem[0..64]`.
+    const ALLOW_HIGH_GAS_BYTECODE: [u8; 17] = [
+        0x60, 0x01, 0x60, 0x00, 0x52, 0x62, 0xff, 0xff, 0xff, 0x60, 0x20, 0x52, 0x60, 0x40, 0x60,
+        0x00, 0xf3,
+    ];
+    /// Minimal contract bytecode returning ABI `(false, 0)` for any call (64 zero bytes) — denies.
+    const DENY_BYTECODE: [u8; 5] = [0x60, 0x40, 0x60, 0x00, 0xf3];
+    /// Minimal contract bytecode returning ABI `(true, 1)` for any call — approves but with a gas
+    /// allowance (1) below any real tx gas limit. Layout: `mem[0..32]=1`, `mem[32..64]=1`,
+    /// `return mem[0..64]`.
+    const ALLOW_LOW_GAS_BYTECODE: [u8; 15] =
+        [0x60, 0x01, 0x60, 0x00, 0x52, 0x60, 0x01, 0x60, 0x20, 0x52, 0x60, 0x40, 0x60, 0x00, 0xf3];
 
     /// Builds an [`OpTransactionValidator`] (gasless enabled) over a `MockEthProvider` on the
     /// XLayer devnet chain (id 195, so the validator derives `XLAYER_DEVNET_GASLESS_CONTRACT`),
     /// deploys the given gasless-whitelist stub bytecode there, then validates a zero-priced
-    /// (`max_fee_per_gas == 0`) EIP-1559 transfer and returns the outcome. `xlayer_v1` controls
-    /// whether the gasless fork is active.
+    /// (`max_fee_per_gas == 0`) EIP-1559 transfer and returns the outcome.
     async fn validate_zero_priced_tx(
         stub_bytecode: &[u8],
-        xlayer_v1: bool,
     ) -> reth_transaction_pool::TransactionValidationOutcome<crate::OpPooledTransaction> {
         use crate::{OpPooledTransaction, OpTransactionValidator};
         use alloy_consensus::{SignableTransaction, TxEip1559};
         use alloy_eips::Encodable2718;
         use alloy_primitives::{Address, Bytes, Signature, TxKind, U256};
-        use reth_chainspec::{Chain, ForkCondition};
-        use reth_optimism_chainspec::{OpChainSpecBuilder, OpHardfork};
+        use reth_chainspec::Chain;
+        use reth_optimism_chainspec::OpChainSpecBuilder;
         use reth_optimism_evm::{OpEvmConfig, XLAYER_DEVNET_GASLESS_CONTRACT};
         use reth_optimism_primitives::{OpPrimitives, OpTransactionSigned};
         use reth_primitives_traits::Recovered;
@@ -302,13 +318,7 @@ mod xlayer_test {
         };
         use std::sync::Arc;
 
-        let builder = OpChainSpecBuilder::base_mainnet().canyon_activated();
-        let builder = if xlayer_v1 {
-            builder.with_fork(OpHardfork::XLayerV1, ForkCondition::Timestamp(0))
-        } else {
-            builder
-        };
-        let mut spec = builder.build();
+        let mut spec = OpChainSpecBuilder::base_mainnet().canyon_activated().build();
         // XLayer devnet chain id so `xlayer_gasless_contract(195) ==
         // XLAYER_DEVNET_GASLESS_CONTRACT`.
         spec.inner.chain = Chain::from_id(195);
@@ -357,35 +367,42 @@ mod xlayer_test {
         validator.validate_one(TransactionOrigin::External, pooled).await
     }
 
-    /// A zero-priced tx is admitted when XLayerV1 is active and the on-chain gasless contract
-    /// whitelists it (`isGaslessEnabled()` / `isWhitelisted(..)` both return true).
+    /// A zero-priced tx is admitted when the on-chain gasless contract approves it (allowed, with a
+    /// gas allowance the tx does not exceed).
     #[tokio::test]
     async fn gasless_validator_accepts_whitelisted_zero_price() {
-        let outcome = validate_zero_priced_tx(&ALWAYS_TRUE_BYTECODE, true).await;
+        let outcome = validate_zero_priced_tx(&ALLOW_HIGH_GAS_BYTECODE).await;
         assert!(
             matches!(outcome, reth_transaction_pool::TransactionValidationOutcome::Valid { .. }),
             "whitelisted zero-priced tx must be accepted, got {outcome:?}",
         );
     }
 
-    /// A zero-priced tx is rejected when the gasless contract denies it (not whitelisted), even
-    /// with XLayerV1 active.
+    /// A zero-priced tx is rejected when the gasless contract denies it (not whitelisted).
     #[tokio::test]
     async fn gasless_validator_rejects_unwhitelisted_zero_price() {
-        let outcome = validate_zero_priced_tx(&ALWAYS_FALSE_BYTECODE, true).await;
+        let outcome = validate_zero_priced_tx(&DENY_BYTECODE).await;
         assert!(
             matches!(outcome, reth_transaction_pool::TransactionValidationOutcome::Invalid(..)),
             "non-whitelisted zero-priced tx must be rejected, got {outcome:?}",
         );
     }
 
-    /// A zero-priced tx is rejected before XLayerV1 activates, regardless of the whitelist.
+    /// A whitelisted zero-priced tx is rejected when its gas limit exceeds the contract's per-tx
+    /// gas allowance, surfaced as `MaxTxGasLimitExceeded`.
     #[tokio::test]
-    async fn gasless_validator_rejects_zero_price_before_xlayer_v1() {
-        let outcome = validate_zero_priced_tx(&ALWAYS_TRUE_BYTECODE, false).await;
+    async fn gasless_validator_rejects_over_gas_limit_zero_price() {
+        use reth_transaction_pool::error::InvalidPoolTransactionError;
+        let outcome = validate_zero_priced_tx(&ALLOW_LOW_GAS_BYTECODE).await;
         assert!(
-            matches!(outcome, reth_transaction_pool::TransactionValidationOutcome::Invalid(..)),
-            "zero-priced tx must be rejected before XLayerV1, got {outcome:?}",
+            matches!(
+                outcome,
+                reth_transaction_pool::TransactionValidationOutcome::Invalid(
+                    _,
+                    InvalidPoolTransactionError::MaxTxGasLimitExceeded(..)
+                )
+            ),
+            "zero-priced tx over the gas allowance must be rejected with MaxTxGasLimitExceeded, got {outcome:?}",
         );
     }
 }

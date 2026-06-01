@@ -291,25 +291,16 @@ where
         };
 
         // Gasless fee hook: a gasless tx bypasses fee checks/charging and executes with gas price
-        // 0. Deposit txs already have special fee handling and are skipped. Post-XLayerV1, a tx is
-        // gasless only when it is zero-priced (`max_fee_per_gas == 0`, which covers a legacy
-        // `gas_price == 0` and a 1559 `max_fee == 0 && max_priority == 0`) AND the configured
-        // on-chain gasless contract whitelists it (`isGaslessEnabled()` and `isWhitelisted(to,
-        // input)` both return true). This pairs with the gasless mempool, which accepts and
-        // mock-prices zero-priced txs.
-        let is_gasless = if !is_deposit {
-            let block_ts = self.evm.block().timestamp().saturating_to();
-            if self.spec.is_xlayer_v1_active_at_timestamp(block_ts) &&
-                tx.tx().max_fee_per_gas() == 0
-            {
-                match self.gasless_contract {
-                    Some(gasless_contract) => {
-                        gasless_contract.is_gasless(&mut self.evm, tx.tx())?
-                    }
-                    None => false,
-                }
-            } else {
-                false
+        // 0. Deposit txs already have special fee handling and are skipped. A tx is gasless only
+        // when it is zero-priced (`max_fee_per_gas == 0`, which covers a legacy `gas_price == 0`
+        // and a 1559 `max_fee == 0 && max_priority == 0`) AND the configured on-chain gasless
+        // contract approves it: `getGaslessAllowance(to, input)` returns `allowed == true` and a
+        // `gasLimit` not exceeded by the tx (see `GaslessContract::is_gasless`). This pairs with
+        // the gasless mempool, which accepts and mock-prices zero-priced txs.
+        let is_gasless = if !is_deposit && tx.tx().max_fee_per_gas() == 0 {
+            match self.gasless_contract {
+                Some(gasless_contract) => gasless_contract.is_gasless(&mut self.evm, tx.tx())?,
+                None => false,
             }
         } else {
             false

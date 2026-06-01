@@ -14,7 +14,8 @@ pub use validator::{OpL1BlockInfo, OpTransactionValidator};
 pub mod conditional;
 pub mod xlayer_gasless;
 pub use xlayer_gasless::{
-    GaslessMockPrice, XLayerGaslessOrdering, maintain_gasless_mock_price, percentile_gas_price,
+    GASLESS_DEFAULT_MOCK_PRICE_WEI, GaslessMockPrice, XLayerGaslessOrdering,
+    maintain_gasless_mock_price, percentile_gas_price,
 };
 mod pool;
 pub use pool::OpPool;
