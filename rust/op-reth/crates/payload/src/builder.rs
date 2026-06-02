@@ -804,9 +804,13 @@ where
             info.cumulative_da_bytes_used += tx_da_size;
 
             // update and add to total fees
-            let miner_fee = tx
-                .effective_tip_per_gas(base_fee)
-                .expect("fee is always valid; execution succeeded");
+            //
+            // Gasless (zero fee-cap) transactions have no effective tip at a non-zero base fee
+            // (`effective_tip_per_gas` returns `None`) and contribute no miner fee. They only
+            // reach here after a successful gasless execution (base-fee check disabled), so
+            // `None` => gasless => 0. For every other tx, a successful execution guarantees a
+            // valid tip. (Mirrors the flashblocks builder's miner_fee handling.)
+            let miner_fee = tx.effective_tip_per_gas(base_fee).unwrap_or(0);
             info.total_fees += U256::from(miner_fee) * U256::from(gas_used);
         }
 
