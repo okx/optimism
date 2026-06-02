@@ -1103,20 +1103,18 @@ where
         evm_config: Evm,
     ) -> eyre::Result<Self::Pool> {
         let Self {
-            mut pool_config_overrides,
-            enable_gasless,
-            gasless_mock_gas_price_percentile,
-            ..
+            pool_config_overrides, enable_gasless, gasless_mock_gas_price_percentile, ..
         } = self;
 
-        // Gasless mempool: lower the global minimum protocol base-fee floor to 0 so that
-        // zero-gas-price transactions pass pool insertion. The rejection lives in upstream
-        // `AllTransactions::insert_tx` (`fee_cap < minimal_protocol_basefee`), which runs after
-        // and outside `OpTransactionValidator`, so it cannot be relaxed in the validator. The
-        // floor is pool-global; enabling gasless is a deliberate node-operator choice.
+        // Gasless mempool acceptance/ordering is handled by `PoolConfig::gasless_enabled` (set on
+        // `final_pool_config` below). When enabled, the (forked) reth pool treats `max_fee == 0`
+        // gasless txs as satisfying both the protocol minimum base fee and the per-block base fee,
+        // so they enter the pending sub-pool and are yielded by the best-tx iterator. The protocol
+        // floor (`MIN_PROTOCOL_BASE_FEE`) is kept for all other fees, so sub-minimum non-zero txs
+        // are still rejected. Per-tx admission of zero-priced txs is gated by the validator's
+        // on-chain whitelist check (`OpTransactionValidator::with_gasless`).
         if enable_gasless {
-            pool_config_overrides.minimal_protocol_basefee = Some(0);
-            info!(target: "reth::cli", "Gasless mempool enabled: minimal_protocol_basefee set to 0");
+            info!(target: "reth::cli", "Gasless mempool enabled");
         }
 
         // supervisor used for interop txpool validation
@@ -1166,7 +1164,8 @@ where
                     }
                 });
 
-        let final_pool_config = pool_config_overrides.apply(ctx.pool_config());
+        let final_pool_config =
+            pool_config_overrides.apply(ctx.pool_config()).with_gasless(enable_gasless);
 
         // Gasless ordering: zero-priced txs are assigned the shared mock price (recomputed each
         // block by the maintenance task spawned below when gasless is enabled). For all non-gasless

@@ -280,6 +280,108 @@ mod xlayer_test {
         assert_eq!(ordering.priority(&gasless_tx, 0), Priority::Value(777));
     }
 
+    // Pool-mechanics for gasless (`PoolConfig::gasless_enabled`, served by the forked reth pool):
+    // a zero fee-cap tx is admitted to the *pending* sub-pool and yielded by the best iterator even
+    // when the block base fee is > 0, and it stays pending across a base-fee rise. This is what
+    // lets whitelisted 0-price txs be built on a chain whose base fee never reaches 0. Black-box:
+    // base fee is set via the public `set_block_info`, membership via `pending/queued_transactions`.
+    #[tokio::test]
+    async fn gasless_zero_price_is_pending_and_best_with_nonzero_basefee() {
+        use alloy_consensus::Transaction;
+        use reth_transaction_pool::{
+            BestTransactionsAttributes, BlockInfo, PoolConfig, TransactionOrigin, TransactionPool,
+            TransactionPoolExt,
+            test_utils::{MockTransaction, TestPool, TestPoolBuilder},
+        };
+
+        let pool: TestPool = TestPoolBuilder::default()
+            .with_config(PoolConfig { gasless_enabled: true, ..Default::default() })
+            .into();
+        let base_fee = 100u64;
+        pool.set_block_info(BlockInfo {
+            pending_basefee: base_fee,
+            block_gas_limit: 30_000_000,
+            ..Default::default()
+        });
+
+        let tx = MockTransaction::eip1559().with_max_fee(0).with_priority_fee(0);
+        assert_eq!(tx.max_fee_per_gas(), 0);
+        pool.add_transaction(TransactionOrigin::Local, tx).await.unwrap();
+
+        // (1) insert-time classification: pending despite base_fee > 0
+        assert_eq!(pool.pending_transactions().len(), 1, "gasless tx should be pending");
+        assert!(pool.queued_transactions().is_empty(), "gasless tx must not be parked");
+
+        // (2) yielded by the best iterator at the tracked base fee
+        assert_eq!(
+            pool.best_transactions_with_attributes(BestTransactionsAttributes::new(base_fee, None))
+                .count(),
+            1,
+            "gasless tx should be yielded at base_fee > 0",
+        );
+
+        // (3) yielded even when a higher base fee is requested (WithFees filter relaxation)
+        assert_eq!(
+            pool.best_transactions_with_attributes(BestTransactionsAttributes::new(
+                base_fee * 5,
+                None
+            ))
+            .count(),
+            1,
+            "gasless tx should pass the WithFees filter",
+        );
+
+        // (4) a base-fee rise must not demote it out of pending
+        pool.set_block_info(BlockInfo {
+            pending_basefee: base_fee * 5,
+            block_gas_limit: 30_000_000,
+            ..Default::default()
+        });
+        assert_eq!(
+            pool.pending_transactions().len(),
+            1,
+            "gasless tx should stay pending after a base-fee rise",
+        );
+    }
+
+    // Control: without `gasless_enabled`, the same 0-price tx (admitted only because the protocol
+    // floor was lowered to 0 here) is parked in the basefee sub-pool and never yielded — proving
+    // the flag is what changes the behavior.
+    #[tokio::test]
+    async fn gasless_disabled_zero_price_is_parked_and_not_best() {
+        use reth_transaction_pool::{
+            BestTransactionsAttributes, BlockInfo, PoolConfig, TransactionOrigin, TransactionPool,
+            TransactionPoolExt,
+            test_utils::{MockTransaction, TestPool, TestPoolBuilder},
+        };
+
+        let pool: TestPool = TestPoolBuilder::default()
+            .with_config(PoolConfig {
+                gasless_enabled: false,
+                minimal_protocol_basefee: 0,
+                ..Default::default()
+            })
+            .into();
+        let base_fee = 100u64;
+        pool.set_block_info(BlockInfo {
+            pending_basefee: base_fee,
+            block_gas_limit: 30_000_000,
+            ..Default::default()
+        });
+
+        let tx = MockTransaction::eip1559().with_max_fee(0).with_priority_fee(0);
+        pool.add_transaction(TransactionOrigin::Local, tx).await.unwrap();
+
+        assert!(pool.pending_transactions().is_empty(), "without gasless, must not be pending");
+        assert_eq!(pool.queued_transactions().len(), 1, "without gasless, 0-price tx is parked");
+        assert_eq!(
+            pool.best_transactions_with_attributes(BestTransactionsAttributes::new(base_fee, None))
+                .count(),
+            0,
+            "without gasless, 0-price tx must not be yielded",
+        );
+    }
+
     /// Minimal contract bytecode returning ABI `(true, 0xffffff)` for any call — approves with a
     /// gas allowance far above the test tx's gas limit. Layout: `mem[0..32]=1` (allowed),
     /// `mem[32..64]=0xffffff` (gasLimit), `return mem[0..64]`.
