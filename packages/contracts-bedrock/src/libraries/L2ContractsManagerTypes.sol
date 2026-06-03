@@ -62,6 +62,7 @@ library L2ContractsManagerTypes {
         FeeVaultConfig l1FeeVault;
         FeeVaultConfig operatorFeeVault;
         LiquidityControllerConfig liquidityController;
+        address gaslessWhitelistOwner;
         bool isCustomGasToken;
         bool isInterop;
     }
@@ -94,5 +95,6 @@ library L2ContractsManagerTypes {
         address liquidityControllerImpl;
         address conditionalDeployerImpl;
         address l2DevFeatureFlagsImpl;
+        address gaslessWhitelistImpl;
     }
 }

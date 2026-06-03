@@ -361,7 +361,8 @@ contract GenerateNUTBundle is Script {
             nativeAssetLiquidityImpl: implementationConfigs["NativeAssetLiquidity"].implementation,
             liquidityControllerImpl: implementationConfigs["LiquidityController"].implementation,
             conditionalDeployerImpl: implementationConfigs["ConditionalDeployer"].implementation,
-            l2DevFeatureFlagsImpl: implementationConfigs["L2DevFeatureFlags"].implementation
+            l2DevFeatureFlagsImpl: implementationConfigs["L2DevFeatureFlags"].implementation,
+            gaslessWhitelistImpl: implementationConfigs["GaslessWhitelist"].implementation
         });
     }
 
@@ -558,6 +559,14 @@ contract GenerateNUTBundle is Script {
             deploymentGasLimit: 315_000,
             implementation: UpgradeUtils.computeCreate2Address(
                 DeployUtils.getCode("L2DevFeatureFlags.sol:L2DevFeatureFlags"), SALT
+            )
+        });
+        implementationConfigs["GaslessWhitelist"] = ImplementationConfig({
+            name: "GaslessWhitelist",
+            artifactPath: "GaslessWhitelist.sol:GaslessWhitelist",
+            deploymentGasLimit: 1_500_000,
+            implementation: UpgradeUtils.computeCreate2Address(
+                DeployUtils.getCode("GaslessWhitelist.sol:GaslessWhitelist"), SALT
             )
         });
     }

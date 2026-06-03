@@ -168,10 +168,6 @@ contract MockOptimismPortal2 is IOptimismPortal2 {
 
     function initialize(ISystemConfig, IAnchorStateRegistry, IETHLockbox) external pure override { }
 
-    function migrateLiquidity() external pure override { }
-
-    function migrateToSharedDisputeGame(IETHLockbox, IAnchorStateRegistry) external pure override { }
-
     function initVersion() external pure override returns (uint8) {
         return 0;
     }
@@ -183,6 +179,10 @@ contract MockOptimismPortal2 is IOptimismPortal2 {
     function minimumGasLimit(uint64) external pure override returns (uint64) {
         return 0;
     }
+
+    function migrateLiquidity() external pure override { }
+
+    function migrateToSharedDisputeGame(IETHLockbox, IAnchorStateRegistry) external pure override { }
 
     function numProofSubmitters(bytes32) external pure override returns (uint256) {
         return 0;

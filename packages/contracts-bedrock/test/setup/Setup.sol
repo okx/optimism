@@ -526,6 +526,7 @@ abstract contract Setup is FeatureFlags {
         labelPredeploy(Predeploys.LIQUIDITY_CONTROLLER);
         labelPredeploy(Predeploys.CONDITIONAL_DEPLOYER);
         labelPredeploy(Predeploys.L2_DEV_FEATURE_FLAGS);
+        labelPredeploy(Predeploys.GASLESS_WHITELIST);
     }
 
     function _labelPreinstalls() internal {

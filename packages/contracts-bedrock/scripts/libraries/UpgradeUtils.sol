@@ -24,11 +24,11 @@ library UpgradeUtils {
     /// @notice The number of implementations deployed in every upgrade.
     ///         Includes:
     ///         - 1 StorageSetter
-    ///         - 17 base predeploys
+    ///         - 18 base predeploys
     ///         - 4 INTEROP predeploys
     ///         - 2 CGT predeploys (NativeAssetLiquidity, LiquidityController)
     ///         - 2 CGT variants (L1BlockCGT, L2ToL1MessagePasserCGT)
-    uint256 internal constant IMPLEMENTATION_COUNT = 26;
+    uint256 internal constant IMPLEMENTATION_COUNT = 27;
 
     /// @notice Gas limits for different types of upgrade transactions.
     /// @param l2cmDeployment Gas for deploying L2ContractsManager
@@ -54,7 +54,7 @@ library UpgradeUtils {
     ///      - 1 L2CM deployment
     ///      - 1 Upgrade Predeploys call
     function getTransactionCount() internal pure returns (uint256 txnCount_) {
-        if (IMPLEMENTATION_COUNT != 26) {
+        if (IMPLEMENTATION_COUNT != 27) {
             revert(
                 "UpgradeUtils: implementation count changed, ensure that the txnCount_ calculation is still correct."
             );
@@ -104,18 +104,19 @@ library UpgradeUtils {
         implementations_[15] = "EAS";
         implementations_[16] = "ConditionalDeployer";
         implementations_[17] = "L2DevFeatureFlags";
+        implementations_[18] = "GaslessWhitelist";
 
         // INTEROP predeploys
-        implementations_[18] = "CrossL2Inbox";
-        implementations_[19] = "L2ToL2CrossDomainMessenger";
-        implementations_[20] = "SuperchainETHBridge";
-        implementations_[21] = "ETHLiquidity";
+        implementations_[19] = "CrossL2Inbox";
+        implementations_[20] = "L2ToL2CrossDomainMessenger";
+        implementations_[21] = "SuperchainETHBridge";
+        implementations_[22] = "ETHLiquidity";
 
         // CGT predeploys
-        implementations_[22] = "L1BlockCGT";
-        implementations_[23] = "L2ToL1MessagePasserCGT";
-        implementations_[24] = "LiquidityController";
-        implementations_[25] = "NativeAssetLiquidity";
+        implementations_[23] = "L1BlockCGT";
+        implementations_[24] = "L2ToL1MessagePasserCGT";
+        implementations_[25] = "LiquidityController";
+        implementations_[26] = "NativeAssetLiquidity";
     }
 
     /// @notice Computes the intrinsic gas cost for a NUT bundle transaction.

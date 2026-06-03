@@ -10,6 +10,7 @@ import { IOptimismMintableERC20Factory } from "interfaces/universal/IOptimismMin
 import { IOptimismMintableERC721Factory } from "interfaces/L2/IOptimismMintableERC721Factory.sol";
 import { IFeeVault } from "interfaces/L2/IFeeVault.sol";
 import { ILiquidityController } from "interfaces/L2/ILiquidityController.sol";
+import { IGaslessWhitelist } from "interfaces/L2/IGaslessWhitelist.sol";
 import { IL2CrossDomainMessenger } from "interfaces/L2/IL2CrossDomainMessenger.sol";
 import { IL2StandardBridge } from "interfaces/L2/IL2StandardBridge.sol";
 import { IL2ERC721Bridge } from "interfaces/L2/IL2ERC721Bridge.sol";
@@ -103,6 +104,8 @@ contract L2ContractsManager is ISemver {
     address internal immutable CONDITIONAL_DEPLOYER_IMPL;
     /// @notice L2DevFeatureFlags implementation.
     address internal immutable L2_DEV_FEATURE_FLAGS_IMPL;
+    /// @notice GaslessWhitelist implementation.
+    address internal immutable GASLESS_WHITELIST_IMPL;
 
     /// @notice Constructor for the L2ContractsManager contract.
     /// @param _implementations The implementation struct containing the new implementation addresses for the L2
@@ -139,6 +142,7 @@ contract L2ContractsManager is ISemver {
         LIQUIDITY_CONTROLLER_IMPL = _implementations.liquidityControllerImpl;
         CONDITIONAL_DEPLOYER_IMPL = _implementations.conditionalDeployerImpl;
         L2_DEV_FEATURE_FLAGS_IMPL = _implementations.l2DevFeatureFlagsImpl;
+        GASLESS_WHITELIST_IMPL = _implementations.gaslessWhitelistImpl;
     }
 
     /// @notice Executes the upgrade for all predeploys.
@@ -243,6 +247,14 @@ contract L2ContractsManager is ISemver {
                 gasPayingTokenSymbol: liquidityController.gasPayingTokenSymbol()
             });
         }
+
+        address gaslessWhitelistImpl =
+            IL2ProxyAdmin(Predeploys.PROXY_ADMIN).getProxyImplementation(Predeploys.GASLESS_WHITELIST);
+        if (gaslessWhitelistImpl.code.length == 0) {
+            fullConfig_.gaslessWhitelistOwner = IL2ProxyAdmin(Predeploys.PROXY_ADMIN).owner();
+        } else {
+            fullConfig_.gaslessWhitelistOwner = IGaslessWhitelist(Predeploys.GASLESS_WHITELIST).owner();
+        }
     }
 
     /// @notice Upgrades each of the predeploys to its corresponding new implementation. Applies the appropriate
@@ -322,6 +334,16 @@ contract L2ContractsManager is ISemver {
                 0
             );
         }
+
+        // GaslessWhitelist
+        L2ContractsManagerUtils.upgradeToAndCall(
+            Predeploys.GASLESS_WHITELIST,
+            GASLESS_WHITELIST_IMPL,
+            STORAGE_SETTER_IMPL,
+            abi.encodeCall(IGaslessWhitelist.initialize, (_config.gaslessWhitelistOwner)),
+            INITIALIZABLE_SLOT_OZ_V4,
+            0
+        );
 
         // SequencerFeeVault
         L2ContractsManagerUtils.upgradeToAndCall(
@@ -477,5 +499,6 @@ contract L2ContractsManager is ISemver {
         implementations_.liquidityControllerImpl = LIQUIDITY_CONTROLLER_IMPL;
         implementations_.conditionalDeployerImpl = CONDITIONAL_DEPLOYER_IMPL;
         implementations_.l2DevFeatureFlagsImpl = L2_DEV_FEATURE_FLAGS_IMPL;
+        implementations_.gaslessWhitelistImpl = GASLESS_WHITELIST_IMPL;
     }
 }

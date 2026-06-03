@@ -30,6 +30,7 @@ import { IL1Block } from "interfaces/L2/IL1Block.sol";
 import { ILiquidityController } from "interfaces/L2/ILiquidityController.sol";
 import { IL1BlockCGT } from "interfaces/L2/IL1BlockCGT.sol";
 import { IL2DevFeatureFlags } from "interfaces/L2/IL2DevFeatureFlags.sol";
+import { IGaslessWhitelist } from "interfaces/L2/IGaslessWhitelist.sol";
 import { IFeeVault } from "interfaces/L2/IFeeVault.sol";
 import { DevFeatures } from "src/libraries/DevFeatures.sol";
 import { Features } from "src/libraries/Features.sol";
@@ -271,6 +272,7 @@ contract L2Genesis is Script {
         setSchemaRegistry(); // 20
         setEAS(); // 21
         setGovernanceToken(_input); // 42: OP (not behind a proxy)
+        setGaslessWhitelist(_input); // 12E
         if (
             _input.fork >= uint256(Fork.INTEROP) && _input.useInterop
                 && DevFeatures.isDevFeatureEnabled(_input.devFeatureBitmap, DevFeatures.OPTIMISM_PORTAL_INTEROP)
@@ -575,6 +577,18 @@ contract L2Genesis is Script {
     /// @notice This predeploy is following the safety invariant #1.
     function setConditionalDeployer() internal {
         _setImplementationCode(Predeploys.CONDITIONAL_DEPLOYER);
+    }
+
+    /// @notice This predeploy is following the safety invariant #1.
+    ///         The initial owner is set to opChainProxyAdminOwner so the chain operator can
+    ///         transfer it to a dedicated gasless-whitelist admin later. The gasless flag is
+    ///         disabled at genesis and must be explicitly enabled by the owner.
+    function setGaslessWhitelist(Input memory _input) internal {
+        address impl = _setImplementationCode(Predeploys.GASLESS_WHITELIST);
+
+        IGaslessWhitelist(impl).initialize({ _owner: address(0) });
+
+        IGaslessWhitelist(Predeploys.GASLESS_WHITELIST).initialize({ _owner: _input.opChainProxyAdminOwner });
     }
 
     /// @notice Sets up the L2DevFeatureFlags predeploy with the development feature bitmap.

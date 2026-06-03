@@ -43,11 +43,14 @@ import { SuperchainETHBridge } from "src/L2/SuperchainETHBridge.sol";
 import { ETHLiquidity } from "src/L2/ETHLiquidity.sol";
 import { NativeAssetLiquidity } from "src/L2/NativeAssetLiquidity.sol";
 import { LiquidityController } from "src/L2/LiquidityController.sol";
+import { GaslessWhitelist } from "src/L2/GaslessWhitelist.sol";
 
 /// @title L2ContractsManager_FunctionsExposer_Harness
 /// @notice Harness contract that exposes internal functions for testing.
 contract L2ContractsManager_FunctionsExposer_Harness is L2ContractsManager {
-    constructor(L2ContractsManagerTypes.Implementations memory _implementations) L2ContractsManager(_implementations) { }
+    constructor(L2ContractsManagerTypes.Implementations memory _implementations)
+        L2ContractsManager(_implementations)
+    { }
 
     /// @notice Returns the full configuration for the L2 predeploys.
     function loadFullConfig() external view returns (L2ContractsManagerTypes.FullConfig memory) {
@@ -93,6 +96,7 @@ contract L2ContractsManager_Upgrade_Test is CommonTest {
         address nativeAssetLiquidityImpl;
         address liquidityControllerImpl;
         address l2DevFeatureFlagsImpl;
+        address gaslessWhitelistImpl;
         // Config values, take advantage of the harness to capture the config values
         L2ContractsManagerTypes.FullConfig config;
     }
@@ -125,6 +129,7 @@ contract L2ContractsManager_Upgrade_Test is CommonTest {
         implementations.ethLiquidityImpl = address(new ETHLiquidity());
         implementations.nativeAssetLiquidityImpl = address(new NativeAssetLiquidity());
         implementations.liquidityControllerImpl = address(new LiquidityController());
+        implementations.gaslessWhitelistImpl = address(new GaslessWhitelist());
 
         // Deploy 0.8.19 contracts using deployCode()
         implementations.schemaRegistryImpl = deployCode("src/vendor/eas/SchemaRegistry.sol:SchemaRegistry");
@@ -189,6 +194,7 @@ contract L2ContractsManager_Upgrade_Test is CommonTest {
         state_.nativeAssetLiquidityImpl = EIP1967Helper.getImplementation(Predeploys.NATIVE_ASSET_LIQUIDITY);
         state_.liquidityControllerImpl = EIP1967Helper.getImplementation(Predeploys.LIQUIDITY_CONTROLLER);
         state_.l2DevFeatureFlagsImpl = EIP1967Helper.getImplementation(Predeploys.L2_DEV_FEATURE_FLAGS);
+        state_.gaslessWhitelistImpl = EIP1967Helper.getImplementation(Predeploys.GASLESS_WHITELIST);
 
         // Capture config values using the harness
         state_.config = l2cm.loadFullConfig();
@@ -241,6 +247,7 @@ contract L2ContractsManager_Upgrade_Test is CommonTest {
         );
         assertEq(_state1.liquidityControllerImpl, _state2.liquidityControllerImpl, "LiquidityController impl mismatch");
         assertEq(_state1.l2DevFeatureFlagsImpl, _state2.l2DevFeatureFlagsImpl, "L2DevFeatureFlags impl mismatch");
+        assertEq(_state1.gaslessWhitelistImpl, _state2.gaslessWhitelistImpl, "GaslessWhitelist impl mismatch");
 
         // Assert config values are equal
         assertEq(
@@ -542,9 +549,10 @@ contract L2ContractsManager_Upgrade_Test is CommonTest {
     function _requiresInitialization(address _predeploy) internal pure returns (bool) {
         return _predeploy == Predeploys.L2_CROSS_DOMAIN_MESSENGER || _predeploy == Predeploys.L2_STANDARD_BRIDGE
             || _predeploy == Predeploys.L2_ERC721_BRIDGE || _predeploy == Predeploys.OPTIMISM_MINTABLE_ERC20_FACTORY
-            || _predeploy == Predeploys.OPTIMISM_MINTABLE_ERC721_FACTORY || _predeploy == Predeploys.SEQUENCER_FEE_WALLET
-            || _predeploy == Predeploys.BASE_FEE_VAULT || _predeploy == Predeploys.L1_FEE_VAULT
-            || _predeploy == Predeploys.OPERATOR_FEE_VAULT || _predeploy == Predeploys.LIQUIDITY_CONTROLLER;
+            || _predeploy == Predeploys.OPTIMISM_MINTABLE_ERC721_FACTORY
+            || _predeploy == Predeploys.SEQUENCER_FEE_WALLET || _predeploy == Predeploys.BASE_FEE_VAULT
+            || _predeploy == Predeploys.L1_FEE_VAULT || _predeploy == Predeploys.OPERATOR_FEE_VAULT
+            || _predeploy == Predeploys.LIQUIDITY_CONTROLLER || _predeploy == Predeploys.GASLESS_WHITELIST;
     }
 
     /// @notice Checks if a predeploy is deployed and upgradeable.
@@ -858,6 +866,7 @@ contract L2ContractsManager_GetImplementations_Test is L2ContractsManager_Upgrad
             result.conditionalDeployerImpl, implementations.conditionalDeployerImpl, "conditionalDeployerImpl mismatch"
         );
         assertEq(result.l2DevFeatureFlagsImpl, implementations.l2DevFeatureFlagsImpl, "l2DevFeatureFlagsImpl mismatch");
+        assertEq(result.gaslessWhitelistImpl, implementations.gaslessWhitelistImpl, "gaslessWhitelistImpl mismatch");
     }
 
     /// @notice Tests that no field in getImplementations() is left uninitialized
@@ -891,6 +900,7 @@ contract L2ContractsManager_GetImplementations_Test is L2ContractsManager_Upgrad
         assertTrue(result.liquidityControllerImpl != address(0), "liquidityControllerImpl is zero");
         assertTrue(result.conditionalDeployerImpl != address(0), "conditionalDeployerImpl is zero");
         assertTrue(result.l2DevFeatureFlagsImpl != address(0), "l2DevFeatureFlagsImpl is zero");
+        assertTrue(result.gaslessWhitelistImpl != address(0), "gaslessWhitelistImpl is zero");
     }
 }
 
@@ -1205,6 +1215,7 @@ contract L2ContractsManager_Upgrade_Atomicity_Test is L2ContractsManager_Upgrade
         if (_predeploy == Predeploys.L1_FEE_VAULT) return implementations.l1FeeVaultImpl;
         if (_predeploy == Predeploys.OPERATOR_FEE_VAULT) return implementations.operatorFeeVaultImpl;
         if (_predeploy == Predeploys.LIQUIDITY_CONTROLLER) return implementations.liquidityControllerImpl;
+        if (_predeploy == Predeploys.GASLESS_WHITELIST) return implementations.gaslessWhitelistImpl;
 
         // Non-initializable predeploys (upgradeTo path).
         if (_predeploy == Predeploys.GAS_PRICE_ORACLE) return implementations.gasPriceOracleImpl;
