@@ -43,8 +43,8 @@ pub struct RollupArgs {
     /// When enabled, transactions with a zero gas price (legacy `gas_price == 0`, or EIP-1559
     /// `max_fee_per_gas == 0 && max_priority_fee_per_gas == 0`) are accepted into the pool: the
     /// node-wide minimum protocol base-fee floor is lowered to 0 so these txs pass pool insertion.
-    #[arg(long = "rollup.enable-gasless", default_value = "false")]
-    pub enable_gasless: bool,
+    #[arg(long = "rollup.allow-gasless", default_value = "false")]
+    pub allow_gasless: bool,
 
     /// Percentile of the previous block's transaction gas prices used as the mock gas price
     /// assigned to gasless transactions for pool ordering. Accepts a fraction in `0.0..=1.0`
@@ -177,7 +177,7 @@ impl Default for RollupArgs {
             compute_pending_block: false,
             discovery_v4: false,
             enable_tx_conditional: false,
-            enable_gasless: false,
+            allow_gasless: false,
             gasless_mock_gas_price_percentile_bps: 5000,
             supervisor_http: None,
             supervisor_safety_level: SafetyLevel::CrossUnsafe,
@@ -288,15 +288,15 @@ mod xlayer_tests {
     use super::*;
     use clap::{Args, Parser};
     #[test]
-    fn test_parse_optimism_enable_gasless() {
+    fn test_parse_optimism_allow_gasless() {
         let expected_args = RollupArgs {
-            enable_gasless: true,
+            allow_gasless: true,
             gasless_mock_gas_price_percentile_bps: 9000,
             ..Default::default()
         };
         let args = CommandParser::<RollupArgs>::parse_from([
             "reth",
-            "--rollup.enable-gasless",
+            "--rollup.allow-gasless",
             "--rollup.gasless-mock-gas-price-percentile",
             "0.9",
         ])

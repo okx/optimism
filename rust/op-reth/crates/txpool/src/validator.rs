@@ -57,7 +57,7 @@ pub struct OpTransactionValidator<Client, Tx, Evm> {
     fork_tracker: Arc<OpForkTracker>,
     /// When true, zero-priced ("gasless") transactions are admitted only if the on-chain gasless
     /// contract approves them (see `apply_xlayer_gasless_check`).
-    enable_gasless: bool,
+    allow_gasless: bool,
 }
 
 impl<Client, Tx, Evm> OpTransactionValidator<Client, Tx, Evm> {
@@ -131,7 +131,7 @@ where
             require_l1_data_gas_fee: true,
             supervisor_client: None,
             fork_tracker: Arc::new(OpForkTracker { interop: AtomicBool::from(false) }),
-            enable_gasless: false,
+            allow_gasless: false,
         }
     }
 
@@ -143,8 +143,8 @@ where
 
     /// Enables the XLayer gasless admission gate: zero-priced transactions are accepted only when
     /// the on-chain gasless contract approves them.
-    pub const fn with_gasless(mut self, enable_gasless: bool) -> Self {
-        self.enable_gasless = enable_gasless;
+    pub const fn with_gasless(mut self, allow_gasless: bool) -> Self {
+        self.allow_gasless = allow_gasless;
         self
     }
 
@@ -243,7 +243,7 @@ where
         &self,
         outcome: TransactionValidationOutcome<Tx>,
     ) -> TransactionValidationOutcome<Tx> {
-        if !self.enable_gasless {
+        if !self.allow_gasless {
             return outcome;
         }
         let TransactionValidationOutcome::Valid {

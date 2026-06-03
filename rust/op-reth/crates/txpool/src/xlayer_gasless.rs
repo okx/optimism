@@ -280,7 +280,7 @@ mod xlayer_test {
         assert_eq!(ordering.priority(&gasless_tx, 0), Priority::Value(777));
     }
 
-    // Pool-mechanics for gasless (`PoolConfig::gasless_enabled`, served by the forked reth pool):
+    // Pool-mechanics for gasless (`PoolConfig::allow_gasless`, served by the forked reth pool):
     // a zero fee-cap tx is admitted to the *pending* sub-pool and yielded by the best iterator even
     // when the block base fee is > 0, and it stays pending across a base-fee rise. This is what
     // lets whitelisted 0-price txs be built on a chain whose base fee never reaches 0. Black-box:
@@ -295,7 +295,7 @@ mod xlayer_test {
         };
 
         let pool: TestPool = TestPoolBuilder::default()
-            .with_config(PoolConfig { gasless_enabled: true, ..Default::default() })
+            .with_config(PoolConfig { allow_gasless: true, ..Default::default() })
             .into();
         let base_fee = 100u64;
         pool.set_block_info(BlockInfo {
@@ -344,7 +344,7 @@ mod xlayer_test {
         );
     }
 
-    // Control: without `gasless_enabled`, the same 0-price tx (admitted only because the protocol
+    // Control: without `allow_gasless`, the same 0-price tx (admitted only because the protocol
     // floor was lowered to 0 here) is parked in the basefee sub-pool and never yielded — proving
     // the flag is what changes the behavior.
     #[tokio::test]
@@ -357,7 +357,7 @@ mod xlayer_test {
 
         let pool: TestPool = TestPoolBuilder::default()
             .with_config(PoolConfig {
-                gasless_enabled: false,
+                allow_gasless: false,
                 minimal_protocol_basefee: 0,
                 ..Default::default()
             })

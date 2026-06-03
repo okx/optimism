@@ -239,7 +239,7 @@ impl OpNode {
                 OpPoolBuilder::default()
                     .with_enable_tx_conditional(self.args.enable_tx_conditional)
                     .with_gasless(
-                        self.args.enable_gasless,
+                        self.args.allow_gasless,
                         f64::from(self.args.gasless_mock_gas_price_percentile_bps) / 10_000.0,
                     )
                     .with_supervisor(
@@ -1007,7 +1007,7 @@ pub struct OpPoolBuilder<T = crate::txpool::OpPooledTransaction> {
     pub enable_tx_conditional: bool,
     /// Enable gasless transactions in the mempool. When set, the pool's global minimum protocol
     /// base-fee floor is lowered to 0 so zero-gas-price transactions are accepted into the pool.
-    pub enable_gasless: bool,
+    pub allow_gasless: bool,
     /// Percentile (`0.0..=1.0`) of the previous block's transaction gas prices used as the mock
     /// gas price assigned to gasless transactions for pool ordering. Plumbed through for the
     /// gasless ordering (not yet consumed by the default `CoinbaseTipOrdering`).
@@ -1026,7 +1026,7 @@ impl<T> Default for OpPoolBuilder<T> {
         Self {
             pool_config_overrides: Default::default(),
             enable_tx_conditional: false,
-            enable_gasless: false,
+            allow_gasless: false,
             gasless_mock_gas_price_percentile: 0.5,
             supervisor_http: None,
             supervisor_safety_level: SafetyLevel::CrossUnsafe,
@@ -1040,7 +1040,7 @@ impl<T> Clone for OpPoolBuilder<T> {
         Self {
             pool_config_overrides: self.pool_config_overrides.clone(),
             enable_tx_conditional: self.enable_tx_conditional,
-            enable_gasless: self.enable_gasless,
+            allow_gasless: self.allow_gasless,
             gasless_mock_gas_price_percentile: self.gasless_mock_gas_price_percentile,
             supervisor_http: self.supervisor_http.clone(),
             supervisor_safety_level: self.supervisor_safety_level,
@@ -1060,10 +1060,10 @@ impl<T> OpPoolBuilder<T> {
     /// ordering gasless transactions.
     pub const fn with_gasless(
         mut self,
-        enable_gasless: bool,
+        allow_gasless: bool,
         gasless_mock_gas_price_percentile: f64,
     ) -> Self {
-        self.enable_gasless = enable_gasless;
+        self.allow_gasless = allow_gasless;
         self.gasless_mock_gas_price_percentile = gasless_mock_gas_price_percentile;
         self
     }
@@ -1103,17 +1103,17 @@ where
         evm_config: Evm,
     ) -> eyre::Result<Self::Pool> {
         let Self {
-            pool_config_overrides, enable_gasless, gasless_mock_gas_price_percentile, ..
+            pool_config_overrides, allow_gasless, gasless_mock_gas_price_percentile, ..
         } = self;
 
-        // Gasless mempool acceptance/ordering is handled by `PoolConfig::gasless_enabled` (set on
+        // Gasless mempool acceptance/ordering is handled by `PoolConfig::allow_gasless` (set on
         // `final_pool_config` below). When enabled, the (forked) reth pool treats `max_fee == 0`
         // gasless txs as satisfying both the protocol minimum base fee and the per-block base fee,
         // so they enter the pending sub-pool and are yielded by the best-tx iterator. The protocol
         // floor (`MIN_PROTOCOL_BASE_FEE`) is kept for all other fees, so sub-minimum non-zero txs
         // are still rejected. Per-tx admission of zero-priced txs is gated by the validator's
         // on-chain whitelist check (`OpTransactionValidator::with_gasless`).
-        if enable_gasless {
+        if allow_gasless {
             info!(target: "reth::cli", "Gasless mempool enabled");
         }
 
@@ -1156,7 +1156,7 @@ where
                         .require_l1_data_gas_fee(!ctx.config().dev.dev)
                         // Admit zero-priced (gasless) txs only when enabled (on-chain gasless
                         // contract gate applied in the validator).
-                        .with_gasless(enable_gasless);
+                        .with_gasless(allow_gasless);
                     if let Some(client) = supervisor_client.clone() {
                         v.with_supervisor(client)
                     } else {
@@ -1165,7 +1165,7 @@ where
                 });
 
         let final_pool_config =
-            pool_config_overrides.apply(ctx.pool_config()).with_gasless(enable_gasless);
+            pool_config_overrides.apply(ctx.pool_config()).with_gasless(allow_gasless);
 
         // Gasless ordering: zero-priced txs are assigned the shared mock price (recomputed each
         // block by the maintenance task spawned below when gasless is enabled). For all non-gasless
@@ -1198,7 +1198,7 @@ where
 
         // Gasless mock-price maintenance: on each new canonical block, record the gas-price metric
         // and recompute the mock price as the configured percentile of the block's tx gas prices.
-        if enable_gasless {
+        if allow_gasless {
             let chain_events = ctx.provider().canonical_state_stream();
             ctx.task_executor().spawn_critical_task(
                 "Gasless mock-price maintenance task",
