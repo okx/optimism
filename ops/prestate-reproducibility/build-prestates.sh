@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 SCRIPTS_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-# Get the repo root (two levels up from op-program/scripts/)
+# Get the repo root (two levels up from ops/prestate-reproducibility/)
 REPO_ROOT=$(cd "${SCRIPTS_DIR}/../.." && pwd)
 
 TMP_DIR=$(mktemp -d)
@@ -17,8 +17,8 @@ echo "Creating worktree in: ${WORKTREE_DIR}"
 # Create a detached worktree - we'll checkout specific tags in the build functions
 git -C "${REPO_ROOT}" worktree add "${WORKTREE_DIR}" HEAD --detach
 
-STATES_DIR="${SCRIPTS_DIR}/../temp/states"
-LOGS_DIR="${SCRIPTS_DIR}/../temp/logs"
+STATES_DIR="${SCRIPTS_DIR}/temp/states"
+LOGS_DIR="${SCRIPTS_DIR}/temp/logs"
 BIN_DIR="${WORKTREE_DIR}/op-program/bin/"
 VERSIONS_FILE="${STATES_DIR}/versions.json"
 
