@@ -8,7 +8,7 @@ import { CommonTest } from "test/setup/CommonTest.sol";
 import { Predeploys } from "src/libraries/Predeploys.sol";
 
 // Contracts
-import { GaslessWhitelist } from "src/L2/GaslessWhitelist.sol";
+import { GaslessWhitelist } from "src/L2/XlayerGaslessWhitelist.sol";
 
 /// @title GaslessWhitelist_Test
 /// @notice Tests for the GaslessWhitelist predeploy.
