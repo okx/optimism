@@ -2,7 +2,8 @@
 pragma solidity 0.8.28;
 
 import { Script, console2 } from "forge-std/Script.sol";
-import { TransparentUpgradeableProxy } from "@openzeppelin/contracts-v5/proxy/transparent/TransparentUpgradeableProxy.sol";
+import { TransparentUpgradeableProxy } from
+    "@openzeppelin/contracts-v5/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 interface IDeployFactory {
     function deploy(bytes memory initCode, bytes32 salt) external returns (address payable createdContract);
