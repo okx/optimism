@@ -65,6 +65,12 @@ func processFile(path string) (*common.Void, []error) {
 		return nil, nil
 	}
 
+	// Skip files explicitly excluded from test validation (e.g. X Layer tests that follow a
+	// standalone naming style rather than the OP test conventions).
+	if isExcluded(testFilePath) {
+		return nil, nil
+	}
+
 	var errors []error
 
 	// Validate test function naming conventions

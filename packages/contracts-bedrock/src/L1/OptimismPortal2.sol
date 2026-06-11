@@ -17,7 +17,6 @@ import { SecureMerkleTrie } from "src/libraries/trie/SecureMerkleTrie.sol";
 import { AddressAliasHelper } from "src/vendor/AddressAliasHelper.sol";
 import { Claim, GameStatus, GameType, GameTypes } from "src/dispute/lib/Types.sol";
 import { Features } from "src/libraries/Features.sol";
-import { GasPayingToken } from "src/libraries/GasPayingToken.sol";
 
 // Interfaces
 import { ISemver } from "interfaces/universal/ISemver.sol";

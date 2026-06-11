@@ -32,6 +32,10 @@ src_validation = [
     "test/L2/fork/L2ForkUpgrade.t.sol",    # Tests L2 fork upgrade workflow
     "test/L2/L2GenesisForkUpgrade.t.sol",  # Tests L2 genesis fork upgrade workflow
     "test/dispute/zk/ZKDisputeGameIntegration.t.sol", # Integration tests for ZK dispute game lifecycle
+    "test/L2/XlayerGaslessWhitelist.t.sol",        # X Layer test - standalone-style naming conventions
+    "test/L1/DepositedOKBAdapter.xlayer.t.sol",    # X Layer test - standalone-style naming + mock helpers
+    "test/bridgeRevert/L1Bridge.xlayer.t.sol",     # X Layer test - non-standard naming conventions
+    "test/bridgeRevert/L2Bridge.xlayer.t.sol",     # X Layer test - non-standard naming conventions
 ]
 
 # PATHS EXCLUDED FROM CONTRACT NAME FILE PATH VALIDATION:
@@ -98,4 +102,5 @@ contracts = [
     "Constants_Test",                           # Invalid naming pattern - doesn't specify function or Uncategorized
     "LivenessModule2_TestUtils",                # Test utils library in LivenessModule2 test file
     "L1Block_SetCustomGasToken_Test",           # Custom gas token tests hosted in the L1Block test file
+    "GaslessWhitelistTest",                      # X Layer gasless whitelist test (standalone-style naming)
 ]
