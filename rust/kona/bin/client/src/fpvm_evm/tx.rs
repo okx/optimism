@@ -62,6 +62,10 @@ impl OpTxEnv for FpvmOpTx {
     fn encoded_bytes(&self) -> Option<&Bytes> {
         self.0.enveloped_tx.as_ref()
     }
+
+    fn set_gasless(&mut self, is_gasless: bool) {
+        self.0.is_gasless = is_gasless;
+    }
 }
 
 impl revm::context::Transaction for FpvmOpTx {
@@ -165,6 +169,7 @@ macro_rules! impl_from_tx {
                         base,
                         enveloped_tx: Some(encoded),
                         deposit: Default::default(),
+                        is_gasless: false,
                     })
                 }
             }
@@ -193,7 +198,12 @@ impl<T> FromTxWithEncoded<Signed<TxEip4844Variant<T>>> for FpvmOpTx {
 impl<T> FromTxWithEncoded<TxEip4844Variant<T>> for FpvmOpTx {
     fn from_encoded_tx(tx: &TxEip4844Variant<T>, caller: Address, encoded: Bytes) -> Self {
         let base = TxEnv::from_recovered_tx(tx, caller);
-        Self(OpTransaction { base, enveloped_tx: Some(encoded), deposit: Default::default() })
+        Self(OpTransaction {
+            base,
+            enveloped_tx: Some(encoded),
+            deposit: Default::default(),
+            is_gasless: false,
+        })
     }
 }
 
@@ -212,6 +222,6 @@ impl FromTxWithEncoded<TxDeposit> for FpvmOpTx {
             mint: Some(tx.mint),
             is_system_transaction: tx.is_system_transaction,
         };
-        Self(OpTransaction { base, enveloped_tx: Some(encoded), deposit })
+        Self(OpTransaction { base, enveloped_tx: Some(encoded), deposit, is_gasless: false })
     }
 }
