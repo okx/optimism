@@ -23,7 +23,10 @@ alloy-primitives = { workspace = true }
 alloy-op-hardforks.workspace = true
 op-alloy = { workspace = true, features = ["consensus"] }
 
-revm = { workspace = true }
+revm = { workspace = true, features = [
+	"optional_no_base_fee",
+	"optional_fee_charge",
+] }
 op-revm = { workspace = true }
 
 thiserror = { workspace = true }

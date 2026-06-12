@@ -39,8 +39,17 @@ use revm::{
     interpreter::{InterpreterResult, interpreter::EthInterpreter},
 };
 
+pub mod xlayer;
+pub use xlayer::gasless::{
+    GaslessFeeHook, OpFeeCheckState, XLayerGaslessFeeHook, XLayerGaslessFeeHookFactory,
+};
+
 pub mod block;
-pub use block::{OpBlockExecutionCtx, OpBlockExecutor, OpBlockExecutorFactory};
+pub use block::{
+    GaslessContract, OpBlockExecutionCtx, OpBlockExecutor, OpBlockExecutorFactory,
+    XLAYER_DEVNET_GASLESS_CONTRACT, XLAYER_MAINNET_GASLESS_CONTRACT,
+    XLAYER_TESTNET_GASLESS_CONTRACT, xlayer_gasless_contract,
+};
 
 /// OP EVM implementation.
 ///

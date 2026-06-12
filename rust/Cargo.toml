@@ -661,3 +661,10 @@ op-alloy-rpc-types = { path = "op-alloy/crates/rpc-types" }
 op-alloy = { path = "op-alloy/crates/op-alloy" }
 # Duplicated by: alloy-evm (crates.io)
 alloy-op-hardforks = { path = "alloy-op-hardforks/" }
+# XLayer gasless: op-revm/revm with `is_gasless` transaction support and gasless fee
+# handling (refund semantics aligned with okx/optimism po/gasless_v1).
+op-revm = { git = "https://gitlab.okg.com/github/revm.git", rev = "7eb8b219f5dc10d35ec72176932a2f6716549bb2" }
+revm = { git = "https://gitlab.okg.com/github/revm.git", rev = "7eb8b219f5dc10d35ec72176932a2f6716549bb2" }
+# XLayer gasless: alloy-evm 0.27.3 fork initializing `OpTransaction::is_gasless` to false
+# (crates.io 0.27.3 struct literals miss the field added by the op-revm fork above).
+alloy-evm = { git = "https://gitlab.okg.com/github/evm", rev = "0de280055ac2ba413713fa17687e330172e2e309" }
