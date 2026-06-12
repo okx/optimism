@@ -12,8 +12,9 @@ use alloy_evm::{
     block::{BlockExecutionResult, BlockExecutor, BlockExecutorFactory},
 };
 use alloy_op_evm::{
-    OpBlockExecutionCtx, OpBlockExecutorFactory,
+    GaslessContract, OpBlockExecutionCtx, OpBlockExecutorFactory, XLayerGaslessFeeHookFactory,
     block::{OpAlloyReceiptBuilder, OpTxEnv},
+    xlayer_gasless_contract,
 };
 use core::fmt::Debug;
 use kona_genesis::RollupConfig;
@@ -103,7 +104,7 @@ impl<'a, P, H, Evm> StatelessL2Builder<'a, P, H, Evm>
 where
     P: TrieDBProvider + Debug,
     H: TrieHinter + Debug,
-    Evm: EvmFactory<Spec = OpSpecId, BlockEnv = BlockEnv> + 'static,
+    Evm: EvmFactory<Spec = OpSpecId, BlockEnv = BlockEnv> + XLayerGaslessFeeHookFactory + 'static,
     <Evm as EvmFactory>::Tx:
         FromTxWithEncoded<OpTxEnvelope> + FromRecoveredTx<OpTxEnvelope> + OpTxEnv,
 {
@@ -144,6 +145,11 @@ where
             OpAlloyReceiptBuilder::default(),
             config.clone(),
             evm_factory,
+        )
+        .with_gasless_contract(
+            // X Layer chains (195/1952/196) resolve to the on-chain whitelist
+            // contract; every other chain id resolves to None (no-op).
+            xlayer_gasless_contract(config.l2_chain_id.id()).map(GaslessContract::new),
         );
         Self { config, trie_db, factory }
     }
