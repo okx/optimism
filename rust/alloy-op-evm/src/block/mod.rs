@@ -1,7 +1,7 @@
 //! Block executor for Optimism.
 
 use crate::OpEvmFactory;
-use alloc::{borrow::Cow, boxed::Box, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, sync::Arc, vec::Vec};
 use alloy_consensus::{Eip658Value, Header, Transaction, TransactionEnvelope, TxReceipt};
 use alloy_eips::{Encodable2718, Typed2718};
 use alloy_evm::{
@@ -15,12 +15,12 @@ use alloy_evm::{
     eth::{EthTxResult, receipt_builder::ReceiptBuilderCtx},
 };
 use alloy_op_hardforks::{OpChainHardforks, OpHardforks};
-use alloy_primitives::{Address, B256, Bytes};
+use alloy_primitives::{Address, B256, Bytes, Log, U256};
 use canyon::ensure_create2_deployer;
 use op_alloy::consensus::OpDepositReceipt;
 use op_revm::{
     L1BlockInfo, OpTransaction, constants::L1_BLOCK_CONTRACT, estimate_tx_compressed_size,
-    transaction::deposit::DEPOSIT_TRANSACTION_TYPE,
+    transaction::OpTxTr, transaction::deposit::DEPOSIT_TRANSACTION_TYPE,
 };
 pub use receipt_builder::OpAlloyReceiptBuilder;
 use receipt_builder::OpReceiptBuilder;
@@ -28,6 +28,7 @@ use revm::{
     Database as _, DatabaseCommit, Inspector,
     context::{Block, result::ResultAndState},
     database::DatabaseCommitExt,
+    state::{Account, EvmState},
 };
 
 mod canyon;
@@ -38,11 +39,20 @@ pub mod receipt_builder;
 pub trait OpTxEnv {
     /// Returns the encoded bytes of the transaction.
     fn encoded_bytes(&self) -> Option<&Bytes>;
+
+    /// XLayer (XLOP-1100): the deposit mint amount, if this is a deposit carrying a mint.
+    /// Added to the already-bounded `OpTxEnv` trait so the executor can read mint without a
+    /// new generic bound (which would cascade into `OpEvmConfig` and beyond).
+    fn deposit_mint(&self) -> Option<u128>;
 }
 
 impl<T: revm::context::Transaction> OpTxEnv for OpTransaction<T> {
     fn encoded_bytes(&self) -> Option<&Bytes> {
         self.enveloped_tx.as_ref()
+    }
+
+    fn deposit_mint(&self) -> Option<u128> {
+        OpTxTr::mint(self)
     }
 }
 
@@ -66,7 +76,58 @@ pub struct OpTxResult<H, T> {
     pub is_deposit: bool,
     /// The sender of the transaction.
     pub sender: Address,
+    /// XLayer (XLOP-1100): set when a deposit was decided to be included-as-reverted by the
+    /// blacklist hook; carries the data `commit_transaction` needs to apply the revert.
+    pub deposit_revert: Option<DepositRevertData>,
 }
+
+/// XLayer (XLOP-1100): data captured at deposit execution time, needed at commit time to
+/// apply the included-as-reverted post-state (op-revm failed-deposit parity: keep mint,
+/// bump nonce, gasUsed = gasLimit).
+#[derive(Debug, Clone, Copy)]
+pub struct DepositRevertData {
+    /// Deposit mint amount (re-credited to the sender across the revert).
+    pub mint: u128,
+    /// Deposit gas limit (becomes `gasUsed` and the gas charged to the block).
+    pub gas_limit: u64,
+}
+
+/// XLayer (XLOP-1100): downstream decision hook for blacklisting deposit (L1→L2) txs.
+///
+/// Implemented by `xlayer-blacklist-node`; the executor depends only on this trait, never on
+/// the blacklist crate. The decision uses committed effects only — the tx's logs
+/// (Transfer-event check) and the post-execution state diff (native-ETH balance check).
+/// check① (committed CALL-frame touch) is intentionally NOT part of the deposit decision
+/// (cross-client decision B, see `IMPL-blacklist-full-alignment`): the follower validation
+/// EVM cannot mount an inspector, so to keep sequencer/follower byte-identical, deposits are
+/// judged on logs + balance only.
+pub trait DepositBlacklistHook: Send + Sync + core::fmt::Debug {
+    /// Returns true if this deposit must be included-as-reverted, i.e. a committed
+    /// Transfer-class event or a committed native-ETH balance change involves a listed
+    /// address. Exempt senders (system / L1-attributes) MUST be handled by the impl.
+    ///
+    /// `balance_changes` is `(address, balance_before, balance_after)` for every account the
+    /// tx changed (before is the pre-tx committed balance, after is the post-execution / pre-
+    /// commit balance) — the executor reads these from the pre-commit db so the hook can do
+    /// the native-ETH balance check without db access.
+    fn should_intercept_deposit(
+        &self,
+        sender: Address,
+        logs: &[Log],
+        balance_changes: &[(Address, U256, U256)],
+    ) -> bool;
+
+    /// XLayer (XLOP-1100): refresh the block-head blacklist snapshot for the follower face.
+    /// Called once per block from `apply_pre_execution_changes`, before any tx. `static_call`
+    /// performs a read-only system-address call `(to, calldata, gas) -> output`, returning
+    /// `None` on failure (the impl then fails open to an empty list). The impl drives the
+    /// `getBlacklist` pagination and stores the snapshot in its shared runtime context.
+    fn refresh_snapshot(&self, static_call: &mut dyn FnMut(Address, Bytes, u64) -> Option<Bytes>);
+}
+
+/// XLayer (XLOP-1100): system-address caller for the block-head mirror read (0xff..fe).
+const BLACKLIST_SYSTEM_CALLER: Address =
+    alloy_primitives::address!("fffffffffffffffffffffffffffffffffffffffe");
 
 impl<H, T> TxResult for OpTxResult<H, T> {
     type HaltReason = H;
@@ -104,6 +165,9 @@ pub struct OpBlockExecutor<Evm, R: OpReceiptBuilder, Spec> {
     pub is_regolith: bool,
     /// Utility to call system smart contracts.
     pub system_caller: SystemCaller<Spec>,
+    /// XLayer (XLOP-1100): optional blacklist deposit-intercept hook. `None` = no-op (default),
+    /// so this field never changes behaviour for non-XLayer builds.
+    pub blacklist_hook: Option<Arc<dyn DepositBlacklistHook>>,
 }
 
 impl<E, R, Spec> OpBlockExecutor<E, R, Spec>
@@ -125,7 +189,14 @@ where
             gas_used: 0,
             da_footprint_used: 0,
             ctx,
+            blacklist_hook: None,
         }
+    }
+
+    /// XLayer (XLOP-1100): attach the blacklist deposit-intercept hook (builder pattern).
+    pub fn with_blacklist_hook(mut self, hook: Option<Arc<dyn DepositBlacklistHook>>) -> Self {
+        self.blacklist_hook = hook;
+        self
     }
 }
 
@@ -202,6 +273,22 @@ where
     type Result = OpTxResult<E::HaltReason, <R::Transaction as TransactionEnvelope>::TxType>;
 
     fn apply_pre_execution_changes(&mut self) -> Result<(), BlockExecutionError> {
+        // XLayer (XLOP-1100): refresh the block-head blacklist snapshot once per block (before
+        // any tx / pre-execution change), from the executor's pre-state EVM. Follower face
+        // snapshot supply; no-op when no hook is attached.
+        if let Some(hook) = self.blacklist_hook.clone() {
+            let evm = &mut self.evm;
+            hook.refresh_snapshot(&mut |to, input, _gas| {
+                match evm.transact_system_call(BLACKLIST_SYSTEM_CALLER, to, input) {
+                    Ok(ResultAndState {
+                        result: revm::context::result::ExecutionResult::Success { output, .. },
+                        ..
+                    }) => Some(output.into_data()),
+                    _ => None,
+                }
+            });
+        }
+
         self.system_caller.apply_blockhashes_contract_call(self.ctx.parent_hash, &mut self.evm)?;
         self.system_caller
             .apply_beacon_root_contract_call(self.ctx.parent_beacon_block_root, &mut self.evm)?;
@@ -261,11 +348,53 @@ where
             0
         };
 
+        // XLayer (XLOP-1100): capture the deposit mint before the tx_env is consumed; needed
+        // by the included-as-reverted apply at commit time.
+        let deposit_mint = is_deposit.then(|| tx_env.deposit_mint().unwrap_or_default());
+        let deposit_gas_limit = tx.tx().gas_limit();
+
         // Execute transaction and return the result
         let result = self.evm.transact(tx_env).map_err(|err| {
             let hash = tx.tx().trie_hash();
             BlockExecutionError::evm(err, hash)
         })?;
+
+        // XLayer (XLOP-1100): on the deposit path, ask the blacklist hook (logs + balance
+        // changes) whether this deposit must be included-as-reverted. check① is intentionally
+        // excluded for deposits (decision B). No hook / non-deposit → never intercept.
+        let deposit_revert = match (self.blacklist_hook.clone(), is_deposit) {
+            (Some(hook), true) => {
+                // Pre-tx committed balance for each account this tx changed (db is pre-commit).
+                let balance_changes: Vec<(Address, U256, U256)> = result
+                    .state
+                    .iter()
+                    .map(|(addr, acct)| {
+                        let before = self
+                            .evm
+                            .db_mut()
+                            .basic(*addr)
+                            .ok()
+                            .flatten()
+                            .map(|i| i.balance)
+                            .unwrap_or_default();
+                        (*addr, before, acct.info.balance)
+                    })
+                    .collect();
+                if hook.should_intercept_deposit(
+                    *tx.signer(),
+                    result.result.logs(),
+                    &balance_changes,
+                ) {
+                    Some(DepositRevertData {
+                        mint: deposit_mint.unwrap_or_default(),
+                        gas_limit: deposit_gas_limit,
+                    })
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
 
         Ok(OpTxResult {
             inner: EthTxResult {
@@ -275,6 +404,7 @@ where
             },
             is_deposit,
             sender: *tx.signer(),
+            deposit_revert,
         })
     }
 
@@ -286,6 +416,7 @@ where
             inner: EthTxResult { result: ResultAndState { result, state }, blob_gas_used, tx_type },
             is_deposit,
             sender,
+            deposit_revert,
         } = output;
 
         // Fetch the depositor account from the database for the deposit nonce.
@@ -296,6 +427,44 @@ where
             .then(|| self.evm.db_mut().basic(sender).map(|acc| acc.unwrap_or_default()))
             .transpose()
             .map_err(BlockExecutionError::other)?;
+
+        // XLayer (XLOP-1100): included-as-reverted for a blacklisted deposit. Discard the
+        // execution effects (do NOT commit `state`); reproduce op-revm's failed-deposit
+        // post-state — keep the mint, bump the sender nonce, status=0, gasUsed=gasLimit, empty
+        // logs, DepositNonce = pre-exec nonce N. Byte-identical with the builder face (Step 3).
+        if let Some(rev) = deposit_revert {
+            let pre = depositor.unwrap_or_default();
+            let mut info = pre.clone();
+            info.nonce = pre.nonce.saturating_add(1);
+            info.balance = pre.balance.saturating_add(U256::from(rev.mint));
+            let mut account = Account { info, ..Default::default() };
+            account.mark_touch();
+            let mut revert_state = EvmState::default();
+            revert_state.insert(sender, account);
+
+            // Fire the state hook with the reverted state (trie/consensus path consistency).
+            self.system_caller
+                .on_state(StateChangeSource::Transaction(self.receipts.len()), &revert_state);
+
+            // Full gasLimit charged to the block (op-geth ChargeUsed parity).
+            self.gas_used += rev.gas_limit;
+
+            let receipt = alloy_consensus::Receipt {
+                status: Eip658Value::Eip658(false),
+                cumulative_gas_used: self.gas_used,
+                logs: Vec::new(),
+            };
+            self.receipts.push(self.receipt_builder.build_deposit_receipt(OpDepositReceipt {
+                inner: receipt,
+                deposit_nonce: Some(pre.nonce),
+                deposit_receipt_version: self
+                    .spec
+                    .is_canyon_active_at_timestamp(self.evm.block().timestamp().saturating_to())
+                    .then_some(1),
+            }));
+            self.evm.db_mut().commit(revert_state);
+            return Ok(GasOutput::new(rev.gas_limit));
+        }
 
         self.system_caller.on_state(StateChangeSource::Transaction(self.receipts.len()), &state);
 
@@ -405,7 +574,9 @@ where
 }
 
 /// Ethereum block executor factory.
-#[derive(Debug, Clone, Default, Copy)]
+// `Copy` removed: the optional `blacklist_hook: Option<Arc<dyn DepositBlacklistHook>>` field
+// (XLOP-1100) is `Clone` but not `Copy`.
+#[derive(Debug, Clone, Default)]
 pub struct OpBlockExecutorFactory<
     R = OpAlloyReceiptBuilder,
     Spec = OpChainHardforks,
@@ -417,13 +588,22 @@ pub struct OpBlockExecutorFactory<
     spec: Spec,
     /// EVM factory.
     evm_factory: EvmFactory,
+    /// XLayer (XLOP-1100): optional blacklist deposit-intercept hook, cloned into every
+    /// executor produced by this factory. `None` = no-op (default).
+    blacklist_hook: Option<Arc<dyn DepositBlacklistHook>>,
 }
 
 impl<R, Spec, EvmFactory> OpBlockExecutorFactory<R, Spec, EvmFactory> {
     /// Creates a new [`OpBlockExecutorFactory`] with the given spec, [`EvmFactory`], and
     /// [`OpReceiptBuilder`].
     pub const fn new(receipt_builder: R, spec: Spec, evm_factory: EvmFactory) -> Self {
-        Self { receipt_builder, spec, evm_factory }
+        Self { receipt_builder, spec, evm_factory, blacklist_hook: None }
+    }
+
+    /// XLayer (XLOP-1100): attach the blacklist deposit-intercept hook (builder pattern).
+    pub fn with_blacklist_hook(mut self, hook: Option<Arc<dyn DepositBlacklistHook>>) -> Self {
+        self.blacklist_hook = hook;
+        self
     }
 
     /// Exposes the receipt builder.
@@ -470,6 +650,7 @@ where
         I: Inspector<EvmF::Context<DB>> + 'a,
     {
         OpBlockExecutor::new(evm, ctx, &self.spec, &self.receipt_builder)
+            .with_blacklist_hook(self.blacklist_hook.clone())
     }
 }
 

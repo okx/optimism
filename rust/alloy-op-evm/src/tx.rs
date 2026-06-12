@@ -59,6 +59,10 @@ impl OpTxEnv for OpTx {
     fn encoded_bytes(&self) -> Option<&Bytes> {
         self.0.enveloped_tx.as_ref()
     }
+
+    fn deposit_mint(&self) -> Option<u128> {
+        op_revm::transaction::OpTxTr::mint(&self.0)
+    }
 }
 
 impl revm::context::Transaction for OpTx {
