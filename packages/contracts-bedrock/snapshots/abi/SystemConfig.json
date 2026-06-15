@@ -279,6 +279,50 @@
   },
   {
     "inputs": [],
+    "name": "gasPayingToken",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "address_",
+        "type": "address"
+      },
+      {
+        "internalType": "uint8",
+        "name": "decimals_",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "gasPayingTokenName",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "name_",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "gasPayingTokenSymbol",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "symbol_",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "getAddresses",
     "outputs": [
       {
@@ -943,6 +987,34 @@
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "_token",
+        "type": "address"
+      },
+      {
+        "internalType": "uint8",
+        "name": "_decimals",
+        "type": "uint8"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "_name",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "_symbol",
+        "type": "bytes32"
+      }
+    ],
+    "name": "setGasPayingToken",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint64",
         "name": "_minBaseFee",
         "type": "uint64"
@@ -1163,6 +1235,11 @@
   {
     "inputs": [],
     "name": "SystemConfig_InvalidFeatureState",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "SystemConfig_ValueAlreadySet",
     "type": "error"
   }
 ]

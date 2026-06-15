@@ -3,7 +3,6 @@ pragma solidity 0.8.15;
 
 // Testing
 import { CommonTest } from "test/setup/CommonTest.sol";
-import { Test } from "forge-std/Test.sol";
 
 // Contracts
 import { DepositedOKBAdapter } from "src/L1/DepositedOKBAdapter.sol";
