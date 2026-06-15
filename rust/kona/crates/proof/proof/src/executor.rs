@@ -3,7 +3,7 @@
 use alloc::boxed::Box;
 use alloy_consensus::{Header, Sealed};
 use alloy_evm::{EvmFactory, FromRecoveredTx, FromTxWithEncoded, revm::context::BlockEnv};
-use alloy_op_evm::block::OpTxEnv;
+use alloy_op_evm::{XLayerGaslessFeeHookFactory, block::OpTxEnv};
 use alloy_primitives::B256;
 use async_trait::async_trait;
 use core::fmt::Debug;
@@ -21,7 +21,7 @@ pub struct KonaExecutor<'a, P, H, Evm>
 where
     P: TrieDBProvider + Send + Sync + Clone,
     H: TrieHinter + Send + Sync + Clone,
-    Evm: EvmFactory + Send + Sync + Clone,
+    Evm: EvmFactory + XLayerGaslessFeeHookFactory + Send + Sync + Clone,
 {
     /// The rollup config for the executor.
     rollup_config: &'a RollupConfig,
@@ -39,7 +39,7 @@ impl<'a, P, H, Evm> KonaExecutor<'a, P, H, Evm>
 where
     P: TrieDBProvider + Send + Sync + Clone,
     H: TrieHinter + Send + Sync + Clone,
-    Evm: EvmFactory + Send + Sync + Clone,
+    Evm: EvmFactory + XLayerGaslessFeeHookFactory + Send + Sync + Clone,
 {
     /// Creates a new executor.
     pub const fn new(
@@ -58,7 +58,7 @@ impl<P, H, Evm> Executor for KonaExecutor<'_, P, H, Evm>
 where
     P: TrieDBProvider + Debug + Send + Sync + Clone,
     H: TrieHinter + Debug + Send + Sync + Clone,
-    Evm: EvmFactory<Spec = OpSpecId, BlockEnv = BlockEnv> + Send + Sync + Clone + 'static,
+    Evm: EvmFactory<Spec = OpSpecId, BlockEnv = BlockEnv> + XLayerGaslessFeeHookFactory + Send + Sync + Clone + 'static,
     <Evm as EvmFactory>::Tx:
         FromTxWithEncoded<OpTxEnvelope> + FromRecoveredTx<OpTxEnvelope> + OpTxEnv,
 {

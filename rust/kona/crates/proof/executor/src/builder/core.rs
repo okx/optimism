@@ -12,7 +12,7 @@ use alloy_evm::{
     block::{BlockExecutionResult, BlockExecutor, BlockExecutorFactory},
 };
 use alloy_op_evm::{
-    OpBlockExecutionCtx, OpBlockExecutorFactory,
+    OpBlockExecutionCtx, OpBlockExecutorFactory, XLayerGaslessFeeHookFactory,
     block::{OpAlloyReceiptBuilder, OpTxEnv},
 };
 use core::fmt::Debug;
@@ -77,7 +77,7 @@ pub struct StatelessL2Builder<'a, P, H, Evm>
 where
     P: TrieDBProvider,
     H: TrieHinter,
-    Evm: EvmFactory,
+    Evm: EvmFactory + XLayerGaslessFeeHookFactory,
 {
     /// The rollup configuration containing chain parameters and activation heights.
     ///
@@ -103,7 +103,7 @@ impl<'a, P, H, Evm> StatelessL2Builder<'a, P, H, Evm>
 where
     P: TrieDBProvider + Debug,
     H: TrieHinter + Debug,
-    Evm: EvmFactory<Spec = OpSpecId, BlockEnv = BlockEnv> + 'static,
+    Evm: EvmFactory<Spec = OpSpecId, BlockEnv = BlockEnv> + XLayerGaslessFeeHookFactory + 'static,
     <Evm as EvmFactory>::Tx:
         FromTxWithEncoded<OpTxEnvelope> + FromRecoveredTx<OpTxEnvelope> + OpTxEnv,
 {
