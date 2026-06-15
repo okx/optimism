@@ -25,5 +25,8 @@ pub use errors::{
 
 pub(crate) mod util;
 
+mod xlayer;
+pub use xlayer::XLayerEvmFactory;
+
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;

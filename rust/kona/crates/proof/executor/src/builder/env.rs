@@ -10,7 +10,7 @@ use crate::{
 use alloy_consensus::{BlockHeader, Header};
 use alloy_eips::{calc_next_block_base_fee, eip1559::BaseFeeParams, eip7840::BlobParams};
 use alloy_evm::{EvmEnv, EvmFactory};
-use alloy_op_evm::XLayerGaslessFeeHookFactory;
+use crate::XLayerEvmFactory;
 use alloy_primitives::U256;
 use kona_genesis::RollupConfig;
 use kona_mpt::TrieHinter;
@@ -28,7 +28,7 @@ impl<P, H, Evm> StatelessL2Builder<'_, P, H, Evm>
 where
     P: TrieDBProvider,
     H: TrieHinter,
-    Evm: EvmFactory + XLayerGaslessFeeHookFactory,
+    Evm: XLayerEvmFactory,
 {
     /// Returns the active [`EvmEnv`] for the executor.
     pub(crate) fn evm_env(

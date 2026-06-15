@@ -4,7 +4,7 @@
 //! for OP Stack L2 chains that operates in a stateless manner, pulling required state
 //! data from a [`TrieDB`] during execution rather than maintaining full state.
 
-use crate::{ExecutorError, ExecutorResult, TrieDB, TrieDBError, TrieDBProvider};
+use crate::{ExecutorError, ExecutorResult, TrieDB, TrieDBError, TrieDBProvider, XLayerEvmFactory};
 use alloc::{string::ToString, vec::Vec};
 use alloy_consensus::{Header, Sealed, crypto::RecoveryError};
 use alloy_evm::{
@@ -12,7 +12,7 @@ use alloy_evm::{
     block::{BlockExecutionResult, BlockExecutor, BlockExecutorFactory},
 };
 use alloy_op_evm::{
-    OpBlockExecutionCtx, OpBlockExecutorFactory, XLayerGaslessFeeHookFactory,
+    OpBlockExecutionCtx, OpBlockExecutorFactory,
     block::{OpAlloyReceiptBuilder, OpTxEnv},
 };
 use core::fmt::Debug;
@@ -77,7 +77,7 @@ pub struct StatelessL2Builder<'a, P, H, Evm>
 where
     P: TrieDBProvider,
     H: TrieHinter,
-    Evm: EvmFactory + XLayerGaslessFeeHookFactory,
+    Evm: XLayerEvmFactory,
 {
     /// The rollup configuration containing chain parameters and activation heights.
     ///
@@ -103,7 +103,7 @@ impl<'a, P, H, Evm> StatelessL2Builder<'a, P, H, Evm>
 where
     P: TrieDBProvider + Debug,
     H: TrieHinter + Debug,
-    Evm: EvmFactory<Spec = OpSpecId, BlockEnv = BlockEnv> + XLayerGaslessFeeHookFactory + 'static,
+    Evm: XLayerEvmFactory + EvmFactory<Spec = OpSpecId, BlockEnv = BlockEnv> + 'static,
     <Evm as EvmFactory>::Tx:
         FromTxWithEncoded<OpTxEnvelope> + FromRecoveredTx<OpTxEnvelope> + OpTxEnv,
 {

@@ -9,7 +9,7 @@ use alloc::vec::Vec;
 use alloy_consensus::{EMPTY_OMMER_ROOT_HASH, Header, Sealed};
 use alloy_eips::{Encodable2718, eip7685::EMPTY_REQUESTS_HASH};
 use alloy_evm::{EvmFactory, block::BlockExecutionResult};
-use alloy_op_evm::XLayerGaslessFeeHookFactory;
+use crate::XLayerEvmFactory;
 use alloy_primitives::{B256, Sealable, U256, logs_bloom};
 use alloy_trie::EMPTY_ROOT_HASH;
 use kona_genesis::RollupConfig;
@@ -23,7 +23,7 @@ impl<P, H, Evm> StatelessL2Builder<'_, P, H, Evm>
 where
     P: TrieDBProvider,
     H: TrieHinter,
-    Evm: EvmFactory + XLayerGaslessFeeHookFactory,
+    Evm: XLayerEvmFactory,
 {
     /// Seals the block executed from the given [`OpPayloadAttributes`] and [`BlockEnv`], returning
     /// the computed [Header].

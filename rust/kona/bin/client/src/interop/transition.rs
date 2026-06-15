@@ -5,7 +5,8 @@ use crate::interop::util::fetch_l2_safe_head_hash;
 use alloc::{boxed::Box, sync::Arc};
 use alloy_consensus::Sealed;
 use alloy_evm::{EvmFactory, FromRecoveredTx, FromTxWithEncoded};
-use alloy_op_evm::{block::OpTxEnv, XLayerGaslessFeeHookFactory};
+use alloy_op_evm::block::OpTxEnv;
+use kona_executor::XLayerEvmFactory;
 use alloy_primitives::B256;
 use core::fmt::Debug;
 use kona_derive::{EthereumDataSource, PipelineError, PipelineErrorKind};
@@ -35,8 +36,8 @@ pub(crate) async fn sub_transition<P, H, Evm>(
 where
     P: PreimageOracleClient + Send + Sync + Debug + Clone,
     H: HintWriterClient + Send + Sync + Debug + Clone,
-    Evm: EvmFactory<Spec = OpSpecId, BlockEnv = BlockEnv>
-        + XLayerGaslessFeeHookFactory
+    Evm: XLayerEvmFactory
+        + EvmFactory<Spec = OpSpecId, BlockEnv = BlockEnv>
         + Send
         + Sync
         + Debug

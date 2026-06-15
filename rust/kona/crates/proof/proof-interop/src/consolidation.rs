@@ -4,7 +4,8 @@ use crate::{BootInfo, OptimisticBlock, OracleInteropProvider, PreState};
 use alloc::{collections::BTreeSet, vec::Vec};
 use alloy_consensus::{Header, Sealed};
 use alloy_evm::{EvmFactory, FromRecoveredTx, FromTxWithEncoded};
-use alloy_op_evm::{block::OpTxEnv, XLayerGaslessFeeHookFactory};
+use alloy_op_evm::block::OpTxEnv;
+use kona_executor::XLayerEvmFactory;
 use alloy_primitives::Sealable;
 use alloy_rpc_types_engine::PayloadAttributes;
 use core::fmt::Debug;
@@ -46,8 +47,8 @@ where
 impl<'a, C, Evm> SuperchainConsolidator<'a, C, Evm>
 where
     C: CommsClient + Debug + Send + Sync,
-    Evm: EvmFactory<Spec = OpSpecId, BlockEnv = BlockEnv>
-        + XLayerGaslessFeeHookFactory
+    Evm: XLayerEvmFactory
+        + EvmFactory<Spec = OpSpecId, BlockEnv = BlockEnv>
         + Send
         + Sync
         + Debug
