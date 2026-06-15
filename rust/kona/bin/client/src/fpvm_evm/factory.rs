@@ -2,7 +2,7 @@
 
 use super::{precompiles::OpFpvmPrecompiles, tx::FpvmOpTx};
 use alloy_evm::{Database, EvmEnv, EvmFactory};
-use alloy_op_evm::{OpEvm, OpEvmContext, OpTx, OpTxError};
+use alloy_op_evm::{OpEvm, OpEvmContext, OpTx, OpTxError, XLayerGaslessFeeHook, XLayerGaslessFeeHookFactory};
 use kona_preimage::{HintWriterClient, PreimageOracleClient};
 use op_revm::{L1BlockInfo, OpBuilder, OpHaltReason, OpSpecId, OpTransaction};
 use revm::{
@@ -102,4 +102,12 @@ where
 
         OpEvm::new(revm_evm, true)
     }
+}
+
+impl<H, O> XLayerGaslessFeeHookFactory for FpvmOpEvmFactory<H, O>
+where
+    H: HintWriterClient + Clone + Send + Sync + 'static,
+    O: PreimageOracleClient + Clone + Send + Sync + 'static,
+{
+    type Hook<DB: Database, I: Inspector<Self::Context<DB>>> = XLayerGaslessFeeHook;
 }
