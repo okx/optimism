@@ -24,6 +24,12 @@ var excludeContracts = []string{
 	// EAS
 	"IEAS", "ISchemaResolver", "ISchemaRegistry",
 
+	// X Layer: OZ v5 deps and deploy-script-local helper interfaces (pinned to non-^0.8.0 pragmas)
+	"IERC1967", "ITransparentUpgradeableProxy", "IDeployFactory", "IOwner", "IGaslessWhitelist",
+
+	// X Layer: upstream interface drift from the v1.17.0 sync, deferred (do not edit interfaces/ for now)
+	"ISystemConfig", "IOptimismPortal2", "IOwnable", "IZKDisputeGame",
+
 	// Constructor inheritance differences
 	"IL2ProxyAdmin",
 
@@ -51,6 +57,9 @@ var excludeSourceContracts = []string{
 
 	// FIXME
 	"WETH", "MIPS64",
+
+	// X Layer: feature contracts without dedicated interfaces
+	"GaslessWhitelist", "DepositedOKBAdapter",
 }
 
 type ContractDefinition struct {

@@ -1,26 +1,16 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.15;
+pragma solidity 0.8.28;
 
-// Contracts
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import { ProxyAdminOwnedBase } from "src/universal/ProxyAdminOwnedBase.sol";
-
-// Interfaces
-import { ISemver } from "interfaces/universal/ISemver.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable-v5/proxy/utils/Initializable.sol";
+import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable-v5/access/OwnableUpgradeable.sol";
 
 /// @custom:proxied true
-/// @custom:predeploy 0x4200000000000000000000000000000000000700
-/// @title GaslessWhitelist
+/// @title Gasless Whitelist
 /// @notice Checks whether a target call matches X Layer fixed-contract gasless rules.
-contract GaslessWhitelist is ProxyAdminOwnedBase, ISemver, Initializable, OwnableUpgradeable {
+contract GaslessWhitelist is Initializable, OwnableUpgradeable {
     bytes4 public constant TRANSFER_SELECTOR = 0xa9059cbb;
     bytes4 public constant TRANSFER_FROM_SELECTOR = 0x23b872dd;
     bytes4 public constant APPROVE_SELECTOR = 0x095ea7b3;
-
-    /// @notice Semantic version.
-    /// @custom:semver 1.0.0
-    string public constant version = "1.0.0";
 
     uint256 private constant SELECTOR_LENGTH = 4;
     uint256 private constant DATA_PREFIX_LENGTH = 36;
@@ -52,6 +42,13 @@ contract GaslessWhitelist is ProxyAdminOwnedBase, ISemver, Initializable, Ownabl
         uint64 gasLimit;
     }
 
+    mapping(address => FullyGaslessTarget) public fullyGaslessTargets;
+    mapping(address => GaslessSelectorRule) public gaslessTransferTokens;
+    mapping(address => GaslessSelectorRule) public gaslessTransferFromTokens;
+    mapping(address => mapping(address => ApproveSpenderRule)) public approveSpendersByToken;
+    uint64 public maxGasLimit;
+    bool public gaslessEnabled;
+
     struct ApproveSpenderConfig {
         address token;
         address spender;
@@ -59,35 +56,31 @@ contract GaslessWhitelist is ProxyAdminOwnedBase, ISemver, Initializable, Ownabl
         uint64 gasLimit;
     }
 
-    mapping(address => FullyGaslessTarget) public fullyGaslessTargets;
-    mapping(address => GaslessSelectorRule) public gaslessTransferTokens;
-    mapping(address => GaslessSelectorRule) public gaslessTransferFromTokens;
-    mapping(address => mapping(address => ApproveSpenderRule)) public approveSpendersByToken;
-    bool public gaslessEnabled;
-
     event FullyGaslessTargetSet(address indexed target, bool allowed, uint64 gasLimit);
     event GaslessTransferTokenSet(address indexed token, bool allowed, uint64 gasLimit);
     event GaslessTransferFromTokenSet(address indexed token, bool allowed, uint64 gasLimit);
     event ApproveSpenderSet(address indexed token, address indexed spender, bool allowed, uint64 gasLimit);
     event GaslessEnabledSet(bool enabled);
+    event MaxGasLimitSet(uint64 maxGasLimit);
 
     error ZeroAddress();
     error InvalidGasLimit();
+    error InvalidMaxGasLimit();
+    error GasLimitExceedsMax();
 
     /// @notice Disables initialization on the implementation contract.
     /// @dev The proxy must call {initialize} during deployment.
+    /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
     /// @notice Initializes contract ownership.
-    /// @dev `gaslessEnabled` intentionally remains unchanged, so re-running this initializer
-    ///      during an L2ContractsManager upgrade preserves the current global enable flag.
-    /// @param _owner Account allowed to manage whitelist configuration.
-    function initialize(address _owner) external initializer {
-        _assertOnlyProxyAdminOrProxyAdminOwner();
-        __Ownable_init();
-        _transferOwnership(_owner);
+    /// @dev `gaslessEnabled` intentionally remains false until the owner enables it.
+    /// @param initialOwner Account allowed to manage whitelist configuration.
+    function initialize(address initialOwner) external initializer {
+        __Ownable_init(initialOwner);
+        maxGasLimit = 16_777_216;
     }
 
     /// @notice Returns whether a call is eligible for gasless execution and its gas limit.
@@ -103,19 +96,19 @@ contract GaslessWhitelist is ProxyAdminOwnedBase, ISemver, Initializable, Ownabl
         view
         returns (bool allowed, uint64 gasLimit)
     {
-        if (!gaslessEnabled || to == address(0) || dataPrefix.length < SELECTOR_LENGTH) {
+        if (!gaslessEnabled || maxGasLimit == 0 || to == address(0) || dataPrefix.length < SELECTOR_LENGTH) {
             return (false, 0);
         }
 
         bytes4 selector;
         bytes32 firstParam;
 
-        assembly {
+        assembly ("memory-safe") {
             selector := calldataload(dataPrefix.offset)
         }
 
         if (dataPrefix.length >= DATA_PREFIX_LENGTH) {
-            assembly {
+            assembly ("memory-safe") {
                 firstParam := calldataload(add(dataPrefix.offset, SELECTOR_LENGTH))
             }
         }
@@ -139,7 +132,8 @@ contract GaslessWhitelist is ProxyAdminOwnedBase, ISemver, Initializable, Ownabl
         _setGaslessTransferToken(token, allowed, gasLimit);
     }
 
-    /// @notice Adds or removes a token whose `transferFrom(address,address,uint256)` calls are eligible.
+    /// @notice Adds or removes a token whose `transferFrom(address,address,uint256)` calls are
+    ///         eligible.
     /// @dev Independent from the `transfer` rule and gas limit. Set `gasLimit` to account for the
     ///      extra allowance read/write that `transferFrom` performs over `transfer`.
     /// @param token Token contract address.
@@ -164,6 +158,17 @@ contract GaslessWhitelist is ProxyAdminOwnedBase, ISemver, Initializable, Ownabl
     function setGaslessEnabled(bool enabled) external onlyOwner {
         gaslessEnabled = enabled;
         emit GaslessEnabledSet(enabled);
+    }
+
+    /// @notice Sets the global gas limit cap returned by whitelist rules.
+    /// @dev New rule configurations above the cap are rejected; existing rule returns are capped.
+    /// @param newMaxGasLimit New non-zero maximum gas limit.
+    function setMaxGasLimit(uint64 newMaxGasLimit) external onlyOwner {
+        if (newMaxGasLimit == 0) {
+            revert InvalidMaxGasLimit();
+        }
+        maxGasLimit = newMaxGasLimit;
+        emit MaxGasLimitSet(newMaxGasLimit);
     }
 
     /// @notice Batch adds or removes full-target whitelist entries.
@@ -219,7 +224,7 @@ contract GaslessWhitelist is ProxyAdminOwnedBase, ISemver, Initializable, Ownabl
     {
         FullyGaslessTarget memory fullTargetConfig = fullyGaslessTargets[to];
         if (fullTargetConfig.allowed) {
-            return (true, fullTargetConfig.gasLimit);
+            return (true, _capGasLimit(fullTargetConfig.gasLimit));
         }
 
         if (selector == TRANSFER_SELECTOR) {
@@ -227,7 +232,7 @@ contract GaslessWhitelist is ProxyAdminOwnedBase, ISemver, Initializable, Ownabl
             if (!transferConfig.allowed) {
                 return (false, 0);
             }
-            return (true, transferConfig.gasLimit);
+            return (true, _capGasLimit(transferConfig.gasLimit));
         }
 
         if (selector == TRANSFER_FROM_SELECTOR) {
@@ -235,7 +240,7 @@ contract GaslessWhitelist is ProxyAdminOwnedBase, ISemver, Initializable, Ownabl
             if (!transferFromConfig.allowed) {
                 return (false, 0);
             }
-            return (true, transferFromConfig.gasLimit);
+            return (true, _capGasLimit(transferFromConfig.gasLimit));
         }
 
         if (selector == APPROVE_SELECTOR && hasFirstParam) {
@@ -244,10 +249,16 @@ contract GaslessWhitelist is ProxyAdminOwnedBase, ISemver, Initializable, Ownabl
             if (!approveConfig.allowed) {
                 return (false, 0);
             }
-            return (true, approveConfig.gasLimit);
+            return (true, _capGasLimit(approveConfig.gasLimit));
         }
 
         return (false, 0);
+    }
+
+    /// @dev Applies the current global cap to matched rules.
+    function _capGasLimit(uint64 gasLimit) internal view returns (uint64 cappedGasLimit) {
+        uint64 currentMaxGasLimit = maxGasLimit;
+        return gasLimit > currentMaxGasLimit ? currentMaxGasLimit : gasLimit;
     }
 
     /// @dev Stores one full-target whitelist entry and emits its indexing event.
@@ -292,9 +303,12 @@ contract GaslessWhitelist is ProxyAdminOwnedBase, ISemver, Initializable, Ownabl
 
     /// @dev Reverts if a rule is enabled with a zero gas limit, which would return (true, 0).
     ///      Removals pass `allowed == false` and are exempt.
-    function _validateGasLimit(bool allowed, uint64 gasLimit) internal pure {
+    function _validateGasLimit(bool allowed, uint64 gasLimit) internal view {
         if (allowed && gasLimit == 0) {
             revert InvalidGasLimit();
+        }
+        if (allowed && gasLimit > maxGasLimit) {
+            revert GasLimitExceedsMax();
         }
     }
 }

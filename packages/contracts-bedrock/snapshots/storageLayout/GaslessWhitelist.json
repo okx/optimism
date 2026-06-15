@@ -1,0 +1,44 @@
+[
+  {
+    "bytes": "32",
+    "label": "fullyGaslessTargets",
+    "offset": 0,
+    "slot": "0",
+    "type": "mapping(address => struct GaslessWhitelist.FullyGaslessTarget)"
+  },
+  {
+    "bytes": "32",
+    "label": "gaslessTransferTokens",
+    "offset": 0,
+    "slot": "1",
+    "type": "mapping(address => struct GaslessWhitelist.GaslessSelectorRule)"
+  },
+  {
+    "bytes": "32",
+    "label": "gaslessTransferFromTokens",
+    "offset": 0,
+    "slot": "2",
+    "type": "mapping(address => struct GaslessWhitelist.GaslessSelectorRule)"
+  },
+  {
+    "bytes": "32",
+    "label": "approveSpendersByToken",
+    "offset": 0,
+    "slot": "3",
+    "type": "mapping(address => mapping(address => struct GaslessWhitelist.ApproveSpenderRule))"
+  },
+  {
+    "bytes": "8",
+    "label": "maxGasLimit",
+    "offset": 0,
+    "slot": "4",
+    "type": "uint64"
+  },
+  {
+    "bytes": "1",
+    "label": "gaslessEnabled",
+    "offset": 8,
+    "slot": "4",
+    "type": "bool"
+  }
+]
