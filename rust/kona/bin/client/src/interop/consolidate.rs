@@ -4,7 +4,7 @@ use super::FaultProofProgramError;
 use crate::interop::util::fetch_output_block_hash;
 use alloc::sync::Arc;
 use alloy_evm::{EvmFactory, FromRecoveredTx, FromTxWithEncoded};
-use alloy_op_evm::block::OpTxEnv;
+use alloy_op_evm::{block::OpTxEnv, XLayerGaslessFeeHookFactory};
 use core::fmt::Debug;
 use kona_executor::TrieDBProvider;
 use kona_preimage::{HintWriterClient, PreimageOracleClient};
@@ -33,7 +33,13 @@ pub(crate) async fn consolidate_dependencies<P, H, Evm>(
 where
     P: PreimageOracleClient + Send + Sync + Debug + Clone,
     H: HintWriterClient + Send + Sync + Debug + Clone,
-    Evm: EvmFactory<Spec = OpSpecId, BlockEnv = BlockEnv> + Send + Sync + Debug + Clone + 'static,
+    Evm: EvmFactory<Spec = OpSpecId, BlockEnv = BlockEnv>
+        + XLayerGaslessFeeHookFactory
+        + Send
+        + Sync
+        + Debug
+        + Clone
+        + 'static,
     <Evm as EvmFactory>::Tx:
         FromTxWithEncoded<OpTxEnvelope> + FromRecoveredTx<OpTxEnvelope> + OpTxEnv,
 {
