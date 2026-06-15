@@ -276,6 +276,17 @@ where
         // XLayer (XLOP-1100): refresh the block-head blacklist snapshot once per block (before
         // any tx / pre-execution change), from the executor's pre-state EVM. Follower face
         // snapshot supply; no-op when no hook is attached.
+        //
+        // Gas budget note (consensus-safety, cross-client with op-geth): the hook requests
+        // `PER_PAGE_GAS` (50M, matching op-geth's `blacklistReadGas` and the sequencer's
+        // `view.rs` read), but `transact_system_call` ignores the requested `_gas` and runs
+        // each `getBlacklist` page with revm's fixed system-call budget (30M). This does NOT
+        // diverge from op-geth/sequencer: a single `getBlacklist(start, PAGE_SIZE=1024)` page
+        // costs ~1024 cold SLOADs (~2.15M) + abi/loop overhead (≲5M), an order of magnitude
+        // below 30M. Divergence would require a per-page cost in (30M, 50M] — unreachable
+        // while PAGE_SIZE is capped at 1024 — so all three faces read byte-identical lists.
+        // (Honoring 50M here would mean hand-building the system-call tx, which the generic
+        // `E: Evm` bound cannot construct; not worth it for an unreachable window.)
         if let Some(hook) = self.blacklist_hook.clone() {
             let evm = &mut self.evm;
             hook.refresh_snapshot(&mut |to, input, _gas| {
