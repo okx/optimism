@@ -32,6 +32,7 @@ type rewindTestEnv struct {
 func setupRewindTest(gt *testing.T) *rewindTestEnv {
 	t := helpers.NewDefaultTesting(gt)
 	dp := e2eutils.MakeDeployParams(t, helpers.DefaultRollupTestParams())
+	dp.DeployConfig.ActivateForkAtGenesis(helpers.DefaultFork)
 	sd := e2eutils.Setup(t, dp, helpers.DefaultAlloc)
 	logger := testlog.Logger(t, log.LevelInfo)
 
