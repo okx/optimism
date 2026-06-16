@@ -5,7 +5,7 @@ import { Test } from "forge-std/Test.sol";
 import { TransparentUpgradeableProxy } from
     "@openzeppelin/contracts-v5/proxy/transparent/TransparentUpgradeableProxy.sol";
 import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable-v5/access/OwnableUpgradeable.sol";
-import { GaslessWhitelist } from "src/L2/XlayerGaslessWhitelist.sol";
+import { GaslessWhitelist } from "src/L2/XlayerGaslessWhitelistLatest.sol";
 
 contract GaslessWhitelistTest is Test {
     GaslessWhitelist internal implementation;

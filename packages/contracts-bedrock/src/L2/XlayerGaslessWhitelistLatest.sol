@@ -1,7 +1,4 @@
 // SPDX-License-Identifier: MIT
-//
-// @dev STABLE: this is the pinned implementation for devnet deployment, bound to the predeploy
-//      address 0xA9092BC02e2000a3F8996D1991621E9A03Ef2dfE. Do not modify this file!
 pragma solidity 0.8.28;
 
 import { Initializable } from "@openzeppelin/contracts-upgradeable-v5/proxy/utils/Initializable.sol";
