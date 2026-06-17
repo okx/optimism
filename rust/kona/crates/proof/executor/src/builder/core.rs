@@ -12,7 +12,7 @@ use alloy_evm::{
     block::{BlockExecutionResult, BlockExecutor, BlockExecutorFactory},
 };
 use alloy_op_evm::{
-    OpBlockExecutionCtx, OpBlockExecutorFactory,
+    GaslessContract, OpBlockExecutionCtx, OpBlockExecutorFactory, xlayer_gasless_contract,
     block::{OpAlloyReceiptBuilder, OpTxEnv},
 };
 use core::fmt::Debug;
@@ -140,11 +140,14 @@ where
         parent_header: Sealed<Header>,
     ) -> Self {
         let trie_db = TrieDB::new(parent_header, provider, hinter);
+        let gasless_contract =
+            xlayer_gasless_contract(config.l2_chain_id.id()).map(GaslessContract::new);
         let factory = OpBlockExecutorFactory::new(
             OpAlloyReceiptBuilder::default(),
             config.clone(),
             evm_factory,
-        );
+        )
+        .with_gasless_contract(gasless_contract);
         Self { config, trie_db, factory }
     }
 

@@ -33,7 +33,7 @@ pub const XLAYER_TESTNET_GASLESS_CONTRACT: Address =
 
 /// XLayer devnet (chain id 195) gasless whitelist predeploy address.
 pub const XLAYER_DEVNET_GASLESS_CONTRACT: Address =
-    address!("0x0000000000000000000000000000000000009999");
+    address!("0xA9092BC02e2000a3F8996D1991621E9A03Ef2dfE");
 
 /// Returns the XLayer gasless whitelist predeploy address for the given chain id, or `None` for a
 /// non-XLayer chain (gasless disabled).
