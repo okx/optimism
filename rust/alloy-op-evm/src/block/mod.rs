@@ -19,8 +19,10 @@ use alloy_primitives::{Address, B256, Bytes, Log, U256};
 use canyon::ensure_create2_deployer;
 use op_alloy::consensus::OpDepositReceipt;
 use op_revm::{
-    L1BlockInfo, OpTransaction, constants::L1_BLOCK_CONTRACT, estimate_tx_compressed_size,
-    transaction::OpTxTr, transaction::deposit::DEPOSIT_TRANSACTION_TYPE,
+    L1BlockInfo, OpTransaction,
+    constants::L1_BLOCK_CONTRACT,
+    estimate_tx_compressed_size,
+    transaction::{OpTxTr, deposit::DEPOSIT_TRANSACTION_TYPE},
 };
 pub use receipt_builder::OpAlloyReceiptBuilder;
 use receipt_builder::OpReceiptBuilder;
@@ -86,36 +88,54 @@ pub struct OpTxResult<H, T> {
 /// bump nonce, gasUsed = gasLimit).
 #[derive(Debug, Clone, Copy)]
 pub struct DepositRevertData {
-    /// Deposit mint amount (re-credited to the sender across the revert).
-    pub mint: u128,
-    /// Deposit gas limit (becomes `gasUsed` and the gas charged to the block).
-    pub gas_limit: u64,
+    /// Receipt status — always `false` (0) for an intercepted deposit.
+    pub status: bool,
+    /// Receipt `gasUsed` and the gas charged to the block — full `gasLimit`.
+    pub gas_used: u64,
+    /// `receipt.DepositNonce` — the pre-exec sender nonce `N`.
+    pub deposit_nonce: u64,
+    /// Post-state sender account nonce — `N+1`.
+    pub account_nonce: u64,
+    /// Mint amount re-credited to the sender across the revert.
+    pub keep_mint: u128,
+    /// `receipt.DepositReceiptVersion` — `Some(1)` iff Canyon active at this block, else `None`.
+    pub deposit_receipt_version: Option<u64>,
 }
 
 /// XLayer (XLOP-1100): downstream decision hook for blacklisting deposit (L1→L2) txs.
 ///
-/// Implemented by `xlayer-blacklist-node`; the executor depends only on this trait, never on
+/// Implemented by `xlayer-blacklist`; the executor depends only on this trait, never on
 /// the blacklist crate. The decision uses committed effects only — the tx's logs
 /// (Transfer-event check) and the post-execution state diff (native-ETH balance check).
 /// check① (committed CALL-frame touch) is intentionally NOT part of the deposit decision
-/// (cross-client decision B, see `IMPL-blacklist-full-alignment`): the follower validation
+/// (cross-client decision B): the follower validation
 /// EVM cannot mount an inspector, so to keep sequencer/follower byte-identical, deposits are
 /// judged on logs + balance only.
 pub trait DepositBlacklistHook: Send + Sync + core::fmt::Debug {
-    /// Returns true if this deposit must be included-as-reverted, i.e. a committed
-    /// Transfer-class event or a committed native-ETH balance change involves a listed
-    /// address. Exempt senders (system / L1-attributes) MUST be handled by the impl.
+    /// Decide whether this deposit must be included-as-reverted, returning the full revert
+    /// plan (computed downstream — the single source of truth shared with the builder face)
+    /// or `None` to leave the deposit untouched. A hit is a committed Transfer-class event or
+    /// a committed native-ETH balance change involving a listed address. Exempt senders
+    /// (system / L1-attributes) MUST return `None`. check① (committed CALL touch) is excluded
+    /// (decision B).
     ///
     /// `balance_changes` is `(address, balance_before, balance_after)` for every account the
-    /// tx changed (before is the pre-tx committed balance, after is the post-execution / pre-
-    /// commit balance) — the executor reads these from the pre-commit db so the hook can do
-    /// the native-ETH balance check without db access.
-    fn should_intercept_deposit(
+    /// tx changed (before is the pre-tx committed balance, after is the post-execution /
+    /// pre-commit balance). `pre_nonce` is the sender's pre-exec nonce `N`; `gas_limit` /
+    /// `mint` are the deposit's; `canyon_active` whether Canyon is active at this block — the
+    /// executor supplies these so the plan's receipt/state fields are computed downstream and
+    /// only applied here.
+    #[allow(clippy::too_many_arguments)]
+    fn decide_deposit(
         &self,
         sender: Address,
         logs: &[Log],
         balance_changes: &[(Address, U256, U256)],
-    ) -> bool;
+        pre_nonce: u64,
+        gas_limit: u64,
+        mint: u128,
+        canyon_active: bool,
+    ) -> Option<DepositRevertData>;
 
     /// XLayer (XLOP-1100): refresh the block-head blacklist snapshot for the follower face.
     /// Called once per block from `apply_pre_execution_changes`, before any tx. `static_call`
@@ -289,14 +309,16 @@ where
         // `E: Evm` bound cannot construct; not worth it for an unreachable window.)
         if let Some(hook) = self.blacklist_hook.clone() {
             let evm = &mut self.evm;
-            hook.refresh_snapshot(&mut |to, input, _gas| {
-                match evm.transact_system_call(BLACKLIST_SYSTEM_CALLER, to, input) {
-                    Ok(ResultAndState {
-                        result: revm::context::result::ExecutionResult::Success { output, .. },
-                        ..
-                    }) => Some(output.into_data()),
-                    _ => None,
-                }
+            hook.refresh_snapshot(&mut |to, input, _gas| match evm.transact_system_call(
+                BLACKLIST_SYSTEM_CALLER,
+                to,
+                input,
+            ) {
+                Ok(ResultAndState {
+                    result: revm::context::result::ExecutionResult::Success { output, .. },
+                    ..
+                }) => Some(output.into_data()),
+                _ => None,
             });
         }
 
@@ -391,18 +413,28 @@ where
                         (*addr, before, acct.info.balance)
                     })
                     .collect();
-                if hook.should_intercept_deposit(
+                // Pre-exec sender nonce N (execution state not committed yet) and Canyon
+                // activation — supplied so the plan's fields are computed downstream.
+                let pre_nonce = self
+                    .evm
+                    .db_mut()
+                    .basic(*tx.signer())
+                    .ok()
+                    .flatten()
+                    .map(|i| i.nonce)
+                    .unwrap_or_default();
+                let canyon_active = self
+                    .spec
+                    .is_canyon_active_at_timestamp(self.evm.block().timestamp().saturating_to());
+                hook.decide_deposit(
                     *tx.signer(),
                     result.result.logs(),
                     &balance_changes,
-                ) {
-                    Some(DepositRevertData {
-                        mint: deposit_mint.unwrap_or_default(),
-                        gas_limit: deposit_gas_limit,
-                    })
-                } else {
-                    None
-                }
+                    pre_nonce,
+                    deposit_gas_limit,
+                    deposit_mint.unwrap_or_default(),
+                    canyon_active,
+                )
             }
             _ => None,
         };
@@ -443,11 +475,11 @@ where
         // execution effects (do NOT commit `state`); reproduce op-revm's failed-deposit
         // post-state — keep the mint, bump the sender nonce, status=0, gasUsed=gasLimit, empty
         // logs, DepositNonce = pre-exec nonce N. Byte-identical with the builder face (Step 3).
-        if let Some(rev) = deposit_revert {
+        if let Some(plan) = deposit_revert {
             let pre = depositor.unwrap_or_default();
             let mut info = pre.clone();
-            info.nonce = pre.nonce.saturating_add(1);
-            info.balance = pre.balance.saturating_add(U256::from(rev.mint));
+            info.nonce = plan.account_nonce;
+            info.balance = pre.balance.saturating_add(U256::from(plan.keep_mint));
             let mut account = Account { info, ..Default::default() };
             account.mark_touch();
             let mut revert_state = EvmState::default();
@@ -458,23 +490,20 @@ where
                 .on_state(StateChangeSource::Transaction(self.receipts.len()), &revert_state);
 
             // Full gasLimit charged to the block (op-geth ChargeUsed parity).
-            self.gas_used += rev.gas_limit;
+            self.gas_used += plan.gas_used;
 
             let receipt = alloy_consensus::Receipt {
-                status: Eip658Value::Eip658(false),
+                status: Eip658Value::Eip658(plan.status),
                 cumulative_gas_used: self.gas_used,
                 logs: Vec::new(),
             };
             self.receipts.push(self.receipt_builder.build_deposit_receipt(OpDepositReceipt {
                 inner: receipt,
-                deposit_nonce: Some(pre.nonce),
-                deposit_receipt_version: self
-                    .spec
-                    .is_canyon_active_at_timestamp(self.evm.block().timestamp().saturating_to())
-                    .then_some(1),
+                deposit_nonce: Some(plan.deposit_nonce),
+                deposit_receipt_version: plan.deposit_receipt_version,
             }));
             self.evm.db_mut().commit(revert_state);
-            return Ok(GasOutput::new(rev.gas_limit));
+            return Ok(GasOutput::new(plan.gas_used));
         }
 
         self.system_caller.on_state(StateChangeSource::Transaction(self.receipts.len()), &state);
