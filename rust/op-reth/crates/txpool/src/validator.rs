@@ -11,7 +11,6 @@ use reth_primitives_traits::{
     transaction::error::InvalidTransactionError,
 };
 use reth_storage_api::{AccountInfoReader, BlockReaderIdExt, StateProviderFactory};
-use alloy_primitives::{Address, TxKind};
 use reth_transaction_pool::{
     EthPoolTransaction, EthTransactionValidator, TransactionOrigin, TransactionValidationOutcome,
     TransactionValidator, error::InvalidPoolTransactionError,
@@ -40,39 +39,6 @@ impl OpL1BlockInfo {
     }
 }
 
-/// XLayer (XLOP-1100, FR-1): chain-level blacklist ingress filter. Implemented downstream
-/// (xlayer-blacklist-node); the validator depends only on this trait, never on the blacklist
-/// crate. Returns a fixed reject-reason string if the tx's top-level sender or recipient is
-/// blacklisted. This is a best-effort mempool gate (the execution gate is the safety
-/// backstop), covering both RPC and P2P admissions since all pool txs pass the validator.
-pub trait IngressBlacklistFilter: core::fmt::Debug + Send + Sync {
-    /// The reject reason if `from`/`to` hits the blacklist, else `None`.
-    fn reject_reason(&self, from: Address, to: Option<Address>) -> Option<&'static str>;
-}
-
-/// Error surfaced when the blacklist ingress filter rejects a transaction (FR-1/FR-7).
-#[derive(Debug)]
-pub struct IngressBlacklistedError(pub &'static str);
-
-impl core::fmt::Display for IngressBlacklistedError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(self.0)
-    }
-}
-
-impl core::error::Error for IngressBlacklistedError {}
-
-impl reth_transaction_pool::error::PoolTransactionError for IngressBlacklistedError {
-    fn is_bad_transaction(&self) -> bool {
-        // Blacklisted sender/recipient → a hard validity reject (do not propagate).
-        true
-    }
-
-    fn as_any(&self) -> &dyn core::any::Any {
-        self
-    }
-}
-
 /// Validator for Optimism transactions.
 #[derive(Debug, Clone)]
 pub struct OpTransactionValidator<Client, Tx, Evm> {
@@ -88,9 +54,6 @@ pub struct OpTransactionValidator<Client, Tx, Evm> {
     supervisor_client: Option<SupervisorClient>,
     /// tracks activated forks relevant for transaction validation
     fork_tracker: Arc<OpForkTracker>,
-    /// XLayer (XLOP-1100, FR-1): optional chain-level blacklist ingress filter. `None` = no-op
-    /// (default), so this never changes behaviour for non-XLayer builds.
-    ingress_blacklist: Option<Arc<dyn IngressBlacklistFilter>>,
 }
 
 impl<Client, Tx, Evm> OpTransactionValidator<Client, Tx, Evm> {
@@ -161,22 +124,12 @@ where
             require_l1_data_gas_fee: true,
             supervisor_client: None,
             fork_tracker: Arc::new(OpForkTracker { interop: AtomicBool::from(false) }),
-            ingress_blacklist: None,
         }
     }
 
     /// Set the supervisor client and safety level
     pub fn with_supervisor(mut self, supervisor_client: SupervisorClient) -> Self {
         self.supervisor_client = Some(supervisor_client);
-        self
-    }
-
-    /// XLayer (XLOP-1100, FR-1): attach the chain-level blacklist ingress filter.
-    pub fn with_ingress_blacklist(
-        mut self,
-        filter: Option<Arc<dyn IngressBlacklistFilter>>,
-    ) -> Self {
-        self.ingress_blacklist = filter;
         self
     }
 
@@ -235,23 +188,6 @@ where
                 transaction,
                 InvalidTransactionError::TxTypeNotSupported.into(),
             );
-        }
-
-        // XLayer (XLOP-1100, FR-1): best-effort ingress reject of a blacklisted top-level
-        // sender or recipient. Covers RPC + P2P (all pool txs pass here). The execution gate
-        // is the safety backstop, so a stale snapshot here is not a safety gap. No-op when no
-        // filter is attached.
-        if let Some(filter) = &self.ingress_blacklist {
-            let to = match transaction.kind() {
-                TxKind::Call(addr) => Some(addr),
-                TxKind::Create => None,
-            };
-            if let Some(reason) = filter.reject_reason(transaction.sender(), to) {
-                return TransactionValidationOutcome::Invalid(
-                    transaction,
-                    InvalidPoolTransactionError::Other(Box::new(IngressBlacklistedError(reason))),
-                );
-            }
         }
 
         // Interop cross tx validation
