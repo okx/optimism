@@ -2,15 +2,16 @@ use crate::{InvalidCrossTx, OpPooledTx, interop_filter::InteropFilterClient};
 use alloy_consensus::{BlockHeader, Transaction};
 use op_revm::L1BlockInfo;
 use parking_lot::RwLock;
-use reth_chainspec::ChainSpecProvider;
-use reth_evm::ConfigureEvm;
-use reth_optimism_evm::RethL1BlockInfo;
+use reth_chainspec::{ChainSpecProvider, EthChainSpec};
+use reth_evm::{ConfigureEvm, block::BlockExecutionError};
+use reth_optimism_evm::{GaslessContract, RethL1BlockInfo, xlayer_gasless_contract};
 use reth_optimism_forks::OpHardforks;
 use reth_primitives_traits::{
-    Block, BlockBody, BlockTy, GotExpected, SealedBlock,
+    Block, BlockBody, BlockTy, GotExpected, HeaderTy, SealedBlock,
     transaction::error::InvalidTransactionError,
 };
-use reth_storage_api::{AccountInfoReader, BlockReaderIdExt, StateProviderFactory};
+use reth_revm::database::StateProviderDatabase;
+use reth_storage_api::{AccountInfoReader, BlockReaderIdExt, HeaderProvider, StateProviderFactory};
 use reth_transaction_pool::{
     EthPoolTransaction, EthTransactionValidator, TransactionOrigin, TransactionValidationOutcome,
     TransactionValidator, error::InvalidPoolTransactionError,
@@ -54,6 +55,9 @@ pub struct OpTransactionValidator<Client, Tx, Evm> {
     interop_client: Option<InteropFilterClient>,
     /// tracks activated forks relevant for transaction validation
     fork_tracker: Arc<OpForkTracker>,
+    /// When true, zero-priced ("gasless") transactions are admitted only if the on-chain gasless
+    /// contract approves them (see `apply_xlayer_gasless_check`).
+    allow_gasless: bool,
 }
 
 impl<Client, Tx, Evm> OpTransactionValidator<Client, Tx, Evm> {
@@ -90,8 +94,11 @@ impl<Client, Tx, Evm> OpTransactionValidator<Client, Tx, Evm> {
 
 impl<Client, Tx, Evm> OpTransactionValidator<Client, Tx, Evm>
 where
-    Client:
-        ChainSpecProvider<ChainSpec: OpHardforks> + StateProviderFactory + BlockReaderIdExt + Sync,
+    Client: ChainSpecProvider<ChainSpec: OpHardforks + EthChainSpec>
+        + StateProviderFactory
+        + BlockReaderIdExt
+        + HeaderProvider<Header = HeaderTy<Evm::Primitives>>
+        + Sync,
     Tx: EthPoolTransaction + OpPooledTx,
     Evm: ConfigureEvm,
 {
@@ -124,12 +131,20 @@ where
             require_l1_data_gas_fee: true,
             interop_client: None,
             fork_tracker: Arc::new(OpForkTracker { interop: AtomicBool::from(false) }),
+            allow_gasless: false,
         }
     }
 
     /// Sets the interop filter client and safety level.
     pub fn with_interop(mut self, interop_client: InteropFilterClient) -> Self {
         self.interop_client = Some(interop_client);
+        self
+    }
+
+    /// Enables the XLayer gasless admission gate: zero-priced transactions are accepted only when
+    /// the on-chain gasless contract approves them.
+    pub const fn with_gasless(mut self, allow_gasless: bool) -> Self {
+        self.allow_gasless = allow_gasless;
         self
     }
 
@@ -211,7 +226,81 @@ where
 
         let outcome = self.inner.validate_one_with_state(origin, transaction, state);
 
-        self.apply_op_checks(outcome)
+        let outcome = self.apply_op_checks(outcome);
+        self.apply_xlayer_gasless_check(outcome)
+    }
+
+    #[inline]
+    fn apply_xlayer_gasless_check(
+        &self,
+        outcome: TransactionValidationOutcome<Tx>,
+    ) -> TransactionValidationOutcome<Tx> {
+        if !self.allow_gasless {
+            return outcome;
+        }
+        let TransactionValidationOutcome::Valid {
+            balance,
+            state_nonce,
+            transaction: valid_tx,
+            propagate,
+            bytecode_hash,
+            authorities,
+        } = outcome
+        else {
+            return outcome;
+        };
+
+        if valid_tx.transaction().max_fee_per_gas() != 0 {
+            return TransactionValidationOutcome::Valid {
+                balance,
+                state_nonce,
+                transaction: valid_tx,
+                propagate,
+                bytecode_hash,
+                authorities,
+            };
+        }
+
+        match self.gasless_allowance(valid_tx.transaction()) {
+            Ok((false, _)) => TransactionValidationOutcome::Invalid(
+                valid_tx.into_transaction(),
+                InvalidPoolTransactionError::Underpriced,
+            ),
+            Ok((true, gas_limit)) if valid_tx.transaction().gas_limit() > gas_limit => {
+                let tx_gas_limit = valid_tx.transaction().gas_limit();
+                TransactionValidationOutcome::Invalid(
+                    valid_tx.into_transaction(),
+                    InvalidPoolTransactionError::MaxTxGasLimitExceeded(tx_gas_limit, gas_limit),
+                )
+            }
+            Ok((true, _)) => TransactionValidationOutcome::Valid {
+                balance,
+                state_nonce,
+                transaction: valid_tx,
+                propagate,
+                bytecode_hash,
+                authorities,
+            },
+            Err(err) => TransactionValidationOutcome::Error(*valid_tx.hash(), Box::new(err)),
+        }
+    }
+
+    fn gasless_allowance(&self, tx: &Tx) -> Result<(bool, u64), BlockExecutionError> {
+        let Some(contract) = xlayer_gasless_contract(self.chain_spec().chain().id()) else {
+            return Ok((false, 0));
+        };
+        let Some(header) = self.client().latest_header().map_err(BlockExecutionError::other)?
+        else {
+            return Ok((false, 0));
+        };
+        let state = self.client().latest().map_err(BlockExecutionError::other)?;
+        let mut evm = self
+            .inner
+            .evm_config()
+            .evm_for_block(StateProviderDatabase::new(state), header.header())
+            .map_err(BlockExecutionError::other)?;
+        let consensus = tx.clone_into_consensus().into_inner();
+        GaslessContract::new(contract).get_gasless_allowance(&mut evm, &consensus)
     }
 
     /// Performs the necessary opstack specific checks based on top of the regular eth outcome.
@@ -292,8 +381,11 @@ where
 
 impl<Client, Tx, Evm> TransactionValidator for OpTransactionValidator<Client, Tx, Evm>
 where
-    Client:
-        ChainSpecProvider<ChainSpec: OpHardforks> + StateProviderFactory + BlockReaderIdExt + Sync,
+    Client: ChainSpecProvider<ChainSpec: OpHardforks + EthChainSpec>
+        + StateProviderFactory
+        + BlockReaderIdExt
+        + HeaderProvider<Header = HeaderTy<Evm::Primitives>>
+        + Sync,
     Tx: EthPoolTransaction + OpPooledTx,
     Evm: ConfigureEvm,
 {

@@ -260,7 +260,7 @@ pub trait PostExecExecutorExt {
     fn seed_warming_state(&mut self, state: WarmingState);
 }
 
-impl<E, R, Spec> PostExecExecutorExt for OpBlockExecutor<E, R, Spec>
+impl<E, R, Spec, Hook> PostExecExecutorExt for OpBlockExecutor<E, R, Spec, Hook>
 where
     E: PostExecEvm,
     R: OpReceiptBuilder,

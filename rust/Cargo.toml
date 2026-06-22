@@ -399,7 +399,7 @@ reth-trie-common = { git = "https://github.com/paradigmxyz/reth", rev = "7680d6d
 reth-trie-db = { git = "https://github.com/paradigmxyz/reth", rev = "7680d6d8a931c0af4f4eed26e971596970238b54" }
 
 # ==================== REVM (latest: op-reth versions) ====================
-revm = { version = "38.0.0", default-features = false }
+revm = { version = "38.0.0", default-features = false, features = ["optional_no_base_fee"] }
 revm-bytecode = { version = "10.0.0", default-features = false }
 revm-database = { version = "13.0.0", default-features = false }
 revm-state = { version = "11.0.0", default-features = false }

@@ -143,9 +143,11 @@ where
             return Ok(());
         }
 
-        // L1 block info is stored in the context for later use.
-        // and it will be reloaded from the database if it is not for the current block.
-        if chain.l2_block != Some(block.number()) {
+        let is_gasless = tx.is_gasless();
+
+        // L1 block info is used for OP fee accounting. Gasless txs do not charge or reward those
+        // fees, so they should not require fee metadata to be loaded.
+        if !is_gasless && chain.l2_block != Some(block.number()) {
             *chain = L1BlockInfo::try_fetch(journal.db_mut(), block.number(), spec)?;
         }
 
@@ -154,10 +156,10 @@ where
         // validates account nonce and code
         validate_account_nonce_and_code_with_components(&caller_account.account().info, tx, cfg)?;
 
-        // check additional cost and deduct it from the caller's balances
+        // check additional cost and deduct it from the caller balance
         let mut balance = caller_account.account().info.balance;
 
-        if !cfg.is_fee_charge_disabled() {
+        if !is_gasless && !cfg.is_fee_charge_disabled() {
             let Some(additional_cost) = chain.tx_cost_with_tx(tx, spec) else {
                 return Err(OpTransactionError::MissingEnvelopedTx.into());
             };
@@ -171,7 +173,18 @@ where
             balance = new_balance
         }
 
-        let balance = calculate_caller_fee(balance, tx, block, cfg)?;
+        let balance = if is_gasless {
+            if !cfg.is_balance_check_disabled() && balance < tx.value() {
+                return Err(InvalidTransaction::LackOfFundForMaxFee {
+                    fee: Box::new(tx.value()),
+                    balance: Box::new(balance),
+                }
+                .into());
+            }
+            balance
+        } else {
+            calculate_caller_fee(balance, tx, block, cfg)?
+        };
 
         // make changes to the account
         caller_account.set_balance(balance);
@@ -190,6 +203,7 @@ where
         let ctx = evm.ctx();
         let tx = ctx.tx();
         let is_deposit = tx.tx_type() == DEPOSIT_TRANSACTION_TYPE;
+        let is_gasless = tx.is_gasless();
         let tx_gas_limit = tx.gas_limit();
         let is_regolith = ctx.cfg().spec().is_enabled_in(OpSpecId::REGOLITH);
 
@@ -219,7 +233,9 @@ where
             if !is_deposit || is_regolith {
                 // Return unused regular gas and unused reservoir gas.
                 gas.erase_cost(remaining);
-                gas.record_refund(refunded);
+                if !is_gasless {
+                    gas.record_refund(refunded);
+                }
             } else if is_deposit && tx.is_system_transaction() {
                 // System transactions were a special type of deposit transaction in
                 // the Bedrock hardfork that did not incur any gas costs.
@@ -263,6 +279,10 @@ where
         evm: &mut Self::Evm,
         frame_result: &mut <<Self::Evm as EvmTr>::Frame as FrameTr>::FrameResult,
     ) -> Result<(), Self::Error> {
+        if evm.ctx().tx().is_gasless() {
+            return Ok(());
+        }
+
         let additional_refund = if evm.ctx().tx().tx_type() != DEPOSIT_TRANSACTION_TYPE &&
             !evm.ctx().cfg().is_fee_charge_disabled()
         {
@@ -281,6 +301,10 @@ where
         frame_result: &mut <<Self::Evm as EvmTr>::Frame as FrameTr>::FrameResult,
         eip7702_refund: i64,
     ) {
+        if evm.ctx().tx().is_gasless() {
+            return;
+        }
+
         frame_result.gas_mut().record_refund(eip7702_refund);
 
         let is_deposit = evm.ctx().tx().tx_type() == DEPOSIT_TRANSACTION_TYPE;
@@ -300,10 +324,14 @@ where
         evm: &mut Self::Evm,
         frame_result: &mut <<Self::Evm as EvmTr>::Frame as FrameTr>::FrameResult,
     ) -> Result<(), Self::Error> {
-        let is_deposit = evm.ctx().tx().tx_type() == DEPOSIT_TRANSACTION_TYPE;
+        let (is_deposit, is_gasless) = {
+            let ctx = evm.ctx();
+            let tx = ctx.tx();
+            (tx.tx_type() == DEPOSIT_TRANSACTION_TYPE, tx.is_gasless())
+        };
 
         // Transfer fee to coinbase/beneficiary.
-        if is_deposit {
+        if is_deposit || is_gasless {
             return Ok(());
         }
 

@@ -46,9 +46,17 @@ use revm::{
 pub mod tx;
 pub use tx::OpTx;
 
+pub mod xlayer;
+pub use xlayer::gasless::{
+    GaslessFeeHook, NullGaslessFeeHook, OpFeeCheckState, XLayerGaslessFeeHook,
+    XLayerGaslessFeeHookFactory,
+};
+
 pub mod block;
 pub use block::{
-    OpBlockExecutionCtx, OpBlockExecutor, OpBlockExecutorFactory, PostExecMode, PreRefundGasUsed,
+    GaslessContract, OpBlockExecutionCtx, OpBlockExecutor, OpBlockExecutorFactory, PostExecMode,
+    PreRefundGasUsed, XLAYER_DEVNET_GASLESS_CONTRACT, XLAYER_MAINNET_GASLESS_CONTRACT,
+    XLAYER_TESTNET_GASLESS_CONTRACT, xlayer_gasless_contract,
 };
 
 pub mod post_exec;
