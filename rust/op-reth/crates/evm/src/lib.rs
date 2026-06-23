@@ -67,8 +67,8 @@ pub mod tx;
 pub use tx::OpTx;
 
 pub use alloy_op_evm::{
-    GaslessContract, NullGaslessFeeHook, OpBlockExecutionCtx, OpBlockExecutorFactory, OpEvm,
-    OpEvmFactory, PostExecMode, PreRefundGasUsed, XLayerGaslessFeeHook, xlayer_gasless_contract,
+    GaslessContract, OpBlockExecutionCtx, OpBlockExecutorFactory, OpEvm,
+    OpEvmFactory, PostExecMode, PreRefundGasUsed, xlayer_gasless_contract,
     post_exec::{PostExecExecutorExt, WarmingRefundEvent, WarmingRefundKind, WarmingState},
 };
 

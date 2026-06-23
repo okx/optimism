@@ -27,9 +27,12 @@ pub const XLAYER_MAINNET_GASLESS_CONTRACT: Address =
 pub const XLAYER_TESTNET_GASLESS_CONTRACT: Address =
     address!("0x19787404b0c70021b4752028f7e3a92313885B27");
 
-/// XLayer devnet (chain id 195) gasless whitelist predeploy address.
+/// XLayer devnet (chain id 195) gasless whitelist address.
+///
+/// Deterministic CREATE2 address of the GaslessWhitelist proxy deployed via
+/// DeployXlayerGaslessWhitelist.s.sol.
 pub const XLAYER_DEVNET_GASLESS_CONTRACT: Address =
-    address!("0x4200000000000000000000000000000000000700");
+    address!("0xA9092BC02e2000a3F8996D1991621E9A03Ef2dfE");
 
 /// Returns the XLayer gasless whitelist predeploy address for the given chain id, or `None` for a
 /// non-XLayer chain (gasless disabled).
@@ -100,9 +103,11 @@ impl GaslessContract {
         let Some(target) = tx.kind().into_to() else {
             return Ok((false, 0));
         };
-        let result =
-            transact(evm, self.contract, encode_get_gasless_allowance(target, tx.input()))?;
-        Ok(decode_allowance(result))
+        // Degrade to "not gasless" if the system call itself errors at the EVM/DB level.
+        match transact(evm, self.contract, encode_get_gasless_allowance(target, tx.input())) {
+            Ok(result) => Ok(decode_allowance(result)),
+            Err(_) => Ok((false, 0)),
+        }
     }
 
     /// Returns whether `tx` qualifies as gasless: the contract must allow it **and** the tx's gas

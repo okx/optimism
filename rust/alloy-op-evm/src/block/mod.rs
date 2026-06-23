@@ -1,13 +1,9 @@
 //! Block executor for Optimism.
 
-use crate::{
-    GaslessFeeHook, NullGaslessFeeHook, OpEvmFactory, XLayerGaslessFeeHook,
-    spec_by_timestamp_after_bedrock,
-};
+use crate::{OpEvmFactory, spec_by_timestamp_after_bedrock};
 use alloc::{
     borrow::Cow, boxed::Box, collections::BTreeMap, format, string::String, vec, vec::Vec,
 };
-use core::marker::PhantomData;
 use alloy_consensus::{Eip658Value, Header, Transaction, TransactionEnvelope, TxReceipt};
 use alloy_eips::{Encodable2718, Typed2718, eip7685::Requests};
 use alloy_evm::{
@@ -339,7 +335,7 @@ where
 
 /// Block executor for Optimism.
 #[derive(Debug)]
-pub struct OpBlockExecutor<Evm, R: OpReceiptBuilder, Spec, Hook = XLayerGaslessFeeHook> {
+pub struct OpBlockExecutor<Evm, R: OpReceiptBuilder, Spec> {
     /// Spec.
     pub spec: Spec,
     /// Receipt builder.
@@ -375,11 +371,9 @@ pub struct OpBlockExecutor<Evm, R: OpReceiptBuilder, Spec, Hook = XLayerGaslessF
     /// before each call tx and bypasses fee checks/charges for matching target/input pairs
     /// (deposits are never affected).
     pub gasless_contract: Option<GaslessContract>,
-    /// Gasless fee hook used for transaction execution.
-    pub gasless_fee_hook: PhantomData<Hook>,
 }
 
-impl<E, R, Spec, Hook> OpBlockExecutor<E, R, Spec, Hook>
+impl<E, R, Spec> OpBlockExecutor<E, R, Spec>
 where
     E: Evm,
     R: OpReceiptBuilder,
@@ -404,7 +398,6 @@ where
             post_exec,
             warming_events_by_tx: Vec::new(),
             gasless_contract: None,
-            gasless_fee_hook: PhantomData,
         }
     }
 
@@ -447,7 +440,7 @@ where
     }
 }
 
-impl<E, R, Spec, Hook> OpBlockExecutor<E, R, Spec, Hook>
+impl<E, R, Spec> OpBlockExecutor<E, R, Spec>
 where
     E: PostExecEvm,
     R: OpReceiptBuilder,
@@ -502,7 +495,7 @@ pub enum OpBlockExecutionError {
     },
 }
 
-impl<E, R, Spec, Hook> OpBlockExecutor<E, R, Spec, Hook>
+impl<E, R, Spec> OpBlockExecutor<E, R, Spec>
 where
     E: Evm<
             DB: Database + DatabaseCommit + StateDB,
@@ -798,14 +791,13 @@ fn validate_block_gas(
     Ok(())
 }
 
-impl<E, R, Spec, Hook> BlockExecutor for OpBlockExecutor<E, R, Spec, Hook>
+impl<E, R, Spec> BlockExecutor for OpBlockExecutor<E, R, Spec>
 where
     E: PostExecEvm<
             DB: Database + DatabaseCommit + StateDB,
             Tx: FromRecoveredTx<R::Transaction> + FromTxWithEncoded<R::Transaction> + OpTxEnv,
             HaltReason: Send + 'static,
         >,
-    Hook: GaslessFeeHook<E>,
     R: OpReceiptBuilder<
             Transaction: Transaction + Encodable2718 + OpConsensusTransaction,
             Receipt: TxReceipt,
@@ -939,12 +931,13 @@ where
             });
         }
 
-        // Execute transaction and return the result
-        let mut result = Hook::transact_with_gasless_fee_checks(&mut self.evm, tx_env, is_gasless)
-            .map_err(|err| {
-                let hash = tx.tx().trie_hash();
-                BlockExecutionError::evm(err, hash)
-            })?;
+        // Execute transaction and return the result. Gasless txs have `is_gasless = true` on the
+        // tx env; `OpEvm::transact_raw` zeroes `block.basefee` for the duration of that single tx
+        // so the zero-priced gasless tx clears fee validation, then restores it immediately.
+        let mut result = self.evm.transact(tx_env).map_err(|err| {
+            let hash = tx.tx().trie_hash();
+            BlockExecutionError::evm(err, hash)
+        })?;
 
         let evm_gas_used = result.result.tx_gas_used();
         let (post_exec_refund, warming_events) = if self.post_exec.is_producing() {
@@ -1234,7 +1227,6 @@ where
         <PostExecEvmFactoryAdapter<F> as EvmFactory>::Evm<DB, I>,
         &'a R,
         &'a Spec,
-        NullGaslessFeeHook,
     >;
 
     fn evm_factory(&self) -> &Self::EvmFactory {

@@ -7999,6 +7999,7 @@ name = "op-alloy-rpc-types-engine"
 version = "2.0.0"
 dependencies = [
  "alloy-consensus",
+ "alloy-eip7928",
  "alloy-eips 2.0.5",
  "alloy-primitives",
  "alloy-rlp",

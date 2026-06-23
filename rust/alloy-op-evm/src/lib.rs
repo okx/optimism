@@ -46,12 +46,6 @@ use revm::{
 pub mod tx;
 pub use tx::OpTx;
 
-pub mod xlayer;
-pub use xlayer::gasless::{
-    GaslessFeeHook, NullGaslessFeeHook, OpFeeCheckState, XLayerGaslessFeeHook,
-    XLayerGaslessFeeHookFactory,
-};
-
 pub mod block;
 pub use block::{
     GaslessContract, OpBlockExecutionCtx, OpBlockExecutor, OpBlockExecutorFactory, PostExecMode,
@@ -293,12 +287,20 @@ where
     ) -> Result<ResultAndState<Self::HaltReason>, Self::Error> {
         self.last_tx_post_exec_result = post_exec::PostExecExecutedTx::default();
 
+        let op_tx = OpTx(tx.into());
+        let pre_basefee = self.inner.0.ctx.block.basefee;
+        if op_tx.is_gasless {
+            self.inner.0.ctx.block.basefee = 0;
+        }
+
         let track_post_exec = self.post_exec_tracking_active;
         let result = if self.inspect || track_post_exec {
-            self.inner.inspect_tx(OpTx(tx.into()))
+            self.inner.inspect_tx(op_tx)
         } else {
-            self.inner.transact(OpTx(tx.into()))
+            self.inner.transact(op_tx)
         };
+
+        self.inner.0.ctx.block.basefee = pre_basefee;
 
         if track_post_exec {
             if self.inner.0.ctx.tx.tx_type() !=

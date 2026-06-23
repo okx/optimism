@@ -2,7 +2,7 @@ use alloc::{sync::Arc, vec::Vec};
 use alloy_consensus::Header;
 use alloy_evm::{FromRecoveredTx, FromTxWithEncoded, block::BlockExecutor};
 use alloy_op_evm::{
-    NullGaslessFeeHook, OpBlockExecutor, PreRefundGasUsed, XLayerGaslessFeeHook,
+    OpBlockExecutor, PreRefundGasUsed,
     block::{OpTxEnv, receipt_builder::OpReceiptBuilder},
     post_exec::{PostExecEvmFactoryAdapter, PostExecEvmFactoryHooks, PostExecExecutorExt},
 };
@@ -104,7 +104,7 @@ where
         let evm = self.evm_for_block(db, block.header())?;
         let ctx = self.context_for_block_with_post_exec_mode(block, Some(post_exec_mode));
 
-        Ok(OpBlockExecutor::<_, _, _, XLayerGaslessFeeHook>::new(
+        Ok(OpBlockExecutor::<_, _, _>::new(
             evm,
             ctx,
             self.executor_factory.spec(),
@@ -133,7 +133,7 @@ where
         let evm = self.evm_with_env(db, evm_env);
         let ctx =
             self.context_for_next_block_with_post_exec_mode(parent, attributes, post_exec_mode);
-        let executor: OpBlockExecutor<_, _, _, XLayerGaslessFeeHook> = OpBlockExecutor::new(
+        let executor: OpBlockExecutor<_, _, _> = OpBlockExecutor::new(
             evm,
             ctx.clone(),
             self.executor_factory.spec(),
@@ -208,7 +208,7 @@ where
         let evm = self.evm_for_block(db, block.header())?;
         let ctx = self.context_for_block_with_post_exec_mode(block, Some(post_exec_mode));
 
-        Ok(OpBlockExecutor::<_, _, _, NullGaslessFeeHook>::new(
+        Ok(OpBlockExecutor::<_, _, _>::new(
             evm,
             ctx,
             self.executor_factory.spec(),
@@ -237,7 +237,7 @@ where
         let evm = self.evm_with_env(db, evm_env);
         let ctx =
             self.context_for_next_block_with_post_exec_mode(parent, attributes, post_exec_mode);
-        let executor: OpBlockExecutor<_, _, _, NullGaslessFeeHook> = OpBlockExecutor::new(
+        let executor: OpBlockExecutor<_, _, _> = OpBlockExecutor::new(
             evm,
             ctx.clone(),
             self.executor_factory.spec(),

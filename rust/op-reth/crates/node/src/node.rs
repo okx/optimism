@@ -25,7 +25,6 @@ use reth_node_builder::{
     components::{
         BasicPayloadServiceBuilder, ComponentsBuilder, ConsensusBuilder, ExecutorBuilder,
         NetworkBuilder, PayloadBuilderBuilder, PoolBuilder, PoolBuilderConfigOverrides,
-        TxPoolBuilder,
     },
     node::{FullNodeTypes, NodeTypes},
     rpc::{
@@ -52,7 +51,7 @@ use reth_optimism_rpc::{
     witness::{DebugExecutionWitnessApiServer, OpDebugPostExecApiServer, OpDebugWitnessApi},
 };
 use reth_optimism_storage::OpStorage;
-use reth_optimism_txpool::{OpPool, OpPooledTx, interop_filter::InteropFilterClient};
+use reth_optimism_txpool::{OpPool, OpPooledTx, XLayerGaslessOrdering, interop_filter::InteropFilterClient};
 use reth_primitives_traits::header::HeaderMut;
 use reth_provider::{CanonStateSubscriptions, providers::ProviderFactoryBuilder};
 use reth_rpc_api::{
@@ -1215,9 +1214,12 @@ where
 
         let final_pool_config = pool_config_overrides.apply(ctx.pool_config());
 
-        let inner_pool = TxPoolBuilder::new(ctx)
-            .with_validator(validator)
-            .build(blob_store, final_pool_config.clone());
+        let inner_pool = reth_transaction_pool::Pool::new(
+            validator,
+            XLayerGaslessOrdering::default(),
+            blob_store,
+            final_pool_config.clone(),
+        );
 
         // Enable the interop filter on reorg whenever interop is scheduled or already active
         let interop_filter_enabled =
