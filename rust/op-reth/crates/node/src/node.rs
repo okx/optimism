@@ -6,7 +6,8 @@ use crate::{
     engine::OpEngineValidator,
     txpool::{OpTransactionPool, OpTransactionValidator},
 };
-use op_alloy_consensus::{OpPooledTransaction, interop::SafetyLevel};
+use alloy_primitives::Sealed;
+use op_alloy_consensus::{OpPooledTransaction, TxPostExec, interop::SafetyLevel};
 use reth_chainspec::{
     BaseFeeParams, ChainSpecProvider, EthChainSpec, EthereumHardforks, ForkCondition, Hardforks,
 };
@@ -35,12 +36,12 @@ use reth_node_builder::{
 };
 use reth_optimism_chainspec::{OpChainSpec, OpHardfork};
 use reth_optimism_consensus::OpBeaconConsensus;
-use reth_optimism_evm::{OpEvmConfig, OpRethReceiptBuilder};
+use reth_optimism_evm::{ConfigurePostExecEvm, OpEvmConfig, OpRethReceiptBuilder};
 use reth_optimism_forks::OpHardforks;
 use reth_optimism_payload_builder::{
     OpBuiltPayload, OpExecData, OpPayloadBuilderAttributes, OpPayloadPrimitives,
     builder::OpPayloadTransactions,
-    config::{OpBuilderConfig, OpDAConfig, OpGasLimitConfig},
+    config::{OpBuilderConfig, OpDAConfig, OpGasLimitConfig, SdmPostExecOptIn},
 };
 use reth_optimism_primitives::{DepositReceipt, OpPrimitives};
 use reth_optimism_rpc::{
@@ -48,10 +49,10 @@ use reth_optimism_rpc::{
     eth::{OpEthApiBuilder, ext::OpEthExtApi},
     historical::{HistoricalRpc, HistoricalRpcClient},
     miner::{MinerApiExtServer, OpMinerExtApi},
-    witness::{DebugExecutionWitnessApiServer, OpDebugWitnessApi},
+    witness::{DebugExecutionWitnessApiServer, OpDebugPostExecApiServer, OpDebugWitnessApi},
 };
 use reth_optimism_storage::OpStorage;
-use reth_optimism_txpool::{OpPool, OpPooledTx, supervisor::SupervisorClient};
+use reth_optimism_txpool::{OpPool, OpPooledTx, interop_filter::InteropFilterClient};
 use reth_primitives_traits::header::HeaderMut;
 use reth_provider::{CanonStateSubscriptions, providers::ProviderFactoryBuilder};
 use reth_rpc_api::{
@@ -134,6 +135,16 @@ impl PayloadAttributesBuilder<OpPayloadAttrs> for OpLocalPayloadAttributesBuilde
         })
     }
 }
+/// Helper trait for OP primitives whose block is the standard alloy block shape.
+pub trait OpReplayNodePrimitives:
+    OpPayloadPrimitives + NodePrimitives<Block = alloy_consensus::Block<Self::_TX, Self::_Header>>
+{
+}
+
+impl<T> OpReplayNodePrimitives for T where
+    T: OpPayloadPrimitives + NodePrimitives<Block = alloy_consensus::Block<T::_TX, T::_Header>>
+{
+}
 
 /// Marker trait for Optimism node types with standard engine, chain spec, and primitives.
 pub trait OpNodeTypes:
@@ -159,16 +170,20 @@ pub trait OpFullNodeTypes:
         Storage = OpStorage,
         Payload: EngineTypes<ExecutionData = OpExecData>,
     >
+where
+    <<Self as NodeTypes>::Primitives as NodePrimitives>::SignedTx: From<Sealed<TxPostExec>>,
 {
 }
 
-impl<N> OpFullNodeTypes for N where
+impl<N> OpFullNodeTypes for N
+where
     N: NodeTypes<
             ChainSpec: OpHardforks,
             Primitives: OpPayloadPrimitives,
             Storage = OpStorage,
             Payload: EngineTypes<ExecutionData = OpExecData>,
-        >
+        >,
+    <N::Primitives as NodePrimitives>::SignedTx: From<Sealed<TxPostExec>>,
 {
 }
 
@@ -189,6 +204,9 @@ pub struct OpNode {
     /// Used to control the gas limit of the blocks produced by the OP builder.(configured by the
     /// batcher via the `miner_` api)
     pub gas_limit_config: OpGasLimitConfig,
+    /// Local operator opt-in for SDM `PostExec` production. Shared (via Arc clones) between the
+    /// payload builder and the `admin_setSdmPostExecOptIn` RPC handler.
+    pub sdm_post_exec_opt_in: SdmPostExecOptIn,
 }
 
 /// A [`ComponentsBuilder`] with its generic arguments set to a stack of Optimism specific builders.
@@ -208,6 +226,7 @@ impl OpNode {
             args,
             da_config: OpDAConfig::default(),
             gas_limit_config: OpGasLimitConfig::default(),
+            sdm_post_exec_opt_in: SdmPostExecOptIn::default(),
         }
     }
 
@@ -236,15 +255,17 @@ impl OpNode {
             .pool(
                 OpPoolBuilder::default()
                     .with_enable_tx_conditional(self.args.enable_tx_conditional)
-                    .with_supervisor(
-                        self.args.supervisor_http.clone(),
-                        self.args.supervisor_safety_level,
+                    .with_interop(
+                        self.args.interop_http.clone(),
+                        self.args.interop_min_responses,
+                        self.args.interop_safety_level,
                     ),
             )
             .payload(BasicPayloadServiceBuilder::new(
                 OpPayloadBuilder::new(compute_pending_block)
                     .with_da_config(self.da_config.clone())
-                    .with_gas_limit_config(self.gas_limit_config.clone()),
+                    .with_gas_limit_config(self.gas_limit_config.clone())
+                    .with_sdm_post_exec_opt_in(self.sdm_post_exec_opt_in.clone()),
             ))
             .network(OpNetworkBuilder::new(disable_txpool_gossip, !discovery_v4))
             .consensus(OpConsensusBuilder::default())
@@ -257,6 +278,7 @@ impl OpNode {
             .with_sequencer_headers(self.args.sequencer_headers.clone())
             .with_da_config(self.da_config.clone())
             .with_gas_limit_config(self.gas_limit_config.clone())
+            .with_sdm_post_exec_opt_in(self.sdm_post_exec_opt_in.clone())
             .with_enable_tx_conditional(self.args.enable_tx_conditional)
             .with_min_suggested_priority_fee(self.args.min_suggested_priority_fee)
             .with_historical_rpc(self.args.historical_rpc.clone())
@@ -378,6 +400,8 @@ pub struct OpAddOns<
     pub da_config: OpDAConfig,
     /// Gas limit configuration for the OP builder.
     pub gas_limit_config: OpGasLimitConfig,
+    /// Shared SDM operator opt-in flag; mutated by the `admin_setSdmPostExecOptIn` RPC.
+    pub sdm_post_exec_opt_in: SdmPostExecOptIn,
     /// Sequencer client, configured to forward submitted transactions to sequencer of given OP
     /// network.
     pub sequencer_url: Option<String>,
@@ -403,6 +427,7 @@ where
         rpc_add_ons: RpcAddOns<N, EthB, PVB, EB, EVB, RpcMiddleware>,
         da_config: OpDAConfig,
         gas_limit_config: OpGasLimitConfig,
+        sdm_post_exec_opt_in: SdmPostExecOptIn,
         sequencer_url: Option<String>,
         sequencer_headers: Vec<String>,
         historical_rpc: Option<String>,
@@ -413,6 +438,7 @@ where
             rpc_add_ons,
             da_config,
             gas_limit_config,
+            sdm_post_exec_opt_in,
             sequencer_url,
             sequencer_headers,
             historical_rpc,
@@ -464,6 +490,7 @@ where
             rpc_add_ons,
             da_config,
             gas_limit_config,
+            sdm_post_exec_opt_in,
             sequencer_url,
             sequencer_headers,
             historical_rpc,
@@ -475,6 +502,7 @@ where
             rpc_add_ons.with_engine_api(engine_api_builder),
             da_config,
             gas_limit_config,
+            sdm_post_exec_opt_in,
             sequencer_url,
             sequencer_headers,
             historical_rpc,
@@ -492,6 +520,7 @@ where
             rpc_add_ons,
             da_config,
             gas_limit_config,
+            sdm_post_exec_opt_in,
             sequencer_url,
             sequencer_headers,
             enable_tx_conditional,
@@ -503,6 +532,7 @@ where
             rpc_add_ons.with_payload_validator(payload_validator_builder),
             da_config,
             gas_limit_config,
+            sdm_post_exec_opt_in,
             sequencer_url,
             sequencer_headers,
             historical_rpc,
@@ -520,6 +550,7 @@ where
             rpc_add_ons,
             da_config,
             gas_limit_config,
+            sdm_post_exec_opt_in,
             sequencer_url,
             sequencer_headers,
             enable_tx_conditional,
@@ -531,6 +562,7 @@ where
             rpc_add_ons.with_engine_validator(engine_validator_builder),
             da_config,
             gas_limit_config,
+            sdm_post_exec_opt_in,
             sequencer_url,
             sequencer_headers,
             historical_rpc,
@@ -551,6 +583,7 @@ where
             rpc_add_ons,
             da_config,
             gas_limit_config,
+            sdm_post_exec_opt_in,
             sequencer_url,
             sequencer_headers,
             enable_tx_conditional,
@@ -562,6 +595,7 @@ where
             rpc_add_ons.with_rpc_middleware(rpc_middleware),
             da_config,
             gas_limit_config,
+            sdm_post_exec_opt_in,
             sequencer_url,
             sequencer_headers,
             historical_rpc,
@@ -597,17 +631,19 @@ where
     N: FullNodeComponents<
             Types: NodeTypes<
                 ChainSpec: OpHardforks + Hardforks,
-                Primitives: OpPayloadPrimitives<_Header: HeaderMut>,
+                Primitives: OpReplayNodePrimitives<_Header: HeaderMut>,
             >,
-            Evm: ConfigureEvm<
+            Evm: ConfigurePostExecEvm<
+                Primitives = PrimitivesTy<N::Types>,
                 NextBlockEnvCtx: BuildNextEnv<
                     OpPayloadBuilderAttributes<TxTy<N::Types>>,
                     HeaderTy<N::Types>,
                     <N::Types as NodeTypes>::ChainSpec,
                 >,
             >,
-            Pool: TransactionPool<Transaction: OpPooledTx>,
+            Pool: TransactionPool<Transaction: OpPooledTx<Consensus = TxTy<N::Types>>>,
         >,
+    TxTy<N::Types>: From<Sealed<TxPostExec>>,
     EthB: EthApiBuilder<N>,
     PVB: Send,
     EB: EngineApiBuilder<N>,
@@ -624,6 +660,7 @@ where
             rpc_add_ons,
             da_config,
             gas_limit_config,
+            sdm_post_exec_opt_in,
             sequencer_url,
             sequencer_headers,
             enable_tx_conditional,
@@ -667,8 +704,14 @@ where
                 ctx.node.provider().clone(),
                 ctx.node.task_executor().clone(),
                 builder,
+                ctx.node.evm_config().clone(),
             );
         let miner_ext = OpMinerExtApi::new(da_config, gas_limit_config);
+
+        let sdm_admin_ext = reth_optimism_rpc::sdm_admin::OpSdmAdminApi::new(
+            sdm_post_exec_opt_in,
+            ctx.node.provider().chain_spec(),
+        );
 
         let sequencer_client = if let Some(url) = sequencer_url {
             Some(SequencerClient::new_with_headers(url, sequencer_headers).await?)
@@ -690,7 +733,14 @@ where
                 modules.merge_if_module_configured(RethRpcModule::Eth, eth_config.into_rpc())?;
 
                 debug!(target: "reth::cli", "Installing debug payload witness rpc endpoint");
-                modules.merge_if_module_configured(RethRpcModule::Debug, debug_ext.into_rpc())?;
+                modules.merge_if_module_configured(
+                    RethRpcModule::Debug,
+                    DebugExecutionWitnessApiServer::into_rpc(debug_ext.clone()),
+                )?;
+                modules.merge_if_module_configured(
+                    RethRpcModule::Debug,
+                    OpDebugPostExecApiServer::into_rpc(debug_ext.clone()),
+                )?;
 
                 // extend the miner namespace if configured in the regular http server
                 modules.add_or_replace_if_module_configured(
@@ -702,6 +752,16 @@ where
                 if modules.module_config().contains_any(&RethRpcModule::Miner) {
                     debug!(target: "reth::cli", "Installing miner DA rpc endpoint");
                     auth_module.merge_auth_methods(miner_ext.into_rpc())?;
+                }
+
+                use reth_optimism_rpc::sdm_admin::SdmAdminApiServer;
+                modules.add_or_replace_if_module_configured(
+                    RethRpcModule::Admin,
+                    sdm_admin_ext.clone().into_rpc(),
+                )?;
+                if modules.module_config().contains_any(&RethRpcModule::Admin) {
+                    debug!(target: "reth::cli", "Installing admin SDM opt-in rpc endpoint");
+                    auth_module.merge_auth_methods(sdm_admin_ext.into_rpc())?;
                 }
 
                 // install the debug namespace in the authenticated if configured
@@ -730,9 +790,10 @@ where
     N: FullNodeComponents<
             Types: NodeTypes<
                 ChainSpec: OpHardforks + Hardforks,
-                Primitives: OpPayloadPrimitives<_Header: HeaderMut>,
+                Primitives: OpReplayNodePrimitives<_Header: HeaderMut>,
             >,
-            Evm: ConfigureEvm<
+            Evm: ConfigurePostExecEvm<
+                Primitives = PrimitivesTy<N::Types>,
                 NextBlockEnvCtx: BuildNextEnv<
                     OpPayloadBuilderAttributes<TxTy<N::Types>>,
                     HeaderTy<N::Types>,
@@ -740,7 +801,9 @@ where
                 >,
             >,
         >,
-    <<N as FullNodeComponents>::Pool as TransactionPool>::Transaction: OpPooledTx,
+    TxTy<N::Types>: From<Sealed<TxPostExec>>,
+    <<N as FullNodeComponents>::Pool as TransactionPool>::Transaction:
+        OpPooledTx<Consensus = TxTy<N::Types>>,
     EthB: EthApiBuilder<N>,
     PVB: PayloadValidatorBuilder<N>,
     EB: EngineApiBuilder<N>,
@@ -786,6 +849,8 @@ pub struct OpAddOnsBuilder<NetworkT, RpcMiddleware = Identity> {
     da_config: Option<OpDAConfig>,
     /// Gas limit configuration for the OP builder.
     gas_limit_config: Option<OpGasLimitConfig>,
+    /// Shared SDM operator opt-in flag for the payload builder and admin RPC.
+    sdm_post_exec_opt_in: Option<SdmPostExecOptIn>,
     /// Enable transaction conditionals.
     enable_tx_conditional: bool,
     /// Marker for network types.
@@ -810,6 +875,7 @@ impl<NetworkT> Default for OpAddOnsBuilder<NetworkT> {
             historical_rpc: None,
             da_config: None,
             gas_limit_config: None,
+            sdm_post_exec_opt_in: None,
             enable_tx_conditional: false,
             min_suggested_priority_fee: 1_000_000,
             _nt: PhantomData,
@@ -843,6 +909,13 @@ impl<NetworkT, RpcMiddleware> OpAddOnsBuilder<NetworkT, RpcMiddleware> {
     /// Configure the gas limit configuration for the OP payload builder.
     pub fn with_gas_limit_config(mut self, gas_limit_config: OpGasLimitConfig) -> Self {
         self.gas_limit_config = Some(gas_limit_config);
+        self
+    }
+
+    /// Provide the shared SDM operator opt-in flag.
+    #[must_use]
+    pub fn with_sdm_post_exec_opt_in(mut self, sdm_post_exec_opt_in: SdmPostExecOptIn) -> Self {
+        self.sdm_post_exec_opt_in = Some(sdm_post_exec_opt_in);
         self
     }
 
@@ -880,6 +953,7 @@ impl<NetworkT, RpcMiddleware> OpAddOnsBuilder<NetworkT, RpcMiddleware> {
             historical_rpc,
             da_config,
             gas_limit_config,
+            sdm_post_exec_opt_in,
             enable_tx_conditional,
             min_suggested_priority_fee,
             tokio_runtime,
@@ -894,6 +968,7 @@ impl<NetworkT, RpcMiddleware> OpAddOnsBuilder<NetworkT, RpcMiddleware> {
             historical_rpc,
             da_config,
             gas_limit_config,
+            sdm_post_exec_opt_in,
             enable_tx_conditional,
             min_suggested_priority_fee,
             _nt,
@@ -934,6 +1009,7 @@ impl<NetworkT, RpcMiddleware> OpAddOnsBuilder<NetworkT, RpcMiddleware> {
             sequencer_headers,
             da_config,
             gas_limit_config,
+            sdm_post_exec_opt_in,
             enable_tx_conditional,
             min_suggested_priority_fee,
             historical_rpc,
@@ -961,6 +1037,7 @@ impl<NetworkT, RpcMiddleware> OpAddOnsBuilder<NetworkT, RpcMiddleware> {
             .with_tokio_runtime(tokio_runtime),
             da_config.unwrap_or_default(),
             gas_limit_config.unwrap_or_default(),
+            sdm_post_exec_opt_in.unwrap_or_default(),
             sequencer_url,
             sequencer_headers,
             historical_rpc,
@@ -973,7 +1050,7 @@ impl<NetworkT, RpcMiddleware> OpAddOnsBuilder<NetworkT, RpcMiddleware> {
 /// A regular optimism evm and executor builder.
 #[derive(Debug, Copy, Clone, Default)]
 #[non_exhaustive]
-pub struct OpExecutorBuilder;
+pub struct OpExecutorBuilder {}
 
 impl<Node> ExecutorBuilder<Node> for OpExecutorBuilder
 where
@@ -983,9 +1060,7 @@ where
         OpEvmConfig<<Node::Types as NodeTypes>::ChainSpec, <Node::Types as NodeTypes>::Primitives>;
 
     async fn build_evm(self, ctx: &BuilderContext<Node>) -> eyre::Result<Self::EVM> {
-        let evm_config = OpEvmConfig::new(ctx.chain_spec(), OpRethReceiptBuilder::default());
-
-        Ok(evm_config)
+        Ok(OpEvmConfig::new(ctx.chain_spec(), OpRethReceiptBuilder::default()))
     }
 }
 
@@ -999,11 +1074,14 @@ pub struct OpPoolBuilder<T = crate::txpool::OpPooledTransaction> {
     pub pool_config_overrides: PoolBuilderConfigOverrides,
     /// Enable transaction conditionals.
     pub enable_tx_conditional: bool,
-    /// Supervisor client URL for txpool-level interop validation (deprecated; supernode is
-    /// preferred). When None, interop transaction validation in the txpool is disabled.
-    pub supervisor_http: Option<String>,
-    /// Supervisor safety level
-    pub supervisor_safety_level: SafetyLevel,
+    /// Interop filter endpoints for txpool-level interop validation. When empty, interop
+    /// transaction validation in the txpool is disabled.
+    pub interop_endpoints: Vec<String>,
+    /// Minimum number of definitive verdicts required to decide an interop check. When None,
+    /// defaults to the number of endpoints (unanimity).
+    pub interop_min_responses: Option<usize>,
+    /// Safety level for interop filter validation.
+    pub interop_safety_level: SafetyLevel,
     /// Marker for the pooled transaction type.
     _pd: core::marker::PhantomData<T>,
 }
@@ -1013,8 +1091,9 @@ impl<T> Default for OpPoolBuilder<T> {
         Self {
             pool_config_overrides: Default::default(),
             enable_tx_conditional: false,
-            supervisor_http: None,
-            supervisor_safety_level: SafetyLevel::CrossUnsafe,
+            interop_endpoints: Vec::new(),
+            interop_min_responses: None,
+            interop_safety_level: SafetyLevel::CrossUnsafe,
             _pd: Default::default(),
         }
     }
@@ -1025,8 +1104,9 @@ impl<T> Clone for OpPoolBuilder<T> {
         Self {
             pool_config_overrides: self.pool_config_overrides.clone(),
             enable_tx_conditional: self.enable_tx_conditional,
-            supervisor_http: self.supervisor_http.clone(),
-            supervisor_safety_level: self.supervisor_safety_level,
+            interop_endpoints: self.interop_endpoints.clone(),
+            interop_min_responses: self.interop_min_responses,
+            interop_safety_level: self.interop_safety_level,
             _pd: core::marker::PhantomData,
         }
     }
@@ -1048,14 +1128,18 @@ impl<T> OpPoolBuilder<T> {
         self
     }
 
-    /// Sets the supervisor client URL. Pass None to disable interop transaction validation.
-    pub fn with_supervisor(
+    /// Sets the interop filter endpoints and quorum. Pass an empty vec to disable interop
+    /// transaction validation. `interop_min_responses` defaults to the number of endpoints
+    /// (unanimity) when None.
+    pub fn with_interop(
         mut self,
-        supervisor_client: Option<String>,
-        supervisor_safety_level: SafetyLevel,
+        interop_endpoints: Vec<String>,
+        interop_min_responses: Option<usize>,
+        interop_safety_level: SafetyLevel,
     ) -> Self {
-        self.supervisor_http = supervisor_client;
-        self.supervisor_safety_level = supervisor_safety_level;
+        self.interop_endpoints = interop_endpoints;
+        self.interop_min_responses = interop_min_responses;
+        self.interop_safety_level = interop_safety_level;
         self
     }
 }
@@ -1075,21 +1159,31 @@ where
     ) -> eyre::Result<Self::Pool> {
         let Self { pool_config_overrides, .. } = self;
 
-        // supervisor used for interop txpool validation
-        let supervisor_client = if let Some(url) = self.supervisor_http.clone() {
-            Some(
-                SupervisorClient::builder(url, ctx.chain_spec().chain_id())
-                    .minimum_safety(self.supervisor_safety_level)
-                    .build()
-                    .await,
-            )
-        } else {
+        // Interop filter used for txpool validation.
+        let interop_client = if self.interop_endpoints.is_empty() {
             if ctx.chain_spec().is_interop_active_at_timestamp(ctx.head().timestamp) {
                 info!(target: "reth::cli",
-                    "No supervisor URL configured (--rollup.supervisor-http), interop transaction validation disabled."
+                    "No interop filter URL configured (--rollup.interop-http), interop transaction validation disabled."
                 );
             }
             None
+        } else {
+            let endpoint_count = self.interop_endpoints.len();
+            let effective_min_responses = self.interop_min_responses.unwrap_or(endpoint_count);
+            info!(target: "reth::cli",
+                endpoints = endpoint_count,
+                min_responses = effective_min_responses,
+                "Interop filter configured: a tx is accepted only when {effective_min_responses} of {endpoint_count} endpoints return a definitive verdict and all agree it is valid"
+            );
+            let mut builder = InteropFilterClient::builder(
+                self.interop_endpoints.clone(),
+                ctx.chain_spec().chain_id(),
+            )
+            .minimum_safety(self.interop_safety_level);
+            if let Some(min) = self.interop_min_responses {
+                builder = builder.min_responses(min);
+            }
+            Some(builder.build().await)
         };
 
         let blob_store = reth_node_builder::components::create_blob_store(ctx)?;
@@ -1112,8 +1206,8 @@ where
                         // In --dev mode we can't require gas fees because we're unable to decode
                         // the L1 block info
                         .require_l1_data_gas_fee(!ctx.config().dev.dev);
-                    if let Some(client) = supervisor_client.clone() {
-                        v.with_supervisor(client)
+                    if let Some(client) = interop_client.clone() {
+                        v.with_interop(client)
                     } else {
                         v
                     }
@@ -1127,7 +1221,7 @@ where
 
         // Enable the interop filter on reorg whenever interop is scheduled or already active
         let interop_filter_enabled =
-            ctx.chain_spec().op_fork_activation(OpHardfork::Interop) != ForkCondition::Never;
+            ctx.chain_spec().op_fork_activation(OpHardfork::Lagoon) != ForkCondition::Never;
         let transaction_pool = OpPool::new(inner_pool, interop_filter_enabled);
 
         reth_node_builder::components::spawn_maintenance_tasks(
@@ -1139,16 +1233,16 @@ where
         info!(target: "reth::cli", "Transaction pool initialized (interop filter enabled = {interop_filter_enabled})");
         debug!(target: "reth::cli", "Spawned txpool maintenance task");
 
-        // The Op txpool maintenance task is only spawned when interop is scheduled/active and a
-        // supervisor is configured
-        if ctx.chain_spec().op_fork_activation(OpHardfork::Interop) != ForkCondition::Never &&
-            let Some(ref supervisor) = supervisor_client
+        // The Op txpool maintenance task is only spawned when interop is scheduled/active and an
+        // interop filter is configured.
+        if ctx.chain_spec().op_fork_activation(OpHardfork::Lagoon) != ForkCondition::Never &&
+            let Some(ref interop) = interop_client
         {
-            // Spawn failsafe polling task (shares supervisor client via clone)
+            // Spawn failsafe polling task (shares interop filter client via clone).
             ctx.task_executor().spawn_critical_task(
                 "Op txpool failsafe polling task",
                 reth_optimism_txpool::maintain::poll_failsafe_future(
-                    supervisor.clone(),
+                    interop.clone(),
                     transaction_pool.clone(),
                 ),
             );
@@ -1161,7 +1255,7 @@ where
                 reth_optimism_txpool::maintain::maintain_transaction_pool_interop_future(
                     transaction_pool.clone(),
                     chain_events,
-                    supervisor.clone(),
+                    interop.clone(),
                 ),
             );
             debug!(target: "reth::cli", "Spawned Op interop txpool maintenance task");
@@ -1205,6 +1299,8 @@ pub struct OpPayloadBuilder<Txs = ()> {
     /// Gas limit configuration for the OP builder.
     /// This is used to configure gas limit related constraints for the payload builder.
     pub gas_limit_config: OpGasLimitConfig,
+    /// Operator opt-in flag for SDM `PostExec` production. Shared with the admin RPC.
+    pub sdm_post_exec_opt_in: SdmPostExecOptIn,
 }
 
 impl OpPayloadBuilder {
@@ -1216,6 +1312,7 @@ impl OpPayloadBuilder {
             best_transactions: (),
             da_config: OpDAConfig::default(),
             gas_limit_config: OpGasLimitConfig::default(),
+            sdm_post_exec_opt_in: SdmPostExecOptIn::default(),
         }
     }
 
@@ -1230,14 +1327,29 @@ impl OpPayloadBuilder {
         self.gas_limit_config = gas_limit_config;
         self
     }
+
+    /// Provide the shared SDM operator opt-in flag.
+    #[must_use]
+    pub fn with_sdm_post_exec_opt_in(mut self, sdm_post_exec_opt_in: SdmPostExecOptIn) -> Self {
+        self.sdm_post_exec_opt_in = sdm_post_exec_opt_in;
+        self
+    }
 }
 
 impl<Txs> OpPayloadBuilder<Txs> {
     /// Configures the type responsible for yielding the transactions that should be included in the
     /// payload.
     pub fn with_transactions<T>(self, best_transactions: T) -> OpPayloadBuilder<T> {
-        let Self { compute_pending_block, da_config, gas_limit_config, .. } = self;
-        OpPayloadBuilder { compute_pending_block, best_transactions, da_config, gas_limit_config }
+        let Self {
+            compute_pending_block, da_config, gas_limit_config, sdm_post_exec_opt_in, ..
+        } = self;
+        OpPayloadBuilder {
+            compute_pending_block,
+            best_transactions,
+            da_config,
+            gas_limit_config,
+            sdm_post_exec_opt_in,
+        }
     }
 }
 
@@ -1253,7 +1365,8 @@ where
                 >,
             >,
         >,
-    Evm: ConfigureEvm<
+    TxTy<Node::Types>: From<Sealed<TxPostExec>>,
+    Evm: ConfigurePostExecEvm<
             Primitives = PrimitivesTy<Node::Types>,
             NextBlockEnvCtx: BuildNextEnv<
                 OpPayloadBuilderAttributes<TxTy<Node::Types>>,
@@ -1285,6 +1398,7 @@ where
             OpBuilderConfig {
                 da_config: self.da_config.clone(),
                 gas_limit_config: self.gas_limit_config.clone(),
+                sdm_post_exec_opt_in: self.sdm_post_exec_opt_in.clone(),
             },
         )
         .with_transactions(self.best_transactions.clone())
