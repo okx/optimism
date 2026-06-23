@@ -22,13 +22,6 @@ ENV RUST_VERSION=1.94
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y --default-toolchain ${RUST_VERSION} --profile minimal
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-RUN --mount=type=secret,id=copilot,target=/tmp/copilot.pem,required=false \
-    if [ -s /tmp/copilot.pem ]; then \
-         cp /tmp/copilot.pem /usr/local/share/ca-certificates/copilot.crt && \
-         update-ca-certificates; \
-    fi
-ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
-
 # Install cargo-binstall
 RUN curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
 
@@ -88,17 +81,16 @@ FROM build-entrypoint AS builder
 COPY --from=planner /app/recipe.json recipe.json
 
 # Build dependencies - this is the caching Docker layer!
-RUN RUSTFLAGS="-C target-cpu=generic" cargo chef cook --bin "${BIN_TARGET}" --profile "${BUILD_PROFILE}" --recipe-path recipe.json
+RUN RUSTFLAGS="-C target-cpu=generic" cargo chef cook --bin "${BIN_TARGET}" --locked --profile "${BUILD_PROFILE}" --recipe-path recipe.json
 
 # Build application. This step will systematically trigger a cache invalidation if the source code changes.
 COPY --from=app-setup /workspace .
 # Build the application binary on the selected tag. Since we build the external dependencies in the previous step,
 # this step will reuse the target directory from the previous step.
-RUN RUSTFLAGS="-C target-cpu=generic" cargo auditable build --bin "${BIN_TARGET}" --profile "${BUILD_PROFILE}"
+RUN RUSTFLAGS="-C target-cpu=generic" cargo auditable build --bin "${BIN_TARGET}" --locked --profile "${BUILD_PROFILE}"
 
 # Export stage
-FROM ubuntu:22.04 AS export-stage
-SHELL ["/bin/bash", "-c"]
+FROM chainguard/wolfi-base:latest AS export-stage
 
 ARG BIN_TARGET
 ARG BUILD_PROFILE
@@ -107,11 +99,15 @@ ARG BUILD_PROFILE
 ARG UID=10001
 ARG GID=10001
 
-# Install ca-certificates and libssl-dev for TLS support.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install ca-certificates, openssl, libstdc++ for TLS + C++ runtime support.
+RUN apk add --no-cache \
   ca-certificates \
-  libssl-dev \
-  && rm -rf /var/lib/apt/lists/*
+  openssl \
+  libstdc++ \
+  bash \
+  shadow
+
+RUN update-ca-certificates
 
 # Create non-root runtime user
 RUN groupadd --gid ${GID} app \

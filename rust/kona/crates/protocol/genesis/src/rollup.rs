@@ -168,12 +168,16 @@ impl RollupConfig {
     pub fn spec_id(&self, timestamp: u64) -> op_revm::OpSpecId {
         if self.is_interop_active(timestamp) {
             op_revm::OpSpecId::INTEROP
+        } else if self.is_karst_active(timestamp) {
+            op_revm::OpSpecId::KARST
         } else if self.is_jovian_active(timestamp) {
             op_revm::OpSpecId::JOVIAN
         } else if self.is_isthmus_active(timestamp) {
             op_revm::OpSpecId::ISTHMUS
         } else if self.is_holocene_active(timestamp) {
             op_revm::OpSpecId::HOLOCENE
+        } else if self.is_granite_active(timestamp) {
+            op_revm::OpSpecId::GRANITE
         } else if self.is_fjord_active(timestamp) {
             op_revm::OpSpecId::FJORD
         } else if self.is_ecotone_active(timestamp) {
@@ -296,6 +300,15 @@ impl RollupConfig {
             !self.is_isthmus_active(timestamp.saturating_sub(self.block_time))
     }
 
+    /// Returns true if SDM post-exec transactions are active at the given timestamp.
+    ///
+    /// SDM rides the Interop hardfork: it is active iff Interop is active at `timestamp`,
+    /// matching op-node's `IsSDM` (see `op-node/rollup/toggles.go`).
+    #[must_use]
+    pub fn is_sdm_active(&self, timestamp: u64) -> bool {
+        self.is_interop_active(timestamp)
+    }
+
     /// Returns true if Jovian is active at the given timestamp.
     pub fn is_jovian_active(&self, timestamp: u64) -> bool {
         self.hardforks.jovian_time.is_some_and(|t| timestamp >= t) ||
@@ -322,7 +335,7 @@ impl RollupConfig {
 
     /// Returns true if Interop is active at the given timestamp.
     pub fn is_interop_active(&self, timestamp: u64) -> bool {
-        self.hardforks.interop_time.is_some_and(|t| timestamp >= t)
+        self.hardforks.lagoon_time.is_some_and(|t| timestamp >= t)
     }
 
     /// Returns true if the timestamp marks the first Interop block.
@@ -476,10 +489,10 @@ impl OpHardforks for RollupConfig {
                 .hardforks
                 .karst_time
                 .map(ForkCondition::Timestamp)
-                .unwrap_or_else(|| self.op_fork_activation(OpHardfork::Interop)),
-            OpHardfork::Interop => self
+                .unwrap_or_else(|| self.op_fork_activation(OpHardfork::Lagoon)),
+            OpHardfork::Lagoon => self
                 .hardforks
-                .interop_time
+                .lagoon_time
                 .map(ForkCondition::Timestamp)
                 .unwrap_or(ForkCondition::Never),
             _ => ForkCondition::Never,
@@ -522,10 +535,18 @@ mod tests {
         assert_eq!(config.spec_id(30), op_revm::OpSpecId::ECOTONE);
         config.hardforks.fjord_time = Some(40);
         assert_eq!(config.spec_id(40), op_revm::OpSpecId::FJORD);
+        config.hardforks.granite_time = Some(45);
+        assert_eq!(config.spec_id(45), op_revm::OpSpecId::GRANITE);
         config.hardforks.holocene_time = Some(50);
         assert_eq!(config.spec_id(50), op_revm::OpSpecId::HOLOCENE);
         config.hardforks.isthmus_time = Some(60);
         assert_eq!(config.spec_id(60), op_revm::OpSpecId::ISTHMUS);
+        config.hardforks.jovian_time = Some(70);
+        assert_eq!(config.spec_id(70), op_revm::OpSpecId::JOVIAN);
+        config.hardforks.karst_time = Some(80);
+        assert_eq!(config.spec_id(80), op_revm::OpSpecId::KARST);
+        config.hardforks.lagoon_time = Some(90);
+        assert_eq!(config.spec_id(90), op_revm::OpSpecId::INTEROP);
     }
 
     #[test]
@@ -684,10 +705,28 @@ mod tests {
     }
 
     #[test]
+    fn test_sdm_rides_interop() {
+        let mut config = RollupConfig::default();
+        // Jovian/Karst alone must not activate SDM — only Interop does.
+        config.hardforks.jovian_time = Some(10);
+        config.hardforks.karst_time = Some(20);
+        assert!(config.is_jovian_active(10));
+        assert!(!config.is_sdm_active(10));
+        assert!(config.is_karst_active(20));
+        assert!(!config.is_sdm_active(20));
+
+        // Schedule Lagoon and SDM must follow.
+        config.hardforks.lagoon_time = Some(30);
+        assert!(!config.is_sdm_active(29));
+        assert!(config.is_sdm_active(30));
+        assert!(config.is_sdm_active(31));
+    }
+
+    #[test]
     fn test_interop_active() {
         let mut config = RollupConfig::default();
         assert!(!config.is_interop_active(0));
-        config.hardforks.interop_time = Some(10);
+        config.hardforks.lagoon_time = Some(10);
         assert!(config.is_regolith_active(10));
         assert!(config.is_canyon_active(10));
         assert!(config.is_delta_active(10));
@@ -717,7 +756,7 @@ mod tests {
                 isthmus_time: Some(90),
                 jovian_time: Some(100),
                 karst_time: Some(110),
-                interop_time: Some(120),
+                lagoon_time: Some(120),
             },
             block_time: 2,
             ..Default::default()

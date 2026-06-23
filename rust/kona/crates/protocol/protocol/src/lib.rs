@@ -16,8 +16,8 @@ pub use batch::{
     MAX_SPAN_BATCH_ELEMENTS, RawSpanBatch, SINGLE_BATCH_TYPE, SPAN_BATCH_TYPE, SingleBatch,
     SpanBatch, SpanBatchBits, SpanBatchEip1559TransactionData, SpanBatchEip2930TransactionData,
     SpanBatchEip7702TransactionData, SpanBatchElement, SpanBatchError,
-    SpanBatchLegacyTransactionData, SpanBatchPayload, SpanBatchPrefix, SpanBatchTransactionData,
-    SpanBatchTransactions, SpanDecodingError,
+    SpanBatchLegacyTransactionData, SpanBatchPayload, SpanBatchPostExecTransactionData,
+    SpanBatchPrefix, SpanBatchTransactionData, SpanBatchTransactions, SpanDecodingError,
 };
 
 mod brotli;
@@ -37,7 +37,8 @@ pub use block::{BlockInfo, FromBlockError, L2BlockInfo};
 
 mod frame;
 pub use frame::{
-    DERIVATION_VERSION_0, FRAME_OVERHEAD, Frame, FrameDecodingError, FrameParseError, MAX_FRAME_LEN,
+    BASE_FRAME_LEN, DERIVATION_VERSION_0, FRAME_OVERHEAD, Frame, FrameDecodingError,
+    FrameParseError, MAX_FRAME_LEN,
 };
 
 mod utils;

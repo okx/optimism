@@ -35,6 +35,7 @@ extern crate alloc;
 mod base;
 mod base_sepolia;
 mod basefee;
+mod bootnodes;
 
 pub mod constants;
 mod dev;
@@ -207,10 +208,10 @@ impl OpChainSpecBuilder {
         self
     }
 
-    /// Enable Interop at genesis
+    /// Enable Lagoon at genesis
     pub fn interop_activated(mut self) -> Self {
         self = self.karst_activated();
-        self.inner = self.inner.with_fork(OpHardfork::Interop, ForkCondition::Timestamp(0));
+        self.inner = self.inner.with_fork(OpHardfork::Lagoon, ForkCondition::Timestamp(0));
         self
     }
 
@@ -288,6 +289,15 @@ impl EthChainSpec for OpChainSpec {
     }
 
     fn bootnodes(&self) -> Option<Vec<NodeRecord>> {
+        let chain = self.inner.chain;
+        if chain.is_optimism() {
+            let testnet = chain.named().is_some_and(|n| n.is_testnet());
+            return Some(if testnet {
+                bootnodes::op_testnet_nodes()
+            } else {
+                bootnodes::op_nodes()
+            });
+        }
         self.inner.bootnodes()
     }
 
@@ -301,9 +311,9 @@ impl EthChainSpec for OpChainSpec {
 
     fn next_block_base_fee(&self, parent: &Header, target_timestamp: u64) -> Option<u64> {
         if self.is_jovian_active_at_timestamp(parent.timestamp()) {
-            compute_jovian_base_fee(self, parent, target_timestamp).ok()
+            compute_jovian_base_fee(parent).ok()
         } else if self.is_holocene_active_at_timestamp(parent.timestamp()) {
-            decode_holocene_base_fee(self, parent, target_timestamp).ok()
+            decode_holocene_base_fee(parent).ok()
         } else {
             self.inner.next_block_base_fee(parent, target_timestamp)
         }
@@ -401,7 +411,7 @@ impl From<Genesis> for OpChainSpec {
             (OpHardfork::Isthmus.boxed(), genesis_info.isthmus_time),
             (OpHardfork::Jovian.boxed(), genesis_info.jovian_time),
             (OpHardfork::Karst.boxed(), genesis_info.karst_time),
-            (OpHardfork::Interop.boxed(), genesis_info.interop_time),
+            (OpHardfork::Lagoon.boxed(), genesis_info.lagoon_time),
         ];
 
         let mut time_hardforks = time_hardfork_opts
@@ -1207,7 +1217,7 @@ mod tests {
             EthereumHardfork::Prague.boxed(),
             OpHardfork::Isthmus.boxed(),
             OpHardfork::Jovian.boxed(),
-            // OpHardfork::Interop.boxed(),
+            // OpHardfork::Lagoon.boxed(),
         ];
 
         for (expected, actual) in expected_hardforks.iter().zip(hardforks.iter()) {
@@ -1348,5 +1358,17 @@ mod tests {
         for eth_hf in EthereumHardfork::VARIANTS {
             assert!(!content.contains(eth_hf.name()));
         }
+    }
+
+    // Mainnets get the 11-enode pool, sepolias the 8-enode pool. OP covers
+    // the hand-coded OpChainSpec constants; Unichain covers the
+    // registry-driven path through the superchain-configs macro.
+    #[cfg(feature = "superchain-configs")]
+    #[test]
+    fn op_stack_default_bootnodes() {
+        assert_eq!(OP_MAINNET.bootnodes().expect("op-mainnet bootnodes").len(), 11);
+        assert_eq!(UNICHAIN_MAINNET.bootnodes().expect("unichain-mainnet bootnodes").len(), 11);
+        assert_eq!(OP_SEPOLIA.bootnodes().expect("op-sepolia bootnodes").len(), 8);
+        assert_eq!(UNICHAIN_SEPOLIA.bootnodes().expect("unichain-sepolia bootnodes").len(), 8);
     }
 }

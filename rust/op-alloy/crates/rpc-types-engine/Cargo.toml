@@ -2,7 +2,7 @@
 name = "op-alloy-rpc-types-engine"
 description = "Optimism RPC types for the `engine` namespace"
 
-version = "0.24.0"
+version = "2.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -24,7 +24,6 @@ alloy-eips.workspace = true
 alloy-rpc-types-engine.workspace = true
 alloy-rlp.workspace = true
 alloy-consensus.workspace = true
-alloy-eip7928 = { workspace = true, features = ["rlp"] }
 
 # Encoding
 snap = { workspace = true, optional = true }
@@ -62,7 +61,6 @@ std = [
 	"alloy-eips/std",
 	"alloy-rlp/std",
 	"alloy-serde?/std",
-	"alloy-eip7928/std",
 	"serde?/std",
 	"sha2/std",
 	"thiserror/std"
@@ -74,8 +72,7 @@ serde = [
 	"op-alloy-consensus/serde",
 	"alloy-consensus/serde",
 	"alloy-eips/serde",
-	"alloy-primitives/serde",
-	"alloy-eip7928/serde"
+	"alloy-primitives/serde"
 ]
 k256 = ["op-alloy-consensus/k256"]
 arbitrary = [

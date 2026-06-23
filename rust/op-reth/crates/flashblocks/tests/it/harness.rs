@@ -430,12 +430,11 @@ impl TestFlashBlockBuilder {
                 withdrawals_root: B256::ZERO,
                 blob_gas_used: None,
             },
-            metadata: OpFlashblockPayloadMetadata::new(
-                self.block_number,
-                Some(Default::default()),
-                Some(Default::default()),
-                Some(vec![]),
-            ),
+            metadata: OpFlashblockPayloadMetadata {
+                block_number: self.block_number,
+                receipts: Default::default(),
+                new_account_balances: Default::default(),
+            },
         }
     }
 }

@@ -1,16 +1,19 @@
 //! Command that unwinds the OP proofs storage to a specific block number.
 
+use alloy_consensus::BlockHeader;
 use clap::Parser;
 use reth_cli::chainspec::ChainSpecParser;
 use reth_cli_commands::common::{AccessRights, CliNodeTypes, Environment, EnvironmentArgs};
 use reth_node_core::version::version_metadata;
 use reth_optimism_chainspec::OpChainSpec;
+use reth_optimism_node::args::{ProofsHistoryStorageArgs, ProofsStorageVersion};
 use reth_optimism_primitives::OpPrimitives;
 use reth_optimism_trie::{
-    OpProofsProviderRO, OpProofsProviderRw, OpProofsStore, db::MdbxProofsStorage,
+    OpProofsProviderRO, OpProofsProviderRw, OpProofsStorageError, OpProofsStore,
+    db::{MdbxProofsStorage, MdbxProofsStorageV2},
 };
 use reth_provider::{BlockReader, TransactionVariant};
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 use tracing::{info, warn};
 
 /// Unwinds the proofs storage to a specific block number.
@@ -21,13 +24,9 @@ pub struct UnwindCommand<C: ChainSpecParser> {
     #[command(flatten)]
     env: EnvironmentArgs<C>,
 
-    /// The path to the storage DB for proofs history.
-    #[arg(
-        long = "proofs-history.storage-path",
-        value_name = "PROOFS_HISTORY_STORAGE_PATH",
-        required = true
-    )]
-    pub storage_path: PathBuf,
+    /// Shared proofs-history storage flags (storage path + version).
+    #[command(flatten)]
+    pub history: ProofsHistoryStorageArgs,
 
     /// The target block number to unwind to.
     ///
@@ -40,20 +39,22 @@ impl<C: ChainSpecParser> UnwindCommand<C> {
     /// Validates that the target block number is within a valid range for unwinding.
     fn validate_unwind_range<Store: OpProofsStore>(&self, storage: Store) -> eyre::Result<bool> {
         let provider_ro = storage.provider_ro()?;
-        let (Some((earliest, _)), Some((latest, _))) =
-            (provider_ro.get_earliest_block_number()?, provider_ro.get_latest_block_number()?)
-        else {
-            warn!(target: "reth::cli", "No blocks found in proofs storage. Nothing to unwind.");
-            return Ok(false);
+        let window = match provider_ro.get_proof_window() {
+            Ok(w) => w,
+            Err(OpProofsStorageError::NoBlocksFound) => {
+                warn!(target: "reth::cli", "No blocks found in proofs storage. Nothing to unwind.");
+                return Ok(false);
+            }
+            Err(err) => return Err(err.into()),
         };
 
-        if self.target <= earliest {
-            warn!(target: "reth::cli", unwind_target = ?self.target, ?earliest, "Target block is less than the earliest block in proofs storage. Nothing to unwind.");
+        if self.target <= window.earliest.number {
+            warn!(target: "reth::cli", unwind_target = ?self.target, earliest = window.earliest.number, "Target block is less than the earliest block in proofs storage. Nothing to unwind.");
             return Ok(false);
         }
 
-        if self.target > latest {
-            warn!(target: "reth::cli", unwind_target = ?self.target, ?latest, "Target block is not less than the latest block in proofs storage. Nothing to unwind.");
+        if self.target > window.latest.number {
+            warn!(target: "reth::cli", unwind_target = ?self.target, latest = window.latest.number, "Target block is not less than the latest block in proofs storage. Nothing to unwind.");
             return Ok(false);
         }
 
@@ -68,17 +69,40 @@ impl<C: ChainSpecParser<ChainSpec = OpChainSpec>> UnwindCommand<C> {
         runtime: reth_tasks::Runtime,
     ) -> eyre::Result<()> {
         info!(target: "reth::cli", "reth {} starting", version_metadata().short_version);
-        info!(target: "reth::cli", "Unwinding OP proofs storage at: {:?}", self.storage_path);
 
-        // Initialize the environment with read-only access
-        let Environment { provider_factory, .. } = self.env.init::<N>(AccessRights::RO, runtime)?;
+        // Initialize the environment with read-only access. We use `RoInconsistent` to skip the
+        // static-file/database consistency check.
+        let Environment { provider_factory, data_dir, .. } =
+            self.env.init::<N>(AccessRights::RoInconsistent, runtime)?;
+        let storage_path = self.history.resolve_storage_path(data_dir.as_ref());
+        info!(target: "reth::cli", "Unwinding OP proofs storage at: {:?}", storage_path);
 
-        // Create the proofs storage
-        let storage: Arc<MdbxProofsStorage> = Arc::new(
-            MdbxProofsStorage::new(&self.storage_path)
-                .map_err(|e| eyre::eyre!("Failed to create MdbxProofsStorage: {e}"))?,
-        );
+        match self.history.storage_version {
+            ProofsStorageVersion::V1 => {
+                let storage: Arc<MdbxProofsStorage> = Arc::new(
+                    MdbxProofsStorage::new(&storage_path)
+                        .map_err(|e| eyre::eyre!("Failed to create MdbxProofsStorage: {e}"))?,
+                );
+                self.run_unwind(storage, &provider_factory)?;
+            }
+            ProofsStorageVersion::V2 => {
+                let storage: Arc<MdbxProofsStorageV2> = Arc::new(
+                    MdbxProofsStorageV2::new(&storage_path)
+                        .map_err(|e| eyre::eyre!("Failed to create MdbxProofsStorageV2: {e}"))?,
+                );
+                self.run_unwind(storage, &provider_factory)?;
+            }
+        }
 
+        Ok(())
+    }
+
+    /// Validate the unwind range and unwind the proofs storage to the target block.
+    fn run_unwind<S, F>(&self, storage: S, provider_factory: &F) -> eyre::Result<()>
+    where
+        S: OpProofsStore + Clone,
+        F: BlockReader,
+    {
         // Validate that the target block is within a valid range for unwinding
         if !self.validate_unwind_range(storage.clone())? {
             return Ok(());
@@ -91,7 +115,7 @@ impl<C: ChainSpecParser<ChainSpec = OpChainSpec>> UnwindCommand<C> {
                 eyre::eyre!("Target block {} not found in the main database", self.target)
             })?;
 
-        info!(target: "reth::cli", block_number = block.number, block_hash = %block.hash(), "Unwinding to target block");
+        info!(target: "reth::cli", block_number = block.number(), block_hash = %block.hash(), "Unwinding to target block");
         let provider_rw = storage.provider_rw()?;
         provider_rw.unwind_history(block.block_with_parent())?;
         provider_rw.commit()?;

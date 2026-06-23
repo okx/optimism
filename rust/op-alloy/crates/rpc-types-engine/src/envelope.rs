@@ -758,12 +758,11 @@ mod tests {
             blob_gas_used: Some(0),
         };
 
-        let metadata = OpFlashblockPayloadMetadata::new(
-            100,
-            Some(BTreeMap::new()),
-            Some(BTreeMap::new()),
-            Some(alloc::vec![]),
-        );
+        let metadata = OpFlashblockPayloadMetadata {
+            block_number: 100,
+            new_account_balances: BTreeMap::new(),
+            receipts: BTreeMap::new(),
+        };
 
         OpFlashblockPayload { payload_id: PayloadId::new([1u8; 8]), index, base, diff, metadata }
     }

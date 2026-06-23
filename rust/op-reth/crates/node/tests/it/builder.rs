@@ -1,6 +1,12 @@
 //! Node builder setup tests.
 
-use alloy_op_evm::{OpEvmContext, OpTxError};
+use alloy_op_evm::{
+    OpEvmContext, OpTxError,
+    post_exec::{
+        PostExecEvmFactoryAdapter, PostExecEvmFactoryHooks, PostExecExecutedTx, PostExecTxContext,
+        WarmingState,
+    },
+};
 use alloy_primitives::{Bytes, address};
 use core::marker::PhantomData;
 use op_revm::{OpHaltReason, OpSpecId, precompiles::OpPrecompiles};
@@ -126,7 +132,46 @@ fn test_setup_custom_precompiles() {
         }
     }
 
+    impl PostExecEvmFactoryHooks for UniEvmFactory {
+        fn begin_post_exec_tx<DB, I>(evm: &mut Self::Evm<DB, I>, ctx: PostExecTxContext)
+        where
+            DB: Database,
+            I: Inspector<Self::Context<DB>>,
+        {
+            evm.begin_post_exec_tx(ctx);
+        }
+
+        fn take_last_post_exec_tx_result<DB, I>(evm: &mut Self::Evm<DB, I>) -> PostExecExecutedTx
+        where
+            DB: Database,
+            I: Inspector<Self::Context<DB>>,
+        {
+            evm.take_last_post_exec_tx_result()
+        }
+
+        fn warming_state<DB, I>(evm: &Self::Evm<DB, I>) -> WarmingState
+        where
+            DB: Database,
+            I: Inspector<Self::Context<DB>>,
+        {
+            evm.warming_state()
+        }
+
+        fn seed_warming_state<DB, I>(evm: &mut Self::Evm<DB, I>, state: WarmingState)
+        where
+            DB: Database,
+            I: Inspector<Self::Context<DB>>,
+        {
+            evm.seed_warming_state(state);
+        }
+    }
+
     /// Unichain executor builder.
+    ///
+    /// This is a type-level/builder-plumbing test for downstream OP Stack chains that need to
+    /// customize the EVM executor, for example to add chain-specific precompiles. `check_launch`
+    /// does not execute a block or call the custom precompile; it verifies that a custom executor
+    /// builder, custom EVM factory, and OP node components compose into a launchable node config.
     struct UniExecutorBuilder;
 
     impl<Node> ExecutorBuilder<Node> for UniExecutorBuilder
@@ -137,7 +182,7 @@ fn test_setup_custom_precompiles() {
             OpChainSpec,
             <Node::Types as NodeTypes>::Primitives,
             OpRethReceiptBuilder,
-            UniEvmFactory,
+            PostExecEvmFactoryAdapter<UniEvmFactory>,
         >;
 
         async fn build_evm(self, ctx: &BuilderContext<Node>) -> eyre::Result<Self::EVM> {
@@ -146,7 +191,7 @@ fn test_setup_custom_precompiles() {
             let uni_executor_factory = OpBlockExecutorFactory::new(
                 *executor_factory.receipt_builder(),
                 ctx.chain_spec(),
-                UniEvmFactory,
+                PostExecEvmFactoryAdapter::new(UniEvmFactory),
             );
             let uni_evm_config = OpEvmConfig {
                 executor_factory: uni_executor_factory,

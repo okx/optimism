@@ -50,7 +50,6 @@ use reth_tasks::{
     pool::{BlockingTaskGuard, BlockingTaskPool},
 };
 use std::{
-    collections::BTreeMap,
     fmt::{self, Formatter},
     marker::PhantomData,
     sync::Arc,
@@ -161,14 +160,8 @@ impl<N: RpcNodeCore, Rpc: RpcConvert> OpEthApi<N, Rpc> {
                             return futures::future::ready(Some(Vec::new()));
                         };
 
-                        let empty = BTreeMap::new();
-                        let receipts = fb
-                            .metadata
-                            .receipts
-                            .as_ref()
-                            .unwrap_or(&empty)
-                            .iter()
-                            .map(|(tx, receipt)| (*tx, receipt));
+                        let receipts =
+                            fb.metadata.receipts.iter().map(|(tx, receipt)| (*tx, receipt));
 
                         let all_logs = matching_block_logs_with_tx_hashes(
                             &filter,
