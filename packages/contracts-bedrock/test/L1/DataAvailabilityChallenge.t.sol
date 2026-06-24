@@ -530,7 +530,7 @@ contract DataAvailabilityChallenge_Resolve_Test is DataAvailabilityChallenge_Tes
         uint256 challengedBlockNumber,
         uint256 resolverRefundPercentage,
         uint64 bondSize,
-        uint128 txGasPrice
+        uint64 txGasPrice
     )
         public
     {
@@ -546,7 +546,9 @@ contract DataAvailabilityChallenge_Resolve_Test is DataAvailabilityChallenge_Tes
         // Bound the resolver refund percentage to 100
         resolverRefundPercentage = bound(resolverRefundPercentage, 0, 100);
 
-        // Set the gas price to a fuzzed value to test bond distribution logic
+        // Set the gas price to a fuzzed value to test bond distribution logic.
+        // `txGasPrice` is typed `uint64` because the `vm.txGasPrice` cheatcode
+        // rejects values >= 2^64.
         vm.txGasPrice(txGasPrice);
 
         // Change the resolver refund percentage
@@ -626,7 +628,7 @@ contract DataAvailabilityChallenge_Resolve_Test is DataAvailabilityChallenge_Tes
         bytes memory wrongPreImage,
         uint256 challengedBlockNumber,
         uint256 resolverRefundPercentage,
-        uint128 txGasPrice
+        uint64 txGasPrice
     )
         public
     {
@@ -640,7 +642,9 @@ contract DataAvailabilityChallenge_Resolve_Test is DataAvailabilityChallenge_Tes
         // Bound the resolver refund percentage to 100
         resolverRefundPercentage = bound(resolverRefundPercentage, 0, 100);
 
-        // Set the gas price to a fuzzed value to test bond distribution logic
+        // Set the gas price to a fuzzed value to test bond distribution logic.
+        // `txGasPrice` is typed `uint64` because the `vm.txGasPrice` cheatcode
+        // rejects values >= 2^64.
         vm.txGasPrice(txGasPrice);
 
         // Change the resolver refund percentage
