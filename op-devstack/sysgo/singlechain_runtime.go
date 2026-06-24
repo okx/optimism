@@ -97,7 +97,7 @@ func newSingleChainRuntimeWithConfig(t devtest.T, cfg PresetConfig, spec singleC
 	l1Clock := clock.SystemClock
 	var timeTravelClock *clock.AdvancingClock
 	if cfg.EnableTimeTravel {
-		timeTravelClock = clock.NewAdvancingClock(100 * time.Millisecond)
+		timeTravelClock = clock.NewAdvancingClock()
 		l1Clock = timeTravelClock
 	}
 	l1EL, l1CL := startInProcessL1WithClockConfig(t, world.L1Network, jwtPath, l1Clock, cfg)
@@ -162,6 +162,21 @@ func NewMinimalRuntimeWithConfig(t devtest.T, cfg PresetConfig) *SingleChainRunt
 		StartBatcher:    true,
 		StartProposer:   true,
 		StartChallenger: true,
+	})
+}
+
+// NewMinimalNoFaultProofsRuntimeWithConfig returns a minimal single-chain
+// runtime without the proposer or challenger. It is intended for tests that
+// only exercise the sequencer + batcher + derivation loop and do not need
+// fault proofs. Skipping the challenger also avoids requiring cannon prestate
+// artifacts, which are expensive to build locally.
+func NewMinimalNoFaultProofsRuntimeWithConfig(t devtest.T, cfg PresetConfig) *SingleChainRuntime {
+	return newSingleChainRuntimeWithConfig(t, cfg, singleChainRuntimeSpec{
+		BuildWorld:      newDefaultSingleChainWorld,
+		StartPrimary:    startDefaultSingleChainPrimary,
+		StartBatcher:    true,
+		StartProposer:   false,
+		StartChallenger: false,
 	})
 }
 
@@ -339,7 +354,6 @@ func startMinimalChallenger(
 		sharedchallenger.WithFastGames(),
 		sharedchallenger.WithCannonKonaConfig(rollupCfgs, l1Net.genesis, l2Geneses),
 		sharedchallenger.WithCannonKonaGameType(),
-		sharedchallenger.WithExperimentalWitnessEndpoint(),
 	}
 	cfg, err := sharedchallenger.NewPreInteropChallengerConfig(
 		t.Ctx(),

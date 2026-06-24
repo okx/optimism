@@ -6,13 +6,13 @@ import { Test } from "test/setup/Test.sol";
 
 // Scripts
 import { GenerateNUTBundle } from "scripts/upgrade/GenerateNUTBundle.s.sol";
+import { Predeploys } from "src/libraries/Predeploys.sol";
 
 // Libraries
 import { NetworkUpgradeTxns } from "src/libraries/NetworkUpgradeTxns.sol";
-import { UpgradeUtils } from "scripts/libraries/UpgradeUtils.sol";
 import { Constants } from "src/libraries/Constants.sol";
-import { L2ContractsManagerTypes } from "src/libraries/L2ContractsManagerTypes.sol";
 import { Predeploys } from "src/libraries/Predeploys.sol";
+import { UpgradeUtils } from "scripts/libraries/UpgradeUtils.sol";
 
 /// @title GenerateNUTBundle_Harness
 /// @notice Harness contract that exposes internal functions for testing.
@@ -22,9 +22,19 @@ contract GenerateNUTBundle_Harness is GenerateNUTBundle {
         return _buildOutput();
     }
 
+    /// @notice Returns the fork name used by the generated bundle.
+    function upgradeName() external pure returns (string memory) {
+        return UPGRADE_NAME;
+    }
+
     /// @notice Asserts that the given output is valid.
-    function assertValidOutput(Output memory _output) external pure {
+    function assertValidOutput(Output memory _output) external view {
         _assertValidOutput(_output);
+    }
+
+    /// @notice Builds the implementation deployment configurations.
+    function buildImplementationDeploymentConfigs() external {
+        _buildImplementationDeploymentConfigs();
     }
 }
 
@@ -45,6 +55,8 @@ contract GenerateNUTBundleTest is Test {
     function test_run_succeeds() public {
         GenerateNUTBundle.Output memory output = script.run();
 
+        assertEq(output.fork, script.upgradeName(), "fork mismatch");
+
         // Verify artifact written correctly
         NetworkUpgradeTxns.NetworkUpgradeTxn[] memory readTxns =
             NetworkUpgradeTxns.readArtifact(Constants.CURRENT_BUNDLE_PATH);
@@ -58,49 +70,31 @@ contract GenerateNUTBundleTest is Test {
         }
     }
 
+    /// @notice Tests that the harness build path returns the same fork name as the script run path.
+    function test_buildOutput_setsFork_succeeds() public {
+        GenerateNUTBundle.Output memory output = script.buildOutput();
+
+        assertEq(output.fork, script.upgradeName(), "fork mismatch");
+    }
+
     /// @notice Tests that transactions have correct structure.
-    /// @dev Includes ConditionalDeployer and ProxyAdmin upgrades.
     function test_run_transactionStructure_succeeds() public {
         GenerateNUTBundle.Output memory output = script.run();
 
         // Should include:
-        // 1. ConditionalDeployer deployment
-        // 2. ConditionalDeployer upgrade
-        // 3. All implementation deployments (StorageSetter + predeploys)
-        // 4. L2ProxyAdmin upgrade
-        // 5. L2ContractsManager deployment
-        // 6. Upgrade execution
-
-        // Verify ConditionalDeployer deployment
-        assertEq(
-            output.txns[0].intent,
-            "ConditionalDeployer Deployment",
-            "First transaction should be ConditionalDeployer deployment"
-        );
-
-        // Verify ConditionalDeployer upgrade
-        assertEq(
-            output.txns[1].intent,
-            "Upgrade ConditionalDeployer Implementation",
-            "Second transaction should be ConditionalDeployer upgrade"
-        );
+        // 1. All implementation deployments (StorageSetter + predeploys)
+        // 2. L2ContractsManager deployment
+        // 3. Upgrade execution
 
         // Verify implementation deployments
-        string[] memory implementationsToUpgrade = UpgradeUtils.getImplementationsNamesToUpgrade();
+        string[] memory implementationsToUpgrade = script.getStandardDeploymentNames();
         for (uint256 i = 0; i < implementationsToUpgrade.length; i++) {
             assertEq(
-                output.txns[i + 2].intent,
+                output.txns[i].intent,
                 string.concat("Deploy ", implementationsToUpgrade[i], " Implementation"),
                 string.concat("Transaction should be ", implementationsToUpgrade[i], " deployment")
             );
         }
-
-        // Verify L2ProxyAdmin upgrade
-        assertEq(
-            output.txns[output.txns.length - 3].intent,
-            "Upgrade L2ProxyAdmin Implementation",
-            "Third to last transaction should be L2ProxyAdmin upgrade"
-        );
 
         // Verify L2ContractsManager deployment
         assertEq(
@@ -132,6 +126,7 @@ contract GenerateNUTBundleTest is Test {
         internal
         pure
     {
+        assertEq(_output1.fork, _output2.fork, "Fork should match");
         assertEq(_output1.txns.length, _output2.txns.length, "Should produce same number of transactions");
         for (uint256 i = 0; i < _output1.txns.length; i++) {
             assertEq(_output1.txns[i].intent, _output2.txns[i].intent, "Transaction intent should match");
@@ -144,13 +139,36 @@ contract GenerateNUTBundleTest is Test {
         }
     }
 
-    /// @notice Tests that the number of implementations in the deployment list matches the number of fields in the
-    /// Implementations struct.
-    function test_implementationCount_matchesStructFields_succeeds() public pure {
-        L2ContractsManagerTypes.Implementations memory emptyImpl;
-        uint256 structFieldCount = abi.encode(emptyImpl).length / 32;
-        string[] memory names = UpgradeUtils.getImplementationsNamesToUpgrade();
-        assertEq(names.length, structFieldCount, "Deployment list must equal Implementations struct field count");
+    /// @notice Tests that the implementation deployment list length matches the ImplRecord array length.
+    /// @dev The deployment list is: 1 StorageSetter + all registry records.
+    ///      The ImplRecord array passed to the L2CM constructor must have one entry per deployment.
+    ///      If these diverge, a new predeploy was added to one location but not the other.
+    function test_implementationCount_matchesImplRecordArray_succeeds() public {
+        script.run();
+
+        assertEq(
+            script.implementationConfigs().length,
+            script.implRecords().length,
+            "Config count (registry records + StorageSetter) must equal ImplRecord array length"
+        );
+    }
+
+    /// @notice Tests that the registry record count matches the implementation config count.
+    /// @dev registry records + 1 StorageSetter = total implementation configs.
+    function test_registryRecordCount_matchesImplementationConfigs_succeeds() public {
+        script.buildImplementationDeploymentConfigs();
+        // Only proxied non-deprecated records appear in the bundle.
+        Predeploys.PredeployRecord[] memory records = Predeploys.getAllRecords();
+        uint256 proxiedCount = 0;
+        for (uint256 i = 0; i < records.length; i++) {
+            if (records[i].isProxied && !records[i].isDeprecated) proxiedCount++;
+        }
+        // StorageSetter is always prepended as the first entry.
+        assertEq(
+            script.implementationConfigs().length,
+            proxiedCount + 1,
+            "Implementation configs must be proxied registry records + 1 StorageSetter"
+        );
     }
 
     /// @notice Tests that a bundle with an incorrect number of transactions is rejected.

@@ -29,6 +29,9 @@ const (
 	optionKindInteropLogBackfill
 	optionKindInteropFilter
 	optionKindPreGenesisSuperGame
+	optionKindSkipHonestProposer
+	optionKindSupernodeVerifierSyncMode
+	optionKindInteropActivationDelay
 )
 
 const allOptionKinds = optionKindDeployer |
@@ -48,7 +51,10 @@ const allOptionKinds = optionKindDeployer |
 	optionKindMessageExpiryWindow |
 	optionKindInteropLogBackfill |
 	optionKindInteropFilter |
-	optionKindPreGenesisSuperGame
+	optionKindPreGenesisSuperGame |
+	optionKindSkipHonestProposer |
+	optionKindSupernodeVerifierSyncMode |
+	optionKindInteropActivationDelay
 
 var optionKindLabels = []struct {
 	kind  optionKinds
@@ -72,6 +78,9 @@ var optionKindLabels = []struct {
 	{kind: optionKindInteropLogBackfill, label: "interop log backfill depth"},
 	{kind: optionKindInteropFilter, label: "interop filter"},
 	{kind: optionKindPreGenesisSuperGame, label: "pre-genesis super game"},
+	{kind: optionKindSkipHonestProposer, label: "skip honest proposer"},
+	{kind: optionKindSupernodeVerifierSyncMode, label: "supernode verifier sync mode"},
+	{kind: optionKindInteropActivationDelay, label: "interop activation delay"},
 }
 
 func (k optionKinds) String() string {
@@ -132,33 +141,27 @@ const minimalWithConductorsPresetSupportedOptionKinds = optionKindDeployer |
 const simpleWithSyncTesterPresetSupportedOptionKinds = minimalPresetSupportedOptionKinds |
 	optionKindGlobalSyncTesterEL
 
-const singleChainInteropPresetSupportedOptionKinds = optionKindDeployer |
+// singleSupernodeWithSyncTesterPresetSupportedOptionKinds covers exactly what
+// the runtime in singlechain_supernode_synctester_variant.go actually wires.
+// Proposer / game-type / proof-validation options are intentionally excluded:
+// this preset has no proposer and no dispute game surface, so accepting them
+// would be a silent no-op footgun.
+const singleSupernodeWithSyncTesterPresetSupportedOptionKinds = optionKindDeployer |
 	optionKindBatcher |
-	optionKindProposer |
 	optionKindGlobalL2CL |
+	optionKindGlobalSyncTesterEL |
 	optionKindL1EL |
-	optionKindAddedGameType |
-	optionKindRespectedGameType |
 	optionKindTimeTravel |
-	optionKindMaxSequencingWindow |
-	optionKindRequireInteropNotAtGen |
 	optionKindAfterBuild |
-	optionKindProofValidation
-
-const simpleInteropSuperProofsPresetSupportedOptionKinds = optionKindDeployer |
-	optionKindBatcher |
-	optionKindProposer |
-	optionKindGlobalL2CL |
-	optionKindL1EL |
-	optionKindTimeTravel |
-	optionKindMaxSequencingWindow |
-	optionKindRequireInteropNotAtGen
+	optionKindSupernodeVerifierSyncMode |
+	optionKindInteropActivationDelay
 
 const supernodeProofsPresetSupportedOptionKinds = optionKindDeployer |
 	optionKindBatcher |
 	optionKindL1EL |
 	optionKindTimeTravel |
-	optionKindMessageExpiryWindow
+	optionKindMessageExpiryWindow |
+	optionKindSkipHonestProposer
 
 const twoL2SupernodeProofsPresetSupportedOptionKinds = supernodeProofsPresetSupportedOptionKinds |
 	optionKindPreGenesisSuperGame

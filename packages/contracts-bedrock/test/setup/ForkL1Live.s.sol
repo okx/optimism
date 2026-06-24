@@ -131,7 +131,6 @@ contract ForkL1Live is Deployer, StdAssertions, FeatureFlags {
         artifacts.save("L2ChainId", address(uint160(vm.parseTomlUint(opToml, ".chain_id"))));
         // Superchain shared contracts
         saveProxyAndImpl("SuperchainConfig", superchainToml, ".superchain_config_addr");
-        saveProxyAndImpl("ProtocolVersions", superchainToml, ".protocol_versions_addr");
         // Core contracts
         artifacts.save("ProxyAdmin", vm.parseJsonAddress(addressesJson, string.concat("$.", chainId, ".ProxyAdmin")));
         saveProxyAndImpl("SystemConfig", opToml, ".addresses.SystemConfigProxy");
@@ -264,7 +263,7 @@ contract ForkL1Live is Deployer, StdAssertions, FeatureFlags {
 
             // Migration upgrade: legacy types disabled, super types enabled.
             // Order must match validGameTypes in OPContractsManagerV2._assertValidFullConfig().
-            disputeGameConfigs = new IOPContractsManagerUtils.DisputeGameConfig[](7);
+            disputeGameConfigs = new IOPContractsManagerUtils.DisputeGameConfig[](6);
             disputeGameConfigs[0] = IOPContractsManagerUtils.DisputeGameConfig({
                 enabled: false,
                 initBond: 0,
@@ -284,25 +283,13 @@ contract ForkL1Live is Deployer, StdAssertions, FeatureFlags {
                 gameArgs: hex""
             });
             disputeGameConfigs[3] = IOPContractsManagerUtils.DisputeGameConfig({
-                enabled: false,
-                initBond: 0,
-                gameType: GameTypes.SUPER_CANNON,
-                gameArgs: hex""
-            });
-            disputeGameConfigs[4] = IOPContractsManagerUtils.DisputeGameConfig({
                 enabled: true,
-                initBond: 0.08 ether,
+                initBond: 0,
                 gameType: GameTypes.SUPER_PERMISSIONED_CANNON,
-                gameArgs: abi.encode(
-                    IOPContractsManagerUtils.PermissionedDisputeGameConfig({
-                        absolutePrestate: Claim.wrap(bytes32(keccak256("cannonPrestate"))),
-                        proposer: proposer,
-                        challenger: challenger
-                    })
-                )
+                gameArgs: abi.encode(IOPContractsManagerUtils.SuperPermissionedDisputeGameConfig({ proposer: proposer }))
             });
             if (isPermissionless) {
-                disputeGameConfigs[5] = IOPContractsManagerUtils.DisputeGameConfig({
+                disputeGameConfigs[4] = IOPContractsManagerUtils.DisputeGameConfig({
                     enabled: true,
                     initBond: 0.08 ether,
                     gameType: GameTypes.SUPER_CANNON_KONA,
@@ -313,14 +300,14 @@ contract ForkL1Live is Deployer, StdAssertions, FeatureFlags {
                     )
                 });
             } else {
-                disputeGameConfigs[5] = IOPContractsManagerUtils.DisputeGameConfig({
+                disputeGameConfigs[4] = IOPContractsManagerUtils.DisputeGameConfig({
                     enabled: false,
                     initBond: 0,
                     gameType: GameTypes.SUPER_CANNON_KONA,
                     gameArgs: hex""
                 });
             }
-            disputeGameConfigs[6] = IOPContractsManagerUtils.DisputeGameConfig({
+            disputeGameConfigs[5] = IOPContractsManagerUtils.DisputeGameConfig({
                 enabled: false,
                 initBond: 0,
                 gameType: GameTypes.ZK_DISPUTE_GAME,
@@ -346,7 +333,7 @@ contract ForkL1Live is Deployer, StdAssertions, FeatureFlags {
         } else {
             // Standard upgrade path: legacy types enabled, super types disabled.
             // Order must match validGameTypes in OPContractsManagerV2._assertValidFullConfig().
-            disputeGameConfigs = new IOPContractsManagerUtils.DisputeGameConfig[](7);
+            disputeGameConfigs = new IOPContractsManagerUtils.DisputeGameConfig[](6);
             disputeGameConfigs[0] = IOPContractsManagerUtils.DisputeGameConfig({
                 enabled: true,
                 initBond: disputeGameFactory.initBonds(GameTypes.CANNON),
@@ -382,22 +369,16 @@ contract ForkL1Live is Deployer, StdAssertions, FeatureFlags {
             disputeGameConfigs[3] = IOPContractsManagerUtils.DisputeGameConfig({
                 enabled: false,
                 initBond: 0,
-                gameType: GameTypes.SUPER_CANNON,
+                gameType: GameTypes.SUPER_PERMISSIONED_CANNON,
                 gameArgs: hex""
             });
             disputeGameConfigs[4] = IOPContractsManagerUtils.DisputeGameConfig({
                 enabled: false,
                 initBond: 0,
-                gameType: GameTypes.SUPER_PERMISSIONED_CANNON,
-                gameArgs: hex""
-            });
-            disputeGameConfigs[5] = IOPContractsManagerUtils.DisputeGameConfig({
-                enabled: false,
-                initBond: 0,
                 gameType: GameTypes.SUPER_CANNON_KONA,
                 gameArgs: hex""
             });
-            disputeGameConfigs[6] = IOPContractsManagerUtils.DisputeGameConfig({
+            disputeGameConfigs[5] = IOPContractsManagerUtils.DisputeGameConfig({
                 enabled: false,
                 initBond: 0,
                 gameType: GameTypes.ZK_DISPUTE_GAME,
@@ -458,8 +439,9 @@ contract ForkL1Live is Deployer, StdAssertions, FeatureFlags {
         address permissionedDisputeGame = address(disputeGameFactory.gameImpls(permGameType));
         artifacts.save("PermissionedDisputeGame", permissionedDisputeGame);
 
-        IAnchorStateRegistry newAnchorStateRegistry =
-            IAnchorStateRegistry(LibGameArgs.decode(disputeGameFactory.gameArgs(permGameType)).anchorStateRegistry);
+        IAnchorStateRegistry newAnchorStateRegistry = Config.devFeatureSuperRootGamesMigration()
+            ? IAnchorStateRegistry(DisputeGames.superPermissionedGameAnchorStateRegistry(disputeGameFactory))
+            : IAnchorStateRegistry(LibGameArgs.decode(disputeGameFactory.gameArgs(permGameType)).anchorStateRegistry);
         artifacts.save("AnchorStateRegistryProxy", address(newAnchorStateRegistry));
 
         // Get the lockbox address from the portal, and save it
@@ -468,8 +450,9 @@ contract ForkL1Live is Deployer, StdAssertions, FeatureFlags {
         artifacts.save("ETHLockboxProxy", lockboxAddress);
 
         // Get the new DelayedWETH address and save it (might be a new proxy).
+        GameType wethGameType = Config.devFeatureSuperRootGamesMigration() ? GameTypes.SUPER_CANNON_KONA : permGameType;
         IDelayedWETH newDelayedWeth =
-            IDelayedWETH(payable(LibGameArgs.decode(disputeGameFactory.gameArgs(permGameType)).weth));
+            IDelayedWETH(payable(LibGameArgs.decode(disputeGameFactory.gameArgs(wethGameType)).weth));
         artifacts.save("DelayedWETHProxy", address(newDelayedWeth));
         artifacts.save("DelayedWETHImpl", EIP1967Helper.getImplementation(address(newDelayedWeth)));
     }

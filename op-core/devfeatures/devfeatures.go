@@ -7,6 +7,18 @@ import (
 )
 
 // Development feature flag constants.
+//
+// IMPORTANT: each value here MUST be byte-for-byte identical to the matching constant in
+// packages/contracts-bedrock/src/libraries/DevFeatures.sol. These values are independent
+// literals. No compile-time check keeps them in sync. A mismatch silently diverges Go and Solidity
+// behavior.
+//
+// When adding a dev feature, update:
+// - packages/contracts-bedrock/scripts/libraries/Config.sol
+// - packages/contracts-bedrock/test/setup/FeatureFlags.sol
+// - .circleci/continue/main.yml (&features_matrix)
+//
+// Use packages/contracts-bedrock/src/libraries/DevFeatures.sol as the full checklist.
 var (
 	// OptimismPortalInteropFlag enables interop features in OptimismPortal2.
 	OptimismPortalInteropFlag = common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000001")
@@ -32,12 +44,30 @@ var (
 // It performs a bitwise AND between the bitmap and flag to determine if the feature
 // is set. This follows the same pattern as the Solidity DevFeatures library.
 func IsDevFeatureEnabled(bitmap, flag common.Hash) bool {
+	// L2CM is enabled by default. TODO(#20084): remove with the broader L2CMFlag cleanup.
+	if hasFlag(flag, L2CMFlag) {
+		return true
+	}
+	// CannonKona is enabled by default. TODO(#20084): remove with the broader CannonKonaFlag cleanup.
+	if hasFlag(flag, CannonKonaFlag) {
+		return true
+	}
 	b := new(big.Int).SetBytes(bitmap[:])
 	f := new(big.Int).SetBytes(flag[:])
 
 	featuresIsNonZero := f.Cmp(big.NewInt(0)) != 0
 	bitmapContainsFeatures := new(big.Int).And(b, f).Cmp(f) == 0
 	return featuresIsNonZero && bitmapContainsFeatures
+}
+
+// hasFlag reports whether all bits of flag are set in features.
+func hasFlag(features, flag common.Hash) bool {
+	for i := 0; i < 32; i++ {
+		if features[i]&flag[i] != flag[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // EnableDevFeature sets a specific development feature flag in a feature bitmap.

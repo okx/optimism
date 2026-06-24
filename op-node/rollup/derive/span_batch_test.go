@@ -501,10 +501,10 @@ func TestSpanBatchReadTxData(t *testing.T) {
 			}
 
 			for txIdx := 0; txIdx < testCase.trials; txIdx++ {
-				r := bytes.NewReader(rawTxs[i])
+				r := bytes.NewReader(rawTxs[txIdx])
 				_, txType, err := ReadTxData(r)
 				require.NoError(t, err)
-				assert.Equal(t, int(txs[i].Type()), txType)
+				assert.Equal(t, int(txs[txIdx].Type()), txType)
 			}
 		})
 	}

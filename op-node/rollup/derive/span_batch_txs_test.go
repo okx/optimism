@@ -458,6 +458,18 @@ func TestSpanBatchTxsRoundTripFullTxs(t *testing.T) {
 	}
 }
 
+func TestSpanBatchTxsRejectsWrongChainIDForProtectedTx(t *testing.T) {
+	rng := rand.New(rand.NewSource(0x901902))
+	chainID := big.NewInt(901)
+	wrongChainID := big.NewInt(902)
+	tx := testutils.RandomDynamicFeeTx(rng, types.NewIsthmusSigner(wrongChainID))
+	rawTx, err := tx.MarshalBinary()
+	require.NoError(t, err)
+
+	_, err = newSpanBatchTxs([][]byte{rawTx}, chainID)
+	require.ErrorContains(t, err, "protected tx has chain ID 902, but expected chain ID 901")
+}
+
 func TestSpanBatchTxsRecoverVInvalidTxType(t *testing.T) {
 	rng := rand.New(rand.NewSource(0x321))
 	chainID := big.NewInt(rng.Int63n(1000))

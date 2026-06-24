@@ -4,6 +4,7 @@ import (
 	"time"
 
 	gameTypes "github.com/ethereum-optimism/optimism/op-challenger/game/types"
+	nodeSync "github.com/ethereum-optimism/optimism/op-node/rollup/sync"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 )
 
@@ -34,6 +35,12 @@ type PresetConfig struct {
 	// initiating-message logs backward from the tip by this duration at startup.
 	InteropLogBackfillDepth time.Duration
 	PreGenesisSuperGame     *PreGenesisSuperGameConfig
+	// SkipHonestProposer skips starting op-proposer.
+	SkipHonestProposer bool
+	// SupernodeVerifierSyncMode overrides the supernode VN's sync mode when set.
+	SupernodeVerifierSyncMode *nodeSync.Mode
+	// InteropActivationDelaySeconds offsets Interop activation past genesis (0 = at genesis).
+	InteropActivationDelaySeconds uint64
 }
 
 func NewPresetConfig() PresetConfig {

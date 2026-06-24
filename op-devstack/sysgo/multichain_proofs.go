@@ -15,6 +15,7 @@ import (
 	gameTypes "github.com/ethereum-optimism/optimism/op-challenger/game/types"
 	challengermetrics "github.com/ethereum-optimism/optimism/op-challenger/metrics"
 	"github.com/ethereum-optimism/optimism/op-core/devfeatures"
+	"github.com/ethereum-optimism/optimism/op-core/interop/depset"
 	"github.com/ethereum-optimism/optimism/op-devstack/devtest"
 	sharedchallenger "github.com/ethereum-optimism/optimism/op-devstack/shared/challenger"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/setuputils"
@@ -26,7 +27,6 @@ import (
 	opmetrics "github.com/ethereum-optimism/optimism/op-service/metrics"
 	"github.com/ethereum-optimism/optimism/op-service/oppprof"
 	oprpc "github.com/ethereum-optimism/optimism/op-service/rpc"
-	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/depset"
 )
 
 func withSuperProofsDeployerFeature(cfg PresetConfig) PresetConfig {
@@ -50,55 +50,6 @@ func orderedRuntimeChains(runtime *MultiChainRuntime) []*MultiChainNodeRuntime {
 	return chains
 }
 
-func attachSupervisorSuperProofs(t devtest.T, runtime *MultiChainRuntime, cfg PresetConfig) *MultiChainRuntime {
-	chains := orderedRuntimeChains(runtime)
-	t.Require().NotEmpty(chains, "supervisor superproofs runtime must contain at least one chain")
-	t.Require().NotNil(runtime.PrimarySupervisor, "supervisor superproofs runtime must provide a supervisor")
-
-	proofChain := chains[0]
-	cls := make([]L2CLNode, 0, len(chains))
-	nets := make([]*L2Network, 0, len(chains))
-	els := make([]L2ELNode, 0, len(chains))
-	for _, chain := range chains {
-		t.Require().NotNil(chain, "runtime chain entry must not be nil")
-		cls = append(cls, chain.CL)
-		nets = append(nets, chain.Network)
-		els = append(els, chain.EL)
-	}
-
-	superrootTime := awaitSuperrootTime(t, cls...)
-	superRoot := getSupervisorSuperRoot(t, runtime.PrimarySupervisor, superrootTime)
-	migrateSuperRoots(t, runtime.Keys, runtime.Migration, runtime.L1Network.ChainID(), runtime.L1EL, superRoot, superrootTime, proofChain.Network.ChainID())
-
-	challenger := startInteropChallenger(
-		t,
-		runtime.Keys,
-		runtime.L1Network,
-		runtime.L1EL,
-		runtime.L1CL,
-		runtime.DependencySet,
-		runtime.PrimarySupervisor.UserRPC(),
-		false,
-		nets,
-		els,
-	)
-	runtime.L2ChallengerConfig = challenger.Config()
-
-	_ = startSuperProposer(
-		t,
-		runtime.Keys,
-		"main",
-		proofChain.Network.ChainID(),
-		runtime.L1EL,
-		proofChain.Network,
-		runtime.PrimarySupervisor.UserRPC(),
-		"",
-		cfg.ProposerOptions...,
-	)
-
-	return runtime
-}
-
 func attachSupernodeSuperProofs(t devtest.T, runtime *MultiChainRuntime, cfg PresetConfig) *MultiChainRuntime {
 	chains := orderedRuntimeChains(runtime)
 	t.Require().NotEmpty(chains, "supernode superproofs runtime must contain at least one chain")
@@ -117,7 +68,7 @@ func attachSupernodeSuperProofs(t devtest.T, runtime *MultiChainRuntime, cfg Pre
 		migrateSuperRoots(t, runtime.Keys, runtime.Migration, runtime.L1Network.ChainID(), runtime.L1EL, superRoot, superrootTime, proofChain.Network.ChainID())
 	}
 
-	attachSuperChallengerAndProposer(t, runtime, cfg, gameTypes.SuperCannonGameType)
+	attachSuperChallengerAndProposer(t, runtime, cfg, gameTypes.SuperCannonKonaGameType)
 	return runtime
 }
 
@@ -139,7 +90,7 @@ func attachSupernodeSuperProofsViaUpgrade(t devtest.T, runtime *MultiChainRuntim
 	superRoot := getSupernodeSuperRoot(t, runtime.Supernode, superrootTime)
 	upgradeToSuperRoots(t, runtime.Keys, runtime.Migration, runtime.L1Network.ChainID(), runtime.L1EL, superRoot, superrootTime, proofChain.Network.ChainID())
 
-	attachSuperChallengerAndProposer(t, runtime, cfg, gameTypes.SuperCannonGameType)
+	attachSuperChallengerAndProposer(t, runtime, cfg, gameTypes.SuperCannonKonaGameType)
 	return runtime
 }
 
@@ -172,34 +123,29 @@ func attachSuperChallengerAndProposer(
 		runtime.L1CL,
 		runtime.DependencySet,
 		runtime.Supernode.UserRPC(),
-		true,
 		nets,
 		els,
 	)
 	runtime.L2ChallengerConfig = challenger.Config()
 
-	proposerOpts := append([]ProposerOption{
-		func(_ ComponentTarget, c *ps.CLIConfig) {
-			c.DisputeGameType = uint32(proposerGameType)
-		},
-	}, cfg.ProposerOptions...)
+	if !cfg.SkipHonestProposer {
+		proposerOpts := append([]ProposerOption{
+			func(_ ComponentTarget, c *ps.CLIConfig) {
+				c.DisputeGameType = uint32(proposerGameType)
+			},
+		}, cfg.ProposerOptions...)
 
-	_ = startSuperProposer(
-		t,
-		runtime.Keys,
-		"main",
-		proofChain.Network.ChainID(),
-		runtime.L1EL,
-		proofChain.Network,
-		"",
-		runtime.Supernode.UserRPC(),
-		proposerOpts...,
-	)
-}
-
-func NewSimpleInteropSuperProofsRuntimeWithConfig(t devtest.T, cfg PresetConfig) *MultiChainRuntime {
-	cfg = withSuperProofsDeployerFeature(cfg)
-	return attachSupervisorSuperProofs(t, NewSimpleInteropRuntimeWithConfig(t, cfg), cfg)
+		_ = startSuperProposer(
+			t,
+			runtime.Keys,
+			"main",
+			proofChain.Network.ChainID(),
+			runtime.L1EL,
+			proofChain.Network,
+			runtime.Supernode.UserRPC(),
+			proposerOpts...,
+		)
+	}
 }
 
 func NewTwoL2SupernodeProofsRuntimeWithConfig(t devtest.T, interopAtGenesis bool, cfg PresetConfig) *MultiChainRuntime {
@@ -226,7 +172,6 @@ func startSuperProposer(
 	proposerChainID eth.ChainID,
 	l1EL L1ELNode,
 	l2Net *L2Network,
-	supervisorRPC string,
 	supernodeRPC string,
 	proposerOpts ...ProposerOption,
 ) *L2Proposer {
@@ -239,18 +184,17 @@ func startSuperProposer(
 	logger.Info("Proposer key acquired", "addr", crypto.PubkeyToAddress(proposerSecret.PublicKey))
 
 	proposerCLIConfig := &ps.CLIConfig{
-		L1EthRpc:          l1EL.UserRPC(),
-		PollInterval:      500 * time.Millisecond,
-		AllowNonFinalized: true,
-		TxMgrConfig:       setuputils.NewTxMgrConfig(endpoint.URL(l1EL.UserRPC()), proposerSecret),
-		RPCConfig:         oprpc.CLIConfig{ListenAddr: "127.0.0.1"},
-		LogConfig:         oplog.CLIConfig{Level: log.LvlInfo, Format: oplog.FormatText},
-		MetricsConfig:     opmetrics.CLIConfig{},
-		PprofConfig:       oppprof.CLIConfig{},
-		DGFAddress:        l2Net.deployment.DisputeGameFactoryProxyAddr().Hex(),
-		ProposalInterval:  6 * time.Second,
-		// TODO(#20030): Switch to superCannonKonaGameType once SUPER_CANNON is disabled in migrator
-		DisputeGameType:              superCannonGameType,
+		L1EthRpc:                     l1EL.UserRPC(),
+		PollInterval:                 500 * time.Millisecond,
+		AllowNonFinalized:            true,
+		TxMgrConfig:                  setuputils.NewTxMgrConfig(endpoint.URL(l1EL.UserRPC()), proposerSecret),
+		RPCConfig:                    oprpc.CLIConfig{ListenAddr: "127.0.0.1"},
+		LogConfig:                    oplog.CLIConfig{Level: log.LvlInfo, Format: oplog.FormatText},
+		MetricsConfig:                opmetrics.CLIConfig{},
+		PprofConfig:                  oppprof.CLIConfig{},
+		DGFAddress:                   l2Net.deployment.DisputeGameFactoryProxyAddr().Hex(),
+		ProposalInterval:             6 * time.Second,
+		DisputeGameType:              superCannonKonaGameType,
 		ActiveSequencerCheckDuration: 5 * time.Second,
 		WaitNodeSync:                 false,
 	}
@@ -260,14 +204,8 @@ func startSuperProposer(
 		}
 		opt(NewComponentTarget(proposerName, proposerChainID), proposerCLIConfig)
 	}
-	switch {
-	case supernodeRPC != "":
-		proposerCLIConfig.SuperNodeRpcs = []string{supernodeRPC}
-	case supervisorRPC != "":
-		proposerCLIConfig.SupervisorRpcs = []string{supervisorRPC}
-	default:
-		require.FailNow("need supervisor or supernode RPC for super proposer")
-	}
+	require.NotEmpty(supernodeRPC, "need supernode RPC for super proposer")
+	proposerCLIConfig.SuperNodeRpcs = []string{supernodeRPC}
 
 	proposer, err := ps.ProposerServiceFromCLIConfig(t.Ctx(), "0.0.1", proposerCLIConfig, logger)
 	require.NoError(err)
@@ -296,7 +234,6 @@ func startInteropChallenger(
 	l1CL *L1CLNode,
 	depSet depset.DependencySet,
 	superRPC string,
-	useSuperNode bool,
 	l2Nets []*L2Network,
 	l2ELs []L2ELNode,
 ) *L2Challenger {
@@ -328,11 +265,8 @@ func startInteropChallenger(
 		sharedchallenger.WithPrivKey(challengerSecret),
 		sharedchallenger.WithDepset(staticDepSet),
 		sharedchallenger.WithCannonConfig(rollupCfgs, l1Net.genesis, l2Geneses, sharedchallenger.InteropVariant),
-		sharedchallenger.WithSuperCannonGameType(),
-		sharedchallenger.WithSuperPermissionedGameType(),
 		sharedchallenger.WithCannonKonaInteropConfig(rollupCfgs, l1Net.genesis, l2Geneses),
 		sharedchallenger.WithSuperCannonKonaGameType(),
-		sharedchallenger.WithExperimentalWitnessEndpoint(),
 	}
 	cfg, err := sharedchallenger.NewInteropChallengerConfig(
 		t.Ctx(),
@@ -344,7 +278,6 @@ func startInteropChallenger(
 		options...,
 	)
 	require.NoError(err, "failed to create interop challenger config")
-	cfg.UseSuperNode = useSuperNode
 
 	svc, err := opchallenger.Main(t.Ctx(), logger, cfg, challengermetrics.NoopMetrics)
 	require.NoError(err)

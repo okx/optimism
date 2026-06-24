@@ -644,13 +644,16 @@ func NewSpanBatch(genesisTimestamp uint64, chainID *big.Int) *SpanBatch {
 }
 
 // DeriveSpanBatch derives SpanBatch from BatchData.
-func DeriveSpanBatch(batchData *BatchData, blockTime, genesisTimestamp uint64, chainID *big.Int) (*SpanBatch, error) {
+func DeriveSpanBatch(batchData *BatchData, cfg *rollup.Config) (*SpanBatch, error) {
 	rawSpanBatch, ok := batchData.inner.(*RawSpanBatch)
 	if !ok {
 		return nil, NewCriticalError(errors.New("failed type assertion to SpanBatch"))
 	}
-	// If the batch type is Span batch, derive block inputs from RawSpanBatch.
-	return rawSpanBatch.ToSpanBatch(blockTime, genesisTimestamp, chainID)
+	spanBatch, err := rawSpanBatch.ToSpanBatch(cfg.BlockTime, cfg.Genesis.L2Time, cfg.L2ChainID)
+	if err != nil {
+		return nil, err
+	}
+	return spanBatch, nil
 }
 
 // ReadTxData reads raw RLP tx data from reader and returns txData and txType
