@@ -1197,6 +1197,11 @@ impl<R, Spec, EvmFactory> OpBlockExecutorFactory<R, Spec, EvmFactory> {
         self.gasless_contract = gasless_contract;
         self
     }
+
+    /// Returns the gasless whitelist contract applied to executors produced by this factory, if any.
+    pub const fn gasless_contract(&self) -> Option<GaslessContract> {
+        self.gasless_contract
+    }
 }
 
 impl<R, Spec, F> BlockExecutorFactory
