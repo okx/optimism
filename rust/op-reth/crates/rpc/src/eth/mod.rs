@@ -48,7 +48,7 @@ use reth_rpc_eth_api::{
 use reth_rpc_eth_types::{
     EthStateCache, FeeHistoryCache, GasPriceOracle, logs_utils::matching_block_logs_with_tx_hashes,
 };
-use reth_storage_api::{errors::ProviderError, BlockReaderIdExt, ProviderHeader};
+use reth_storage_api::{errors::ProviderError, ProviderHeader};
 use reth_tasks::{
     Runtime,
     pool::{BlockingTaskGuard, BlockingTaskPool},
@@ -438,6 +438,7 @@ where
     N: RpcNodeCore,
     OpEthApiError: FromEvmError<N::Evm>,
     Rpc: RpcConvert<Primitives = N::Primitives, Error = OpEthApiError, Evm = N::Evm>,
+    TxEnvFor<N::Evm>: OpTxTr + OpTxEnv,
 {
 }
 

@@ -1312,7 +1312,7 @@ where
         // and recompute the mock price as the configured percentile of the block's tx gas prices.
         if allow_gasless {
             let chain_events = ctx.provider().canonical_state_stream();
-            ctx.task_executor().spawn_critical(
+            ctx.task_executor().spawn_critical_task(
                 "Gasless mock-price maintenance task",
                 maintain_gasless_mock_tip(
                     gasless_mock_tip,
