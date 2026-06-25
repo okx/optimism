@@ -78,8 +78,13 @@ var mainnetCfg = rollup.Config{
 	HoloceneTime:           u64Ptr(1736445601),
 	IsthmusTime:            u64Ptr(1746806401),
 	JovianTime:             u64Ptr(1764691201),
-	KarstTime:              u64Ptr(1783526401),
-	ChainOpConfig:          defaultOpConfig,
+	// XLayer: KarstTime is nil here (not u64Ptr(1783526401)) because we hold the okx/op-geth
+	// pin in go.mod, which predates the Karst fork. op-node loads OP-chain fork times via
+	// github.com/ethereum/go-ethereum/superchain (replaced to okx/op-geth), whose HardforkConfig
+	// has no Karst, so GetRollupConfig returns KarstTime=nil. We match that here. Restore the
+	// real value if/when op-geth is upgraded. Does not affect XLayer's own chain (hardcoded forks).
+	KarstTime:     nil,
+	ChainOpConfig: defaultOpConfig,
 }
 
 var sepoliaCfg = rollup.Config{
@@ -119,8 +124,13 @@ var sepoliaCfg = rollup.Config{
 	PectraBlobScheduleTime: u64Ptr(1742486400),
 	IsthmusTime:            u64Ptr(1744905600),
 	JovianTime:             u64Ptr(1763568001),
-	KarstTime:              u64Ptr(1781712001),
-	ChainOpConfig:          defaultOpConfig,
+	// XLayer: KarstTime is nil here (not u64Ptr(1781712001)) because we hold the okx/op-geth pin
+	// in go.mod, which predates the Karst fork. op-node loads OP-chain fork times via
+	// github.com/ethereum/go-ethereum/superchain (replaced to okx/op-geth), whose HardforkConfig
+	// has no Karst, so GetRollupConfig returns KarstTime=nil. We match that here. Restore the
+	// real value if/when op-geth is upgraded. Does not affect XLayer's own chain (hardcoded forks).
+	KarstTime:     nil,
+	ChainOpConfig: defaultOpConfig,
 }
 
 var sepoliaDev0Cfg = rollup.Config{
