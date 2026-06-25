@@ -148,6 +148,10 @@ impl op_revm::transaction::OpTxTr for OpTx {
     fn is_system_transaction(&self) -> bool {
         self.0.is_system_transaction()
     }
+
+    fn is_gasless(&self) -> bool {
+        self.0.is_gasless()
+    }
 }
 
 impl FromRecoveredTx<OpTxEnvelope> for OpTx {
