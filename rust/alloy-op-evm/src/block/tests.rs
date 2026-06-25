@@ -4,7 +4,7 @@ use alloy_eips::eip2718::WithEncoded;
 use alloy_evm::{EvmEnv, ToTxEnv};
 use alloy_hardforks::ForkCondition;
 use alloy_op_hardforks::OpHardfork;
-use alloy_primitives::{Address, Signature, U256, uint};
+use alloy_primitives::{Address, Bytes, Signature, TxKind, U256, uint};
 use op_alloy::consensus::OpTxEnvelope;
 use op_revm::{
     L1BlockInfo, OpBuilder, OpSpecId, OpTransaction,
@@ -728,4 +728,66 @@ mod sdm {
             "unexpected post-exec tx at index 0: SDM not active for this block",
         );
     }
+}
+
+/// The `getGaslessAllowance` whitelist system call must not inflate the transaction's or the
+/// block's reported `gas_used`: it is metered separately and excluded from both counters.
+#[test]
+fn gasless_allowance_check_excluded_from_tx_and_block_gas() {
+    use revm::state::Bytecode;
+
+    const JOVIAN_TS: u64 = 1_746_806_402;
+    const BLOCK_GAS_LIMIT: u64 = 1_000_000;
+    const TX_GAS_LIMIT: u64 = 21_000;
+    // Minimal contract returning ABI `(true, 0xffffff)` for any call: approves every gasless query
+    // with a gas allowance far above the tx's 21000 gas limit.
+    // Layout: `mem[0..32]=1` (allowed), `mem[32..64]=0xffffff` (gasLimit), `return mem[0..64]`.
+    const ALLOW_HIGH_GAS_BYTECODE: [u8; 17] = [
+        0x60, 0x01, 0x60, 0x00, 0x52, 0x62, 0xff, 0xff, 0xff, 0x60, 0x20, 0x52, 0x60, 0x40, 0x60,
+        0x00, 0xf3,
+    ];
+
+    // Funded sender (Address::ZERO) + L1 block info; DA footprint scalar 0 so Jovian adds none.
+    let mut db = prepare_jovian_db(0);
+
+    // Deploy the whitelist contract at the gasless predeploy address.
+    let code = Bytecode::new_raw(Bytes::from_static(&ALLOW_HIGH_GAS_BYTECODE));
+    db.insert_account(
+        XLAYER_DEVNET_GASLESS_CONTRACT,
+        AccountInfo { code_hash: code.hash_slow(), code: Some(code), ..Default::default() },
+    );
+
+    let op_chain_hardforks = OpChainHardforks::new(
+        OpHardfork::op_mainnet()
+            .into_iter()
+            .chain(vec![(OpHardfork::Jovian, ForkCondition::Timestamp(JOVIAN_TS))]),
+    );
+    let receipt_builder = OpAlloyReceiptBuilder::default();
+    let mut executor =
+        build_executor(&mut db, &receipt_builder, &op_chain_hardforks, BLOCK_GAS_LIMIT, JOVIAN_TS)
+            .with_gasless_contract(Some(GaslessContract::new(XLAYER_DEVNET_GASLESS_CONTRACT)));
+
+    // Zero-priced (`gas_price == 0` => `max_fee_per_gas == 0`) legacy transfer to a fresh EOA.
+    // Zero value keeps the cost at exactly the 21000 intrinsic gas (no new-account charge).
+    let tx = recovered_legacy(TxLegacy {
+        gas_limit: TX_GAS_LIMIT,
+        gas_price: 0,
+        to: TxKind::Call(Address::from([0x11; 20])),
+        value: U256::ZERO,
+        ..Default::default()
+    });
+
+    let tx_gas_used =
+        executor.execute_transaction(&tx).expect("gasless whitelisted tx should execute").tx_gas_used();
+    let (_, result) = executor.finish().expect("failed to finish executor");
+
+    assert_eq!(
+        tx_gas_used, TX_GAS_LIMIT,
+        "tx gasUsed must be the intrinsic transfer cost, not inflated by the \
+         getGaslessAllowance system call"
+    );
+    assert_eq!(
+        result.gas_used, TX_GAS_LIMIT,
+        "block cumulative gas_used must exclude the getGaslessAllowance system call"
+    );
 }

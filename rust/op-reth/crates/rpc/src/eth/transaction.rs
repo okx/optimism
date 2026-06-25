@@ -171,9 +171,9 @@ where
 
             if tx_receipt.is_none() {
                 // if flashblocks are supported, attempt to find id from the pending block
-                if let Ok(Some(pending_block)) = this.pending_flashblock().await &&
-                    let Some(Ok(receipt)) = pending_block
-                        .find_and_convert_transaction_receipt(hash, this.converter())
+                if let Ok(Some(pending_block)) = this.pending_flashblock().await
+                    && let Some(Ok(receipt)) =
+                        pending_block.find_and_convert_transaction_receipt(hash, this.converter())
                 {
                     return Ok(Some(receipt));
                 }
@@ -218,8 +218,8 @@ where
         }
 
         // 2. check flashblocks (sequencer preconfirmations)
-        if let Ok(Some(pending_block)) = self.pending_flashblock().await &&
-            let Some(indexed_tx) = pending_block.block().find_indexed(hash)
+        if let Ok(Some(pending_block)) = self.pending_flashblock().await
+            && let Some(indexed_tx) = pending_block.block().find_indexed(hash)
         {
             let meta = indexed_tx.meta();
             return Ok(Some(TransactionSource::Block {
@@ -287,7 +287,15 @@ where
     type Out = OpTransactionInfo;
     type Err = ProviderError;
 
-    fn try_map(&self, tx: &T, tx_info: TransactionInfo) -> Result<Self::Out, ProviderError> {
+    fn try_map(&self, tx: &T, mut tx_info: TransactionInfo) -> Result<Self::Out, ProviderError> {
+        // op-alloy's `Transaction::from_transaction` derives effective_gas_price as
+        // `effective_tip_per_gas(base_fee) + base_fee`, which for a zero-fee tx collapses to
+        // `base_fee` (not 0) and disagrees with the receipt and the executor's gasless semantics.
+        // Clearing base_fee makes `from_transaction` fall back to `max_fee_per_gas()` (== 0 here).
+        if !tx.is_deposit() && tx.max_fee_per_gas() == 0 {
+            tx_info.base_fee = None;
+        }
+
         let deposit_meta = if tx.is_deposit() {
             self.provider.receipt_by_hash(*tx.tx_hash())?.and_then(|receipt| {
                 receipt.as_deposit_receipt().map(|receipt| OpDepositInfo {
