@@ -28,6 +28,11 @@ pub trait OpTxTr: Transaction {
     /// Whether the transaction is a system transaction
     fn is_system_transaction(&self) -> bool;
 
+    /// Whether this transaction should execute without gas fees.
+    fn is_gasless(&self) -> bool {
+        false
+    }
+
     /// Returns `true` if transaction is of type [`DEPOSIT_TRANSACTION_TYPE`].
     fn is_deposit(&self) -> bool {
         self.tx_type() == DEPOSIT_TRANSACTION_TYPE
@@ -48,6 +53,15 @@ pub struct OpTransaction<T: Transaction> {
     pub enveloped_tx: Option<Bytes>,
     /// Deposit transaction parts.
     pub deposit: DepositTransactionParts,
+    /// Whether this transaction should execute without gas fees ("gasless").
+    ///
+    /// This is the source of truth for the OP gasless fee policy applied in `OpHandler`: it forces
+    /// `effective_gas_price` to `0`, skips L1/operator fee charging, suppresses the gas refund,
+    /// and skips caller reimbursement and beneficiary reward.
+    ///
+    /// `serde(default)` keeps backward compatibility.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub is_gasless: bool,
 }
 
 impl<T: Transaction> AsRef<T> for OpTransaction<T> {
@@ -59,7 +73,7 @@ impl<T: Transaction> AsRef<T> for OpTransaction<T> {
 impl<T: Transaction> OpTransaction<T> {
     /// Create a new Optimism transaction.
     pub fn new(base: T) -> Self {
-        Self { base, enveloped_tx: None, deposit: DepositTransactionParts::default() }
+        Self { base, enveloped_tx: None, deposit: DepositTransactionParts::default(), is_gasless: false }
     }
 }
 
@@ -76,6 +90,7 @@ impl Default for OpTransaction<TxEnv> {
             base: TxEnv::default(),
             enveloped_tx: Some(vec![0x00].into()),
             deposit: DepositTransactionParts::default(),
+            is_gasless: false,
         }
     }
 }
@@ -167,6 +182,10 @@ impl<T: Transaction> Transaction for OpTransaction<T> {
     }
 
     fn effective_gas_price(&self, base_fee: u128) -> u128 {
+        if self.is_gasless {
+            return 0;
+        }
+
         // Deposit transactions use gas_price directly
         if self.tx_type() == DEPOSIT_TRANSACTION_TYPE {
             return self.gas_price();
@@ -202,6 +221,10 @@ impl<T: Transaction> OpTxTr for OpTransaction<T> {
     fn is_system_transaction(&self) -> bool {
         self.deposit.is_system_transaction
     }
+
+    fn is_gasless(&self) -> bool {
+        self.is_gasless
+    }
 }
 
 /// Builder for constructing [`OpTransaction`] instances
@@ -210,6 +233,7 @@ pub struct OpTransactionBuilder {
     base: TxEnvBuilder,
     enveloped_tx: Option<Bytes>,
     deposit: DepositTransactionParts,
+    is_gasless: bool,
 }
 
 impl OpTransactionBuilder {
@@ -219,6 +243,7 @@ impl OpTransactionBuilder {
             base: TxEnvBuilder::new(),
             enveloped_tx: None,
             deposit: DepositTransactionParts::default(),
+            is_gasless: false,
         }
     }
 
@@ -264,6 +289,12 @@ impl OpTransactionBuilder {
         self
     }
 
+    /// Set whether the transaction should execute without gas fees.
+    pub const fn gasless(mut self, is_gasless: bool) -> Self {
+        self.is_gasless = is_gasless;
+        self
+    }
+
     /// Build the [`OpTransaction`] with default values for missing fields.
     ///
     /// This is useful for testing and debugging where it is not necessary to
@@ -300,7 +331,7 @@ impl OpTransactionBuilder {
 
         let base = self.base.build_fill();
 
-        OpTransaction { base, enveloped_tx: self.enveloped_tx, deposit: self.deposit }
+        OpTransaction { base, enveloped_tx: self.enveloped_tx, deposit: self.deposit, is_gasless: self.is_gasless }
     }
 
     /// Build the [`OpTransaction`] instance, return error if the transaction is not valid.
@@ -326,7 +357,7 @@ impl OpTransactionBuilder {
 
         let base = self.base.build()?;
 
-        Ok(OpTransaction { base, enveloped_tx: self.enveloped_tx, deposit: self.deposit })
+        Ok(OpTransaction { base, enveloped_tx: self.enveloped_tx, deposit: self.deposit, is_gasless: self.is_gasless })
     }
 }
 

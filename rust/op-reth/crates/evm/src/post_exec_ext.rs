@@ -109,7 +109,8 @@ where
             ctx,
             self.executor_factory.spec(),
             self.executor_factory.receipt_builder(),
-        ))
+        )
+        .with_gasless_contract(self.executor_factory.gasless_contract()))
     }
 
     fn post_exec_builder_for_next_block<'a, DB: Database + 'a>(
@@ -138,7 +139,8 @@ where
             ctx.clone(),
             self.executor_factory.spec(),
             self.executor_factory.receipt_builder(),
-        );
+        )
+        .with_gasless_contract(self.executor_factory.gasless_contract());
 
         Ok(BasicBlockBuilder::<
             'a,
@@ -213,7 +215,8 @@ where
             ctx,
             self.executor_factory.spec(),
             self.executor_factory.receipt_builder(),
-        ))
+        )
+        .with_gasless_contract(self.executor_factory.gasless_contract()))
     }
 
     fn post_exec_builder_for_next_block<'a, DB: Database + 'a>(
@@ -242,7 +245,8 @@ where
             ctx.clone(),
             self.executor_factory.spec(),
             self.executor_factory.receipt_builder(),
-        );
+        )
+        .with_gasless_contract(self.executor_factory.gasless_contract());
 
         Ok(BasicBlockBuilder::<
             'a,

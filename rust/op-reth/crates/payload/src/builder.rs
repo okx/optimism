@@ -625,6 +625,11 @@ pub struct ExecutionInfo {
     /// never trips the executor's consensus check. Equals [`Self::cumulative_gas_used`] with
     /// SDM off.
     pub cumulative_evm_gas_used: u64,
+    /// Gas used so far by gasless (zero-priced, whitelisted) transactions in this block.
+    ///
+    /// Used to enforce the per-block gasless gas budget. Resets each block since `ExecutionInfo`
+    /// is created fresh per block build.
+    pub cumulative_gasless_gas_used: u64,
     /// Estimated DA size
     pub cumulative_da_bytes_used: u64,
     /// Tracks fees from executed mempool transactions
@@ -637,6 +642,7 @@ impl ExecutionInfo {
         Self {
             cumulative_gas_used: 0,
             cumulative_evm_gas_used: 0,
+            cumulative_gasless_gas_used: 0,
             cumulative_da_bytes_used: 0,
             total_fees: U256::ZERO,
         }
@@ -896,6 +902,10 @@ where
         let block_da_limit = self.builder_config.da_config.max_da_block_size();
         let tx_da_limit = self.builder_config.da_config.max_da_tx_size();
         let base_fee = builder.evm_mut().block().basefee();
+        let gasless_block_gas_limit =
+            self.builder_config.gas_limit_config.gasless_block_gas_limit();
+        // Set once a gasless tx is rejected for exceeding the per-block gasless budget.
+        let mut gasless_budget_exhausted = false;
 
         while let Some(tx) = best_txs.next(()) {
             let interop = tx.interop_deadline();
@@ -903,9 +913,10 @@ where
             // Compute the miner fee on the pool tx so downstream pool wrappers can
             // override `effective_tip_per_gas` (e.g. to convert non-native fee
             // denominations into a native-wei tip) before the consensus tx is exposed.
-            let miner_fee = tx
-                .effective_tip_per_gas(base_fee)
-                .expect("selected pool transaction must have a valid effective miner tip at the block base fee");
+            // Gasless (zero fee-cap) txs have no tip when the block base fee is non-zero
+            // (`effective_tip_per_gas` returns `None`); treat a missing tip as 0 instead of
+            // panicking so gasless txs can be included.
+            let miner_fee = tx.effective_tip_per_gas(base_fee).unwrap_or(0);
             let tx = tx.into_consensus();
 
             let da_footprint_gas_scalar = self
@@ -940,8 +951,8 @@ where
 
             // We skip invalid cross chain txs, they would be removed on the next block update in
             // the maintenance job
-            if let Some(interop) = interop &&
-                !is_valid_interop(interop, self.config.attributes.timestamp())
+            if let Some(interop) = interop
+                && !is_valid_interop(interop, self.config.attributes.timestamp())
             {
                 best_txs.mark_invalid(tx.signer(), tx.nonce());
                 continue;
@@ -949,6 +960,38 @@ where
             // check if the job was cancelled, if so we can exit early
             if self.cancel.is_cancelled() {
                 return Ok(Some(()));
+            }
+
+            // A zero fee-cap tx that executes successfully here is gasless: a non-whitelisted
+            // zero-priced tx is rejected by the base-fee check inside the block executor (when the
+            // block base fee is non-zero, the regime gasless targets), so it never produces a
+            // successful result.
+            //
+            // NOTE(gasless port): upstream enforces the per-block gasless budget via
+            // `execute_transaction_with_commit_condition` on the *actual* committed `gas_used`.
+            // kona's builder uses `execute_transaction_with_result_closure` (to capture
+            // `evm_gas_used` for SDM accounting), so here we gate gasless txs *before* execution
+            // using the tx `gas_limit` as a conservative upper bound. TODO(gasless): revisit and
+            // tighten to actual gas_used once verified against kona's builder API.
+            let is_gasless = tx.max_fee_per_gas() == 0;
+            if is_gasless {
+                if gasless_budget_exhausted {
+                    best_txs.mark_invalid(tx.signer(), tx.nonce());
+                    continue;
+                }
+                if let Some(limit) = gasless_block_gas_limit
+                    && info.cumulative_gasless_gas_used.saturating_add(tx.gas_limit()) > limit
+                {
+                    debug!(
+                        target: "payload_builder",
+                        gasless_gas_used = info.cumulative_gasless_gas_used,
+                        limit,
+                        "gasless block gas budget exhausted; skipping remaining gasless txs",
+                    );
+                    gasless_budget_exhausted = true;
+                    best_txs.mark_invalid(tx.signer(), tx.nonce());
+                    continue;
+                }
             }
 
             let mut evm_gas_used = 0;
@@ -982,6 +1025,10 @@ where
             // receipt
             let tx_gas_used = gas_used.tx_gas_used();
             info.accumulate_gas(tx_gas_used, evm_gas_used);
+            if is_gasless {
+                info.cumulative_gasless_gas_used =
+                    info.cumulative_gasless_gas_used.saturating_add(tx_gas_used);
+            }
             info.cumulative_da_bytes_used += tx_da_size;
 
             // update and add to total fees

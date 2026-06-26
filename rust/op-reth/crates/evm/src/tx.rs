@@ -35,6 +35,7 @@ mod rpc_impl {
                 base,
                 enveloped_tx: Some(alloy_primitives::Bytes::new()),
                 deposit: Default::default(),
+                is_gasless: false,
             });
             Ok(op_tx.into())
         }
