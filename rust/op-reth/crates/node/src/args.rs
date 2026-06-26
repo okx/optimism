@@ -137,6 +137,33 @@ pub struct RollupArgs {
     #[arg(long = "rollup.interop-min-responses", value_name = "INTEROP_MIN_RESPONSES")]
     pub interop_min_responses: Option<usize>,
 
+    /// Enable gasless transactions in the mempool.
+    ///
+    /// When enabled, transactions with a zero gas price (legacy `gas_price == 0`, or EIP-1559
+    /// `max_fee_per_gas == 0 && max_priority_fee_per_gas == 0`) are accepted into the pool and
+    /// gated by the on-chain gasless whitelist contract.
+    #[arg(long = "rollup.allow-gasless", default_value = "false")]
+    pub allow_gasless: bool,
+
+    /// Percentile of the previous block's transaction gas prices used as the mock gas price
+    /// assigned to gasless transactions for pool ordering. Accepts a fraction in `0.0..=1.0`
+    /// (e.g. `0.1` ≈ low, `0.9` ≈ high); stored as basis points (`0..=10000`) so that
+    /// [`RollupArgs`] stays `Eq`.
+    #[arg(
+        long = "rollup.gasless-mock-gas-price-percentile",
+        default_value = "0.1",
+        value_parser = parse_gasless_percentile_bps
+    )]
+    pub gasless_mock_gas_price_percentile_bps: u16,
+
+    /// Maximum time (in seconds) a gasless (zero-priced) transaction may sit in the *pending*
+    /// sub-pool before the gasless maintenance task evicts it as stale. Defaults to 600s.
+    #[arg(
+        long = "rollup.gasless-pending-lifetime",
+        default_value_t = GASLESS_DEFAULT_PENDING_LIFETIME_SECS,
+    )]
+    pub gasless_pending_lifetime_secs: u64,
+
     /// Safety level for interop filter validation.
     #[arg(
         long = "rollup.interop-safety-level",
@@ -213,6 +240,30 @@ pub struct RollupArgs {
     pub proofs_history_verification_interval: u64,
 }
 
+/// Default percentile (fraction in `0.0..=1.0`) of the previous block's paid gas prices used as the
+/// gasless mock gas price. Single source of truth for the CLI default, the [`RollupArgs`] `Default`
+/// impl, and `OpPoolBuilder`'s default — the CLI string default below is kept consistent with this
+/// by `test_parse_optimism_default_args`.
+pub const GASLESS_DEFAULT_MOCK_PRICE_PERCENTILE: f64 = 0.1;
+
+/// Default maximum lifetime (in seconds) of a pending gasless transaction before it is evicted as
+/// stale.
+pub const GASLESS_DEFAULT_PENDING_LIFETIME_SECS: u64 = 600;
+
+/// Converts a `[0.0, 1.0]` percentile fraction into basis points (`0..=10000`).
+pub(crate) fn percentile_to_bps(value: f64) -> u16 {
+    (value.clamp(0.0, 1.0) * 10_000.0).round() as u16
+}
+
+/// Parses a `[0.0, 1.0]` percentile fraction into basis points (`0..=10000`).
+fn parse_gasless_percentile_bps(s: &str) -> Result<u16, String> {
+    let value: f64 = s.parse().map_err(|e| format!("invalid percentile `{s}`: {e}"))?;
+    if !(0.0..=1.0).contains(&value) {
+        return Err(format!("percentile must be in [0.0, 1.0], got {value}"));
+    }
+    Ok(percentile_to_bps(value))
+}
+
 impl Default for RollupArgs {
     fn default() -> Self {
         Self {
@@ -224,6 +275,11 @@ impl Default for RollupArgs {
             interop_http: Vec::new(),
             interop_min_responses: None,
             interop_safety_level: SafetyLevel::CrossUnsafe,
+            allow_gasless: false,
+            gasless_mock_gas_price_percentile_bps: percentile_to_bps(
+                GASLESS_DEFAULT_MOCK_PRICE_PERCENTILE,
+            ),
+            gasless_pending_lifetime_secs: GASLESS_DEFAULT_PENDING_LIFETIME_SECS,
             sequencer_headers: Vec::new(),
             historical_rpc: None,
             min_suggested_priority_fee: 1_000_000,
@@ -344,6 +400,26 @@ mod tests {
             "--rollup.enable-tx-conditional",
             "--rollup.sequencer-http",
             "http://host:port",
+        ])
+        .args;
+        assert_eq!(args, expected_args);
+    }
+
+    #[test]
+    fn test_parse_optimism_allow_gasless() {
+        let expected_args = RollupArgs {
+            allow_gasless: true,
+            gasless_mock_gas_price_percentile_bps: 9000,
+            gasless_pending_lifetime_secs: 120,
+            ..Default::default()
+        };
+        let args = CommandParser::<RollupArgs>::parse_from([
+            "reth",
+            "--rollup.allow-gasless",
+            "--rollup.gasless-mock-gas-price-percentile",
+            "0.9",
+            "--rollup.gasless-pending-lifetime",
+            "120",
         ])
         .args;
         assert_eq!(args, expected_args);

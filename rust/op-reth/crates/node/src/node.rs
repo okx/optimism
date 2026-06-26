@@ -25,7 +25,6 @@ use reth_node_builder::{
     components::{
         BasicPayloadServiceBuilder, ComponentsBuilder, ConsensusBuilder, ExecutorBuilder,
         NetworkBuilder, PayloadBuilderBuilder, PoolBuilder, PoolBuilderConfigOverrides,
-        TxPoolBuilder,
     },
     node::{FullNodeTypes, NodeTypes},
     rpc::{
@@ -52,7 +51,10 @@ use reth_optimism_rpc::{
     witness::{DebugExecutionWitnessApiServer, OpDebugPostExecApiServer, OpDebugWitnessApi},
 };
 use reth_optimism_storage::OpStorage;
-use reth_optimism_txpool::{OpPool, OpPooledTx, interop_filter::InteropFilterClient};
+use reth_optimism_txpool::{
+    interop_filter::InteropFilterClient, maintain_gasless_mock_tip, GaslessMockTip, OpPool,
+    OpPooledTx, XLayerGaslessOrdering,
+};
 use reth_primitives_traits::header::HeaderMut;
 use reth_provider::{CanonStateSubscriptions, providers::ProviderFactoryBuilder};
 use reth_rpc_api::{
@@ -62,7 +64,7 @@ use reth_rpc_api::{
 use reth_rpc_server_types::RethRpcModule;
 use reth_tracing::tracing::{debug, info};
 use reth_transaction_pool::{
-    EthPoolTransaction, PoolPooledTx, PoolTransaction, TransactionPool,
+    EthPoolTransaction, Pool, PoolPooledTx, PoolTransaction, TransactionPool,
     TransactionValidationTaskExecutor, blobstore::DiskFileBlobStore,
 };
 use reth_trie_common::KeccakKeyHasher;
@@ -259,6 +261,11 @@ impl OpNode {
                         self.args.interop_http.clone(),
                         self.args.interop_min_responses,
                         self.args.interop_safety_level,
+                    )
+                    .with_gasless(
+                        self.args.allow_gasless,
+                        f64::from(self.args.gasless_mock_gas_price_percentile_bps) / 10_000.0,
+                        core::time::Duration::from_secs(self.args.gasless_pending_lifetime_secs),
                     ),
             )
             .payload(BasicPayloadServiceBuilder::new(
@@ -1082,6 +1089,15 @@ pub struct OpPoolBuilder<T = crate::txpool::OpPooledTransaction> {
     pub interop_min_responses: Option<usize>,
     /// Safety level for interop filter validation.
     pub interop_safety_level: SafetyLevel,
+    /// Enable gasless transactions in the mempool. When set, zero-priced txs are admitted (gated
+    /// by the on-chain gasless contract) and ordered using a mock gas price.
+    pub allow_gasless: bool,
+    /// Percentile (fraction in `0.0..=1.0`) of the previous block's transaction gas prices used as
+    /// the mock gas price assigned to gasless transactions for pool ordering.
+    pub gasless_mock_gas_price_percentile: f64,
+    /// Maximum time a pending gasless transaction may linger before the gasless maintenance task
+    /// evicts it as stale.
+    pub gasless_pending_lifetime: core::time::Duration,
     /// Marker for the pooled transaction type.
     _pd: core::marker::PhantomData<T>,
 }
@@ -1094,6 +1110,11 @@ impl<T> Default for OpPoolBuilder<T> {
             interop_endpoints: Vec::new(),
             interop_min_responses: None,
             interop_safety_level: SafetyLevel::CrossUnsafe,
+            allow_gasless: false,
+            gasless_mock_gas_price_percentile: crate::args::GASLESS_DEFAULT_MOCK_PRICE_PERCENTILE,
+            gasless_pending_lifetime: core::time::Duration::from_secs(
+                crate::args::GASLESS_DEFAULT_PENDING_LIFETIME_SECS,
+            ),
             _pd: Default::default(),
         }
     }
@@ -1107,6 +1128,9 @@ impl<T> Clone for OpPoolBuilder<T> {
             interop_endpoints: self.interop_endpoints.clone(),
             interop_min_responses: self.interop_min_responses,
             interop_safety_level: self.interop_safety_level,
+            allow_gasless: self.allow_gasless,
+            gasless_mock_gas_price_percentile: self.gasless_mock_gas_price_percentile,
+            gasless_pending_lifetime: self.gasless_pending_lifetime,
             _pd: core::marker::PhantomData,
         }
     }
@@ -1116,6 +1140,20 @@ impl<T> OpPoolBuilder<T> {
     /// Sets the `enable_tx_conditional` flag on the pool builder.
     pub const fn with_enable_tx_conditional(mut self, enable_tx_conditional: bool) -> Self {
         self.enable_tx_conditional = enable_tx_conditional;
+        self
+    }
+
+    /// Enables gasless transactions in the mempool and sets the mock-gas-price percentile used for
+    /// ordering gasless transactions.
+    pub const fn with_gasless(
+        mut self,
+        allow_gasless: bool,
+        gasless_mock_gas_price_percentile: f64,
+        gasless_pending_lifetime: core::time::Duration,
+    ) -> Self {
+        self.allow_gasless = allow_gasless;
+        self.gasless_mock_gas_price_percentile = gasless_mock_gas_price_percentile;
+        self.gasless_pending_lifetime = gasless_pending_lifetime;
         self
     }
 
@@ -1146,7 +1184,15 @@ impl<T> OpPoolBuilder<T> {
 
 impl<Node, T, Evm> PoolBuilder<Node, Evm> for OpPoolBuilder<T>
 where
-    Node: FullNodeTypes<Types: NodeTypes<ChainSpec: OpHardforks>>,
+    Node: FullNodeTypes<
+        Types: NodeTypes<
+            ChainSpec: OpHardforks + EthChainSpec<Header = alloy_consensus::Header>,
+            Primitives: reth_node_api::NodePrimitives<BlockHeader = alloy_consensus::Header>,
+        >,
+    >,
+    // The gasless admission gate builds an `OpEvmConfig` over the provider's latest state, which
+    // requires the provider to expose headers as `alloy_consensus::Header`.
+    Node::Provider: reth_provider::HeaderProvider<Header = alloy_consensus::Header>,
     T: EthPoolTransaction<Consensus = TxTy<Node::Types>> + OpPooledTx,
     Evm: ConfigureEvm<Primitives = PrimitivesTy<Node::Types>> + Clone + 'static,
 {
@@ -1157,7 +1203,20 @@ where
         ctx: &BuilderContext<Node>,
         evm_config: Evm,
     ) -> eyre::Result<Self::Pool> {
-        let Self { pool_config_overrides, .. } = self;
+        let Self {
+            pool_config_overrides,
+            allow_gasless,
+            gasless_mock_gas_price_percentile,
+            gasless_pending_lifetime,
+            ..
+        } = self;
+
+        // Gasless mempool acceptance/ordering is gated by `PoolConfig::allow_gasless` (set on
+        // `final_pool_config` below) and the validator's on-chain whitelist check
+        // (`OpTransactionValidator::with_gasless`). Inert when disabled (the default).
+        if allow_gasless {
+            info!(target: "reth::cli", "Gasless mempool enabled");
+        }
 
         // Interop filter used for txpool validation.
         let interop_client = if self.interop_endpoints.is_empty() {
@@ -1195,6 +1254,7 @@ where
                 .set_tx_fee_cap(ctx.config().rpc.rpc_tx_fee_cap)
                 .with_max_tx_gas_limit(ctx.config().txpool.max_tx_gas_limit)
                 .with_minimum_priority_fee(ctx.config().txpool.minimum_priority_fee)
+                .with_gasless(allow_gasless)
                 .with_additional_tasks(
                     pool_config_overrides
                         .additional_validation_tasks
@@ -1205,7 +1265,10 @@ where
                     let v = OpTransactionValidator::new(validator)
                         // In --dev mode we can't require gas fees because we're unable to decode
                         // the L1 block info
-                        .require_l1_data_gas_fee(!ctx.config().dev.dev);
+                        .require_l1_data_gas_fee(!ctx.config().dev.dev)
+                        // Admit zero-priced (gasless) txs only when enabled (on-chain gasless
+                        // contract gate applied in the validator).
+                        .with_gasless(allow_gasless);
                     if let Some(client) = interop_client.clone() {
                         v.with_interop(client)
                     } else {
@@ -1213,11 +1276,23 @@ where
                     }
                 });
 
-        let final_pool_config = pool_config_overrides.apply(ctx.pool_config());
+        let final_pool_config =
+            pool_config_overrides.apply(ctx.pool_config()).with_gasless(allow_gasless);
 
-        let inner_pool = TxPoolBuilder::new(ctx)
-            .with_validator(validator)
-            .build(blob_store, final_pool_config.clone());
+        // Build the pool directly via `Pool::new` (instead of `TxPoolBuilder::build`, which
+        // hardcodes `CoinbaseTipOrdering::default()`) so the gasless ordering can be installed.
+        // Gasless ordering assigns zero-priced txs the shared mock price (recomputed each block by
+        // the maintenance task spawned below when gasless is enabled); for all non-gasless txs it
+        // is identical to the upstream `CoinbaseTipOrdering`, so the rest of the pool ordering is
+        // unchanged. Starts at 0 (gasless ordered below paid txs) until the first canonical block
+        // with paid txs establishes a real percentile via `maintain_gasless_mock_tip`.
+        let gasless_mock_tip = GaslessMockTip::default();
+        let inner_pool = Pool::new(
+            validator,
+            XLayerGaslessOrdering::new(gasless_mock_tip.clone()),
+            blob_store,
+            final_pool_config.clone(),
+        );
 
         // Enable the interop filter on reorg whenever interop is scheduled or already active
         let interop_filter_enabled =
@@ -1232,6 +1307,23 @@ where
 
         info!(target: "reth::cli", "Transaction pool initialized (interop filter enabled = {interop_filter_enabled})");
         debug!(target: "reth::cli", "Spawned txpool maintenance task");
+
+        // Gasless mock-price maintenance: on each new canonical block, record the gas-price metric
+        // and recompute the mock price as the configured percentile of the block's tx gas prices.
+        if allow_gasless {
+            let chain_events = ctx.provider().canonical_state_stream();
+            ctx.task_executor().spawn_critical_task(
+                "Gasless mock-price maintenance task",
+                maintain_gasless_mock_tip(
+                    gasless_mock_tip,
+                    gasless_mock_gas_price_percentile,
+                    gasless_pending_lifetime,
+                    transaction_pool.clone(),
+                    chain_events,
+                ),
+            );
+            debug!(target: "reth::cli", "Spawned gasless mock-price maintenance task");
+        }
 
         // The Op txpool maintenance task is only spawned when interop is scheduled/active and an
         // interop filter is configured.
