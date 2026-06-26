@@ -13,8 +13,9 @@ use alloy_evm::{
     block::{BlockExecutionResult, BlockExecutor, BlockExecutorFactory},
 };
 use alloy_op_evm::{
-    OpBlockExecutionCtx, OpBlockExecutorFactory, PostExecMode,
+    GaslessContract, OpBlockExecutionCtx, OpBlockExecutorFactory, PostExecMode,
     block::{OpTxEnv, receipt_builder::OpReceiptBuilder},
+    xlayer_gasless_contract,
 };
 use core::fmt::Debug;
 use kona_genesis::RollupConfig;
@@ -158,7 +159,10 @@ where
         parent_header: Sealed<Header>,
     ) -> Self {
         let trie_db = TrieDB::new(parent_header, provider, hinter);
-        let factory = OpBlockExecutorFactory::new(receipt_builder, config.clone(), evm_factory);
+        let gasless_contract =
+            xlayer_gasless_contract(config.l2_chain_id.id()).map(GaslessContract::new);
+        let factory = OpBlockExecutorFactory::new(receipt_builder, config.clone(), evm_factory)
+            .with_gasless_contract(gasless_contract);
         Self {
             config,
             trie_db,
