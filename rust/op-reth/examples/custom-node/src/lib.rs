@@ -15,8 +15,7 @@ use crate::{
     engine::{CustomEngineValidatorBuilder, CustomPayloadTypes},
     engine_api::CustomEngineApiBuilder,
     evm::CustomExecutorBuilder,
-    pool::CustomPooledTransaction,
-    primitives::CustomTransaction,
+    pool_builder::CustomPoolBuilder,
     rpc::CustomRpcTypes,
 };
 use chainspec::CustomChainSpec;
@@ -30,8 +29,7 @@ use reth_node_builder::{
 use reth_op::{
     node::{
         OpAddOns, OpNode,
-        node::{OpConsensusBuilder, OpNetworkBuilder, OpPayloadBuilder, OpPoolBuilder},
-        txpool,
+        node::{OpConsensusBuilder, OpNetworkBuilder, OpPayloadBuilder},
     },
     rpc::OpEthApiBuilder,
 };
@@ -41,6 +39,7 @@ pub mod engine;
 pub mod engine_api;
 pub mod evm;
 pub mod pool;
+pub mod pool_builder;
 pub mod primitives;
 pub mod rpc;
 
@@ -62,7 +61,7 @@ where
 {
     type ComponentsBuilder = ComponentsBuilder<
         N,
-        OpPoolBuilder<txpool::OpPooledTransaction<CustomTransaction, CustomPooledTransaction>>,
+        CustomPoolBuilder,
         BasicPayloadServiceBuilder<OpPayloadBuilder>,
         OpNetworkBuilder,
         CustomExecutorBuilder,
@@ -80,7 +79,7 @@ where
     fn components_builder(&self) -> Self::ComponentsBuilder {
         ComponentsBuilder::default()
             .node_types::<N>()
-            .pool(OpPoolBuilder::default())
+            .pool(CustomPoolBuilder::default())
             .executor(CustomExecutorBuilder::default())
             .payload(BasicPayloadServiceBuilder::new(OpPayloadBuilder::new(false)))
             .network(OpNetworkBuilder::new(false, false))
