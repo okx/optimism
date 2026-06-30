@@ -8,7 +8,7 @@ use reth_rpc_eth_api::{
     helpers::{Call, EthCall, estimate::EstimateCall},
 };
 use reth_storage_api::errors::ProviderError;
-use revm::{context_interface::result::ResultAndState, Database};
+use revm::{Database, context_interface::result::ResultAndState};
 
 impl<N, Rpc> EthCall for OpEthApi<N, Rpc>
 where

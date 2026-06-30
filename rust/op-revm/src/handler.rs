@@ -1373,19 +1373,11 @@ mod tests {
             cfg: CfgEnv<OpSpecId>,
         ) -> Result<(), EVMError<core::convert::Infallible, OpTransactionError>> {
             let ctx = Context::op()
-                .with_block(BlockEnv {
-                    basefee: 10,
-                    ..Default::default()
-                })
+                .with_block(BlockEnv { basefee: 10, ..Default::default() })
                 .with_cfg(cfg)
                 .with_tx(
                     OpTransaction::builder()
-                        .base(
-                            TxEnv::builder()
-                                .caller(Address::ZERO)
-                                .gas_limit(100)
-                                .gas_price(0),
-                        )
+                        .base(TxEnv::builder().caller(Address::ZERO).gas_limit(100).gas_price(0))
                         .enveloped_tx(Some(bytes!("FACADE")))
                         .gasless(true)
                         .build()
@@ -1440,7 +1432,7 @@ mod tests {
 
             let gas = call_last_frame_return(ctx, InstructionResult::Stop, ret_gas);
             assert_eq!(gas.remaining(), 90);
-            assert_eq!(gas.spent(), 10);
+            assert_eq!(gas.total_gas_spent(), 10);
             assert_eq!(gas.refunded(), 2); // min(20, 10/5), same as a non-gasless tx
         }
 
@@ -1481,10 +1473,7 @@ mod tests {
             let mut db = InMemoryDB::default();
             db.insert_account_info(
                 caller,
-                AccountInfo {
-                    balance: U256::from(7),
-                    ..Default::default()
-                },
+                AccountInfo { balance: U256::from(7), ..Default::default() },
             );
 
             let ctx = Context::op()
@@ -1534,11 +1523,7 @@ mod tests {
             let caller = Address::ZERO;
             let beneficiary = Address::from([0x11; 20]);
             let ctx = Context::op()
-                .with_block(BlockEnv {
-                    beneficiary,
-                    basefee: 10,
-                    ..Default::default()
-                })
+                .with_block(BlockEnv { beneficiary, basefee: 10, ..Default::default() })
                 .with_tx(
                     OpTransaction::builder()
                         .base(
@@ -1571,29 +1556,15 @@ mod tests {
                 0..0,
             ));
 
-            handler
-                .reimburse_caller(&mut evm, &mut exec_result)
-                .unwrap();
-            handler
-                .reward_beneficiary(&mut evm, &mut exec_result)
-                .unwrap();
+            handler.reimburse_caller(&mut evm, &mut exec_result).unwrap();
+            handler.reward_beneficiary(&mut evm, &mut exec_result).unwrap();
 
             assert_eq!(
-                evm.ctx()
-                    .journal_mut()
-                    .load_account(caller)
-                    .unwrap()
-                    .info
-                    .balance,
+                evm.ctx().journal_mut().load_account(caller).unwrap().info.balance,
                 U256::ZERO
             );
             assert_eq!(
-                evm.ctx()
-                    .journal_mut()
-                    .load_account(beneficiary)
-                    .unwrap()
-                    .info
-                    .balance,
+                evm.ctx().journal_mut().load_account(beneficiary).unwrap().info.balance,
                 U256::ZERO
             );
         }
