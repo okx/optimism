@@ -153,11 +153,7 @@ impl OpGasLimitConfig {
     /// Returns the per-block gasless gas budget, if any (`None` means no cap).
     pub fn gasless_block_gas_limit(&self) -> Option<u64> {
         let val = self.gasless_block_gas_limit.load(std::sync::atomic::Ordering::Relaxed);
-        if val == 0 {
-            None
-        } else {
-            Some(val)
-        }
+        if val == 0 { None } else { Some(val) }
     }
     /// Sets the per-block gasless gas budget. 0 means no cap.
     pub fn set_gasless_block_gas_limit(&self, gasless_block_gas_limit: u64) {

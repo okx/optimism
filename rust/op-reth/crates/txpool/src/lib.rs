@@ -17,8 +17,8 @@ pub use pool::OpPool;
 pub mod interop_filter;
 pub mod xlayer_gasless;
 pub use xlayer_gasless::{
-    maintain_gasless_mock_tip, percentile_gas_price, GaslessMockTip, XLayerGaslessOrdering,
-    GASLESS_DEFAULT_PENDING_MAX_LIFETIME,
+    GASLESS_DEFAULT_PENDING_MAX_LIFETIME, GaslessMockTip, XLayerGaslessOrdering,
+    maintain_gasless_mock_tip, percentile_gas_price,
 };
 mod transaction;
 pub use transaction::{OpPooledTransaction, OpPooledTx};

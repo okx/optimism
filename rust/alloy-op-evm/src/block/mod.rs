@@ -403,7 +403,10 @@ where
 
     /// Returns the executor with the given gasless contract enabled. Passing `None` (the
     /// default) disables the hook entirely and is a no-op.
-    pub fn with_gasless_contract(mut self, gasless_contract: Option<GaslessContract>) -> Self {
+    pub const fn with_gasless_contract(
+        mut self,
+        gasless_contract: Option<GaslessContract>,
+    ) -> Self {
         self.gasless_contract = gasless_contract;
         self
     }
@@ -1193,12 +1196,16 @@ impl<R, Spec, EvmFactory> OpBlockExecutorFactory<R, Spec, EvmFactory> {
     }
 
     /// Set the gasless contract for all executors produced by this factory.
-    pub fn with_gasless_contract(mut self, gasless_contract: Option<GaslessContract>) -> Self {
+    pub const fn with_gasless_contract(
+        mut self,
+        gasless_contract: Option<GaslessContract>,
+    ) -> Self {
         self.gasless_contract = gasless_contract;
         self
     }
 
-    /// Returns the gasless whitelist contract applied to executors produced by this factory, if any.
+    /// Returns the gasless whitelist contract applied to executors produced by this factory, if
+    /// any.
     pub const fn gasless_contract(&self) -> Option<GaslessContract> {
         self.gasless_contract
     }
@@ -1228,11 +1235,7 @@ where
         'a,
         DB: StateDB,
         I: Inspector<<PostExecEvmFactoryAdapter<F> as EvmFactory>::Context<DB>>,
-    > = OpBlockExecutor<
-        <PostExecEvmFactoryAdapter<F> as EvmFactory>::Evm<DB, I>,
-        &'a R,
-        &'a Spec,
-    >;
+    > = OpBlockExecutor<<PostExecEvmFactoryAdapter<F> as EvmFactory>::Evm<DB, I>, &'a R, &'a Spec>;
 
     fn evm_factory(&self) -> &Self::EvmFactory {
         &self.evm_factory

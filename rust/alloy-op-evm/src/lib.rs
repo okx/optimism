@@ -48,9 +48,9 @@ pub use tx::OpTx;
 
 pub mod block;
 pub use block::{
-    xlayer_gasless_contract, GaslessContract, OpBlockExecutionCtx, OpBlockExecutor,
-    OpBlockExecutorFactory, PostExecMode, PreRefundGasUsed, XLAYER_DEVNET_GASLESS_CONTRACT,
-    XLAYER_MAINNET_GASLESS_CONTRACT, XLAYER_TESTNET_GASLESS_CONTRACT,
+    GaslessContract, OpBlockExecutionCtx, OpBlockExecutor, OpBlockExecutorFactory, PostExecMode,
+    PreRefundGasUsed, XLAYER_DEVNET_GASLESS_CONTRACT, XLAYER_MAINNET_GASLESS_CONTRACT,
+    XLAYER_TESTNET_GASLESS_CONTRACT, xlayer_gasless_contract,
 };
 
 pub mod post_exec;

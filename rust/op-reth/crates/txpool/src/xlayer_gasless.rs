@@ -30,8 +30,8 @@ use std::{
     fmt,
     marker::PhantomData,
     sync::{
-        atomic::{AtomicU64, Ordering as AtomicOrdering},
         Arc,
+        atomic::{AtomicU64, Ordering as AtomicOrdering},
     },
     time::{Duration, Instant},
 };
@@ -389,9 +389,9 @@ mod xlayer_test {
     async fn gasless_zero_price_is_pending_and_best_with_nonzero_basefee() {
         use alloy_consensus::Transaction;
         use reth_transaction_pool::{
-            test_utils::{MockTransaction, TestPool, TestPoolBuilder},
             BestTransactionsAttributes, BlockInfo, PoolConfig, TransactionOrigin, TransactionPool,
             TransactionPoolExt,
+            test_utils::{MockTransaction, TestPool, TestPoolBuilder},
         };
 
         let pool: TestPool = TestPoolBuilder::default()
@@ -450,9 +450,9 @@ mod xlayer_test {
     #[tokio::test]
     async fn gasless_disabled_zero_price_is_parked_and_not_best() {
         use reth_transaction_pool::{
-            test_utils::{MockTransaction, TestPool, TestPoolBuilder},
             BestTransactionsAttributes, BlockInfo, PoolConfig, TransactionOrigin, TransactionPool,
             TransactionPoolExt,
+            test_utils::{MockTransaction, TestPool, TestPoolBuilder},
         };
 
         let pool: TestPool = TestPoolBuilder::default()
@@ -490,8 +490,8 @@ mod xlayer_test {
     #[tokio::test]
     async fn evict_stale_pending_gasless_respects_lifetime() {
         use reth_transaction_pool::{
-            test_utils::{MockTransaction, TestPool, TestPoolBuilder},
             BlockInfo, PoolConfig, TransactionOrigin, TransactionPool, TransactionPoolExt,
+            test_utils::{MockTransaction, TestPool, TestPoolBuilder},
         };
 
         let pool: TestPool = TestPoolBuilder::default()

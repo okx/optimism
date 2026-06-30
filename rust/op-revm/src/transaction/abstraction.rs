@@ -73,7 +73,12 @@ impl<T: Transaction> AsRef<T> for OpTransaction<T> {
 impl<T: Transaction> OpTransaction<T> {
     /// Create a new Optimism transaction.
     pub fn new(base: T) -> Self {
-        Self { base, enveloped_tx: None, deposit: DepositTransactionParts::default(), is_gasless: false }
+        Self {
+            base,
+            enveloped_tx: None,
+            deposit: DepositTransactionParts::default(),
+            is_gasless: false,
+        }
     }
 }
 
@@ -331,7 +336,12 @@ impl OpTransactionBuilder {
 
         let base = self.base.build_fill();
 
-        OpTransaction { base, enveloped_tx: self.enveloped_tx, deposit: self.deposit, is_gasless: self.is_gasless }
+        OpTransaction {
+            base,
+            enveloped_tx: self.enveloped_tx,
+            deposit: self.deposit,
+            is_gasless: self.is_gasless,
+        }
     }
 
     /// Build the [`OpTransaction`] instance, return error if the transaction is not valid.
@@ -357,7 +367,12 @@ impl OpTransactionBuilder {
 
         let base = self.base.build()?;
 
-        Ok(OpTransaction { base, enveloped_tx: self.enveloped_tx, deposit: self.deposit, is_gasless: self.is_gasless })
+        Ok(OpTransaction {
+            base,
+            enveloped_tx: self.enveloped_tx,
+            deposit: self.deposit,
+            is_gasless: self.is_gasless,
+        })
     }
 }
 

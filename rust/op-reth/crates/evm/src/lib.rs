@@ -14,10 +14,10 @@ extern crate alloc;
 use alloc::sync::Arc;
 use alloy_consensus::{BlockHeader, Header};
 use alloy_evm::{EvmFactory, FromRecoveredTx, FromTxWithEncoded, block::BlockExecutorFactory};
+pub use alloy_op_evm::block::OpTxEnv;
 use alloy_op_evm::{
     block::receipt_builder::OpReceiptBuilder, evm_env_for_op_block, evm_env_for_op_next_block,
 };
-pub use alloy_op_evm::block::OpTxEnv;
 use core::fmt::Debug;
 use op_alloy_consensus::{
     EIP1559ParamError, OpTransaction as OpConsensusTransaction,
@@ -67,10 +67,11 @@ pub mod tx;
 pub use tx::OpTx;
 
 pub use alloy_op_evm::{
-    xlayer_gasless_contract, GaslessContract, OpBlockExecutionCtx, OpBlockExecutorFactory, OpEvm,
-    OpEvmFactory, PostExecMode, PreRefundGasUsed, XLAYER_DEVNET_GASLESS_CONTRACT,
+    GaslessContract, OpBlockExecutionCtx, OpBlockExecutorFactory, OpEvm, OpEvmFactory,
+    PostExecMode, PreRefundGasUsed, XLAYER_DEVNET_GASLESS_CONTRACT,
     XLAYER_MAINNET_GASLESS_CONTRACT, XLAYER_TESTNET_GASLESS_CONTRACT,
     post_exec::{PostExecExecutorExt, WarmingRefundEvent, WarmingRefundKind, WarmingState},
+    xlayer_gasless_contract,
 };
 
 mod post_exec_ext;
