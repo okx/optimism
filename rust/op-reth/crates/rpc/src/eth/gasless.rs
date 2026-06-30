@@ -20,11 +20,11 @@
 use crate::{OpEthApi, OpEthApiError};
 use alloy_consensus::transaction::Transaction as ConsensusTransaction;
 use alloy_eips::{eip2718::Typed2718, eip2930::AccessList, eip7702::SignedAuthorization};
-use alloy_primitives::{Bytes, ChainId, TxKind, B256, U256};
+use alloy_primitives::{B256, Bytes, ChainId, TxKind, U256};
 use op_revm::transaction::OpTxTr;
 use reth_chainspec::{ChainSpecProvider, EthChainSpec};
 use reth_evm::{ConfigureEvm, Database, EvmEnvFor, TxEnvFor};
-use reth_optimism_evm::{xlayer_gasless_contract, GaslessContract, OpTxEnv};
+use reth_optimism_evm::{GaslessContract, OpTxEnv, xlayer_gasless_contract};
 use reth_rpc_eth_api::{RpcConvert, RpcNodeCore};
 use reth_rpc_eth_types::EthApiError;
 use revm::context_interface::Transaction as RevmTransaction;

@@ -171,9 +171,9 @@ where
 
             if tx_receipt.is_none() {
                 // if flashblocks are supported, attempt to find id from the pending block
-                if let Ok(Some(pending_block)) = this.pending_flashblock().await
-                    && let Some(Ok(receipt)) =
-                        pending_block.find_and_convert_transaction_receipt(hash, this.converter())
+                if let Ok(Some(pending_block)) = this.pending_flashblock().await &&
+                    let Some(Ok(receipt)) = pending_block
+                        .find_and_convert_transaction_receipt(hash, this.converter())
                 {
                     return Ok(Some(receipt));
                 }
@@ -218,8 +218,8 @@ where
         }
 
         // 2. check flashblocks (sequencer preconfirmations)
-        if let Ok(Some(pending_block)) = self.pending_flashblock().await
-            && let Some(indexed_tx) = pending_block.block().find_indexed(hash)
+        if let Ok(Some(pending_block)) = self.pending_flashblock().await &&
+            let Some(indexed_tx) = pending_block.block().find_indexed(hash)
         {
             let meta = indexed_tx.meta();
             return Ok(Some(TransactionSource::Block {

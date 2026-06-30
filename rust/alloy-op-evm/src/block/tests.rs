@@ -777,8 +777,10 @@ fn gasless_allowance_check_excluded_from_tx_and_block_gas() {
         ..Default::default()
     });
 
-    let tx_gas_used =
-        executor.execute_transaction(&tx).expect("gasless whitelisted tx should execute").tx_gas_used();
+    let tx_gas_used = executor
+        .execute_transaction(&tx)
+        .expect("gasless whitelisted tx should execute")
+        .tx_gas_used();
     let (_, result) = executor.finish().expect("failed to finish executor");
 
     assert_eq!(

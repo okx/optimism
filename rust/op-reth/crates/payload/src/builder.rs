@@ -951,8 +951,8 @@ where
 
             // We skip invalid cross chain txs, they would be removed on the next block update in
             // the maintenance job
-            if let Some(interop) = interop
-                && !is_valid_interop(interop, self.config.attributes.timestamp())
+            if let Some(interop) = interop &&
+                !is_valid_interop(interop, self.config.attributes.timestamp())
             {
                 best_txs.mark_invalid(tx.signer(), tx.nonce());
                 continue;
@@ -979,8 +979,8 @@ where
                     best_txs.mark_invalid(tx.signer(), tx.nonce());
                     continue;
                 }
-                if let Some(limit) = gasless_block_gas_limit
-                    && info.cumulative_gasless_gas_used.saturating_add(tx.gas_limit()) > limit
+                if let Some(limit) = gasless_block_gas_limit &&
+                    info.cumulative_gasless_gas_used.saturating_add(tx.gas_limit()) > limit
                 {
                     debug!(
                         target: "payload_builder",

@@ -12,11 +12,10 @@
 //! A tx is treated as gasless only when the contract returns `allowed == true` **and** the tx's
 //! gas limit does not exceed the returned `gasLimit` (see [`GaslessContract::is_gasless`]).
 
-use alloc::vec::Vec;
 use alloy_consensus::Transaction;
 use alloy_eips::eip4788::SYSTEM_ADDRESS;
-use alloy_evm::{block::BlockExecutionError, Evm};
-use alloy_primitives::{address, Address, Bytes};
+use alloy_evm::{Evm, block::BlockExecutionError};
+use alloy_primitives::{Address, Bytes, address};
 use revm::context_interface::result::{ExecutionResult, Output};
 
 /// X Layer devnet chain id as specified in the published `genesis.json`.
@@ -30,20 +29,20 @@ const XLAYER_TESTNET_CHAIN_ID: u64 = 1952;
 /// X Layer mainnet chain id as specified in the published `genesis.json`.
 const XLAYER_MAINNET_CHAIN_ID: u64 = 196;
 
-/// XLayer devnet (chain id 195) gasless whitelist address.
+/// `XLayer` devnet (chain id 195) gasless whitelist address.
 ///
-/// Deterministic CREATE2 address of the GaslessWhitelist proxy deployed via
+/// Deterministic CREATE2 address of the `GaslessWhitelist` proxy deployed via
 /// DeployXlayerGaslessWhitelist.s.sol.
 pub const XLAYER_DEVNET_GASLESS_CONTRACT: Address =
     address!("0xA9092BC02e2000a3F8996D1991621E9A03Ef2dfE");
-/// XLayer testnet (chain id 1952) gasless whitelist predeploy address.
+/// `XLayer` testnet (chain id 1952) gasless whitelist predeploy address.
 pub const XLAYER_TESTNET_GASLESS_CONTRACT: Address =
     address!("0x19787404b0c70021b4752028f7e3a92313885B27");
-/// XLayer mainnet (chain id 196) gasless whitelist predeploy address.
+/// `XLayer` mainnet (chain id 196) gasless whitelist predeploy address.
 pub const XLAYER_MAINNET_GASLESS_CONTRACT: Address =
     address!("0x19787404b0c70021b4752028f7e3a92313885B27");
 
-/// Returns the XLayer gasless whitelist predeploy address for the given chain id.
+/// Returns the `XLayer` gasless whitelist predeploy address for the given chain id.
 ///
 /// The per-network mapping lives here rather than in xlayer-chainspec so the gasless contract can
 /// be derived from the chain spec at every config construction. This makes gasless detection
@@ -109,10 +108,8 @@ impl GaslessContract {
             return Ok((false, 0));
         };
         // Degrade to "not gasless" if the system call itself errors at the EVM/DB level.
-        match transact(evm, self.contract, encode_get_gasless_allowance(target, tx.input())) {
-            Ok(result) => Ok(decode_allowance(result)),
-            Err(_) => Ok((false, 0)),
-        }
+        transact(evm, self.contract, encode_get_gasless_allowance(target, tx.input()))
+            .map_or_else(|_| Ok((false, 0)), |result| Ok(decode_allowance(result)))
     }
 
     /// Returns whether `tx` qualifies as gasless: the contract must allow it **and** the tx's gas
@@ -132,8 +129,7 @@ impl GaslessContract {
 fn encode_get_gasless_allowance(target: Address, input: &Bytes) -> Bytes {
     let input_words = input.len().div_ceil(32);
     let input_offset = 4 + 32 * 3;
-    let mut buf = Vec::with_capacity(input_offset + input_words * 32);
-    buf.resize(input_offset + input_words * 32, 0);
+    let mut buf = vec![0; input_offset + input_words * 32];
 
     buf[..4].copy_from_slice(&GET_GASLESS_ALLOWANCE_SELECTOR);
     // ABI: left-pad address to 32 bytes.
@@ -181,13 +177,13 @@ mod xlayer_test {
     use crate::OpEvmFactory;
     use alloy_consensus::TxEip1559;
     use alloy_evm::{EvmEnv, EvmFactory};
-    use alloy_primitives::{TxKind, B256, U256};
+    use alloy_primitives::{B256, TxKind, U256};
     use op_revm::OpSpecId;
     use revm::{
+        Database,
         context::{BlockEnv, CfgEnv},
         database::DBErrorMarker,
         state::{AccountInfo, Bytecode},
-        Database,
     };
 
     #[test]

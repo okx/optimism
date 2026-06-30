@@ -52,8 +52,8 @@ use reth_optimism_rpc::{
 };
 use reth_optimism_storage::OpStorage;
 use reth_optimism_txpool::{
-    interop_filter::InteropFilterClient, maintain_gasless_mock_tip, GaslessMockTip, OpPool,
-    OpPooledTx, XLayerGaslessOrdering,
+    GaslessMockTip, OpPool, OpPooledTx, XLayerGaslessOrdering, interop_filter::InteropFilterClient,
+    maintain_gasless_mock_tip,
 };
 use reth_primitives_traits::header::HeaderMut;
 use reth_provider::{CanonStateSubscriptions, providers::ProviderFactoryBuilder};

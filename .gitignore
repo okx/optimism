@@ -88,3 +88,4 @@ test-pp-op/fakemainnet.env
 
 # Rust files
 **/target
+.cargo/config.toml

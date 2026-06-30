@@ -1,14 +1,14 @@
 use crate::{
-    interop_filter::InteropFilterClient, xlayer_gasless::GaslessBlockMetrics, InvalidCrossTx,
-    OpPooledTx,
+    InvalidCrossTx, OpPooledTx, interop_filter::InteropFilterClient,
+    xlayer_gasless::GaslessBlockMetrics,
 };
 use alloy_consensus::{BlockHeader, Header, Transaction};
 use alloy_primitives::U256;
 use op_revm::L1BlockInfo;
 use parking_lot::RwLock;
 use reth_chainspec::{ChainSpecProvider, EthChainSpec};
-use reth_evm::{block::BlockExecutionError, ConfigureEvm};
-use reth_optimism_evm::{xlayer_gasless_contract, GaslessContract, OpEvmConfig, RethL1BlockInfo};
+use reth_evm::{ConfigureEvm, block::BlockExecutionError};
+use reth_optimism_evm::{GaslessContract, OpEvmConfig, RethL1BlockInfo, xlayer_gasless_contract};
 use reth_optimism_forks::OpHardforks;
 use reth_primitives_traits::{
     Block, BlockBody, BlockTy, GotExpected, SealedBlock,
@@ -376,25 +376,27 @@ where
             // Gasless (zero fee-cap) candidates pay no L1 data fee or L2 execution fee when
             // executed gaslessly, so their admission must not require ETH to cover the
             // L1 data fee.
-            let cost_addition = if self.allow_gasless
-                && valid_tx.transaction().max_fee_per_gas() == 0
-            {
-                U256::ZERO
-            } else {
-                let mut l1_block_info = self.block_info.l1_block_info.read().clone();
-                let encoded = valid_tx.transaction().encoded_2718();
-                match l1_block_info.l1_tx_data_fee(
-                    self.chain_spec(),
-                    self.block_timestamp(),
-                    &encoded,
-                    false,
-                ) {
-                    Ok(cost) => cost,
-                    Err(err) => {
-                        return TransactionValidationOutcome::Error(*valid_tx.hash(), Box::new(err))
+            let cost_addition =
+                if self.allow_gasless && valid_tx.transaction().max_fee_per_gas() == 0 {
+                    U256::ZERO
+                } else {
+                    let mut l1_block_info = self.block_info.l1_block_info.read().clone();
+                    let encoded = valid_tx.transaction().encoded_2718();
+                    match l1_block_info.l1_tx_data_fee(
+                        self.chain_spec(),
+                        self.block_timestamp(),
+                        &encoded,
+                        false,
+                    ) {
+                        Ok(cost) => cost,
+                        Err(err) => {
+                            return TransactionValidationOutcome::Error(
+                                *valid_tx.hash(),
+                                Box::new(err),
+                            );
+                        }
                     }
-                }
-            };
+                };
             let cost = valid_tx.transaction().cost().saturating_add(cost_addition);
 
             // Checks for max cost
