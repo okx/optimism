@@ -287,7 +287,15 @@ where
     type Out = OpTransactionInfo;
     type Err = ProviderError;
 
-    fn try_map(&self, tx: &T, tx_info: TransactionInfo) -> Result<Self::Out, ProviderError> {
+    fn try_map(&self, tx: &T, mut tx_info: TransactionInfo) -> Result<Self::Out, ProviderError> {
+        // op-alloy's `Transaction::from_transaction` derives effective_gas_price as
+        // `effective_tip_per_gas(base_fee) + base_fee`, which for a zero-fee tx collapses to
+        // `base_fee` (not 0) and disagrees with the receipt and the executor's gasless semantics.
+        // Clearing base_fee makes `from_transaction` fall back to `max_fee_per_gas()` (== 0 here).
+        if !tx.is_deposit() && tx.max_fee_per_gas() == 0 {
+            tx_info.base_fee = None;
+        }
+
         let deposit_meta = if tx.is_deposit() {
             self.provider.receipt_by_hash(*tx.tx_hash())?.and_then(|receipt| {
                 receipt.as_deposit_receipt().map(|receipt| OpDepositInfo {

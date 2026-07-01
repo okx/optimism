@@ -48,17 +48,29 @@ use crate::post_exec::{
 
 mod canyon;
 pub mod receipt_builder;
+pub mod xlayer_gasless_contract;
+pub use xlayer_gasless_contract::{
+    GaslessContract, XLAYER_DEVNET_GASLESS_CONTRACT, XLAYER_MAINNET_GASLESS_CONTRACT,
+    XLAYER_TESTNET_GASLESS_CONTRACT, xlayer_gasless_contract,
+};
 
 /// Trait for OP transaction environments. Allows to recover the transaction encoded bytes if
 /// they're available.
 pub trait OpTxEnv {
     /// Returns the encoded bytes of the transaction.
     fn encoded_bytes(&self) -> Option<&Bytes>;
+
+    /// Marks whether this transaction should execute without gas fees.
+    fn set_gasless(&mut self, is_gasless: bool);
 }
 
 impl<T: revm::context::Transaction> OpTxEnv for OpTransaction<T> {
     fn encoded_bytes(&self) -> Option<&Bytes> {
         self.enveloped_tx.as_ref()
+    }
+
+    fn set_gasless(&mut self, is_gasless: bool) {
+        self.is_gasless = is_gasless;
     }
 }
 
@@ -355,6 +367,10 @@ pub struct OpBlockExecutor<Evm, R: OpReceiptBuilder, Spec> {
     pub post_exec: PostExecState,
     /// Per-transaction exact warming refund attribution events aligned with receipts.
     pub warming_events_by_tx: Vec<Vec<WarmingRefundEvent>>,
+    /// Optional gasless contract. When set, the executor checks the gasless contract
+    /// before each call tx and bypasses fee checks/charges for matching target/input pairs
+    /// (deposits are never affected).
+    pub gasless_contract: Option<GaslessContract>,
 }
 
 impl<E, R, Spec> OpBlockExecutor<E, R, Spec>
@@ -381,7 +397,18 @@ where
             l1_block_info: None,
             post_exec,
             warming_events_by_tx: Vec::new(),
+            gasless_contract: None,
         }
+    }
+
+    /// Returns the executor with the given gasless contract enabled. Passing `None` (the
+    /// default) disables the hook entirely and is a no-op.
+    pub const fn with_gasless_contract(
+        mut self,
+        gasless_contract: Option<GaslessContract>,
+    ) -> Self {
+        self.gasless_contract = gasless_contract;
+        self
     }
 
     /// Set the post-exec execution mode for the executor.
@@ -816,7 +843,7 @@ where
         &mut self,
         tx: impl ExecutableTx<Self>,
     ) -> Result<Self::Result, BlockExecutionError> {
-        let (tx_env, tx) = tx.into_parts();
+        let (mut tx_env, tx) = tx.into_parts();
         let is_deposit = tx.tx().ty() == DEPOSIT_TRANSACTION_TYPE;
         let is_post_exec = tx.tx().ty() == POST_EXEC_TX_TYPE_ID;
         let tx_index = self.receipts.len() as u64;
@@ -890,6 +917,16 @@ where
             0
         };
 
+        let is_gasless = if !is_deposit && tx.tx().max_fee_per_gas() == 0 {
+            match self.gasless_contract {
+                Some(gasless_contract) => gasless_contract.is_gasless(&mut self.evm, tx.tx())?,
+                None => false,
+            }
+        } else {
+            false
+        };
+        tx_env.set_gasless(is_gasless);
+
         if self.post_exec.is_producing() {
             self.evm.begin_post_exec_tx(PostExecTxContext {
                 tx_index,
@@ -897,7 +934,9 @@ where
             });
         }
 
-        // Execute transaction and return the result
+        // Execute transaction and return the result. Gasless txs have `is_gasless = true` on the
+        // tx env; `OpEvm::transact_raw` zeroes `block.basefee` for the duration of that single tx
+        // so the zero-priced gasless tx clears fee validation, then restores it immediately.
         let mut result = self.evm.transact(tx_env).map_err(|err| {
             let hash = tx.tx().trie_hash();
             BlockExecutionError::evm(err, hash)
@@ -1130,13 +1169,15 @@ pub struct OpBlockExecutorFactory<
     spec: Spec,
     /// EVM factory.
     evm_factory: EvmFactory,
+    /// Optional gasless contract propagated to every executor created by this factory.
+    gasless_contract: Option<GaslessContract>,
 }
 
 impl<R, Spec, EvmFactory> OpBlockExecutorFactory<R, Spec, EvmFactory> {
     /// Creates a new [`OpBlockExecutorFactory`] with the given spec, [`EvmFactory`], and
     /// [`OpReceiptBuilder`].
     pub const fn new(receipt_builder: R, spec: Spec, evm_factory: EvmFactory) -> Self {
-        Self { receipt_builder, spec, evm_factory }
+        Self { receipt_builder, spec, evm_factory, gasless_contract: None }
     }
 
     /// Exposes the receipt builder.
@@ -1152,6 +1193,21 @@ impl<R, Spec, EvmFactory> OpBlockExecutorFactory<R, Spec, EvmFactory> {
     /// Exposes the EVM factory.
     pub const fn evm_factory(&self) -> &EvmFactory {
         &self.evm_factory
+    }
+
+    /// Set the gasless contract for all executors produced by this factory.
+    pub const fn with_gasless_contract(
+        mut self,
+        gasless_contract: Option<GaslessContract>,
+    ) -> Self {
+        self.gasless_contract = gasless_contract;
+        self
+    }
+
+    /// Returns the gasless whitelist contract applied to executors produced by this factory, if
+    /// any.
+    pub const fn gasless_contract(&self) -> Option<GaslessContract> {
+        self.gasless_contract
     }
 }
 
@@ -1195,6 +1251,7 @@ where
         I: Inspector<<PostExecEvmFactoryAdapter<F> as EvmFactory>::Context<DB>>,
     {
         OpBlockExecutor::new(evm, ctx, &self.spec, &self.receipt_builder)
+            .with_gasless_contract(self.gasless_contract)
     }
 }
 
@@ -1241,6 +1298,7 @@ where
         I: Inspector<<OpEvmFactory<Tx> as EvmFactory>::Context<DB>>,
     {
         OpBlockExecutor::new(evm, ctx, &self.spec, &self.receipt_builder)
+            .with_gasless_contract(self.gasless_contract)
     }
 }
 

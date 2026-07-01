@@ -326,4 +326,47 @@ impl OpTxEnv for CustomTxEnv {
             Self::Payment(_) => None,
         }
     }
+
+    fn set_gasless(&mut self, is_gasless: bool) {
+        if let Self::Op(tx) = self {
+            tx.set_gasless(is_gasless);
+        }
+    }
+}
+
+impl op_revm::transaction::OpTxTr for CustomTxEnv {
+    fn enveloped_tx(&self) -> Option<&Bytes> {
+        match self {
+            Self::Op(tx) => tx.enveloped_tx(),
+            Self::Payment(_) => None,
+        }
+    }
+
+    fn source_hash(&self) -> Option<B256> {
+        match self {
+            Self::Op(tx) => tx.source_hash(),
+            Self::Payment(_) => None,
+        }
+    }
+
+    fn mint(&self) -> Option<u128> {
+        match self {
+            Self::Op(tx) => tx.mint(),
+            Self::Payment(_) => None,
+        }
+    }
+
+    fn is_system_transaction(&self) -> bool {
+        match self {
+            Self::Op(tx) => tx.is_system_transaction(),
+            Self::Payment(_) => false,
+        }
+    }
+
+    fn is_gasless(&self) -> bool {
+        match self {
+            Self::Op(tx) => tx.is_gasless(),
+            Self::Payment(_) => false,
+        }
+    }
 }

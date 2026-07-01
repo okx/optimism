@@ -126,6 +126,12 @@ pub struct OpGasLimitConfig {
     ///
     /// 0 means use the default gas limit.
     gas_limit: Arc<AtomicU64>,
+    /// Per-block budget (in gas) for gasless (zero-priced, whitelisted) transactions.
+    ///
+    /// Once gasless txs in a block have consumed this much gas, further gasless txs are skipped
+    /// for the rest of the block. 0 means no cap. Shared with the flashblocks builder so both
+    /// builders subsidize the same amount of gasless gas per block.
+    gasless_block_gas_limit: Arc<AtomicU64>,
 }
 
 impl OpGasLimitConfig {
@@ -143,6 +149,16 @@ impl OpGasLimitConfig {
     /// Sets the gas limit for a transaction. 0 means use the default gas limit.
     pub fn set_gas_limit(&self, gas_limit: u64) {
         self.gas_limit.store(gas_limit, std::sync::atomic::Ordering::Relaxed);
+    }
+    /// Returns the per-block gasless gas budget, if any (`None` means no cap).
+    pub fn gasless_block_gas_limit(&self) -> Option<u64> {
+        let val = self.gasless_block_gas_limit.load(std::sync::atomic::Ordering::Relaxed);
+        if val == 0 { None } else { Some(val) }
+    }
+    /// Sets the per-block gasless gas budget. 0 means no cap.
+    pub fn set_gasless_block_gas_limit(&self, gasless_block_gas_limit: u64) {
+        self.gasless_block_gas_limit
+            .store(gasless_block_gas_limit, std::sync::atomic::Ordering::Relaxed);
     }
 }
 

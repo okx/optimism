@@ -59,6 +59,10 @@ impl OpTxEnv for OpTx {
     fn encoded_bytes(&self) -> Option<&Bytes> {
         self.0.enveloped_tx.as_ref()
     }
+
+    fn set_gasless(&mut self, is_gasless: bool) {
+        self.0.is_gasless = is_gasless;
+    }
 }
 
 impl revm::context::Transaction for OpTx {
@@ -144,6 +148,10 @@ impl op_revm::transaction::OpTxTr for OpTx {
     fn is_system_transaction(&self) -> bool {
         self.0.is_system_transaction()
     }
+
+    fn is_gasless(&self) -> bool {
+        self.0.is_gasless()
+    }
 }
 
 impl FromRecoveredTx<OpTxEnvelope> for OpTx {
@@ -192,6 +200,7 @@ macro_rules! impl_from_tx {
                         base,
                         enveloped_tx: Some(encoded),
                         deposit: Default::default(),
+                        is_gasless: false,
                     })
                 }
             }
@@ -222,7 +231,12 @@ impl<T> FromTxWithEncoded<Signed<TxEip4844Variant<T>>> for OpTx {
 impl<T> FromTxWithEncoded<TxEip4844Variant<T>> for OpTx {
     fn from_encoded_tx(tx: &TxEip4844Variant<T>, caller: Address, encoded: Bytes) -> Self {
         let base = TxEnv::from_recovered_tx(tx, caller);
-        Self(OpTransaction { base, enveloped_tx: Some(encoded), deposit: Default::default() })
+        Self(OpTransaction {
+            base,
+            enveloped_tx: Some(encoded),
+            deposit: Default::default(),
+            is_gasless: false,
+        })
     }
 }
 
@@ -241,7 +255,7 @@ impl FromTxWithEncoded<TxDeposit> for OpTx {
             mint: Some(tx.mint),
             is_system_transaction: tx.is_system_transaction,
         };
-        Self(OpTransaction { base, enveloped_tx: Some(encoded), deposit })
+        Self(OpTransaction { base, enveloped_tx: Some(encoded), deposit, is_gasless: false })
     }
 }
 
@@ -255,7 +269,12 @@ impl FromRecoveredTx<TxPostExec> for OpTx {
 impl FromTxWithEncoded<TxPostExec> for OpTx {
     fn from_encoded_tx(tx: &TxPostExec, caller: Address, encoded: Bytes) -> Self {
         let base = TxEnv { tx_type: tx.ty(), caller, kind: tx.kind(), ..Default::default() };
-        Self(OpTransaction { base, enveloped_tx: Some(encoded), deposit: Default::default() })
+        Self(OpTransaction {
+            base,
+            enveloped_tx: Some(encoded),
+            deposit: Default::default(),
+            is_gasless: false,
+        })
     }
 }
 
