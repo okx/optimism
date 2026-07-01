@@ -1057,12 +1057,14 @@ func (c *XLayerRemoteClient) buildChallengerResolveClaimOtherInfo(tx *types.Tran
 
 	if len(tx.Data()) >= 36 { // 4 bytes signature + 32 bytes uint256
 		claimIndexBig := new(big.Int).SetBytes(tx.Data()[4:36])
+		//nolint:bigint // untrusted calldata: must not panic on overflow, truncation is acceptable for this informational field
 		claimIndexVal := claimIndexBig.Uint64()
 		claimIndex = &claimIndexVal
 	}
 
 	if len(tx.Data()) >= 68 { // 4 bytes signature + 32 bytes + 32 bytes
 		numToResolveBig := new(big.Int).SetBytes(tx.Data()[36:68])
+		//nolint:bigint // untrusted calldata: must not panic on overflow, truncation is acceptable for this informational field
 		numToResolveVal := numToResolveBig.Uint64()
 		numToResolve = &numToResolveVal
 	}
@@ -1218,14 +1220,30 @@ func (c *XLayerRemoteClient) unpackProposerTransaction(tx *types.Transaction) (*
 	var rootClaim common.Hash
 	copy(rootClaim[:], methodData[32:64])
 
-	// Parse bytes calldata _extraData (dynamic type)
-	extraDataOffset := new(big.Int).SetBytes(methodData[64:96]).Uint64()
-	if extraDataOffset+32 > uint64(len(methodData)) {
+	// Parse bytes calldata _extraData (dynamic type).
+	// Offset/length come from untrusted calldata. Reject anything that does not
+	// fit in uint64, and compare via subtraction so the bounds checks themselves
+	// cannot integer-overflow. len(methodData) >= 96 is guaranteed above.
+	dataLen := uint64(len(methodData))
+
+	offsetBig := new(big.Int).SetBytes(methodData[64:96])
+	if !offsetBig.IsUint64() {
+		return nil, fmt.Errorf("invalid extraData offset: exceeds uint64")
+	}
+	//nolint:bigint // guarded by IsUint64 above; non-panicking conversion required for untrusted calldata
+	extraDataOffset := offsetBig.Uint64()
+	if extraDataOffset > dataLen-32 { // dataLen >= 96, so dataLen-32 cannot underflow
 		return nil, fmt.Errorf("invalid extraData offset: %d", extraDataOffset)
 	}
+	// extraDataOffset <= dataLen-32  =>  extraDataOffset+32 <= dataLen (no overflow below)
 
-	extraDataLength := new(big.Int).SetBytes(methodData[extraDataOffset : extraDataOffset+32]).Uint64()
-	if extraDataOffset+32+extraDataLength > uint64(len(methodData)) {
+	lengthBig := new(big.Int).SetBytes(methodData[extraDataOffset : extraDataOffset+32])
+	if !lengthBig.IsUint64() {
+		return nil, fmt.Errorf("invalid extraData length: exceeds uint64")
+	}
+	//nolint:bigint // guarded by IsUint64 above; non-panicking conversion required for untrusted calldata
+	extraDataLength := lengthBig.Uint64()
+	if extraDataLength > dataLen-(extraDataOffset+32) { // RHS >= 0, computed without overflow
 		return nil, fmt.Errorf("invalid extraData length: %d", extraDataLength)
 	}
 

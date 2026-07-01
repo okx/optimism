@@ -23,10 +23,12 @@ const (
 )
 
 func isXLayerMainnet(chainID *big.Int) bool {
+	//nolint:bigint // chain IDs always fit in uint64; no overflow concern
 	return chainID != nil && chainID.Uint64() == XLayerMainnetChainID
 }
 
 func isXLayerTestnet(chainID *big.Int) bool {
+	//nolint:bigint // chain IDs always fit in uint64; no overflow concern
 	return chainID != nil && chainID.Uint64() == XLayerTestnetChainID
 }
 
