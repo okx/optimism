@@ -25,6 +25,12 @@ shellcheck:
 shfmt-fix:
   find . -type f -name '*.sh' -not -path '*/node_modules/*' -not -path './packages/contracts-bedrock/lib/*' -not -path './packages/contracts-bedrock/kout*/*' -exec shfmt --write {} \;
 
+# Lints Go code (builds in-tree op-golangci-lint, checks go.mod tidy).
+lint-go:
+  # Delegates to the Makefile target; mirrors the `just` convention the
+  # Rust quality jobs use, so CI can call `just lint-go` uniformly.
+  make lint-go
+
 # Generates a table of contents for the README.md file.
 toc:
   md_toc -p github README.md

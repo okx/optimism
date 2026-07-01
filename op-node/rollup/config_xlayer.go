@@ -53,6 +53,7 @@ func ApplyXLayerHardcodedForks(cfg *Config) *Config {
 		return cfg
 	}
 
+	//nolint:bigint // chain IDs always fit in uint64; no overflow concern
 	chainID := cfg.L2ChainID.Uint64()
 	xlayerForks, exists := XLayerHardcodedForks[chainID]
 
@@ -96,6 +97,7 @@ func FixXLayerL2Time(cfg *Config, rollupConfigPath string) {
 		return
 	}
 
+	//nolint:bigint // chain IDs always fit in uint64; no overflow concern
 	chainID := cfg.L2ChainID.Uint64()
 	if chainID == XLayerMainnetChainID && cfg.Genesis.L2Time != MainnetFixedL2Time {
 		log.Warn("X Layer: auto fixed mainnet l2 time")

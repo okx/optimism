@@ -475,6 +475,8 @@ var requiredFlags = []cli.Flag{
 	// XLayer: L1NodeAddr moved to optionalFlags to support --l2.follow.source.skip-l1-check mode.
 	// L1 requirement is validated at config.Check() level instead.
 	L2EngineAddr,
+	// XLayer: KMS reuses this flag (its value may be a kms:<name> reference),
+	// so the JWT secret is still supplied here and remains required.
 	L2EngineJWTSecret,
 }
 

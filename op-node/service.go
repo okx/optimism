@@ -24,6 +24,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-node/rollup/finality"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/interop"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/sync"
+	xlayerkms "github.com/ethereum-optimism/optimism/op-node/xlayer/kms"
 	"github.com/ethereum-optimism/optimism/op-service/cliiface"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	opflags "github.com/ethereum-optimism/optimism/op-service/flags"
@@ -183,7 +184,11 @@ func NewL1EndpointConfig(ctx cliiface.Context) *config.L1EndpointConfig {
 func NewL2EndpointConfig(ctx cliiface.Context, logger log.Logger) (*config.L2EndpointConfig, error) {
 	l2Addr := ctx.String(flags.L2EngineAddr.Name)
 	fileName := ctx.String(flags.L2EngineJWTSecret.Name)
-	secret, err := rpc.ObtainJWTSecret(logger, fileName, true)
+	// X Layer: resolve a kms:<name> reference (flag value or file content).
+	// generateMissing=false: op-node is an engine-API client, so a missing JWT
+	// must fail fast rather than silently generate a secret that cannot match
+	// op-geth's.
+	secret, err := xlayerkms.ResolveJWTSecret(logger, fileName, false)
 	if err != nil {
 		return nil, err
 	}

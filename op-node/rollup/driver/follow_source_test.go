@@ -10,21 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockFollowClient implements the minimum interface for testing L2FollowSource.
-type mockFollowClient struct {
-	followStatus  *sources.FollowStatus
-	runtimeConfig *sources.XLayerRuntimeConfigResponse
-	err           error
-}
-
-func (m *mockFollowClient) GetFollowStatus(_ context.Context) (*sources.FollowStatus, error) {
-	return m.followStatus, m.err
-}
-
-func (m *mockFollowClient) GetRuntimeConfig(_ context.Context) (*sources.XLayerRuntimeConfigResponse, error) {
-	return m.runtimeConfig, m.err
-}
-
 // mockL1Source implements L1FollowSource for testing.
 type mockL1Source struct {
 	ref eth.L1BlockRef

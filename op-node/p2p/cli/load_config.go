@@ -19,6 +19,7 @@ import (
 
 	"github.com/ethereum-optimism/optimism/op-node/flags"
 	"github.com/ethereum-optimism/optimism/op-node/p2p"
+	xlayerkms "github.com/ethereum-optimism/optimism/op-node/xlayer/kms"
 	"github.com/ethereum-optimism/optimism/op-service/cliiface"
 
 	"github.com/ethereum/go-ethereum/log"
@@ -40,6 +41,11 @@ func NewConfig(ctx cliiface.Context, blockTime uint64) (*p2p.Config, error) {
 	}
 	conf.Priv = p
 
+	return loadCommonP2PConfig(conf, ctx, blockTime)
+}
+
+// loadCommonP2PConfig loads all P2P config options except the network private key.
+func loadCommonP2PConfig(conf *p2p.Config, ctx cliiface.Context, blockTime uint64) (*p2p.Config, error) {
 	if err := loadListenOpts(conf, ctx); err != nil {
 		return nil, fmt.Errorf("failed to load p2p listen options: %w", err)
 	}
@@ -319,7 +325,13 @@ func loadLibp2pOpts(conf *p2p.Config, ctx cliiface.Context) error {
 func loadNetworkPrivKey(ctx cliiface.Context) (*crypto.Secp256k1PrivateKey, error) {
 	raw := ctx.String(flags.P2PPrivRawName)
 	if raw != "" {
-		return parsePriv(raw)
+		// X Layer: resolve a KMS key reference (kms:<name>) if present;
+		// plaintext hex passes through unchanged.
+		resolved, err := xlayerkms.MaybeResolve(raw)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve p2p priv key: %w", err)
+		}
+		return parsePriv(resolved)
 	}
 	keyPath := ctx.String(flags.P2PPrivPathName)
 	if keyPath == "" {
@@ -350,7 +362,12 @@ func loadNetworkPrivKey(ctx cliiface.Context) (*crypto.Secp256k1PrivateKey, erro
 		if err != nil {
 			return nil, fmt.Errorf("failed to read priv key file: %w", err)
 		}
-		return parsePriv(strings.TrimSpace(string(data)))
+		// X Layer: support a KMS key reference (kms:<name>) in the key file.
+		resolved, err := xlayerkms.MaybeResolve(strings.TrimSpace(string(data)))
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve p2p priv key file: %w", err)
+		}
+		return parsePriv(resolved)
 	}
 }
 

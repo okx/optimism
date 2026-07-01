@@ -8,8 +8,8 @@ import (
 
 	"github.com/ethereum-optimism/optimism/op-node/rollup"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/interop/indexing"
+	xlayerkms "github.com/ethereum-optimism/optimism/op-node/xlayer/kms"
 	opmetrics "github.com/ethereum-optimism/optimism/op-service/metrics"
-	"github.com/ethereum-optimism/optimism/op-service/rpc"
 )
 
 const defaultIndexingEventQueueSize = 100
@@ -45,7 +45,8 @@ func (cfg *Config) Setup(ctx context.Context, logger log.Logger, rollupCfg *roll
 	}
 	logger.Info("Setting up Interop RPC server to serve supervisor sync work")
 	// Load JWT secret, if any, generate one otherwise.
-	jwtSecret, err := rpc.ObtainJWTSecret(logger, cfg.RPCJwtSecretPath, true)
+	// X Layer: also resolves a kms:<name> reference (flag value or file content).
+	jwtSecret, err := xlayerkms.ResolveJWTSecret(logger, cfg.RPCJwtSecretPath, true)
 	if err != nil {
 		return nil, err
 	}
