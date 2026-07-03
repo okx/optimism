@@ -348,7 +348,7 @@ func (btx *spanBatchTxs) fullTxs(chainID *big.Int) ([][]byte, error) {
 		}
 		nonce := btx.txNonces[idx]
 		gas := btx.txGases[idx]
-		var to *common.Address = nil
+		var to *common.Address
 		bit := btx.contractCreationBits.Bit(idx)
 		if bit == 0 {
 			if len(btx.txTos) <= toIdx {
@@ -386,11 +386,7 @@ func convertVToYParity(v *big.Int, txType int) (uint, error) {
 			// unprotected legacy txs must have v = 27 or 28
 			yParityBit = uint(bigs.Uint64Strict(v) - 27)
 		}
-	case types.AccessListTxType:
-		yParityBit = uint(bigs.Uint64Strict(v))
-	case types.DynamicFeeTxType:
-		yParityBit = uint(bigs.Uint64Strict(v))
-	case types.SetCodeTxType:
+	case types.AccessListTxType, types.DynamicFeeTxType, types.SetCodeTxType:
 		yParityBit = uint(bigs.Uint64Strict(v))
 	default:
 		return 0, fmt.Errorf("invalid tx type: %d", txType)
@@ -428,11 +424,10 @@ func newSpanBatchTxs(txs [][]byte, chainID *big.Int) (*spanBatchTxs, error) {
 }
 
 func (sbtx *spanBatchTxs) AddTxs(txs [][]byte, chainID *big.Int) error {
-	totalBlockTxCount := uint64(len(txs))
 	offset := sbtx.totalBlockTxCount
-	for idx := 0; idx < int(totalBlockTxCount); idx++ {
+	for idx, rawTx := range txs {
 		tx := &types.Transaction{}
-		if err := tx.UnmarshalBinary(txs[idx]); err != nil {
+		if err := tx.UnmarshalBinary(rawTx); err != nil {
 			return errors.New("failed to decode tx")
 		}
 		if tx.Type() == types.LegacyTxType {
@@ -478,6 +473,6 @@ func (sbtx *spanBatchTxs) AddTxs(txs [][]byte, chainID *big.Int) error {
 		sbtx.txDatas = append(sbtx.txDatas, txData)
 		sbtx.txTypes = append(sbtx.txTypes, int(tx.Type()))
 	}
-	sbtx.totalBlockTxCount += totalBlockTxCount
+	sbtx.totalBlockTxCount += uint64(len(txs))
 	return nil
 }

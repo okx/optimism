@@ -326,7 +326,7 @@ reth-primitives-traits = { version = "0.3.1", default-features = false }
 reth-rpc-traits = { version = "0.3.1", default-features = false }
 reth-zstd-compressors = { version = "0.3.1", default-features = false }
 
-# ==================== RETH CRATES (git @ 88505c7fcbfdebfd3b56d88c86b62e950043c6c4) ====================
+# ==================== RETH CRATES (git @ 4ce772657b1422c16d3be822eaef0d0f1982d593) ====================
 reth = { git = "https://github.com/okx/reth", rev = "4ce772657b1422c16d3be822eaef0d0f1982d593" }
 reth-basic-payload-builder = { git = "https://github.com/okx/reth", rev = "4ce772657b1422c16d3be822eaef0d0f1982d593" }
 reth-chain-state = { git = "https://github.com/okx/reth", rev = "4ce772657b1422c16d3be822eaef0d0f1982d593" }

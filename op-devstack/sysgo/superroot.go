@@ -11,6 +11,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/lmittmann/w3"
+	w3eth "github.com/lmittmann/w3/module/eth"
+
 	"github.com/ethereum-optimism/optimism/op-chain-ops/devkeys"
 	"github.com/ethereum-optimism/optimism/op-devstack/devtest"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/contracts/bindings/delegatecallproxy"
@@ -20,17 +31,6 @@ import (
 	"github.com/ethereum-optimism/optimism/op-service/retry"
 	"github.com/ethereum-optimism/optimism/op-service/sources/batching"
 	"github.com/ethereum-optimism/optimism/op-service/txplan"
-	"github.com/ethereum/go-ethereum/accounts/abi"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/lmittmann/w3"
-	w3eth "github.com/lmittmann/w3/module/eth"
 )
 
 // V2 structs for OPCM >= 7.0.0 (using IOPContractsManagerMigrator interface)
@@ -147,26 +147,6 @@ func awaitSuperrootTime(t devtest.T, cls ...L2CLNode) uint64 {
 	return superrootTime
 }
 
-func getSupervisorSuperRoot(t devtest.T, supervisor Supervisor, timestamp uint64) eth.Bytes32 {
-	client, err := dial.DialSupervisorClientWithTimeout(t.Ctx(), t.Logger(), supervisor.UserRPC())
-	t.Require().NoError(err)
-
-	ctx, cancel := context.WithTimeout(t.Ctx(), 2*time.Minute)
-	err = wait.For(ctx, time.Second, func() (bool, error) {
-		status, err := client.SyncStatus(ctx)
-		if err != nil {
-			return false, err
-		}
-		return timestamp < status.MinSyncedL1.Time, nil
-	})
-	cancel()
-	t.Require().NoError(err, "waiting for supervisor to sync failed")
-
-	super, err := client.SuperRootAtTimestamp(t.Ctx(), hexutil.Uint64(timestamp))
-	t.Require().NoError(err, "super root at timestamp failed")
-	return super.SuperRoot
-}
-
 func getSupernodeSuperRoot(t devtest.T, supernode *SuperNode, timestamp uint64) eth.Bytes32 {
 	client, err := dial.DialSuperNodeClientWithTimeout(t.Ctx(), t.Logger(), supernode.UserRPC())
 	t.Require().NoError(err)
@@ -233,14 +213,11 @@ func migrateSuperRootsWithProposal(
 	client := ethclient.NewClient(rpcClient)
 	w3Client := w3.NewClient(rpcClient)
 
-	absoluteCannonPrestate := getInteropCannonAbsolutePrestate(t)
 	absoluteCannonKonaPrestate := getCannonKonaAbsolutePrestate(t)
 
 	permissionedChainOps := devkeys.ChainOperatorKeys(primaryL2.ToBig())
 	proposer, err := keys.Address(permissionedChainOps(devkeys.ProposerRole))
 	require.NoError(err, "must have configured proposer")
-	challenger, err := keys.Address(permissionedChainOps(devkeys.ChallengerRole))
-	require.NoError(err, "must have configured challenger")
 
 	var chainSystemConfigs []common.Address
 	for _, l2Deployment := range migration.l2Deployments {
@@ -252,40 +229,29 @@ func migrateSuperRootsWithProposal(
 	require.NoError(err, "invalid migrator ABI")
 	contract := batching.NewBoundContract(migratorABI, migration.opcmImpl)
 
-	// ABI-encode permissioned game args: (bytes32 absolutePrestate, address proposer, address challenger)
-	bytes32Ty, _ := abi.NewType("bytes32", "", nil)
+	// ABI-encode simplified super-permissioned game args: (address proposer)
 	addressTy, _ := abi.NewType("address", "", nil)
-	permGameArgs, err := abi.Arguments{
-		{Type: bytes32Ty},
-		{Type: addressTy},
-		{Type: addressTy},
-	}.Pack(absoluteCannonPrestate, proposer, challenger)
-	require.NoError(err, "failed to encode permissioned game args")
+	superPermissionedGameArgs, err := abi.Arguments{{Type: addressTy}}.Pack(proposer)
+	require.NoError(err, "failed to encode super permissioned game args")
 
 	migrateInputV2 := MigrateInputV2{
 		ChainSystemConfigs: chainSystemConfigs,
 		DisputeGameConfigs: []DisputeGameConfigV2{
 			{
 				Enabled:  true,
-				InitBond: big.NewInt(0),
-				GameType: superCannonGameType,
-				GameArgs: absoluteCannonPrestate[:],
-			},
-			{
-				Enabled:  true,
-				InitBond: big.NewInt(0),
+				InitBond: new(big.Int),
 				GameType: superPermissionedCannonGameType,
-				GameArgs: permGameArgs,
+				GameArgs: superPermissionedGameArgs,
 			},
 			{
 				Enabled:  true,
-				InitBond: big.NewInt(0),
+				InitBond: new(big.Int).Set(defaultInitBond),
 				GameType: superCannonKonaGameType,
 				GameArgs: absoluteCannonKonaPrestate[:],
 			},
 		},
 		StartingAnchorRoot:        startingAnchorRoot,
-		StartingRespectedGameType: superCannonGameType,
+		StartingRespectedGameType: superCannonKonaGameType,
 	}
 	migrateCall := contract.Call("migrate", migrateInputV2)
 	migrateCallData, err := migrateCall.Pack()
@@ -316,10 +282,6 @@ func migrateSuperRootsWithProposal(
 	return sharedDGF
 }
 
-func getInteropCannonAbsolutePrestate(t devtest.CommonT) common.Hash {
-	return getAbsolutePrestate(t, "op-program/bin/prestate-proof-interop.json")
-}
-
 func getCannonKonaAbsolutePrestate(t devtest.CommonT) common.Hash {
 	return getAbsolutePrestate(t, "rust/kona/prestate-artifacts-cannon/prestate-proof.json")
 }
@@ -339,7 +301,6 @@ func getAbsolutePrestate(t devtest.CommonT, prestatePath string) common.Hash {
 }
 
 const (
-	superCannonGameType             = 4
 	superPermissionedCannonGameType = 5
 	superCannonKonaGameType         = 9
 )
@@ -366,7 +327,7 @@ func getDisputeGameFactory(t devtest.CommonT, client *w3.Client, portal common.A
 
 func getSuperGameImpl(t devtest.CommonT, client *w3.Client, dgf common.Address) common.Address {
 	var addr common.Address
-	err := client.Call(w3eth.CallFunc(dgf, gameImplsFn, uint32(superCannonGameType)).Returns(&addr))
+	err := client.Call(w3eth.CallFunc(dgf, gameImplsFn, uint32(superCannonKonaGameType)).Returns(&addr))
 	t.Require().NoError(err)
 	return addr
 }

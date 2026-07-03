@@ -75,7 +75,10 @@ func NewL2FaultProofEnv[c any](t helpers.Testing, testCfg *TestCfg[c], tp *e2eut
 
 	// Synthesise a one-chain depset when interop is scheduled; the sequencer's
 	// FetchingAttributesBuilder constructor panics otherwise.
-	if sd.RollupCfg.LagoonTime != nil && sd.DependencySet == nil {
+	// XLayer: the Go rollup.Config field is InteropTime. okx's rust side renamed this fork to
+	// "Lagoon"/il (il_time, formerly interop), so this kona helper originally referenced a
+	// non-existent rollup.Config.LagoonTime; use the Go-side InteropTime, which is the same fork.
+	if sd.RollupCfg.InteropTime != nil && sd.DependencySet == nil {
 		defaultDepSet, err := depset.NewStaticConfigDependencySet(map[eth.ChainID]*depset.StaticConfigDependency{
 			eth.ChainIDFromBig(sd.RollupCfg.L2ChainID): {},
 		})

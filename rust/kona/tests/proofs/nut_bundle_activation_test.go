@@ -134,10 +134,13 @@ func testActivationBlockNUTBundle(gt *testing.T, testCfg *helpers.TestCfg[forks.
 	}
 
 	// Fork-specific post-activation assertions.
+	// XLayer: the Go forks package names the interop fork forks.Interop. okx's rust side renamed
+	// it to "Lagoon"/il, so this kona test originally referenced a non-existent forks.Lagoon;
+	// forks.Interop is the same fork.
 	switch fork {
 	case forks.Karst:
 		assertKarstActivation(t, env, actHeader)
-	case forks.Lagoon:
+	case forks.Interop:
 		assertInteropActivation(t, env, actHeader)
 	}
 
@@ -156,7 +159,7 @@ func testActivationBlockNUTBundle(gt *testing.T, testCfg *helpers.TestCfg[forks.
 	// The activation transition itself is covered by
 	// TestInteropFaultProofs_ActivationBoundary in op-acceptance-tests via
 	// kona-host super.
-	if fork == forks.Lagoon {
+	if fork == forks.Interop {
 		return
 	}
 

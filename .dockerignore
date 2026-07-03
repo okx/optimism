@@ -45,3 +45,14 @@
 **/testdata
 **/tests
 .env
+.envrc
+**/.env
+
+test
+**/*_test.go
+build/_workspace
+build/bin
+build/_bin
+tests/testdata
+
+rust/target
