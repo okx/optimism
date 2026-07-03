@@ -12,6 +12,11 @@
 //! A tx is treated as gasless only when the contract returns `allowed == true` **and** the tx's
 //! gas limit does not exceed the returned `gasLimit` (see [`GaslessContract::is_gasless`]).
 
+// `vec!` is in the std prelude but not the no_std one; this crate is
+// `no_std` under the FPVM/zkVM build (extern crate alloc), so import it
+// explicitly or the cannon/kona-client build fails to find the macro.
+use alloc::vec;
+
 use alloy_consensus::Transaction;
 use alloy_eips::eip4788::SYSTEM_ADDRESS;
 use alloy_evm::{Evm, block::BlockExecutionError};
