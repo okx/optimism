@@ -10,7 +10,37 @@ import (
 
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/testlog"
+	xlayerkms "github.com/ethereum-optimism/optimism/op-service/xlayer/kms"
 )
+
+// jwtMockClient is a test KMSClient that records calls and returns canned results.
+type jwtMockClient struct {
+	initErr error
+	getErr  error
+	value   string
+
+	initCalls int
+	getArg    string
+	getHits   int
+}
+
+func (m *jwtMockClient) Init() error { m.initCalls++; return m.initErr }
+
+func (m *jwtMockClient) GetSecretValue(key string) (string, error) {
+	m.getHits++
+	m.getArg = key
+	if m.getErr != nil {
+		return "", m.getErr
+	}
+	return m.value, nil
+}
+
+// withKMSClient swaps the package-level client for the duration of a test.
+func withKMSClient(t *testing.T, c xlayerkms.KMSClient) {
+	t.Helper()
+	xlayerkms.SetClient(c)
+	t.Cleanup(func() { xlayerkms.SetClient(&xlayerkms.SDKClient{}) })
+}
 
 // 32 bytes (64 hex chars) of 0xaa.
 const jwtHex = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -25,8 +55,8 @@ func wantSecret() eth.Bytes32 {
 
 func TestResolveJWTSecret_DirectKMSRef(t *testing.T) {
 	// KMS returns the value with a trailing newline to exercise trimming.
-	m := &mockClient{value: jwtHex + "\n"}
-	withClient(t, m)
+	m := &jwtMockClient{value: jwtHex + "\n"}
+	withKMSClient(t, m)
 	secret, err := ResolveJWTSecret(testlog.Logger(t, log.LevelError), "kms:jwt-key", false)
 	require.NoError(t, err)
 	require.Equal(t, wantSecret(), secret)
@@ -34,8 +64,8 @@ func TestResolveJWTSecret_DirectKMSRef(t *testing.T) {
 }
 
 func TestResolveJWTSecret_FileContainsKMSRef(t *testing.T) {
-	m := &mockClient{value: jwtHex}
-	withClient(t, m)
+	m := &jwtMockClient{value: jwtHex}
+	withKMSClient(t, m)
 	path := filepath.Join(t.TempDir(), "jwt.txt")
 	require.NoError(t, os.WriteFile(path, []byte("kms:jwt-key\n"), 0o600))
 
@@ -46,8 +76,8 @@ func TestResolveJWTSecret_FileContainsKMSRef(t *testing.T) {
 }
 
 func TestResolveJWTSecret_PlaintextFile(t *testing.T) {
-	m := &mockClient{value: "unused"}
-	withClient(t, m)
+	m := &jwtMockClient{value: "unused"}
+	withKMSClient(t, m)
 	path := filepath.Join(t.TempDir(), "jwt.txt")
 	require.NoError(t, os.WriteFile(path, []byte(jwtHex), 0o600))
 
@@ -58,7 +88,7 @@ func TestResolveJWTSecret_PlaintextFile(t *testing.T) {
 }
 
 func TestResolveJWTSecret_NotKMSBytes(t *testing.T) {
-	withClient(t, &mockClient{value: "aabb"}) // 2 bytes, not 32
+	withKMSClient(t, &jwtMockClient{value: "aabb"}) // 2 bytes, not 32
 	_, err := ResolveJWTSecret(testlog.Logger(t, log.LevelError), "kms:jwt-key", false)
 	require.ErrorContains(t, err, "not 32 hex-formatted bytes")
 }

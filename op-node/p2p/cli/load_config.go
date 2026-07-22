@@ -19,8 +19,8 @@ import (
 
 	"github.com/ethereum-optimism/optimism/op-node/flags"
 	"github.com/ethereum-optimism/optimism/op-node/p2p"
-	xlayerkms "github.com/ethereum-optimism/optimism/op-node/xlayer/kms"
 	"github.com/ethereum-optimism/optimism/op-service/cliiface"
+	xlayerkms "github.com/ethereum-optimism/optimism/op-service/xlayer/kms"
 
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/p2p/enode"
