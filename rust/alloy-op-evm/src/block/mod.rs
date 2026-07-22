@@ -53,6 +53,12 @@ pub use xlayer_gasless_contract::{
     GaslessContract, XLAYER_DEVNET_GASLESS_CONTRACT, XLAYER_MAINNET_GASLESS_CONTRACT,
     XLAYER_TESTNET_GASLESS_CONTRACT, xlayer_gasless_contract,
 };
+pub mod xlayer_blacklist_contract;
+pub use xlayer_blacklist_contract::{
+    TxBlacklistContract, XLAYER_DEVNET_BLACKLIST_CONTRACT, XLAYER_MAINNET_BLACKLIST_CONTRACT,
+    XLAYER_TESTNET_BLACKLIST_CONTRACT, interceptable_user_deposit_source,
+    xlayer_blacklist_contract,
+};
 
 /// Trait for OP transaction environments. Allows to recover the transaction encoded bytes if
 /// they're available.
