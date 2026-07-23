@@ -1,0 +1,22 @@
+# Single stage build with Go
+FROM  online-registry.cn-hongkong.cr.aliyuncs.com/okbase/golang:1.24.4-just-foundry as builder
+WORKDIR /root
+COPY . .
+
+# X Layer: allow `go build` to fetch private gitlab.okg.com Go modules
+# (e.g. ok-kms-go). GIT_TOKEN is passed in at build time via --build-arg
+# (use $CI_JOB_TOKEN). The token only lives in this discarded builder stage,
+# never in the final image. ok-kms-go must allowlist this project's job token.
+ARG GIT_TOKEN
+ENV GOPRIVATE=gitlab.okg.com/*
+RUN git config --global \
+      url."https://gitlab-ci-token:${GIT_TOKEN}@gitlab.okg.com/".insteadOf \
+      "https://gitlab.okg.com/"
+
+# Build Go binaries with user-provided metadata
+RUN cd op-batcher && just
+FROM online-registry.cn-hongkong.cr.aliyuncs.com/okbase/alpine:3.18.3-okg1
+
+COPY --from=builder  /root/op-batcher/bin/op-batcher /usr/local/bin/op-batcher
+WORKDIR /root
+CMD ["op-batcher"]

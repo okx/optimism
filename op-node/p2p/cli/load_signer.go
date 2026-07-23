@@ -9,9 +9,9 @@ import (
 
 	"github.com/ethereum-optimism/optimism/op-node/flags"
 	"github.com/ethereum-optimism/optimism/op-node/p2p"
-	xlayerkms "github.com/ethereum-optimism/optimism/op-node/xlayer/kms"
 	"github.com/ethereum-optimism/optimism/op-service/cliiface"
 	opsigner "github.com/ethereum-optimism/optimism/op-service/signer"
+	xlayerkms "github.com/ethereum-optimism/optimism/op-service/xlayer/kms"
 )
 
 // LoadSignerSetup loads a configuration for a Signer to be set up later
