@@ -199,8 +199,13 @@ submodules:
   git submodule update --init --recursive
 
 # Builds op-node binary.
-op-node:
+op-node: build-superchain-go
   just ./op-node/op-node
+
+# X Layer: one-shot KMS build of op-node. Ensures the superchain embed bundle and
+# the go.kms.mod modfile both exist, then builds with KMS linked in.
+op-node-kms: build-superchain-go kms-modfile
+  KMS=1 just op-node
 
 # Generates mocks for op-node.
 generate-mocks-op-node:
