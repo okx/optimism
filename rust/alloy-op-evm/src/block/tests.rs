@@ -1751,8 +1751,19 @@ fn gasless_allowance_check_excluded_from_tx_and_block_gas() {
     );
     let receipt_builder = OpAlloyReceiptBuilder::default();
     let mut executor =
-        build_executor(&mut db, &receipt_builder, &op_chain_hardforks, BLOCK_GAS_LIMIT, JOVIAN_TS)
-            .with_gasless_contract(Some(GaslessContract::new(XLAYER_DEVNET_GASLESS_CONTRACT)));
+        build_executor(
+            &mut db,
+            &receipt_builder,
+            &op_chain_hardforks,
+            BLOCK_GAS_LIMIT,
+            JOVIAN_TS,
+            // No parent timestamp: this is a plain Jovian block, not a fork-activation block, so
+            // the no-user-tx activation guard stays off and the gasless user tx is admitted.
+            None,
+            0,
+            Address::ZERO,
+        )
+        .with_gasless_contract(Some(GaslessContract::new(XLAYER_DEVNET_GASLESS_CONTRACT)));
 
     // Zero-priced (`gas_price == 0` => `max_fee_per_gas == 0`) legacy transfer to a fresh EOA.
     // Zero value keeps the cost at exactly the 21000 intrinsic gas (no new-account charge).
