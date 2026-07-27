@@ -9,6 +9,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
+
+	xlayerkms "github.com/ethereum-optimism/optimism/op-service/xlayer/kms"
 )
 
 // XLayerSignerClient implements SignerClient interface using XLayer remote signing service
@@ -120,6 +122,22 @@ func (c XLayerCLIConfig) Check() error {
 		return fmt.Errorf("XLayer secret key is required when enabled")
 	}
 
+	return nil
+}
+
+// ResolveKMS resolves kms:<keyname> references in AccessKey and SecretKey.
+// Values without the kms: prefix pass through unchanged. Must be called
+// after Check() and before the config is consumed by the signer factory.
+func (c *XLayerCLIConfig) ResolveKMS() error {
+	var err error
+	c.AccessKey, err = xlayerkms.MaybeResolve(c.AccessKey)
+	if err != nil {
+		return fmt.Errorf("xlayer-signer.access-key: %w", err)
+	}
+	c.SecretKey, err = xlayerkms.MaybeResolve(c.SecretKey)
+	if err != nil {
+		return fmt.Errorf("xlayer-signer.secret-key: %w", err)
+	}
 	return nil
 }
 

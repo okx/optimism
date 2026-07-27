@@ -4,6 +4,12 @@ BEDROCK_TAGS_REMOTE := env('BEDROCK_TAGS_REMOTE', 'origin')
 OP_STACK_GO_BUILDER := env('OP_STACK_GO_BUILDER', 'us-docker.pkg.dev/oplabs-tools-artifacts/images/op-stack-go:latest')
 PYTHON := env('PYTHON', 'python3')
 
+# X Layer: the private KMS SDK. Pinned here rather than in go.mod — see the
+# kms-modfile recipe below for why. Bump KMS_MODULE_VERSION to upgrade.
+KMS_MODULE_PATH := env('KMS_MODULE_PATH', 'gitlab.okg.com/okcoin-commons/ok-kms-go')
+KMS_MODULE_VERSION := env('KMS_MODULE_VERSION', 'v1.0.9')
+KMS_MODULE := KMS_MODULE_PATH + '@' + KMS_MODULE_VERSION
+
 TEST_TIMEOUT := env('TEST_TIMEOUT', '10m')
 
 # Go test runs cover every package in the module except these, which run in
@@ -260,8 +266,35 @@ verify-reproducibility:
 # Cleans up unused dependencies in Go modules.
 # Bypasses the Go module proxy for freshly released versions.
 # See https://proxy.golang.org/ for more info.
+#
+# X Layer: -e keeps tidy going when gitlab.okg.com/okcoin-commons/ok-kms-go is
+# unreachable (it is imported only under -tags kms, and tidy ignores build
+# tags). The droprequire then removes it again on machines that CAN reach it:
+# that require must stay out of go.mod or `go get`, `go mod download` and
+# downstream imports of this repo break for everyone without gitlab.okg.com
+# credentials. `just kms-modfile` re-adds it for KMS builds only. (On such a
+# machine tidy also adds the SDK's own indirect requires; those are all public
+# modules and harmless, just noise.)
 mod-tidy: build-superchain-go
-  GOPRIVATE="github.com/ethereum-optimism" go mod tidy
+  GOPRIVATE="github.com/ethereum-optimism" go mod tidy -e
+  go mod edit -droprequire={{KMS_MODULE_PATH}}
+
+# X Layer: generates go.kms.mod / go.kms.sum, the alternate module files used by
+# KMS builds (`KMS=1 just <target>` in op-node/, op-batcher/, ...).
+#
+# gitlab.okg.com/okcoin-commons/ok-kms-go is private and unreachable for most
+# people, so it is kept out of go.mod entirely — otherwise every `go get`,
+# `go mod download` and `go list -m all` in this repo, plus any downstream
+# import of it, fails without gitlab.okg.com credentials. This recipe adds the
+# require back into a throwaway copy that only the KMS build reads.
+#
+# The generated files are gitignored: regenerate rather than commit them, so
+# they can never drift from go.mod. Requires network access to gitlab.okg.com.
+kms-modfile:
+  cp go.mod go.kms.mod
+  cp go.sum go.kms.sum
+  go mod edit -modfile=go.kms.mod -require={{KMS_MODULE}}
+  @echo "generated go.kms.mod requiring {{KMS_MODULE}}"
 
 # Removes all generated files under bin/.
 clean:

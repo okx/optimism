@@ -1,0 +1,29 @@
+# Single stage build with Go
+FROM online-registry.cn-hongkong.cr.aliyuncs.com/okbase/golang:1.24.4-just-foundry as builder
+WORKDIR /root
+COPY . .
+
+# X Layer: allow `go build` to fetch private gitlab.okg.com Go modules
+# (e.g. ok-kms-go). GIT_TOKEN is passed in at build time via --build-arg
+# (use $CI_JOB_TOKEN). The token only lives in this discarded builder stage,
+# never in the final image. ok-kms-go must allowlist this project's job token.
+ARG GIT_TOKEN
+ENV GOPRIVATE=gitlab.okg.com/*
+RUN git config --global \
+      url."https://gitlab-ci-token:${GIT_TOKEN}@gitlab.okg.com/".insteadOf \
+      "https://gitlab.okg.com/"
+
+# Generate go.kms.mod / go.kms.sum: ok-kms-go is deliberately absent from go.mod
+# (so `go get` and downstream imports of this repo work without gitlab.okg.com
+# credentials), and this adds the require back for this build only.
+RUN just kms-modfile
+
+# Build Go binaries with user-provided metadata.
+# KMS=1 selects -tags kms plus the generated module file above; without
+# it the private ok-kms-go module is not compiled at all.
+RUN cd op-node && KMS=1 just
+FROM online-registry.cn-hongkong.cr.aliyuncs.com/okbase/alpine:3.18.3-okg1
+# Copy op-node binary
+COPY --from=builder  /root/op-node/bin/op-node /usr/local/bin/op-node
+WORKDIR /root
+CMD ["op-node"]
