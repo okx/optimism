@@ -14,6 +14,9 @@ python = "3.12.13"
 uv = "0.5.5"
 jq = "1.7.1"
 yq = "4.44.5"
+# Required by the kona-sp1 dependency tree: sp1-prover-types' build script runs
+# prost-build, which shells out to protoc. Without it `cargo check` in rust/ fails.
+protoc = "35.1"
 shellcheck = "0.10.0"
 shfmt = "3.11.0"
 direnv = "2.35.0"
