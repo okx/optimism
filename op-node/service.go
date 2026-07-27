@@ -11,10 +11,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/superchain"
 
 	altda "github.com/ethereum-optimism/optimism/op-alt-da"
 	"github.com/ethereum-optimism/optimism/op-core/interop/depset"
+	"github.com/ethereum-optimism/optimism/op-core/superchain"
 	"github.com/ethereum-optimism/optimism/op-node/chaincfg"
 	"github.com/ethereum-optimism/optimism/op-node/config"
 	"github.com/ethereum-optimism/optimism/op-node/flags"
@@ -271,6 +271,9 @@ func applyOverrides(ctx cliiface.Context, rollupConfig *rollup.Config) {
 			rollupConfig.SetActivationTime(fork, &timestamp)
 		}
 	}
+	if ctx.IsSet(opflags.KeepKarstUpgradeGasOverrideName) {
+		rollupConfig.KeepKarstUpgradeGas = ctx.Bool(opflags.KeepKarstUpgradeGasOverrideName)
+	}
 }
 
 func NewL1ChainConfig(chainId *big.Int, ctx cliiface.Context, log log.Logger) (*params.ChainConfig, error) {
@@ -320,7 +323,7 @@ func NewL1ChainConfigFromCLI(log log.Logger, ctx cliiface.Context) (*params.Chai
 
 // NewDependencySetFromCLI returns the dep set from --interop.dependency-set if
 // set, otherwise from the superchain-registry. An unknown chain yields
-// (nil, nil); config.Check then errors iff InteropTime is set.
+// (nil, nil); config.Check then errors iff LagoonTime is set.
 func NewDependencySetFromCLI(cli cliiface.Context, chainID eth.ChainID) (depset.DependencySet, error) {
 	if cli.IsSet(flags.InteropDependencySet.Name) {
 		loader := &depset.JSONDependencySetLoader{Path: cli.Path(flags.InteropDependencySet.Name)}
@@ -339,15 +342,11 @@ func NewDependencySetFromCLI(cli cliiface.Context, chainID eth.ChainID) (depset.
 func NewSyncConfig(ctx cliiface.Context, log log.Logger) (*sync.Config, error) {
 	if ctx.IsSet(flags.L2EngineSyncEnabled.Name) && ctx.IsSet(flags.SyncModeFlag.Name) {
 		return nil, errors.New("cannot set both --l2.engine-sync and --syncmode at the same time")
-	} else if ctx.IsSet(flags.L2EngineSyncEnabled.Name) {
+	}
+	if ctx.IsSet(flags.L2EngineSyncEnabled.Name) {
 		log.Error("l2.engine-sync is deprecated and will be removed in a future release. Use --syncmode=execution-layer instead.")
 	}
 	l2FollowSourceEndpoint := ctx.String(flags.L2FollowSource.Name)
-	rrSyncEnabled := ctx.Bool(flags.SyncModeReqRespFlag.Name)
-	// p2p.sync.req-resp=false && syncmode.req-resp=true is not allowed
-	if !ctx.Bool(flags.SyncReqRespName) && rrSyncEnabled {
-		return nil, errors.New("cannot set --p2p.sync.req-resp=false and --syncmode.req-resp=true at the same time")
-	}
 	mode, err := sync.StringToMode(ctx.String(flags.SyncModeFlag.Name))
 	if err != nil {
 		return nil, err
@@ -360,7 +359,6 @@ func NewSyncConfig(ctx cliiface.Context, log log.Logger) (*sync.Config, error) {
 	offsetELSafe := ctx.Duration(flags.SyncModeOffsetELSafeFlag.Name)
 	cfg := &sync.Config{
 		SyncMode:                       mode,
-		SyncModeReqResp:                ctx.Bool(flags.SyncModeReqRespFlag.Name),
 		SkipSyncStartCheck:             ctx.Bool(flags.SkipSyncStartCheck.Name),
 		SupportsPostFinalizationELSync: engineKind.SupportsPostFinalizationELSync(),
 		L2FollowSourceEndpoint:         l2FollowSourceEndpoint,

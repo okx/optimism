@@ -82,16 +82,22 @@ contract GenerateNUTBundle is Script {
     /// @notice Generates the upgrade transaction bundle and writes the artifact to disk.
     /// @return output_ Output containing all generated transactions in execution order.
     function run() public returns (Output memory output_) {
-        setUp();
-
-        output_ = _buildOutput();
-
-        _assertValidOutput(output_);
+        output_ = buildOutput();
 
         // Write transactions to artifact with metadata
         NetworkUpgradeTxns.BundleMetadata memory metadata =
             NetworkUpgradeTxns.BundleMetadata({ version: BUNDLE_VERSION });
         NetworkUpgradeTxns.writeArtifact(output_.txns, metadata, Constants.CURRENT_BUNDLE_PATH);
+    }
+
+    /// @notice Builds the upgrade transaction bundle without writing the artifact to disk.
+    /// @return output_ Output containing all generated transactions in execution order.
+    function buildOutput() public returns (Output memory output_) {
+        setUp();
+
+        output_ = _buildOutput();
+
+        _assertValidOutput(output_);
     }
 
     /// @notice Builds the upgrade transaction bundle Output struct.
@@ -321,16 +327,14 @@ contract GenerateNUTBundle is Script {
 
     /// @notice Builds the implementation configurations for all contracts to be deployed.
     /// @dev Iterates the predeploy registry as the single source of truth.
-    ///      All records are deployed unconditionally. L2CM selects the correct variant at runtime.
+    ///      All variants are deployed unconditionally. L2CM selects the correct variant at runtime.
     ///      StorageSetter is prepended first; it is a utility impl, not a predeploy.
     function _buildImplementationDeploymentConfigs() internal {
         _implementationConfigs.push(_makeConfig("StorageSetter", "StorageSetter.sol:StorageSetter", 498_000));
 
-        Predeploys.PredeployRecord[] memory records = Predeploys.getUpgradeableRecords();
-        for (uint256 i = 0; i < records.length; i++) {
-            _implementationConfigs.push(
-                _makeConfig(records[i].name, records[i].artifactPath, records[i].deployGasLimit)
-            );
+        Predeploys.Variant[] memory impls = Predeploys.getUpgradeableImpls();
+        for (uint256 i = 0; i < impls.length; i++) {
+            _implementationConfigs.push(_makeConfig(impls[i].name, impls[i].artifactPath, impls[i].deployGasLimit));
         }
     }
 

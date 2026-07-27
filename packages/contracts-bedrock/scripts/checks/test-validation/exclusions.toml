@@ -105,4 +105,5 @@ contracts = [
     "LivenessModule2_TestUtils",                # Test utils library in LivenessModule2 test file
     "L1Block_SetCustomGasToken_Test",           # Custom gas token tests hosted in the L1Block test file
     "GaslessWhitelistTest",                      # X Layer gasless whitelist test (standalone-style naming)
+    "Types_IsSuperGame_Test",                   # Tests library GameTypes; Types.sol basename collides with src/libraries/Types.sol
 ]

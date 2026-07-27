@@ -8,8 +8,8 @@ import (
 	"time"
 
 	gameTypes "github.com/ethereum-optimism/optimism/op-challenger/game/types"
+	"github.com/ethereum-optimism/optimism/op-core/superchain"
 	"github.com/ethereum-optimism/optimism/op-service/sources"
-	"github.com/ethereum/go-ethereum/superchain"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -583,7 +583,18 @@ func TestCannonRequiredArgs(t *testing.T) {
 			})
 
 			t.Run("Required", func(t *testing.T) {
-				verifyArgsInvalid(t, "flag cannon-server is required", addRequiredArgsExcept(gameType, "--cannon-server"))
+				if gameType == gameTypes.PermissionedGameType {
+					// The permissioned game never reaches step() so does not run op-program.
+					configForArgs(t, addRequiredArgsExcept(gameType, "--cannon-server"))
+				} else {
+					verifyArgsInvalid(t, "flag cannon-server is required", addRequiredArgsExcept(gameType, "--cannon-server"))
+				}
+			})
+
+			t.Run("RequiredWhenCannonAndPermissionedBothEnabled", func(t *testing.T) {
+				gameTypesArg := fmt.Sprintf("%v,%v", gameTypes.CannonGameType.String(), gameTypes.PermissionedGameType.String())
+				args := addRequiredArgsExceptArr(gameTypes.CannonGameType, []string{"--game-types", "--cannon-server"}, "--game-types", gameTypesArg)
+				verifyArgsInvalid(t, "flag cannon-server is required", args)
 			})
 
 			t.Run("Valid", func(t *testing.T) {

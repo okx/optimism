@@ -17,11 +17,6 @@ import { UpgradeUtils } from "scripts/libraries/UpgradeUtils.sol";
 /// @title GenerateNUTBundle_Harness
 /// @notice Harness contract that exposes internal functions for testing.
 contract GenerateNUTBundle_Harness is GenerateNUTBundle {
-    /// @notice Builds the upgrade transaction bundle Output struct without writing to disk.
-    function buildOutput() external returns (Output memory) {
-        return _buildOutput();
-    }
-
     /// @notice Returns the fork name used by the generated bundle.
     function upgradeName() external pure returns (string memory) {
         return UPGRADE_NAME;
@@ -153,21 +148,13 @@ contract GenerateNUTBundleTest is Test {
         );
     }
 
-    /// @notice Tests that the registry record count matches the implementation config count.
-    /// @dev registry records + 1 StorageSetter = total implementation configs.
+    /// @notice Tests that the registry implementation count matches the implementation config count.
     function test_registryRecordCount_matchesImplementationConfigs_succeeds() public {
         script.buildImplementationDeploymentConfigs();
-        // Only proxied non-deprecated records appear in the bundle.
-        Predeploys.PredeployRecord[] memory records = Predeploys.getAllRecords();
-        uint256 proxiedCount = 0;
-        for (uint256 i = 0; i < records.length; i++) {
-            if (records[i].isProxied && !records[i].isDeprecated) proxiedCount++;
-        }
-        // StorageSetter is always prepended as the first entry.
         assertEq(
             script.implementationConfigs().length,
-            proxiedCount + 1,
-            "Implementation configs must be proxied registry records + 1 StorageSetter"
+            Predeploys.getUpgradeableImpls().length + 1,
+            "Implementation configs must be upgradeable impls + 1 StorageSetter"
         );
     }
 

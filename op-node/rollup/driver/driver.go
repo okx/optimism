@@ -22,6 +22,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-node/rollup/sequencing"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/status"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/sync"
+	"github.com/ethereum-optimism/optimism/op-service/apis"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/event"
 	"github.com/ethereum/go-ethereum/params"
@@ -39,7 +40,6 @@ func NewDriver(
 	l1 L1Chain,
 	upstreamFollowSource UpstreamFollowSource,
 	l1Blobs derive.L1BlobsFetcher,
-	altSync AltSync,
 	network Network,
 	log log.Logger,
 	metrics Metrics,
@@ -115,8 +115,15 @@ func NewDriver(
 		// Connect origin selector to the engine controller for force reset notifications
 		ec.SetOriginSelectorResetter(findL1Origin)
 
-		sequencer = sequencing.NewSequencer(driverCtx, log, cfg, driverCfg.SequencerSealingDuration, attrBuilder, findL1Origin,
+		seq := sequencing.NewSequencer(driverCtx, log, cfg, driverCfg.SequencerSealingDuration, attrBuilder, findL1Origin,
 			sequencerStateListener, sequencerConductor, asyncGossiper, metrics, ec)
+		// Seed the persisted opt-in before attaching the listener so we don't write-back
+		// the value we just loaded. Without a listener attached, this call cannot fail.
+		_ = seq.SetSdmPostExecOptIn(driverCtx, driverCfg.SdmPostExecOptIn)
+		if sdmListener, ok := sequencerStateListener.(sequencing.SequencerSdmListener); ok {
+			seq.AttachSdmListener(sdmListener)
+		}
+		sequencer = seq
 		sys.Register("sequencer", sequencer)
 	} else {
 		sequencer = sequencing.DisabledSequencer{}
@@ -139,7 +146,6 @@ func NewDriver(
 		log:                  log,
 		sequencer:            sequencer,
 		metrics:              metrics,
-		altSync:              altSync,
 		upstreamFollowSource: upstreamFollowSource,
 	}
 
@@ -169,9 +175,6 @@ type Driver struct {
 	driverConfig *Config
 
 	syncConfig *sync.Config
-
-	// Interface to signal the L2 block range to sync.
-	altSync AltSync
 
 	sequencer sequencing.SequencerIface
 
@@ -292,26 +295,25 @@ func (s *Driver) eventLoop() {
 		sequencerTimer.Reset(delta)
 	}
 
-	// Create a ticker to check if there is a gap in the engine queue. Whenever
-	// there is, we send requests to sync source to retrieve the missing payloads.
-	syncCheckInterval := time.Duration(s.SyncDeriver.Config.BlockTime) * time.Second * 2
-	altSyncTicker := time.NewTicker(syncCheckInterval)
-	defer altSyncTicker.Stop()
+	// Create a ticker to check if there is a gap in the engine queue.
+	unsafeGapCheckInterval := time.Duration(s.SyncDeriver.Config.BlockTime) * time.Second * 2
+	unsafeGapTicker := time.NewTicker(unsafeGapCheckInterval)
+	defer unsafeGapTicker.Stop()
 
 	lastUnsafeL2 := s.SyncDeriver.Engine.UnsafeL2Head()
 
 	followSource := s.SyncDeriver.SyncCfg.FollowSourceEnabled()
 
-	resetAltSync := func(newHead eth.L2BlockRef, derivationReady bool) {
+	resetUnsafeGapTicker := func(newHead eth.L2BlockRef, derivationReady bool) {
 		s.log.Debug(
-			"altSyncTicker reset",
+			"unsafe gap ticker reset",
 			"head", newHead,
 			"lastUnsafeL2", lastUnsafeL2,
 			"derivationReady", derivationReady,
 			"followSource", followSource,
 		)
 		lastUnsafeL2 = newHead
-		altSyncTicker.Reset(syncCheckInterval)
+		unsafeGapTicker.Reset(unsafeGapCheckInterval)
 	}
 
 	// upstreamSyncTickerC drives the upstreamSyncTicker, which periodically reconciles
@@ -340,17 +342,17 @@ func (s *Driver) eventLoop() {
 		derivationReady := s.SyncDeriver.Derivation.DerivationReady()
 
 		if lastUnsafeL2 != head {
-			// Unsafe head changed: reset alt-sync to avoid redundant L2 requests while syncing.
-			resetAltSync(head, derivationReady)
+			// Unsafe head changed: reset the gap check while syncing.
+			resetUnsafeGapTicker(head, derivationReady)
 		} else if !followSource && !derivationReady {
-			// Derivation enabled but not yet ready: reset alt-sync while it catches up.
-			resetAltSync(head, derivationReady)
+			// Derivation enabled but not yet ready: reset the gap check while it catches up.
+			resetUnsafeGapTicker(head, derivationReady)
 		}
 
 		select {
 		case <-sequencerCh:
 			s.emitter.Emit(s.driverCtx, sequencing.SequencerActionEvent{})
-		case <-altSyncTicker.C:
+		case <-unsafeGapTicker.C:
 			// Check if there is a gap in the current unsafe payload queue.
 			ctx, cancel := context.WithTimeout(s.driverCtx, time.Second*2)
 			err := s.checkForGapInUnsafeQueue(ctx)
@@ -418,6 +420,15 @@ func (s *Driver) SequencerActive(ctx context.Context) (bool, error) {
 	return s.sequencer.Active(), nil
 }
 
+func (s *Driver) SetSdmPostExecOptIn(ctx context.Context, enabled bool) error {
+	return s.sequencer.SetSdmPostExecOptIn(ctx, enabled)
+}
+
+func (s *Driver) SdmStatus(ctx context.Context) (apis.SdmStatus, error) {
+	status := s.StatusTracker.SyncStatus()
+	return s.sequencer.SdmStatus(ctx, status.UnsafeL2.Time+s.SyncDeriver.Config.BlockTime)
+}
+
 func (s *Driver) OverrideLeader(ctx context.Context) error {
 	return s.sequencer.OverrideLeader(ctx)
 }
@@ -438,7 +449,9 @@ func (s *Driver) SyncStatus(ctx context.Context) (*eth.SyncStatus, error) {
 
 // BlockRefWithStatus blocks the driver event loop and captures the syncing status,
 // along with an L2 block reference by number consistent with that same status.
-// If the event loop is too busy and the context expires, a context error is returned.
+// If the event loop is too busy and the context expires before the request is
+// accepted, a context error is returned with a nil status. Otherwise the returned
+// status is non-nil, including when ref lookup fails with ethereum.NotFound.
 func (s *Driver) BlockRefWithStatus(ctx context.Context, num uint64) (eth.L2BlockRef, *eth.SyncStatus, error) {
 	resp := s.StatusTracker.SyncStatus()
 	if resp.FinalizedL2.Number >= num { // If finalized, we are certain it does not reorg, and don't have to lock.
@@ -457,34 +470,27 @@ func (s *Driver) BlockRefWithStatus(ctx context.Context, num uint64) (eth.L2Bloc
 	}
 }
 
-// checkForGapInUnsafeQueue checks if there is a gap in the unsafe queue and attempts to retrieve the missing payloads
+// checkForGapInUnsafeQueue checks for a gap between the engine's unsafe head and the
+// next queued unsafe payload, and if so re-inserts the queued payload to drive the
+// engine-queue gap-fill.
 func (s *Driver) checkForGapInUnsafeQueue(ctx context.Context) error {
 	start := s.SyncDeriver.Engine.UnsafeL2Head()
 	payload, end := s.SyncDeriver.Engine.PeekUnsafePayload()
 
-	if s.syncConfig.SyncModeReqResp {
-		if end == (eth.L2BlockRef{}) {
-			s.log.Debug("requesting rrsync with open-end range", "start", start)
-			return s.altSync.RequestL2Range(ctx, start, eth.L2BlockRef{})
-		} else if end.Number > start.Number+1 {
-			s.log.Debug("requesting rrsync missing unsafe L2 block range", "start", start, "end", end, "size", end.Number-start.Number)
-			return s.altSync.RequestL2Range(ctx, start, end)
-		}
-	} else {
-		if end == (eth.L2BlockRef{}) {
-			s.log.Debug("checkForGapInUnsafeQueue: no unsafe payload in queue", "start", start)
-			return nil
-		} else if end.Number > start.Number+1 {
-			s.log.Info("requesting engine missing unsafe L2 block range", "start", start, "end", end, "size", end.Number-start.Number)
-			err := s.SyncDeriver.Engine.InsertUnsafePayload(ctx, payload, end)
-			if err != nil {
-				s.log.Error("failed to insert unsafe payload", "err", err)
-			}
-			return err
-		}
+	if end == (eth.L2BlockRef{}) {
+		s.log.Debug("checkForGapInUnsafeQueue: no unsafe payload in queue", "start", start)
+		return nil
+	}
+	if end.Number <= start.Number+1 {
+		return nil
 	}
 
-	return nil
+	s.log.Info("requesting engine missing unsafe L2 block range", "start", start, "end", end, "size", end.Number-start.Number)
+	err := s.SyncDeriver.Engine.InsertUnsafePayload(ctx, payload, end)
+	if err != nil {
+		s.log.Error("failed to insert unsafe payload", "err", err)
+	}
+	return err
 }
 
 func (s *Driver) OnUnsafeL2Payload(ctx context.Context, payload *eth.ExecutionPayloadEnvelope) {

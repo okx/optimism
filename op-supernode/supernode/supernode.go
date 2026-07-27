@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	opnodecfg "github.com/ethereum-optimism/optimism/op-node/config"
@@ -33,7 +34,7 @@ type Supernode struct {
 	log         gethlog.Logger
 	version     string
 	requestStop context.CancelCauseFunc
-	stopped     bool
+	stopped     atomic.Bool
 	cfg         *config.CLIConfig
 	chains      map[eth.ChainID]cc.InteropChain
 	// activitiesMu guards reads and writes of the activities slice.
@@ -89,7 +90,10 @@ func New(ctx context.Context, log gethlog.Logger, version string, requestStop co
 			log.Error("missing virtual node config for chain", "chain", id)
 			continue
 		}
-		container := cc.NewChainContainer(chainID, vnCfgs[chainID], log, *cfg, initOverrides, nil, s.rpcRouter, s.metricsFanIn.SetMetricsRegistry, s.supernodeMetrics)
+		container, err := cc.NewChainContainer(chainID, vnCfgs[chainID], log, *cfg, initOverrides, nil, s.rpcRouter, s.metricsFanIn.SetMetricsRegistry, s.supernodeMetrics)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create chain container for chain %s: %w", chainID, err)
+		}
 		s.chains[chainID] = container
 	}
 
@@ -170,9 +174,9 @@ func resolveInteropActivationTimestamp(override *uint64, vnCfgs map[eth.ChainID]
 			continue
 		}
 
-		if vnCfg.Rollup.InteropTime == nil {
+		if vnCfg.Rollup.LagoonTime == nil {
 			if resolved != nil {
-				return nil, fmt.Errorf("chain %s has no interop activation timestamp, but chain %s is configured for timestamp %d", chainID, resolvedChain, *resolved)
+				return nil, fmt.Errorf("chain %s has no Lagoon activation timestamp, but chain %s is configured for timestamp %d", chainID, resolvedChain, *resolved)
 			}
 			if missingChain == nil {
 				missingChain = new(eth.ChainID)
@@ -182,18 +186,18 @@ func resolveInteropActivationTimestamp(override *uint64, vnCfgs map[eth.ChainID]
 		}
 
 		if missingChain != nil {
-			return nil, fmt.Errorf("chain %s is configured for interop activation timestamp %d, but chain %s has no interop activation timestamp", chainID, *vnCfg.Rollup.InteropTime, *missingChain)
+			return nil, fmt.Errorf("chain %s is configured for Lagoon activation timestamp %d, but chain %s has no Lagoon activation timestamp", chainID, *vnCfg.Rollup.LagoonTime, *missingChain)
 		}
 
 		if resolved == nil {
-			ts := *vnCfg.Rollup.InteropTime
+			ts := *vnCfg.Rollup.LagoonTime
 			resolved = &ts
 			resolvedChain = chainID
 			continue
 		}
 
-		if *resolved != *vnCfg.Rollup.InteropTime {
-			return nil, fmt.Errorf("mismatched interop activation timestamps: chain %s=%d, chain %s=%d", resolvedChain, *resolved, chainID, *vnCfg.Rollup.InteropTime)
+		if *resolved != *vnCfg.Rollup.LagoonTime {
+			return nil, fmt.Errorf("mismatched Lagoon activation timestamps: chain %s=%d, chain %s=%d", resolvedChain, *resolved, chainID, *vnCfg.Rollup.LagoonTime)
 		}
 	}
 
@@ -279,7 +283,7 @@ func (s *Supernode) Start(ctx context.Context) error {
 
 func (s *Supernode) Stop(ctx context.Context) error {
 	s.log.Info("supernode stopping")
-	s.stopped = true
+	s.stopped.Store(false)
 
 	// Cancel the lifecycle context before anything else. This guarantees that
 	// activity and chain goroutines will observe a canceled context even if
@@ -348,6 +352,9 @@ func (s *Supernode) Stop(ctx context.Context) error {
 	select {
 	case <-wgDone:
 		s.log.Info("goroutines finished, closing l1 client")
+		s.stopped.Store(true)
+	case <-ctx.Done():
+		s.log.Error("context canceled while waiting for chain goroutines to finish, proceeding with cleanup", "err", ctx.Err())
 	case <-time.After(60 * time.Second):
 		s.log.Error("timed out waiting for chain goroutines to finish after 60s, proceeding with cleanup")
 	}
@@ -376,7 +383,7 @@ func (s *Supernode) onChainReset(chainID eth.ChainID, timestamp uint64, invalida
 	}
 }
 
-func (s *Supernode) Stopped() bool { return s.stopped }
+func (s *Supernode) Stopped() bool { return s.stopped.Load() }
 
 // RPCAddr returns the bound RPC address (host:port) if the server is listening.
 // ok is false if the listener has not been created yet.

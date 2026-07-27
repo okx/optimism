@@ -307,6 +307,11 @@ library Config {
         revert("Config: l2BlockAfterFork called outside of L2CM activation test");
     }
 
+    /// @notice Returns the path to the committed NUT bundle JSON to verify against.
+    function nutBundlePath() internal view returns (string memory) {
+        return vm.envString("NUT_BUNDLE_PATH");
+    }
+
     /// @notice Returns the L2 block number to fork at. Defaults to 0 (latest).
     ///         If L2CM activation test is enabled, returns the block before the fork.
     function l2ForkBlockNumber() internal view returns (uint256) {
@@ -327,8 +332,9 @@ library Config {
     }
 
     /// @notice Returns true if the development feature l2cm is enabled.
+    /// @dev Defaults to true: L2CM is the default genesis codepath. See TODO(#20084).
     function devFeatureL2CM() internal view returns (bool) {
-        return vm.envOr("DEV_FEATURE__L2CM", false);
+        return vm.envOr("DEV_FEATURE__L2CM", true);
     }
 
     /// @notice Returns true if the development feature ZK_DISPUTE_GAME is enabled.
