@@ -82,3 +82,7 @@ vergen-git2.workspace = true
 [features]
 default = [ "asm-keccak" ]
 asm-keccak = [ "alloy-primitives/asm-keccak" ]
+# X Layer: forward the KMS feature to kona-cli, which owns the KMS backend and
+# the private ok-kms-rust dependency. Enables resolving `kms:<name>` references
+# in the p2p key, sequencer key, and JWT secret files.
+kms = [ "kona-cli/kms" ]

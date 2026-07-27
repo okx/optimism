@@ -22,6 +22,9 @@ mod secrets;
 #[cfg(feature = "secrets")]
 pub use secrets::{KeypairError, ParseKeyError, SecretKeyLoader};
 
+// X Layer: KMS-backed secret resolution.
+pub mod kms;
+
 pub mod backtrace;
 
 mod tracing;

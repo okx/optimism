@@ -21,13 +21,31 @@ impl SecretKeyLoader {
     /// and stores it in the provided path. I/O errors might occur
     /// during write operations in the form of a [`KeypairError`]
     pub fn load(secret_key_path: &Path) -> Result<Keypair, KeypairError> {
+        // X Layer: a `kms:<name>` reference supplied directly as the "path" is
+        // resolved via the KMS without touching the filesystem (op-node's "the
+        // value itself is a KMS reference" case).
+        // Otherwise fall through to the normal file load,
+        // which also resolves a reference stored *in* the file.
+        if let Some(raw) = secret_key_path.to_str() &&
+            crate::kms::is_kms_ref(raw)
+        {
+            let resolved = crate::kms::maybe_resolve(raw)?;
+            let mut decoded = B256::from_str(resolved.trim())?;
+            return Ok(Self::parse(&mut decoded.0)?);
+        }
+
         let exists = secret_key_path.try_exists();
 
         match exists {
             Ok(true) => {
                 let contents = std::fs::read_to_string(secret_key_path)?;
                 let contents_trimmed = contents.trim();
-                let mut decoded = B256::from_str(contents_trimmed).inspect_err(|e| {
+                // X Layer: if the file holds a `kms:<name>` reference, resolve it
+                // to the plaintext hex key via the KMS; literal hex passes through
+                // unchanged. This one seam covers both the P2P identity key and the
+                // sequencer key, which both load through here.
+                let resolved = crate::kms::maybe_resolve(contents_trimmed)?;
+                let mut decoded = B256::from_str(&resolved).inspect_err(|e| {
                     tracing::error!(
                         target: "p2p::secrets",
                         path = %secret_key_path.display(),
@@ -105,6 +123,10 @@ pub enum KeypairError {
     /// An error encountered converting a hex string into [`B256`] bytes.
     #[error(transparent)]
     HexError(#[from] alloy_primitives::hex::FromHexError),
+
+    /// Failed to resolve a `kms:<name>` reference in the key file.
+    #[error(transparent)]
+    Kms(#[from] crate::kms::KmsError),
 
     /// Error related to file system path operations.
     #[error(transparent)]

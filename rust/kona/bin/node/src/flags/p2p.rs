@@ -297,11 +297,18 @@ impl P2PArgs {
             }
         }
 
-        if let Some(path) = self.priv_path.as_ref() &&
-            path.exists()
-        {
-            let contents = std::fs::read_to_string(path).ok()?;
-            let decoded = B256::from_str(&contents).ok()?;
+        if let Some(path) = self.priv_path.as_ref() {
+            // X Layer: a direct `kms:<name>` reference is resolved via the KMS
+            // without hitting the filesystem; otherwise read the file, whose
+            // contents may themselves be a `kms:` reference. Literal hex passes
+            // through unchanged.
+            let raw = match path.to_str() {
+                Some(s) if kona_cli::kms::is_kms_ref(s) => s.to_string(),
+                _ if path.exists() => std::fs::read_to_string(path).ok()?,
+                _ => return None,
+            };
+            let resolved = kona_cli::kms::maybe_resolve(&raw).ok()?;
+            let decoded = B256::from_str(&resolved).ok()?;
             match PrivateKeySigner::from_bytes(&decoded) {
                 Ok(signer) => return Some(signer),
                 Err(e) => {
