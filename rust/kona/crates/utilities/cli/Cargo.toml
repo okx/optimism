@@ -33,8 +33,9 @@ thiserror.workspace = true
 libp2p = { workspace = true, features = ["secp256k1"], optional = true }
 alloy-primitives.workspace = true
 
-# `kms` feature — X Layer: the private KMS SDK.
-ok-kms-rust = { git = "git@gitlab.okg.com:okcoin-commons/ok-kms-rust.git", tag = "v1.0.0", optional = true }
+# X Layer: `kms:<name>` secret resolution. Always compiled; the `kms` feature
+# below is what pulls in the private SDK behind it (see the xlayer-kms crate).
+xlayer-kms.workspace = true
 
 [dev-dependencies]
 rstest.workspace = true
@@ -45,4 +46,4 @@ libc.workspace = true
 [features]
 default = []
 secrets = [ "dep:libp2p" ]
-kms = [ "dep:ok-kms-rust" ]
+kms = [ "xlayer-kms/kms" ]

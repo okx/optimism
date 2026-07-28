@@ -67,7 +67,15 @@ members = [
 
   # In-test OP execution layer for op-e2e/actions parity
   "op-reth-test-engine/",
+
+  # X Layer
+  "xlayer-kms/",
 ]
+# X Layer: keep the ok-kms-rust stand-in out of the workspace. `just kms-crate`
+# replaces that directory with a checkout of the real SDK, which carries its own
+# manifest (and possibly its own [workspace]); auto-including it as a member
+# would make the swap fail. It stays reachable as a path dependency either way.
+exclude = ["xlayer-kms/stubs/ok-kms-rust"]
 default-members = [
   "kona/bin/host",
   "kona/bin/client",
@@ -330,6 +338,7 @@ op-alloy-rpc-jsonrpsee = { version = "2.0.0", path = "op-alloy/crates/rpc-jsonrp
 
 # ==================== ALLOY-OP-EVM / ALLOY-OP-HARDFORKS ====================
 alloy-op-evm = { version = "0.32.0", path = "alloy-op-evm/", default-features = false }
+xlayer-kms = { version = "0.1.0", path = "xlayer-kms/", default-features = false }
 alloy-op-hardforks = { version = "0.5.0", path = "alloy-op-hardforks/", default-features = false }
 
 # ==================== RETH CRATES (crates.io) ====================

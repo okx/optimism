@@ -26,6 +26,38 @@ install-nightly:
 
 ############################### Build ###############################
 
+# X Layer: the private KMS SDK. The committed manifest of xlayer-kms points at
+# the in-tree stub under xlayer-kms/stubs/ok-kms-rust instead, because Cargo
+# resolves dependencies regardless of features — a git dependency here would
+# break every cargo command in this workspace for anyone without gitlab.okg.com
+# access, `optional = true` notwithstanding. Bump KMS_CRATE_TAG to upgrade.
+KMS_CRATE_URL := env('KMS_CRATE_URL', 'ssh://git@gitlab.okg.com/okcoin-commons/ok-kms-rust.git')
+KMS_CRATE_TAG := env('KMS_CRATE_TAG', 'v1.0.0')
+KMS_STUB_DIR := "xlayer-kms/stubs/ok-kms-rust"
+
+[doc("Swaps the ok-kms-rust stub for a real checkout, for `--features kms` builds (needs gitlab.okg.com access).")]
+[script('bash')]
+kms-crate:
+  set -euo pipefail
+  # Replace the stub in place: the path dependency, and therefore Cargo.toml,
+  # stays untouched. Only the directory contents change, so nothing needs to be
+  # regenerated or committed. Note that the real SDK pulls in its own
+  # dependencies, so Cargo.lock does change — KMS builds cannot use --locked.
+  if grep -q OK_KMS_STUB {{KMS_STUB_DIR}}/src/lib.rs 2>/dev/null; then
+    rm -rf {{KMS_STUB_DIR}}
+    git clone --depth 1 --branch {{KMS_CRATE_TAG}} {{KMS_CRATE_URL}} {{KMS_STUB_DIR}}
+    rm -rf {{KMS_STUB_DIR}}/.git
+    echo "swapped in {{KMS_CRATE_URL}} @ {{KMS_CRATE_TAG}}"
+  else
+    echo "{{KMS_STUB_DIR}} is already a real checkout; run `git checkout -- {{KMS_STUB_DIR}}` to restore the stub"
+  fi
+
+[doc("Restores the ok-kms-rust stub, undoing kms-crate.")]
+kms-crate-restore:
+  git checkout -- {{KMS_STUB_DIR}}
+  git clean -fdq {{KMS_STUB_DIR}}
+  @echo "restored the ok-kms-rust stub"
+
 # Build the workspace
 build *args='':
   cargo build --workspace {{args}}
@@ -69,6 +101,31 @@ build-kona-node:
 # Build kona-node in debug mode (faster compilation for local E2E test iteration)
 build-kona-node-debug:
   cargo build --bin kona-node
+
+# X Layer: build kona-node with KMS support, swapping in the real SDK first.
+# kms-crate is idempotent (it skips the clone when the checkout is already
+# real), so repeat builds cost one grep.
+#
+# This therefore needs gitlab.okg.com access and leaves the swapped-in checkout
+# in the working tree — run `just kms-crate-restore` before committing. To
+# merely compile-check the KMS code path without either, build against the stub
+# directly: `cargo build -p kona-node --features kms`.
+#
+# No --locked: the real SDK brings its own dependencies, so Cargo.lock (which is
+# committed against the stub) legitimately changes.
+[doc("Builds kona-node with KMS support linked in (swaps in the real SDK via kms-crate).")]
+[script('bash')]
+build-kona-node-kms: kms-crate
+  set -euo pipefail
+  cargo build --release -p kona-node --features kms
+  bin=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)/release/kona-node
+  # kms-crate ran, so the stub must be gone. If its marker survived, the swap
+  # silently did not take effect and this binary cannot resolve any secret.
+  if grep -qa OK_KMS_STUB "$bin"; then
+    echo "error: $bin is linked against the ok-kms-rust stub despite kms-crate; refusing to pass it off as a KMS build" >&2
+    exit 1
+  fi
+  echo "built $bin"
 
 alias build-node := build-kona-node
 

@@ -6913,13 +6913,13 @@ dependencies = [
  "libp2p",
  "metrics-exporter-prometheus",
  "metrics-process",
- "ok-kms-rust",
  "rstest",
  "serde",
  "thiserror 2.0.18",
  "tracing",
  "tracing-appender",
  "tracing-subscriber 0.3.23",
+ "xlayer-kms",
 ]
 
 [[package]]
@@ -9360,11 +9360,6 @@ dependencies = [
 [[package]]
 name = "ok-kms-rust"
 version = "0.1.0"
-source = "git+ssh://git@gitlab.okg.com/okcoin-commons/ok-kms-rust.git?tag=v1.0.0#dda1c2b207877a605163fd3d80b406c0dce8b35b"
-dependencies = [
- "libloading",
- "thiserror 1.0.69",
-]
 
 [[package]]
 name = "once_cell"
@@ -19682,6 +19677,14 @@ checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
 dependencies = [
  "libc",
  "rustix",
+]
+
+[[package]]
+name = "xlayer-kms"
+version = "0.1.0"
+dependencies = [
+ "ok-kms-rust",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

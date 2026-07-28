@@ -34,6 +34,7 @@ help:
 # With no ref it initializes at the pinned commit (shallow) and leaves an
 # already-present checkout untouched; with a ref (tag or commit sha) it moves the
 # submodule there.
+[doc("Initializes/updates the superchain-registry submodule at its pinned commit, or moves it to `ref`.")]
 [script('bash')]
 update-superchain-registry-submodule ref="":
   set -euo pipefail
@@ -52,18 +53,21 @@ update-superchain-registry-submodule ref="":
 # superchain-registry submodule. Lightweight; this is the recipe the Go build/test
 # targets depend on. Verify mode: skips work if the existing zip already matches the
 # committed .sha256, otherwise regenerates and asserts it still matches (failing on drift).
+[doc("Builds op-core/superchain/superchain-configs.zip from the superchain-registry submodule.")]
 build-superchain-go: update-superchain-registry-submodule
   bash op-core/superchain/sync-superchain.sh
 
 # Regenerates op-core/superchain/superchain-configs.zip AND rewrites its committed
 # .sha256 from the submodule — build-superchain-go in refresh mode. Sibling of
 # sync-superchain-rust; both are run by sync-superchain when bumping the registry.
+[doc("Regenerates superchain-configs.zip AND its committed .sha256 from the submodule.")]
 sync-superchain-go:
   @OP_CORE_SYNC_SUPERCHAIN=1 just build-superchain-go
 
 # Regenerates the committed Rust artifacts from the submodule: kona's etc/*.json
 # (via KONA_SYNC_SUPERCHAIN) and op-reth's superchain-configs.tar.sha256 +
 # chain_specs.rs (via OP_RETH_SYNC_SUPERCHAIN; the tar itself is gitignored).
+[doc("Regenerates the committed Rust superchain artifacts (kona's etc/*.json, op-reth's chain_specs.rs).")]
 sync-superchain-rust: update-superchain-registry-submodule
   cd rust && KONA_SYNC_SUPERCHAIN=true cargo build -p kona-registry
   cd rust && OP_RETH_SYNC_SUPERCHAIN=1 cargo build -p reth-optimism-chainspec --features superchain-configs
@@ -71,6 +75,7 @@ sync-superchain-rust: update-superchain-registry-submodule
 # One-command superchain-registry sync. With a ref (tag or commit sha) it moves the
 # submodule there first, then regenerates every dependent artifact (Go + Rust), so
 # the submodule pointer and the committed artifacts can never drift out of sync.
+[doc("One-command superchain-registry sync: moves the submodule to `ref` and regenerates every Go + Rust artifact.")]
 sync-superchain ref="": (update-superchain-registry-submodule ref) sync-superchain-go sync-superchain-rust
 
 # Builds Go components and contracts-bedrock.
@@ -204,6 +209,7 @@ op-node: build-superchain-go
 
 # X Layer: one-shot KMS build of op-node. Ensures the superchain embed bundle and
 # the go.kms.mod modfile both exist, then builds with KMS linked in.
+[doc("Builds op-node with KMS support linked in (needs gitlab.okg.com access).")]
 op-node-kms: build-superchain-go kms-modfile
   KMS=1 just op-node
 
@@ -263,6 +269,7 @@ cannon-prestates:
 # and kona-client/v*) is rebuilt from its own checked-out source, so historical
 # op-program prestates are still checked even though op-program is no longer in
 # the tree.
+[doc("Verifies that the prestate build is reproducible.")]
 verify-reproducibility:
   rm -rf ops/prestate-reproducibility/temp/states
   ./ops/prestate-reproducibility/build-prestates.sh
@@ -280,6 +287,7 @@ verify-reproducibility:
 # credentials. `just kms-modfile` re-adds it for KMS builds only. (On such a
 # machine tidy also adds the SDK's own indirect requires; those are all public
 # modules and harmless, just noise.)
+[doc("Cleans up unused dependencies in Go modules.")]
 mod-tidy: build-superchain-go
   GOPRIVATE="github.com/ethereum-optimism" go mod tidy -e
   go mod edit -droprequire={{KMS_MODULE_PATH}}
@@ -292,9 +300,7 @@ mod-tidy: build-superchain-go
 # `go mod download` and `go list -m all` in this repo, plus any downstream
 # import of it, fails without gitlab.okg.com credentials. This recipe adds the
 # require back into a throwaway copy that only the KMS build reads.
-#
-# The generated files are gitignored: regenerate rather than commit them, so
-# they can never drift from go.mod. Requires network access to gitlab.okg.com.
+[doc("Generates go.kms.mod/go.kms.sum for `KMS=1 just <target>` builds (needs gitlab.okg.com access).")]
 kms-modfile:
   cp go.mod go.kms.mod
   cp go.sum go.kms.sum
@@ -497,6 +503,7 @@ latest-versions:
 #   just update-op-geth-ref 2f0528b
 #   just update-op-geth-ref v1.101602.4
 #   just update-op-geth-ref optimism
+[doc("Points the op-geth dependency at a hash, tag, or branch and re-tidies.")]
 [script('bash')]
 update-op-geth-ref ref:
     set -euo pipefail
@@ -533,6 +540,7 @@ latest-rc-tag component:
 #
 # Requires GITHUB_TOKEN for git-cliff's GitHub integration (unless mode=offline):
 #   GITHUB_TOKEN=$(gh auth token) just release-notes op-node
+[doc("Generates release notes for a component between two tags.")]
 [script('zsh')]
 release-notes component from='latest' to='latest-rc' mode='':
     set -euo pipefail

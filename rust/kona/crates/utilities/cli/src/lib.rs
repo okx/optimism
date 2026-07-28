@@ -22,8 +22,10 @@ mod secrets;
 #[cfg(feature = "secrets")]
 pub use secrets::{KeypairError, ParseKeyError, SecretKeyLoader};
 
-// X Layer: KMS-backed secret resolution.
-pub mod kms;
+// X Layer: KMS-backed secret resolution. Re-exported from its own crate so the
+// private SDK dependency stays out of this (upstream) manifest; call sites keep
+// using `kona_cli::kms::…`.
+pub use xlayer_kms as kms;
 
 pub mod backtrace;
 

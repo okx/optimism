@@ -10,12 +10,28 @@
 //! upstream.
 //!
 //! Reference detection ([`is_kms_ref`]) and resolution ([`maybe_resolve`])
-//! always compile. Only [`get_secret_value`] — the single function that talks to
-//! the private `ok-kms-rust` crate — is gated by the `kms` cargo feature: with
-//! the feature it calls the SDK, without it the private crate is never
-//! referenced and every reference resolves to [`KmsError::Disabled`]. This
-//! mirrors op-node's `client_kms.go` / `client_nokms.go` split, but Rust's
-//! line-level `#[cfg]` lets both variants live in one file.
+//! always compile. Only `get_secret_value` — the single function that talks to
+//! the private `ok-kms-rust` SDK — is gated by the `kms` cargo feature: with the
+//! feature it calls the SDK, without it the SDK is never referenced and every
+//! reference resolves to [`KmsError::Disabled`]. This mirrors op-node's
+//! `client_kms.go` / `client_nokms.go` split, but Rust's line-level `#[cfg]`
+//! lets both variants live in one file.
+//!
+//! # Why this is its own crate
+//!
+//! The private SDK lives in a `GitLab` group most people cannot reach, and Cargo
+//! resolves dependencies without regard for features — `optional = true` decides
+//! whether a crate is *compiled*, not whether it is *resolved*. Declaring the
+//! SDK anywhere in the workspace as a `git` dependency therefore breaks every
+//! `cargo check`/`clippy`/`test` for anyone without gitlab.okg.com access,
+//! feature flags notwithstanding.
+//!
+//! Keeping it here confines that problem to one X Layer-owned manifest (rather
+//! than an upstream kona crate) and pairs it with `stubs/ok-kms-rust`, an
+//! in-tree stand-in the committed manifest points at so nothing needs the
+//! network. `just kms-crate` swaps the stub for a real checkout before a
+//! production build. Consumers just depend on this crate and forward a `kms`
+//! feature; see `kona-cli`, which re-exports this module as `kona_cli::kms`.
 
 use thiserror::Error;
 
@@ -59,8 +75,7 @@ pub fn is_kms_ref(value: &str) -> bool {
 ///
 /// # Errors
 ///
-/// - [`KmsError::Disabled`] if a `kms:` reference is used without the `kms`
-///   feature compiled in.
+/// - [`KmsError::Disabled`] if a `kms:` reference is used without the `kms` feature compiled in.
 /// - [`KmsError::Empty`] if the referenced key resolves to an empty value.
 /// - [`KmsError::Backend`] if the KMS backend fails to fetch the key.
 pub fn maybe_resolve(value: &str) -> Result<String, KmsError> {

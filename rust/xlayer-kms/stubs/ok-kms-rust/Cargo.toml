@@ -1,0 +1,11 @@
+[package]
+name = "ok-kms-rust"
+description = "Local stand-in for the private ok-kms-rust SDK; replaced by `just kms-crate`"
+
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+publish = false
+
+[lints]
+workspace = true
