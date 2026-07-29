@@ -212,3 +212,46 @@ func TestResolveKMS_WhitespacePaddedRef(t *testing.T) {
 	require.Equal(t, "plain-sk", c.SecretKey)
 	require.Contains(t, m.getArgs, "my-key")
 }
+
+// ToXLayerConfig is the single chokepoint every consumer converts through
+// (via NewXLayerSignerClientFromConfig), and since the KMS hook moved out of
+// txmgr's NewConfig it is the ONLY place credential references get resolved.
+// These tests pin that guarantee.
+
+func TestToXLayerConfig_ResolvesKMSRefs(t *testing.T) {
+	m := &kmsMockClient{values: map[string]string{
+		"xlayer-signer.access-key": "resolved-ak",
+		"xlayer-signer.secret-key": "resolved-sk",
+	}}
+	withMockKMS(t, m)
+
+	c := XLayerCLIConfig{
+		Enabled:   true,
+		Endpoint:  "https://signer.example.com",
+		Address:   "0xabc",
+		AccessKey: "kms:xlayer-signer.access-key",
+		SecretKey: "kms:xlayer-signer.secret-key",
+	}
+	cfg, err := c.ToXLayerConfig()
+	require.NoError(t, err)
+	require.Equal(t, "resolved-ak", cfg.AccessKey)
+	require.Equal(t, "resolved-sk", cfg.SecretKey)
+	// The receiver is a value: the caller's config must keep its references,
+	// resolution only lives in the converted copy handed to the client.
+	require.Equal(t, "kms:xlayer-signer.access-key", c.AccessKey)
+}
+
+func TestToXLayerConfig_SurfacesKMSFailure(t *testing.T) {
+	m := &kmsMockClient{getErr: errors.New("kms backend down")}
+	withMockKMS(t, m)
+
+	c := XLayerCLIConfig{
+		Enabled:   true,
+		Endpoint:  "https://signer.example.com",
+		Address:   "0xabc",
+		AccessKey: "kms:xlayer-signer.access-key",
+		SecretKey: "plaintext-sk",
+	}
+	_, err := c.ToXLayerConfig()
+	require.ErrorContains(t, err, "failed to resolve xlayer signer credentials from KMS")
+}

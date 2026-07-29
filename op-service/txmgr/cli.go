@@ -477,13 +477,6 @@ func NewConfig(cfg CLIConfig, l log.Logger) (*Config, error) {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	// Resolve kms: references in xlayer-signer credentials before consumption.
-	if cfg.XLayerSignerCLIConfig.Enabled {
-		if err := cfg.XLayerSignerCLIConfig.ResolveKMS(); err != nil {
-			return nil, fmt.Errorf("failed to resolve xlayer signer credentials from KMS: %w", err)
-		}
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.NetworkTimeout)
 	defer cancel()
 	l1, err := ethclient.DialContext(ctx, cfg.L1RPCURL)
