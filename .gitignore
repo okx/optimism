@@ -104,3 +104,12 @@ rust/op-reth/crates/chainspec/res/superchain-configs.tar
 # builds. Regenerated on every build so they cannot drift from go.mod.
 go.kms.mod
 go.kms.sum
+
+# X Layer: local checkouts that carry their own .git — op-rbuilder and
+# rollup-boost working copies, and the superchain-registry submodule left
+# behind at its old path when switching from pre-v1.19.2 branches. Ignoring
+# them keeps `git add -A` from committing bare gitlinks (mode 160000 entries
+# with no .gitmodules mapping), which break every `git submodule` command.
+/op-rbuilder/
+/rollup-boost/
+/packages/contracts-bedrock/lib/superchain-registry/
