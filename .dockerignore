@@ -32,6 +32,9 @@
 !/op-faucet
 !/op-interop-mon
 !/op-core
+# Registry data for op-core/superchain/sync-superchain.sh, which regenerates the
+# gitignored superchain-configs.zip inside the build when it is absent or stale.
+!/superchain-registry/superchain
 !/go.mod
 !/go.sum
 !/justfile
