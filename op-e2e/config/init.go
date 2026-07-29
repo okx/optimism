@@ -96,10 +96,9 @@ var (
 	// monorepoRoot is resolved once in init and reused by lazy alloc-type
 	// initialization. It is read-only after init.
 	monorepoRoot string
-	// regularLogHandler is the log handler installed after alloc generation;
-	// lazy initialization temporarily lowers the level during generation.
-	regularLogHandler slog.Handler
-	errorLogHandler   slog.Handler
+	// errorLogHandler temporarily replaces the global log handler during lazy
+	// alloc generation to keep its heavy log output at error level.
+	errorLogHandler slog.Handler
 
 	// allocTypeOnce guards lazy, on-demand generation of each alloc type's
 	// genesis data. Each alloc type runs a full op-deployer genesis pipeline
@@ -127,8 +126,15 @@ func ensureAllocType(allocType AllocType) {
 	}
 	once.Do(func() {
 		if errorLogHandler != nil {
+			// Restore the handler that is installed right now, not the one from
+			// init: by the time the first test triggers lazy generation, testlog
+			// may have redirected the global root logger to a file (see
+			// testlog.fileHandler / OP_TESTLOG_FILE_LOGGER_OUTDIR). Restoring
+			// the init-time handler would silently undo that redirect and spill
+			// every global geth log into the test process stdout.
+			prevHandler := log.Root().Handler()
 			oplog.SetGlobalLogHandler(errorLogHandler)
-			defer oplog.SetGlobalLogHandler(regularLogHandler)
+			defer oplog.SetGlobalLogHandler(prevHandler)
 		}
 		initAllocType(monorepoRoot, allocType)
 	})
@@ -241,7 +247,6 @@ func init() {
 	// Generation now happens lazily per alloc type (see ensureAllocType), so
 	// keep the regular handler installed here and let ensureAllocType lower the
 	// level to error only while generating.
-	regularLogHandler = handler
 	errorLogHandler = errHandler
 	oplog.SetGlobalLogHandler(handler)
 }
