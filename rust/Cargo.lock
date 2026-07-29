@@ -6919,7 +6919,6 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber 0.3.23",
- "xlayer-kms",
 ]
 
 [[package]]
@@ -7345,6 +7344,7 @@ dependencies = [
  "url",
  "vergen",
  "vergen-git2",
+ "xlayer-kms",
 ]
 
 [[package]]

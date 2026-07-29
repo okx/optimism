@@ -23,6 +23,9 @@ kona-interop = { workspace = true, features = ["serde"] }
 kona-protocol.workspace = true
 
 kona-cli = { workspace = true, features = ["secrets"] }
+
+# X Layer: `kms:<name>` secret resolution, consumed only by main.rs.
+xlayer-kms.workspace = true
 kona-gossip = { workspace = true, features = ["metrics"] }
 kona-disc = { workspace = true, features = ["metrics"] }
 kona-derive = { workspace = true, features = ["metrics"] }
@@ -82,7 +85,7 @@ vergen-git2.workspace = true
 [features]
 default = [ "asm-keccak" ]
 asm-keccak = [ "alloy-primitives/asm-keccak" ]
-# X Layer: forward the KMS feature to kona-cli, which owns the KMS backend and
-# the private ok-kms-rust dependency. Enables resolving `kms:<name>` references
-# in the p2p key, sequencer key, and JWT secret files.
-kms = [ "kona-cli/kms" ]
+# X Layer: resolve `kms:<name>` references in the JWT secret, p2p key and
+# sequencer key flags. All resolution happens in main.rs before clap parses, so
+# no other kona crate is involved. See rust/xlayer-kms/.
+kms = [ "xlayer-kms/kms" ]

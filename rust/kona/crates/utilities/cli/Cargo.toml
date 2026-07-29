@@ -33,10 +33,6 @@ thiserror.workspace = true
 libp2p = { workspace = true, features = ["secp256k1"], optional = true }
 alloy-primitives.workspace = true
 
-# X Layer: `kms:<name>` secret resolution. Always compiled; the `kms` feature
-# below is what pulls in the private SDK behind it (see the xlayer-kms crate).
-xlayer-kms.workspace = true
-
 [dev-dependencies]
 rstest.workspace = true
 
@@ -46,4 +42,3 @@ libc.workspace = true
 [features]
 default = []
 secrets = [ "dep:libp2p" ]
-kms = [ "xlayer-kms/kms" ]

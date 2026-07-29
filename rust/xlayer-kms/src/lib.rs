@@ -30,8 +30,10 @@
 //! than an upstream kona crate) and pairs it with `stubs/ok-kms-rust`, an
 //! in-tree stand-in the committed manifest points at so nothing needs the
 //! network. `just kms-crate` swaps the stub for a real checkout before a
-//! production build. Consumers just depend on this crate and forward a `kms`
-//! feature; see `kona-cli`, which re-exports this module as `kona_cli::kms`.
+//! production build. Consumers depend on this crate directly from their binary
+//! crate and forward a `kms` feature; see kona-node's `main.rs` (and
+//! xlayer-reth's), which resolve references by rewriting argv/env before clap
+//! parses, so no library crate is involved.
 
 use thiserror::Error;
 

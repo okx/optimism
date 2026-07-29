@@ -406,23 +406,11 @@ impl NodeCommand {
     /// using the provided [`PathBuf`]. If the file is not found,
     /// it will return the default JWT secret.
     pub fn l2_jwt_secret(&self) -> anyhow::Result<JwtSecret> {
-        if let Some(path) = &self.l2_client_args.l2_engine_jwt_secret {
-            // X Layer: a direct `kms:<name>` reference resolves via the KMS
-            // without hitting the filesystem (op-node's "the value itself is a
-            // KMS reference" case); otherwise read the file, whose contents may
-            // themselves be a reference. A literal hex secret passes through
-            // unchanged. If the path is neither a reference nor a readable file,
-            // fall through to the encoded flag / default below, as before.
-            let raw = match path.to_str() {
-                Some(s) if kona_cli::kms::is_kms_ref(s) => Some(s.to_string()),
-                _ => std::fs::read_to_string(path).ok(),
-            };
-            if let Some(raw) = raw {
-                let resolved = kona_cli::kms::maybe_resolve(&raw)
-                    .map_err(|e| anyhow::anyhow!("Failed to resolve JWT secret: {e}"))?;
-                return JwtSecret::from_hex(resolved)
-                    .map_err(|e| anyhow::anyhow!("Failed to parse JWT secret: {e}"));
-            }
+        if let Some(path) = &self.l2_client_args.l2_engine_jwt_secret &&
+            let Ok(secret) = std::fs::read_to_string(path)
+        {
+            return JwtSecret::from_hex(secret)
+                .map_err(|e| anyhow::anyhow!("Failed to parse JWT secret: {e}"));
         }
 
         if let Some(secret) = &self.l2_client_args.l2_engine_jwt_encoded {
