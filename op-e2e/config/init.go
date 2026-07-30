@@ -126,15 +126,23 @@ func ensureAllocType(allocType AllocType) {
 	}
 	once.Do(func() {
 		if errorLogHandler != nil {
-			// Restore the handler that is installed right now, not the one from
-			// init: by the time the first test triggers lazy generation, testlog
-			// may have redirected the global root logger to a file (see
-			// testlog.fileHandler / OP_TESTLOG_FILE_LOGGER_OUTDIR). Restoring
-			// the init-time handler would silently undo that redirect and spill
+			// Lower the global handler to error level while the heavy alloc
+			// generation runs, then put things back — carefully. The first
+			// tests run concurrently with lazy generation, so testlog's
+			// rootSetup may redirect the global root logger to a file
+			// (OP_TESTLOG_FILE_LOGGER_OUTDIR) either BEFORE this snapshot or
+			// WHILE generation is in flight. Snapshotting the current handler
+			// covers the first case; the conditional restore covers the
+			// second — if the handler changed under us mid-generation,
+			// restoring the snapshot would stomp the file redirect and spill
 			// every global geth log into the test process stdout.
 			prevHandler := log.Root().Handler()
 			oplog.SetGlobalLogHandler(errorLogHandler)
-			defer oplog.SetGlobalLogHandler(prevHandler)
+			defer func() {
+				if log.Root().Handler() == errorLogHandler {
+					oplog.SetGlobalLogHandler(prevHandler)
+				}
+			}()
 		}
 		initAllocType(monorepoRoot, allocType)
 	})
