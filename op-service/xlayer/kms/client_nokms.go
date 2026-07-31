@@ -23,8 +23,8 @@ var ErrDisabled = errors.New("KMS support is not compiled into this binary: rebu
 // that the package's exported API is identical with and without the build tag.
 type SDKClient struct{}
 
-// Init always fails: there is no KMS SDK linked into this binary.
-func (*SDKClient) Init() error { return ErrDisabled }
+// init always fails: there is no KMS SDK linked into this binary.
+func (*SDKClient) init() error { return ErrDisabled }
 
 // GetSecretValue always fails: there is no KMS SDK linked into this binary.
 func (*SDKClient) GetSecretValue(string) (string, error) { return "", ErrDisabled }

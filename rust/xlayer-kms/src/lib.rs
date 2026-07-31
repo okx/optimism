@@ -101,16 +101,29 @@ pub fn maybe_resolve(value: &str) -> Result<String, KmsError> {
 /// `ok-kms-rust` crate (`git@gitlab.okg.com:okcoin-commons/ok-kms-rust`). The
 /// SDK reads `KMS_ENABLED` from the environment, writes out and loads its
 /// embedded `kms_linux.so`, and fetches already-decrypted secrets by key name.
-/// A fresh client is constructed per lookup: initialization is a
-/// one-time-per-process cost in practice (only a handful of secrets are
-/// resolved at startup), and this keeps the code free of shared mutable state
-/// and of `Send + Sync` assumptions about the SDK client.
+///
+/// The client is constructed AT MOST ONCE per process and never dropped.
 #[cfg(feature = "kms")]
 fn get_secret_value(key: &str) -> Result<String, KmsError> {
     use ok_kms_rust::KmsClient;
+    use std::sync::OnceLock;
 
-    let client = KmsClient::new().map_err(|e| KmsError::Backend(e.to_string()))?;
-    client.get_value_by_key(key).map_err(|e| KmsError::Backend(e.to_string()))
+    /// Wrapper asserting the SDK client is safe to share as a process-wide
+    /// static.
+    struct ProcessClient(KmsClient);
+    unsafe impl Send for ProcessClient {}
+    unsafe impl Sync for ProcessClient {}
+
+    // Never dropped (statics don't run destructors), so the library is never
+    // dlclose'd and the Go runtime inside it stays valid for the process
+    // lifetime.
+    static CLIENT: OnceLock<Result<ProcessClient, String>> = OnceLock::new();
+
+    let client = CLIENT
+        .get_or_init(|| KmsClient::new().map(ProcessClient).map_err(|e| e.to_string()))
+        .as_ref()
+        .map_err(|e| KmsError::Backend(e.clone()))?;
+    client.0.get_value_by_key(key).map_err(|e| KmsError::Backend(e.to_string()))
 }
 
 /// Stub compiled when the `kms` feature is disabled: the private `ok-kms-rust`
@@ -146,5 +159,21 @@ mod tests {
     fn maybe_resolve_rejects_refs_without_feature() {
         let err = maybe_resolve("kms:some-key").unwrap_err();
         assert!(matches!(err, KmsError::Disabled));
+    }
+
+    /// With the `kms` feature the stub client constructs successfully and then
+    /// fails every lookup. Repeated resolution must keep reaching the backend
+    /// (i.e. reuse the one process-wide client) rather than caching a per-key
+    /// lookup failure as if construction itself had failed.
+    #[cfg(feature = "kms")]
+    #[test]
+    fn maybe_resolve_reuses_the_process_client_across_lookups() {
+        for key in ["kms:first-key", "kms:second-key"] {
+            let err = maybe_resolve(key).unwrap_err();
+            assert!(
+                matches!(&err, KmsError::Backend(msg) if msg.contains(ok_kms_rust::STUB_MARKER)),
+                "expected a stub backend error for {key}, got: {err}"
+            );
+        }
     }
 }

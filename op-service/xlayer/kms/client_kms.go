@@ -29,13 +29,14 @@ import (
 const Enabled = true
 
 // SDKClient is the production KMSClient implementation backed by ok-kms-go.
-// Importing it has no side effects; nothing connects to KMS until Init is
-// called (lazily, on the first KMS reference).
+// Importing it has no side effects; nothing connects to KMS until init is
+// called (lazily and at most once per process, by MaybeResolve's once guard —
+// the method is unexported precisely so no other caller exists).
 type SDKClient struct{}
 
-// Init fetches and decrypts the configured KMS secret(s) for the provider
-// selected by KMS_PROVIDER. It is idempotent, so repeated calls are cheap.
-func (*SDKClient) Init() error {
+// init fetches and decrypts the configured KMS secret(s) for the provider
+// selected by KMS_PROVIDER.
+func (*SDKClient) init() error {
 	return okkms.Init()
 }
 

@@ -13,28 +13,6 @@ import (
 	xlayerkms "github.com/ethereum-optimism/optimism/op-service/xlayer/kms"
 )
 
-// jwtMockClient is a test KMSClient that records calls and returns canned results.
-type jwtMockClient struct {
-	initErr error
-	getErr  error
-	value   string
-
-	initCalls int
-	getArg    string
-	getHits   int
-}
-
-func (m *jwtMockClient) Init() error { m.initCalls++; return m.initErr }
-
-func (m *jwtMockClient) GetSecretValue(key string) (string, error) {
-	m.getHits++
-	m.getArg = key
-	if m.getErr != nil {
-		return "", m.getErr
-	}
-	return m.value, nil
-}
-
 // withKMSClient swaps the package-level client for the duration of a test.
 func withKMSClient(t *testing.T, c xlayerkms.KMSClient) {
 	t.Helper()
@@ -55,16 +33,16 @@ func wantSecret() eth.Bytes32 {
 
 func TestResolveJWTSecret_DirectKMSRef(t *testing.T) {
 	// KMS returns the value with a trailing newline to exercise trimming.
-	m := &jwtMockClient{value: jwtHex + "\n"}
+	m := &xlayerkms.MockKMSClient{Value: jwtHex + "\n"}
 	withKMSClient(t, m)
 	secret, err := ResolveJWTSecret(testlog.Logger(t, log.LevelError), "kms:jwt-key", false)
 	require.NoError(t, err)
 	require.Equal(t, wantSecret(), secret)
-	require.Equal(t, "jwt-key", m.getArg)
+	require.Equal(t, "jwt-key", m.LastGetArg())
 }
 
 func TestResolveJWTSecret_FileContainsKMSRef(t *testing.T) {
-	m := &jwtMockClient{value: jwtHex}
+	m := &xlayerkms.MockKMSClient{Value: jwtHex}
 	withKMSClient(t, m)
 	path := filepath.Join(t.TempDir(), "jwt.txt")
 	require.NoError(t, os.WriteFile(path, []byte("kms:jwt-key\n"), 0o600))
@@ -72,11 +50,11 @@ func TestResolveJWTSecret_FileContainsKMSRef(t *testing.T) {
 	secret, err := ResolveJWTSecret(testlog.Logger(t, log.LevelError), path, false)
 	require.NoError(t, err)
 	require.Equal(t, wantSecret(), secret)
-	require.Equal(t, "jwt-key", m.getArg)
+	require.Equal(t, "jwt-key", m.LastGetArg())
 }
 
 func TestResolveJWTSecret_PlaintextFile(t *testing.T) {
-	m := &jwtMockClient{value: "unused"}
+	m := &xlayerkms.MockKMSClient{Value: "unused"}
 	withKMSClient(t, m)
 	path := filepath.Join(t.TempDir(), "jwt.txt")
 	require.NoError(t, os.WriteFile(path, []byte(jwtHex), 0o600))
@@ -84,11 +62,11 @@ func TestResolveJWTSecret_PlaintextFile(t *testing.T) {
 	secret, err := ResolveJWTSecret(testlog.Logger(t, log.LevelError), path, false)
 	require.NoError(t, err)
 	require.Equal(t, wantSecret(), secret)
-	require.Zero(t, m.getHits, "plaintext file must not consult KMS")
+	require.Zero(t, m.GetHits, "plaintext file must not consult KMS")
 }
 
 func TestResolveJWTSecret_NotKMSBytes(t *testing.T) {
-	withKMSClient(t, &jwtMockClient{value: "aabb"}) // 2 bytes, not 32
+	withKMSClient(t, &xlayerkms.MockKMSClient{Value: "aabb"}) // 2 bytes, not 32
 	_, err := ResolveJWTSecret(testlog.Logger(t, log.LevelError), "kms:jwt-key", false)
 	require.ErrorContains(t, err, "not 32 hex-formatted bytes")
 }

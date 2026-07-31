@@ -8,30 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type kmsMockClient struct {
-	initErr error
-	getErr  error
-	values  map[string]string
-
-	initCalls int
-	getArgs   []string
-	getHits   int
-}
-
-func (m *kmsMockClient) Init() error { m.initCalls++; return m.initErr }
-
-func (m *kmsMockClient) GetSecretValue(key string) (string, error) {
-	m.getHits++
-	m.getArgs = append(m.getArgs, key)
-	if m.getErr != nil {
-		return "", m.getErr
-	}
-	if v, ok := m.values[key]; ok {
-		return v, nil
-	}
-	return "", errors.New("key not found")
-}
-
 func withMockKMS(t *testing.T, c xlayerkms.KMSClient) {
 	t.Helper()
 	xlayerkms.SetClient(c)
@@ -39,7 +15,7 @@ func withMockKMS(t *testing.T, c xlayerkms.KMSClient) {
 }
 
 func TestResolveKMS_BothKMSRefs(t *testing.T) {
-	m := &kmsMockClient{values: map[string]string{
+	m := &xlayerkms.MockKMSClient{Values: map[string]string{
 		"xlayer-signer.access-key": "resolved-ak",
 		"xlayer-signer.secret-key": "resolved-sk",
 	}}
@@ -56,12 +32,12 @@ func TestResolveKMS_BothKMSRefs(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "resolved-ak", c.AccessKey)
 	require.Equal(t, "resolved-sk", c.SecretKey)
-	require.GreaterOrEqual(t, m.initCalls, 1)
-	require.Equal(t, 2, m.getHits)
+	require.GreaterOrEqual(t, m.InitCalls, 1)
+	require.Equal(t, 2, m.GetHits)
 }
 
 func TestResolveKMS_AccessKeyEmptyValue(t *testing.T) {
-	m := &kmsMockClient{values: map[string]string{
+	m := &xlayerkms.MockKMSClient{Values: map[string]string{
 		"xlayer-signer.access-key": "",
 	}}
 	withMockKMS(t, m)
@@ -78,7 +54,7 @@ func TestResolveKMS_AccessKeyEmptyValue(t *testing.T) {
 }
 
 func TestResolveKMS_SecretKeyEmptyValue(t *testing.T) {
-	m := &kmsMockClient{values: map[string]string{
+	m := &xlayerkms.MockKMSClient{Values: map[string]string{
 		"ak-key": "valid-ak",
 		"sk-key": "",
 	}}
@@ -97,7 +73,7 @@ func TestResolveKMS_SecretKeyEmptyValue(t *testing.T) {
 }
 
 func TestResolveKMS_AccessKeyEmptyKeyName(t *testing.T) {
-	m := &kmsMockClient{}
+	m := &xlayerkms.MockKMSClient{}
 	withMockKMS(t, m)
 
 	c := XLayerCLIConfig{
@@ -109,11 +85,11 @@ func TestResolveKMS_AccessKeyEmptyKeyName(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorContains(t, err, "xlayer-signer.access-key")
 	require.ErrorContains(t, err, "empty KMS key name")
-	require.Equal(t, 0, m.initCalls)
+	require.Equal(t, 0, m.InitCalls)
 }
 
 func TestResolveKMS_SecretKeyEmptyKeyName(t *testing.T) {
-	m := &kmsMockClient{values: map[string]string{
+	m := &xlayerkms.MockKMSClient{Values: map[string]string{
 		"ak-key": "resolved-ak",
 	}}
 	withMockKMS(t, m)
@@ -131,7 +107,7 @@ func TestResolveKMS_SecretKeyEmptyKeyName(t *testing.T) {
 }
 
 func TestResolveKMS_GetSecretValueError(t *testing.T) {
-	m := &kmsMockClient{getErr: errors.New("key not found")}
+	m := &xlayerkms.MockKMSClient{GetErr: errors.New("key not found")}
 	withMockKMS(t, m)
 
 	c := XLayerCLIConfig{
@@ -146,7 +122,7 @@ func TestResolveKMS_GetSecretValueError(t *testing.T) {
 }
 
 func TestResolveKMS_BothPlaintext(t *testing.T) {
-	m := &kmsMockClient{}
+	m := &xlayerkms.MockKMSClient{}
 	withMockKMS(t, m)
 
 	c := XLayerCLIConfig{
@@ -158,12 +134,12 @@ func TestResolveKMS_BothPlaintext(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "plaintext-ak", c.AccessKey)
 	require.Equal(t, "plaintext-sk", c.SecretKey)
-	require.Equal(t, 0, m.initCalls)
-	require.Equal(t, 0, m.getHits)
+	require.Equal(t, 0, m.InitCalls)
+	require.Equal(t, 0, m.GetHits)
 }
 
 func TestResolveKMS_MixedAccessKeyKMS(t *testing.T) {
-	m := &kmsMockClient{values: map[string]string{
+	m := &xlayerkms.MockKMSClient{Values: map[string]string{
 		"ak-key": "resolved-ak",
 	}}
 	withMockKMS(t, m)
@@ -177,11 +153,11 @@ func TestResolveKMS_MixedAccessKeyKMS(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "resolved-ak", c.AccessKey)
 	require.Equal(t, "plaintext-sk", c.SecretKey)
-	require.Equal(t, 1, m.getHits)
+	require.Equal(t, 1, m.GetHits)
 }
 
 func TestResolveKMS_InitFailure(t *testing.T) {
-	m := &kmsMockClient{initErr: errors.New("KMS_PROVIDER not set")}
+	m := &xlayerkms.MockKMSClient{InitErr: errors.New("KMS_PROVIDER not set")}
 	withMockKMS(t, m)
 
 	c := XLayerCLIConfig{
@@ -192,11 +168,11 @@ func TestResolveKMS_InitFailure(t *testing.T) {
 	err := c.ResolveKMS()
 	require.Error(t, err)
 	require.ErrorContains(t, err, "kms.Init() failed")
-	require.Equal(t, 0, m.getHits)
+	require.Equal(t, 0, m.GetHits)
 }
 
 func TestResolveKMS_WhitespacePaddedRef(t *testing.T) {
-	m := &kmsMockClient{values: map[string]string{
+	m := &xlayerkms.MockKMSClient{Values: map[string]string{
 		"my-key": "resolved",
 	}}
 	withMockKMS(t, m)
@@ -210,7 +186,7 @@ func TestResolveKMS_WhitespacePaddedRef(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "resolved", c.AccessKey)
 	require.Equal(t, "plain-sk", c.SecretKey)
-	require.Contains(t, m.getArgs, "my-key")
+	require.Contains(t, m.GetArgs, "my-key")
 }
 
 // ToXLayerConfig is the single chokepoint every consumer converts through
@@ -219,7 +195,7 @@ func TestResolveKMS_WhitespacePaddedRef(t *testing.T) {
 // These tests pin that guarantee.
 
 func TestToXLayerConfig_ResolvesKMSRefs(t *testing.T) {
-	m := &kmsMockClient{values: map[string]string{
+	m := &xlayerkms.MockKMSClient{Values: map[string]string{
 		"xlayer-signer.access-key": "resolved-ak",
 		"xlayer-signer.secret-key": "resolved-sk",
 	}}
@@ -242,7 +218,7 @@ func TestToXLayerConfig_ResolvesKMSRefs(t *testing.T) {
 }
 
 func TestToXLayerConfig_SurfacesKMSFailure(t *testing.T) {
-	m := &kmsMockClient{getErr: errors.New("kms backend down")}
+	m := &xlayerkms.MockKMSClient{GetErr: errors.New("kms backend down")}
 	withMockKMS(t, m)
 
 	c := XLayerCLIConfig{

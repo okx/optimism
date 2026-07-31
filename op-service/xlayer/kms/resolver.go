@@ -18,14 +18,22 @@ package kms
 import (
 	"fmt"
 	"strings"
+	"sync"
 )
 
 // KMSRefPrefix marks a flag/file value as a KMS Secrets Manager key reference.
 const KMSRefPrefix = "kms:"
 
 // KMSClient abstracts the KMS SDK for testability.
+//
+// init is deliberately unexported, which seals the interface: SDK
+// initialization can only happen through MaybeResolve's process-wide once
+// guard (initOnce below).
+// External packages that need a test double use MockKMSClient
+//
+// via SetClient.
 type KMSClient interface {
-	Init() error
+	init() error
 	GetSecretValue(key string) (string, error)
 }
 
@@ -34,8 +42,22 @@ type KMSClient interface {
 // stub otherwise — and can be swapped in tests via SetClient.
 var client KMSClient = &SDKClient{}
 
-// SetClient overrides the package-level KMS client. Intended for tests.
-func SetClient(c KMSClient) { client = c }
+// initOnce guarantees the SDK is initialized at most once per process,
+// regardless of how many references MaybeResolve resolves and from how many
+// goroutines.
+var (
+	initOnce sync.Once
+	initErr  error
+)
+
+// SetClient overrides the package-level KMS client. Intended for tests. It
+// also re-arms the one-time initialization so the replacement client gets its
+// own Init call.
+func SetClient(c KMSClient) {
+	client = c
+	initOnce = sync.Once{}
+	initErr = nil
+}
 
 // IsKMSRef reports whether s is a KMS key reference (carries the kms: prefix).
 func IsKMSRef(s string) bool {
@@ -43,9 +65,10 @@ func IsKMSRef(s string) bool {
 }
 
 // MaybeResolve returns s unchanged unless it is a "kms:<keyname>" reference, in
-// which case it initializes the KMS SDK and returns the plaintext value of that
-// secret key. The SDK reads its configuration (provider, region, secret names)
-// from the KMS_PROVIDER / KMS_REGION / KMS_SECRET_NAME environment variables.
+// which case it initializes the KMS SDK (at most once per process, see
+// initOnce) and returns the plaintext value of that secret key. The SDK reads
+// its configuration (provider, region, secret names) from the KMS_PROVIDER /
+// KMS_REGION / KMS_SECRET_NAME environment variables.
 func MaybeResolve(s string) (string, error) {
 	if !IsKMSRef(s) {
 		return s, nil
@@ -54,8 +77,9 @@ func MaybeResolve(s string) (string, error) {
 	if key == "" {
 		return "", fmt.Errorf("empty KMS key name in %q", s)
 	}
-	if err := client.Init(); err != nil {
-		return "", fmt.Errorf("kms.Init() failed: %w", err)
+	initOnce.Do(func() { initErr = client.init() })
+	if initErr != nil {
+		return "", fmt.Errorf("kms.Init() failed: %w", initErr)
 	}
 	val, err := client.GetSecretValue(key)
 	if err != nil {
