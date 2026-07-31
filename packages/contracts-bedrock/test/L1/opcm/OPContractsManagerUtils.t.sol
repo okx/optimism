@@ -254,6 +254,14 @@ contract OPContractsManagerUtils_HasInstruction_Test is OPContractsManagerUtils_
     /// @param _key The key to search for.
     /// @param _data The data to search for.
     function testFuzz_hasInstruction_exists_succeeds(string calldata _key, bytes calldata _data) public view {
+        // The negative assertions below use "nonexistent" as the wrong
+        // key/data sentinel — if the fuzzer generates that exact value
+        // (likely, since forge mines string literals from the bytecode as
+        // dictionary inputs), the "wrong" lookup matches the stored
+        // instruction and the assertFalse trips.
+        vm.assume(keccak256(bytes(_key)) != keccak256("nonexistent"));
+        vm.assume(keccak256(_data) != keccak256("nonexistent"));
+
         OPContractsManagerUtils.ExtraInstruction[] memory instructions =
             new OPContractsManagerUtils.ExtraInstruction[](1);
         instructions[0] = OPContractsManagerUtils.ExtraInstruction({ key: _key, data: _data });
