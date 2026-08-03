@@ -13,6 +13,12 @@ RUN git config --global \
       url."https://gitlab-ci-token:${GIT_TOKEN}@gitlab.okg.com/".insteadOf \
       "https://gitlab.okg.com/"
 
+# op-node embeds op-core/superchain/superchain-configs.zip via //go:embed. It's
+# gitignored and regenerated git-free from the superchain-registry data copied
+# into the context (see .dockerignore), verifying against the committed .sha256.
+# Same step as upstream ops/docker/op-stack-go/Dockerfile.
+RUN bash op-core/superchain/sync-superchain.sh
+
 # Generate go.kms.mod / go.kms.sum: ok-kms-go is deliberately absent from go.mod
 # (so `go get` and downstream imports of this repo work without gitlab.okg.com
 # credentials), and this adds the require back for this build only.
