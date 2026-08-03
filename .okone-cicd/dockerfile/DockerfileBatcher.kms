@@ -1,5 +1,5 @@
 # Single stage build with Go
-FROM  online-registry.cn-hongkong.cr.aliyuncs.com/okbase/golang:1.24.4-just-foundry as builder
+FROM  online-registry.cn-hongkong.cr.aliyuncs.com/okbase/golang:1.26.4-just-foundry as builder
 WORKDIR /root
 COPY . .
 
