@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/urfave/cli/v2"
 
+	xlayerkms "github.com/ethereum-optimism/optimism/op-node/xlayer/kms"
 	opservice "github.com/ethereum-optimism/optimism/op-service"
 	"github.com/ethereum-optimism/optimism/op-service/cliapp"
 	"github.com/ethereum-optimism/optimism/op-service/clock"
@@ -232,6 +233,7 @@ func (s *Service) initBackend(ctx context.Context, cfg *Config) error {
 		LegacyCheckAccessListFormat: cfg.LegacyCheckAccessListFormat,
 
 		ReorgRecoveryEnabled: cfg.ReorgRecoveryEnabled,
+		FailsafeLogInterval:  cfg.FailsafeLogInterval,
 	})
 
 	s.log.Info("Created backend", "chains", len(chains))
@@ -270,8 +272,9 @@ func (s *Service) initAdminRPCServer(cfg *Config) error {
 		return nil
 	}
 
-	// Load JWT secret for authentication
-	secret, err := oprpc.ObtainJWTSecret(s.log, cfg.JWTSecretPath, true)
+	// Load JWT secret for authentication.
+	// X Layer: also resolves a kms:<name> reference (flag value or file content).
+	secret, err := xlayerkms.ResolveJWTSecret(s.log, cfg.JWTSecretPath, true)
 	if err != nil {
 		return fmt.Errorf("failed to obtain JWT secret: %w", err)
 	}

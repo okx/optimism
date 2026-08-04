@@ -1,0 +1,63 @@
+# X Layer: kona-node with KMS support linked in.
+#
+# The plain image is built from the workspace as-is; this one additionally
+# swaps the in-tree ok-kms-rust stand-in for a real checkout of the private SDK
+# and builds with `--features kms`. See rust/xlayer-kms/ for why the committed
+# manifest points at a stub rather than depending on gitlab.okg.com directly.
+FROM rust:1.94 AS builder
+WORKDIR /workspace
+
+# Build-time system dependencies. protoc is required because the kona-sp1
+# dependency tree runs prost-build, which shells out to it (see mise.toml);
+# clang/libclang are needed by several -sys crates in the reth dependency tree.
+RUN apt-get -o Acquire::Retries=8 update && \
+    apt-get -o Acquire::Retries=8 install -y --no-install-recommends \
+      clang \
+      libclang-dev \
+      pkg-config \
+      libssl-dev \
+      protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+# Allow the ok-kms-rust checkout below to authenticate against the private
+# gitlab.okg.com group over HTTPS. GIT_TOKEN is passed at build time via
+# --build-arg (use $CI_JOB_TOKEN); it only ever lives in this builder stage and
+# never reaches the final image. ok-kms-rust must allowlist this project's job
+# token. CARGO_NET_GIT_FETCH_WITH_CLI makes cargo reuse this same git config.
+ARG GIT_TOKEN
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+RUN git config --global \
+      url."https://gitlab-ci-token:${GIT_TOKEN}@gitlab.okg.com/".insteadOf \
+      "https://gitlab.okg.com/"
+
+COPY . .
+
+# Swap the stub for the real SDK. This mirrors the `kms-crate` recipe in
+# rust/justfile — kept inline because this image has no `just` — except that it
+# clones over HTTPS so the job token above applies. Keep the tag in sync with
+# KMS_CRATE_TAG there.
+ARG KMS_CRATE_TAG=v1.0.0
+RUN rm -rf rust/xlayer-kms/stubs/ok-kms-rust && \
+    git clone --depth 1 --branch "${KMS_CRATE_TAG}" \
+      https://gitlab.okg.com/okcoin-commons/ok-kms-rust.git \
+      rust/xlayer-kms/stubs/ok-kms-rust && \
+    rm -rf rust/xlayer-kms/stubs/ok-kms-rust/.git
+
+# No --locked: the real SDK pulls in its own dependencies, so Cargo.lock (which
+# is committed against the stub) legitimately changes here.
+RUN cd rust && cargo build --release -p kona-node --features kms
+
+# Fail the build rather than ship a binary that says KMS but cannot resolve a
+# secret: the stub embeds this marker, the real SDK does not.
+RUN if grep -qa OK_KMS_STUB rust/target/release/kona-node; then \
+      echo "ERROR: kona-node was linked against the ok-kms-rust stub, not the real SDK" >&2; \
+      exit 1; \
+    fi
+
+FROM debian:trixie-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /workspace/rust/target/release/kona-node /usr/local/bin/kona-node
+WORKDIR /root
+CMD ["kona-node"]

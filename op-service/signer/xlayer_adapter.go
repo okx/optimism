@@ -9,6 +9,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
+
+	xlayerkms "github.com/ethereum-optimism/optimism/op-service/xlayer/kms"
 )
 
 // XLayerSignerClient implements SignerClient interface using XLayer remote signing service
@@ -123,10 +125,36 @@ func (c XLayerCLIConfig) Check() error {
 	return nil
 }
 
+// ResolveKMS resolves kms:<keyname> references in AccessKey and SecretKey.
+// Values without the kms: prefix pass through unchanged. ToXLayerConfig calls
+// this on its local copy, so every consumer that goes through the conversion —
+// which is all of them, via NewXLayerSignerClientFromConfig — gets resolved
+// credentials without any hook in upstream code.
+func (c *XLayerCLIConfig) ResolveKMS() error {
+	var err error
+	c.AccessKey, err = xlayerkms.MaybeResolve(c.AccessKey)
+	if err != nil {
+		return fmt.Errorf("xlayer-signer.access-key: %w", err)
+	}
+	c.SecretKey, err = xlayerkms.MaybeResolve(c.SecretKey)
+	if err != nil {
+		return fmt.Errorf("xlayer-signer.secret-key: %w", err)
+	}
+	return nil
+}
+
 // ToXLayerConfig converts CLI config to XLayerConfig
 func (c XLayerCLIConfig) ToXLayerConfig() (XLayerConfig, error) {
 	if err := c.Check(); err != nil {
 		return XLayerConfig{}, err
+	}
+
+	// Resolve kms:<keyname> credential references on this local copy, after
+	// validation and just before the values are consumed. Keeping the KMS hook
+	// here — the single chokepoint every consumer converts through — is what
+	// lets op-batcher, op-proposer and friends stay entirely untouched.
+	if err := c.ResolveKMS(); err != nil {
+		return XLayerConfig{}, fmt.Errorf("failed to resolve xlayer signer credentials from KMS: %w", err)
 	}
 
 	timeout, err := time.ParseDuration(c.Timeout)

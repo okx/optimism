@@ -458,6 +458,38 @@ func TestSpanBatchTxsRoundTripFullTxs(t *testing.T) {
 	}
 }
 
+func TestSpanBatchTxsPostExecRoundTripFullTxs(t *testing.T) {
+	rng := rand.New(rand.NewSource(0x7d7331))
+	chainID := big.NewInt(901)
+	signer := types.NewIsthmusSigner(chainID)
+
+	normalTx := testutils.RandomDynamicFeeTx(rng, signer)
+	postExecTx := testPostExecTx()
+
+	var txs [][]byte
+	for _, tx := range []*types.Transaction{normalTx, postExecTx} {
+		rawTx, err := tx.MarshalBinary()
+		require.NoError(t, err)
+		txs = append(txs, rawTx)
+	}
+
+	sbt, err := newSpanBatchTxs(txs, chainID)
+	require.NoError(t, err)
+
+	txs2, err := sbt.fullTxs(chainID)
+	require.NoError(t, err)
+	require.Equal(t, txs, txs2)
+}
+
+func TestSpanBatchTxsPostExecSkipsChainIDValidation(t *testing.T) {
+	chainID := big.NewInt(901)
+	rawPostExecTx, err := testPostExecTx().MarshalBinary()
+	require.NoError(t, err)
+
+	_, err = newSpanBatchTxs([][]byte{rawPostExecTx}, chainID)
+	require.NoError(t, err)
+}
+
 func TestSpanBatchTxsRejectsWrongChainIDForProtectedTx(t *testing.T) {
 	rng := rand.New(rand.NewSource(0x901902))
 	chainID := big.NewInt(901)

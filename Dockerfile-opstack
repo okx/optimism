@@ -1,8 +1,43 @@
 # Single stage build with Go
-FROM okexchain/go-builder:v1
-RUN apt-get install -y wget \
-    && wget -qO- https://get.docker.com | sh \
+#
+ARG GO_VERSION=1.26.4
+FROM golang:${GO_VERSION}
+
+# Belt and braces: the image above already ships the toolchain go.mod asks for,
+# but this lets a go.mod bump build without editing GO_VERSION first.
+ENV GOTOOLCHAIN=auto
+
+# jq, yq and zip are needed by op-core/superchain/sync-superchain.sh; git and the
+# C toolchain come with the base image. Note that docker is deliberately NOT
+# installed: only cannon's `cannon-stf-verify` recipe uses it, and none of the
+# targets built below reach that recipe.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends wget zip jq \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# just and yq are installed as pinned prebuilt release binaries, since neither is
+# packaged consistently across Debian releases. JUST_VERSION tracks mise.toml.
+# Running each tool once at the end turns a bad URL or an unhandled architecture
+# into a loud failure here rather than a confusing "not found" further down.
+ARG JUST_VERSION=1.46.0
+ARG YQ_VERSION=4.44.3
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) just_target='x86_64-unknown-linux-musl' ;; \
+      arm64) just_target='aarch64-unknown-linux-musl' ;; \
+      *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    wget -qO /tmp/just.tar.gz \
+      "https://github.com/casey/just/releases/download/${JUST_VERSION}/just-${JUST_VERSION}-${just_target}.tar.gz"; \
+    tar -xzf /tmp/just.tar.gz -C /usr/local/bin just; \
+    rm /tmp/just.tar.gz; \
+    wget -qO /usr/local/bin/yq \
+      "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_${arch}"; \
+    chmod +x /usr/local/bin/yq; \
+    just --version; \
+    yq --version
+
 WORKDIR /app
 # Cache go dependencies first
 COPY go.mod go.sum ./
@@ -14,9 +49,14 @@ RUN --mount=type=cache,target=/root/.cache \
 # Copy source code
 COPY . .
 
+# op-node embeds op-core/superchain/superchain-configs.zip via //go:embed. The zip is
+# gitignored, so build it from the superchain-registry data.
+RUN bash op-core/superchain/sync-superchain.sh
+
 # Build Go binaries using just (upstream migrated from Make to Just)
 RUN --mount=type=cache,target=/root/.cache \
     --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    JUST_UNSTABLE=1 just op-node op-batcher op-proposer op-challenger op-dispute-mon cannon \
+    JUST_UNSTABLE=1 just ./op-node/op-node \
+    && JUST_UNSTABLE=1 just op-batcher op-proposer op-challenger op-dispute-mon cannon \
     && JUST_UNSTABLE=1 just ./op-conductor/op-conductor
