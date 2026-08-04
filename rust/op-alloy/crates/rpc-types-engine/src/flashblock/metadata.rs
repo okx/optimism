@@ -145,8 +145,14 @@ mod tests {
                 storage_changes: alloc::vec![SlotChanges {
                     slot: U256::from(1),
                     changes: alloc::vec![
-                        StorageChange { block_access_index: BlockAccessIndex(0), new_value: U256::from(100) },
-                        StorageChange { block_access_index: BlockAccessIndex(2), new_value: U256::from(200) },
+                        StorageChange {
+                            block_access_index: BlockAccessIndex(0),
+                            new_value: U256::from(100)
+                        },
+                        StorageChange {
+                            block_access_index: BlockAccessIndex(2),
+                            new_value: U256::from(200)
+                        },
                     ],
                 }],
                 storage_reads: alloc::vec![U256::from(5), U256::from(10)],
@@ -154,7 +160,10 @@ mod tests {
                     block_access_index: BlockAccessIndex(0),
                     post_balance: U256::from(500),
                 }],
-                nonce_changes: alloc::vec![NonceChange { block_access_index: BlockAccessIndex(0), new_nonce: 7 }],
+                nonce_changes: alloc::vec![NonceChange {
+                    block_access_index: BlockAccessIndex(0),
+                    new_nonce: 7
+                }],
                 code_changes: alloc::vec![CodeChange {
                     block_access_index: BlockAccessIndex(1),
                     new_code: Bytes::from_static(&[0x60, 0x00, 0x60, 0x00, 0xfd]),
