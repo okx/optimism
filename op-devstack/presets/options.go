@@ -234,6 +234,22 @@ func WithOPRBuilderOption(opt sysgo.OPRBuilderNodeOption) Option {
 	}
 }
 
+func WithOpRethOption(opt sysgo.OpRethOption) Option {
+	var kinds optionKinds
+	if opt != nil {
+		kinds = optionKindOpReth
+	}
+	return option{
+		kinds: kinds,
+		applyFn: func(cfg *sysgo.PresetConfig) {
+			if opt == nil {
+				return
+			}
+			cfg.OpRethOptions = append(cfg.OpRethOptions, opt)
+		},
+	}
+}
+
 func WithGameTypeAdded(gameType gameTypes.GameType) Option {
 	return option{
 		kinds: optionKindAddedGameType,
@@ -339,6 +355,32 @@ func WithoutHonestProposer() Option {
 		kinds: optionKindSkipHonestProposer,
 		applyFn: func(cfg *sysgo.PresetConfig) {
 			cfg.SkipHonestProposer = true
+		},
+	}
+}
+
+// WithInteropAtGenesis activates the Interop hardfork at genesis on the L2 chain and provisions
+// a DependencySet for op-node startup without a supervisor. Required by presets that exercise
+// Interop-gated consensus features (e.g. SDM PostExec).
+func WithInteropAtGenesis() Option {
+	return option{
+		kinds: optionKindInteropAtGenesis,
+		applyFn: func(cfg *sysgo.PresetConfig) {
+			cfg.InteropAtGenesis = true
+		},
+	}
+}
+
+// WithSupernodeVNSequencerForBootstrap enables sequencing on the supernode VN of
+// the light-sequencer supernode interop preset and starts the light follow-mode
+// ELSync sequencers stopped, so the VN can bootstrap the chain the light sequencers
+// EL-sync from. Pair with the system's BootstrapLightSequencersViaVNHandoff method,
+// which drives the bootstrap and hands sequencing off to the light sequencers (#21164).
+func WithSupernodeVNSequencerForBootstrap() Option {
+	return option{
+		kinds: optionKindSupernodeVNSequencerForBootstrap,
+		applyFn: func(cfg *sysgo.PresetConfig) {
+			cfg.SupernodeVNSequencerForBootstrap = true
 		},
 	}
 }

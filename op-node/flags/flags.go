@@ -126,10 +126,12 @@ var (
 	}
 	SyncModeReqRespFlag = &cli.BoolFlag{
 		Name:     "syncmode.req-resp",
+		Usage:    "Deprecated, no-op flag. The Req/Resp CL P2P sync protocol has been removed; this is always disabled.",
 		Required: false,
 		Value:    false,
 		EnvVars:  prefixEnvVars("SYNCMODE_REQ_RESP"),
 		Category: RollupCategory,
+		Hidden:   true,
 	}
 	SyncModeOffsetELSafeFlag = &cli.DurationFlag{
 		Name: "syncmode.offset-el-safe",
@@ -221,7 +223,7 @@ var (
 			openum.EnumString(engine.Kinds),
 		EnvVars: prefixEnvVars("L2_ENGINE_KIND"),
 		Value: func() *engine.Kind {
-			out := engine.Geth
+			out := engine.Reth
 			return &out
 		}(),
 		Category: RollupCategory,
@@ -452,6 +454,8 @@ var requiredFlags = []cli.Flag{
 	// XLayer: L1NodeAddr moved to optionalFlags to support --l2.follow.source.skip-l1-check mode.
 	// L1 requirement is validated at config.Check() level instead.
 	L2EngineAddr,
+	// XLayer: KMS reuses this flag (its value may be a kms:<name> reference),
+	// so the JWT secret is still supplied here and remains required.
 	L2EngineJWTSecret,
 }
 
@@ -464,7 +468,6 @@ var optionalFlags = []cli.Flag{
 	BeaconFetchAllSidecars,
 	BeaconSlotDurationOverride,
 	SyncModeFlag,
-	SyncModeReqRespFlag,
 	SyncModeOffsetELSafeFlag,
 	FetchWithdrawalRootFromState,
 	L1TrustRPC,
@@ -510,6 +513,7 @@ var DeprecatedFlags = []cli.Flag{
 	BetaExtraNetworks,
 	BackupL2UnsafeSyncRPC,
 	BackupL2UnsafeSyncRPCTrustRPC,
+	SyncModeReqRespFlag,
 	// Deprecated P2P Flags are added at the init step
 }
 

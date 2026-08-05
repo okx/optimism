@@ -1,0 +1,37 @@
+[package]
+name = "xlayer-kms"
+description = "X Layer: KMS-backed secret resolution for kms:<name> references"
+
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+authors = ["X Layer Contributors"]
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+# The private KMS SDK, enabled by the `kms` feature.
+#
+# This is a path dependency, NOT the git dependency you might expect, and that is
+# deliberate. Cargo resolves the dependency graph without regard for features:
+# `optional = true` decides whether a crate is *compiled*, not whether it is
+# *resolved*. A git dependency on gitlab.okg.com here would therefore make every
+# `cargo check`/`clippy`/`test` in this workspace — with or without the `kms`
+# feature — fail for anyone without gitlab.okg.com SSH access, including CI's
+# `cargo clippy --workspace --all-features`.
+#
+# So the committed manifest points at the in-tree stub under stubs/, which needs
+# no network. `just kms-crate` swaps that directory for a real checkout before a
+# production KMS build; see the stub's lib.rs for how to tell the two apart in a
+# built binary.
+ok-kms-rust = { path = "stubs/ok-kms-rust", optional = true }
+
+[features]
+default = []
+kms = ["dep:ok-kms-rust"]

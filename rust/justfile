@@ -2,10 +2,16 @@ set positional-arguments
 
 NIGHTLY := `grep -oE 'nightly-[0-9]{4}-[0-9]{2}-[0-9]{2}' ../mise.toml | head -1`
 
+# The SP1 guest programs live in a nested Cargo workspace (separate for SP1
+# crypto patch isolation), so fmt/clippy must target its manifest explicitly.
+# Run from this directory so it shares rust/rustfmt.toml and rust/clippy.toml.
+SP1_GUEST_MANIFEST := "kona/sp1/programs/Cargo.toml"
+
 # Aliases
 alias t := test
 alias l := lint
 alias f := fmt-fix
+alias fmt := fmt-fix
 alias b := build
 
 # default recipe to display help information
@@ -19,6 +25,38 @@ install-nightly:
   rustup toolchain install {{NIGHTLY}} --component rustfmt --component rust-src
 
 ############################### Build ###############################
+
+# X Layer: the private KMS SDK. The committed manifest of xlayer-kms points at
+# the in-tree stub under xlayer-kms/stubs/ok-kms-rust instead, because Cargo
+# resolves dependencies regardless of features — a git dependency here would
+# break every cargo command in this workspace for anyone without gitlab.okg.com
+# access, `optional = true` notwithstanding. Bump KMS_CRATE_TAG to upgrade.
+KMS_CRATE_URL := env('KMS_CRATE_URL', 'ssh://git@gitlab.okg.com/okcoin-commons/ok-kms-rust.git')
+KMS_CRATE_TAG := env('KMS_CRATE_TAG', 'v1.0.0')
+KMS_STUB_DIR := "xlayer-kms/stubs/ok-kms-rust"
+
+[doc("Swaps the ok-kms-rust stub for a real checkout, for `--features kms` builds (needs gitlab.okg.com access).")]
+[script('bash')]
+kms-crate:
+  set -euo pipefail
+  # Replace the stub in place: the path dependency, and therefore Cargo.toml,
+  # stays untouched. Only the directory contents change, so nothing needs to be
+  # regenerated or committed. Note that the real SDK pulls in its own
+  # dependencies, so Cargo.lock does change — KMS builds cannot use --locked.
+  if grep -q OK_KMS_STUB {{KMS_STUB_DIR}}/src/lib.rs 2>/dev/null; then
+    rm -rf {{KMS_STUB_DIR}}
+    git clone --depth 1 --branch {{KMS_CRATE_TAG}} {{KMS_CRATE_URL}} {{KMS_STUB_DIR}}
+    rm -rf {{KMS_STUB_DIR}}/.git
+    echo "swapped in {{KMS_CRATE_URL}} @ {{KMS_CRATE_TAG}}"
+  else
+    echo "{{KMS_STUB_DIR}} is already a real checkout; run `git checkout -- {{KMS_STUB_DIR}}` to restore the stub"
+  fi
+
+[doc("Restores the ok-kms-rust stub, undoing kms-crate.")]
+kms-crate-restore:
+  git checkout -- {{KMS_STUB_DIR}}
+  git clean -fdq {{KMS_STUB_DIR}}
+  @echo "restored the ok-kms-rust stub"
 
 # Build the workspace
 build *args='':
@@ -50,6 +88,12 @@ build-no-examples *args='':
 build-release *args='':
   cargo build --workspace --release {{args}}
 
+# Build the kona-sp1 crates under the host toolchain.
+build-sp1:
+  cargo build -p kona-sp1-host-utils -p kona-sp1-client-utils \
+    -p kona-sp1-ethereum-host-utils -p kona-sp1-ethereum-client-utils \
+    -p kona-sp1-proof-utils -p kona-sp1-build-utils -p kona-sp1-elfs
+
 # Build kona-node
 build-kona-node:
   cargo build --release --bin kona-node
@@ -57,6 +101,31 @@ build-kona-node:
 # Build kona-node in debug mode (faster compilation for local E2E test iteration)
 build-kona-node-debug:
   cargo build --bin kona-node
+
+# X Layer: build kona-node with KMS support, swapping in the real SDK first.
+# kms-crate is idempotent (it skips the clone when the checkout is already
+# real), so repeat builds cost one grep.
+#
+# This therefore needs gitlab.okg.com access and leaves the swapped-in checkout
+# in the working tree — run `just kms-crate-restore` before committing. To
+# merely compile-check the KMS code path without either, build against the stub
+# directly: `cargo build -p kona-node --features kms`.
+#
+# No --locked: the real SDK brings its own dependencies, so Cargo.lock (which is
+# committed against the stub) legitimately changes.
+[doc("Builds kona-node with KMS support linked in (swaps in the real SDK via kms-crate).")]
+[script('bash')]
+build-kona-node-kms: kms-crate
+  set -euo pipefail
+  cargo build --release -p kona-node --features kms
+  bin=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)/release/kona-node
+  # kms-crate ran, so the stub must be gone. If its marker survived, the swap
+  # silently did not take effect and this binary cannot resolve any secret.
+  if grep -qa OK_KMS_STUB "$bin"; then
+    echo "error: $bin is linked against the ok-kms-rust stub despite kms-crate; refusing to pass it off as a KMS build" >&2
+    exit 1
+  fi
+  echo "built $bin"
 
 alias build-node := build-kona-node
 
@@ -87,20 +156,52 @@ test-docs:
 
 ############################### Lint ################################
 
-# Run all lints
-lint: fmt-check lint-clippy lint-docs
+# Run all lints (includes the SP1 guest program workspace)
+lint: fmt-check lint-clippy lint-docs lint-sp1-guest
 
 # Check formatting (requires nightly)
 fmt-check:
   cargo +{{NIGHTLY}} fmt --all -- --check
 
-# Fix formatting (requires nightly)
-fmt-fix:
+# Fix formatting (requires nightly); also formats the SP1 guest workspace
+fmt-fix: fmt-fix-sp1-guest
   cargo +{{NIGHTLY}} fmt --all
 
 # Run clippy
 lint-clippy:
   cargo clippy --workspace --all-features --all-targets -- -D warnings
+
+# lock check + fmt-check + clippy for the SP1 guest program workspace (shared by `just lint` and CI)
+lint-sp1-guest: check-sp1-guest-lock fmt-check-sp1-guest lint-clippy-sp1-guest
+
+# Runs before the `--locked` clippy so a kona-only dependency change produces a
+# clear fix hint instead of cargo's cryptic "cannot update the lock file because
+# --locked was passed" error.
+# Verify the SP1 guest Cargo.lock is in sync with its manifests and path-deps
+[script('bash')]
+check-sp1-guest-lock:
+  if ! cargo metadata --manifest-path {{SP1_GUEST_MANIFEST}} --format-version 1 --locked >/dev/null 2>&1; then
+    echo "error: SP1 guest Cargo.lock (rust/kona/sp1/programs/Cargo.lock) is out of date." >&2
+    echo "       A rust/ kona crate's dependencies likely changed; the guest workspace" >&2
+    echo "       path-depends on those crates, so its separate lockfile needs refreshing." >&2
+    echo "       Fix: run \`just lock-sp1-guest\` from rust/ and commit the updated lockfile." >&2
+    exit 1
+  fi
+
+# Resolves without --locked (minimal change), so it only touches entries that
+# actually moved rather than bumping unrelated guest deps.
+# Refresh the SP1 guest Cargo.lock after changing kona crates it depends on
+lock-sp1-guest:
+  cargo metadata --manifest-path {{SP1_GUEST_MANIFEST}} --format-version 1 >/dev/null
+
+fmt-check-sp1-guest:
+  cargo +{{NIGHTLY}} fmt --manifest-path {{SP1_GUEST_MANIFEST}} --all -- --check
+
+fmt-fix-sp1-guest:
+  cargo +{{NIGHTLY}} fmt --manifest-path {{SP1_GUEST_MANIFEST}} --all
+
+lint-clippy-sp1-guest:
+  cargo clippy --manifest-path {{SP1_GUEST_MANIFEST}} --workspace --all-features --all-targets --locked -- -D warnings
 
 # Lint Rust documentation
 lint-docs:
@@ -283,7 +384,7 @@ release TARGET VERSION MODE="dry" *ARGS="":
     KONA_BATCH_1="kona-genesis kona-macros kona-mpt kona-preimage kona-serde kona-sources kona-registry kona-std-fpvm kona-cli kona-peers kona-protocol kona-std-fpvm-proc kona-disc kona-engine kona-executor kona-hardforks"
     KONA_BATCH_2="kona-interop example-discovery kona-gossip execution-fixture kona-derive kona-rpc kona-driver kona-providers-alloy kona-providers-local kona-proof kona-node-service kona-proof-interop example-gossip kona-node kona-client kona-host"
 
-    ACTUAL_KONA=$(echo "$METADATA" | jq -r '.packages[] | select(.manifest_path | contains("/rust/kona/")) | .name' | sort -u)
+    ACTUAL_KONA=$(echo "$METADATA" | jq -r '.packages[] | select((.manifest_path | contains("/rust/kona/")) and (.manifest_path | contains("/rust/kona/sp1/") | not)) | .name' | sort -u)
     EXPECTED_KONA=$(echo "$KONA_BATCH_1 $KONA_BATCH_2" | tr ' ' '\n' | sort -u)
     if [[ "$ACTUAL_KONA" != "$EXPECTED_KONA" ]]; then
       echo "error: hardcoded kona batches don't match actual kona crates." >&2

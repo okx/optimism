@@ -11,11 +11,18 @@ import (
 	"github.com/ethereum-optimism/optimism/op-node/p2p"
 	"github.com/ethereum-optimism/optimism/op-service/cliiface"
 	opsigner "github.com/ethereum-optimism/optimism/op-service/signer"
+	xlayerkms "github.com/ethereum-optimism/optimism/op-service/xlayer/kms"
 )
 
 // LoadSignerSetup loads a configuration for a Signer to be set up later
 func LoadSignerSetup(ctx cliiface.Context, logger log.Logger) (p2p.SignerSetup, error) {
 	key := ctx.String(flags.SequencerP2PKeyName)
+	// X Layer: resolve a KMS key reference (kms:<name>) if present;
+	// plaintext hex passes through unchanged.
+	key, err := xlayerkms.MaybeResolve(key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve sequencer p2p key: %w", err)
+	}
 	signerCfg := opsigner.ReadCLIConfig(ctx)
 	if key != "" && signerCfg.Enabled() {
 		return nil, fmt.Errorf("cannot specify both a private key and a remote signer for sequencer p2p")

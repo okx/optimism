@@ -1,0 +1,50 @@
+# Single stage build with Go
+FROM online-registry.cn-hongkong.cr.aliyuncs.com/okbase/golang:1.26.4-just-foundry as builder
+WORKDIR /root
+
+# Tools needed by op-core/superchain/sync-superchain.sh (see Dockerfile-opstack):
+# jq + zip from apt; yq must be mikefarah's Go v4 (Debian's apt yq is the Python
+# one and can't parse the registry's TOML), built via the Go module proxy so no
+# github.com access is needed. YQ_VERSION tracks mise.toml. Installed before
+# COPY so these layers cache across source changes. The trailing --version runs
+# turn a bad version/arch into a loud failure here instead of deep in the build.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends jq zip \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* \
+    && jq --version && zip -v | head -n 2
+ARG YQ_VERSION=v4.44.5
+RUN GOBIN=/usr/local/bin go install github.com/mikefarah/yq/v4@${YQ_VERSION} \
+    && yq --version
+
+COPY . .
+
+# X Layer: allow `go build` to fetch private gitlab.okg.com Go modules
+# (e.g. ok-kms-go). GIT_TOKEN is passed in at build time via --build-arg
+# (use $CI_JOB_TOKEN). The token only lives in this discarded builder stage,
+# never in the final image. ok-kms-go must allowlist this project's job token.
+ARG GIT_TOKEN
+ENV GOPRIVATE=gitlab.okg.com/*
+RUN git config --global \
+      url."https://gitlab-ci-token:${GIT_TOKEN}@gitlab.okg.com/".insteadOf \
+      "https://gitlab.okg.com/"
+
+# op-node embeds op-core/superchain/superchain-configs.zip via //go:embed. It's
+# gitignored and regenerated git-free from the superchain-registry data copied
+# into the context (see .dockerignore), verifying against the committed .sha256.
+# Same step as upstream ops/docker/op-stack-go/Dockerfile.
+RUN bash op-core/superchain/sync-superchain.sh
+
+# Generate go.kms.mod / go.kms.sum: ok-kms-go is deliberately absent from go.mod
+# (so `go get` and downstream imports of this repo work without gitlab.okg.com
+# credentials), and this adds the require back for this build only.
+RUN just kms-modfile
+
+# Build Go binaries with user-provided metadata.
+# KMS=1 selects -tags kms plus the generated module file above; without
+# it the private ok-kms-go module is not compiled at all.
+RUN cd op-node && KMS=1 just
+FROM online-registry.cn-hongkong.cr.aliyuncs.com/okbase/alpine:3.18.3-okg1
+# Copy op-node binary
+COPY --from=builder  /root/op-node/bin/op-node /usr/local/bin/op-node
+WORKDIR /root
+CMD ["op-node"]

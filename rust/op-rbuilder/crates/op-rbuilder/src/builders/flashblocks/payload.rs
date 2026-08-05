@@ -4,8 +4,8 @@ use crate::{
         BuilderConfig,
         builder_tx::BuilderTransactions,
         context::{
-            BlockBuilderStateDbExt, OpPayloadBuilderCtx, compute_post_exec_mode,
-            last_receipt_with_cumulative_gas,
+            BlockBuilderStateDbExt, OpPayloadBuilderCtx, build_current_post_exec_tx,
+            compute_post_exec_mode, last_receipt_with_cumulative_gas,
         },
         flashblocks::{best_txs::BestFlashblocksTxs, config::FlashBlocksConfigExt},
         generator::{BlockCell, BuildArguments, PayloadBuilder},
@@ -16,7 +16,7 @@ use crate::{
     traits::{ClientBounds, PoolBounds},
 };
 use alloy_consensus::{
-    BlockBody, EMPTY_OMMER_ROOT_HASH, Header, Sealable, constants::EMPTY_WITHDRAWALS, proofs,
+    BlockBody, EMPTY_OMMER_ROOT_HASH, Header, constants::EMPTY_WITHDRAWALS, proofs,
 };
 use alloy_eips::{Encodable2718, eip7685::EMPTY_REQUESTS_HASH, merge::BEACON_NONCE};
 use alloy_evm::block::BlockExecutor as AlloyBlockExecutor;
@@ -24,7 +24,7 @@ use alloy_op_evm::PreRefundGasUsed;
 use alloy_primitives::{Address, B256, U256, map::foldhash::HashMap};
 use core::time::Duration;
 use eyre::WrapErr as _;
-use op_alloy_consensus::{SDMGasEntry, build_post_exec_tx};
+use op_alloy_consensus::SDMGasEntry;
 use reth_basic_payload_builder::{BuildOutcome, PayloadConfig};
 use reth_chainspec::EthChainSpec;
 use reth_evm::{ConfigureEvm, execute::BlockBuilder};
@@ -331,6 +331,7 @@ where
             max_gas_per_txn: self.config.max_gas_per_txn,
             address_gas_limiter: self.address_gas_limiter.clone(),
             post_exec_mode,
+            interop_failsafe: self.config.interop_failsafe.clone(),
         })
     }
 
@@ -1057,6 +1058,7 @@ where
             cached_reads: args.cached_reads,
             config: PayloadConfig {
                 parent_header: args.config.parent_header,
+                parent_block_info: args.config.parent_block_info,
                 attributes: builder_attrs,
                 payload_id,
             },
@@ -1219,22 +1221,6 @@ where
         gas_used,
         post_exec_tx,
     })
-}
-
-fn build_current_post_exec_tx<ExtraCtx>(
-    ctx: &OpPayloadBuilderCtx<ExtraCtx>,
-    entries: Vec<SDMGasEntry>,
-) -> Option<OpTransactionSigned>
-where
-    ExtraCtx: std::fmt::Debug + Default,
-{
-    if !matches!(ctx.post_exec_mode, PostExecMode::Produce) || entries.is_empty() {
-        return None;
-    }
-
-    Some(OpTransactionSigned::from(
-        build_post_exec_tx(ctx.block_number(), entries).seal_slow(),
-    ))
 }
 
 #[allow(clippy::type_complexity)]
