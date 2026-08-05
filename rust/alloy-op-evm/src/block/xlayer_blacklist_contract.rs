@@ -18,12 +18,15 @@ pub const XLAYER_TESTNET_CHAIN_ID: u64 = 1952;
 /// X Layer mainnet chain ID.
 pub const XLAYER_MAINNET_CHAIN_ID: u64 = 196;
 
-/// Devnet blacklist contract. Set this once the proxy is deployed.
-pub const XLAYER_DEVNET_BLACKLIST_CONTRACT: Option<Address> = None;
-/// Testnet blacklist contract. Set this once the proxy is deployed.
-pub const XLAYER_TESTNET_BLACKLIST_CONTRACT: Option<Address> = None;
-/// Mainnet blacklist contract. Set this once the proxy is deployed.
-pub const XLAYER_MAINNET_BLACKLIST_CONTRACT: Option<Address> = None;
+/// Devnet blacklist proxy.
+pub const XLAYER_DEVNET_BLACKLIST_CONTRACT: Option<Address> =
+    Some(address!("0xb1ac000000000000000000000000000000000001"));
+/// Testnet blacklist proxy.
+pub const XLAYER_TESTNET_BLACKLIST_CONTRACT: Option<Address> =
+    Some(address!("0x59055c0ef0be92018b33f877a3eB816355791727"));
+/// Mainnet blacklist proxy.
+pub const XLAYER_MAINNET_BLACKLIST_CONTRACT: Option<Address> =
+    Some(address!("0x59055c0ef0be92018b33f877a3eB816355791727"));
 
 /// L1 attributes depositor account. The system flag is false after Regolith, so the caller must
 /// also be checked explicitly.
@@ -34,8 +37,7 @@ const IS_BLACKLISTED_SELECTOR: [u8; 4] = [0x6b, 0x62, 0x3b, 0xbe];
 
 /// Returns the configured blacklist proxy for `chain_id`.
 ///
-/// All supported networks intentionally return `None` until their independent deployments are
-/// known. Unknown chains never inherit another network's address.
+/// Unknown chains never inherit a supported network's address.
 #[inline]
 pub const fn xlayer_blacklist_contract(chain_id: u64) -> Option<Address> {
     match chain_id {
@@ -411,49 +413,41 @@ mod tests {
     }
 
     #[test]
-    fn unconfigured_and_unknown_chain_skip_query() {
-        for chain_id in
-            [XLAYER_DEVNET_CHAIN_ID, XLAYER_TESTNET_CHAIN_ID, XLAYER_MAINNET_CHAIN_ID, 1]
-        {
-            assert_eq!(xlayer_blacklist_contract(chain_id), None);
-        }
-    }
-
-    #[test]
-    fn placeholder_address_state_is_explicit() {
+    fn configured_addresses_match_deployments() {
         assert_eq!(
-            [
-                XLAYER_DEVNET_BLACKLIST_CONTRACT,
-                XLAYER_TESTNET_BLACKLIST_CONTRACT,
-                XLAYER_MAINNET_BLACKLIST_CONTRACT,
-            ],
-            [None, None, None]
+            XLAYER_DEVNET_BLACKLIST_CONTRACT,
+            Some(address!("0xb1ac000000000000000000000000000000000001"))
         );
+        assert_eq!(
+            XLAYER_TESTNET_BLACKLIST_CONTRACT,
+            Some(address!("0x59055c0ef0be92018b33f877a3eB816355791727"))
+        );
+        assert_eq!(XLAYER_MAINNET_BLACKLIST_CONTRACT, XLAYER_TESTNET_BLACKLIST_CONTRACT);
     }
 
     #[test]
-    fn configured_addresses_are_nonzero_and_distinct() {
-        fn valid(addresses: &[Option<Address>]) -> bool {
-            let configured = addresses.iter().flatten().copied().collect::<alloc::vec::Vec<_>>();
-            configured.iter().all(|address| !address.is_zero()) &&
-                configured
-                    .iter()
-                    .enumerate()
-                    .all(|(index, address)| !configured[index + 1..].contains(address))
+    fn chain_id_mapping_uses_configured_addresses() {
+        for (chain_id, contract) in [
+            (XLAYER_DEVNET_CHAIN_ID, XLAYER_DEVNET_BLACKLIST_CONTRACT),
+            (XLAYER_TESTNET_CHAIN_ID, XLAYER_TESTNET_BLACKLIST_CONTRACT),
+            (XLAYER_MAINNET_CHAIN_ID, XLAYER_MAINNET_BLACKLIST_CONTRACT),
+        ] {
+            assert_eq!(xlayer_blacklist_contract(chain_id), contract);
         }
+        assert_eq!(xlayer_blacklist_contract(1), None);
+    }
 
-        assert!(valid(&[
+    #[test]
+    fn configured_addresses_are_nonzero() {
+        for address in [
             XLAYER_DEVNET_BLACKLIST_CONTRACT,
             XLAYER_TESTNET_BLACKLIST_CONTRACT,
             XLAYER_MAINNET_BLACKLIST_CONTRACT,
-        ]));
-        assert!(valid(&[None, None, None]));
-        assert!(valid(&[
-            Some(Address::repeat_byte(1)),
-            Some(Address::repeat_byte(2)),
-            Some(Address::repeat_byte(3)),
-        ]));
-        assert!(!valid(&[Some(Address::ZERO), None, None]));
-        assert!(!valid(&[Some(Address::repeat_byte(1)), Some(Address::repeat_byte(1)), None,]));
+        ]
+        .into_iter()
+        .flatten()
+        {
+            assert!(!address.is_zero());
+        }
     }
 }
