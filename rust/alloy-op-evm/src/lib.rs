@@ -300,15 +300,13 @@ where
         // The system call replaces the context transaction on both success and error. Restore the
         // original deposit before either propagating an infrastructure error or running common
         // post-exec cleanup, which classifies the current transaction and records warming state.
-        self.inner.0.ctx.set_tx(op_tx.clone());
+        self.ctx_mut().set_tx(op_tx.clone());
 
         if !is_blacklisted? {
             return Ok(None);
         }
 
-        let handler =
-            OpHandler::<_, EVMError<DB::Error, OpTransactionError>, EthFrame<EthInterpreter>>::new(
-            );
+        let handler = OpHandler::<_, _, EthFrame<EthInterpreter>>::new();
         let error = EVMError::Transaction(OpTransactionError::Base(InvalidTransaction::Str(
             "deposit blacklisted".into(),
         )));
