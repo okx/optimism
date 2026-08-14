@@ -393,4 +393,26 @@ mod tests {
         assert!(value.get("gasRefundEntries").is_none());
         assert!(value.get("version").is_none());
     }
+
+    mod xlayer_tests {
+        use super::*;
+        use alloy_consensus::{SignableTransaction, TxEip1559};
+        use alloy_primitives::Signature;
+
+        #[test]
+        fn zero_fee_eip1559_canonical_transaction_has_zero_gas_price() {
+            let tx =
+                TxEip1559 { max_fee_per_gas: 0, max_priority_fee_per_gas: 0, ..Default::default() };
+            let tx = OpTxEnvelope::Eip1559(tx.into_signed(Signature::test_signature()));
+            // `OpTxInfoMapper` clears the block base fee for canonical zero-fee transactions before
+            // constructing this metadata, preserving the executor's gasless effective price.
+            let rpc_tx = Transaction::from_transaction(
+                Recovered::new_unchecked(tx, Address::ZERO),
+                OpTransactionInfo::default(),
+            );
+
+            assert_eq!(rpc_tx.inner.effective_gas_price, Some(0));
+            assert_eq!(serde_json::to_value(&rpc_tx).unwrap()["gasPrice"], "0x0");
+        }
+    }
 }

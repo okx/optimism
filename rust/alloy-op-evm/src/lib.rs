@@ -288,9 +288,10 @@ where
         self.last_tx_post_exec_result = post_exec::PostExecExecutedTx::default();
 
         let op_tx = OpTx(tx.into());
-        let pre_basefee = self.inner.0.ctx.block.basefee;
-        if op_tx.is_gasless {
-            self.inner.0.ctx.block.basefee = 0;
+        let is_gasless = op_tx.is_gasless;
+        let pre_disable_base_fee = self.inner.0.ctx.cfg.disable_base_fee;
+        if is_gasless {
+            self.inner.0.ctx.modify_cfg(|cfg| cfg.disable_base_fee = true);
         }
 
         let track_post_exec = self.post_exec_tracking_active;
@@ -300,7 +301,9 @@ where
             self.inner.transact(op_tx)
         };
 
-        self.inner.0.ctx.block.basefee = pre_basefee;
+        if is_gasless {
+            self.inner.0.ctx.modify_cfg(|cfg| cfg.disable_base_fee = pre_disable_base_fee);
+        }
 
         if track_post_exec {
             if self.inner.0.ctx.tx.tx_type() !=
@@ -456,6 +459,19 @@ mod tests {
 
     /// Runtime of a contract that reads (warms) storage slot 0: `PUSH1 0x00; SLOAD; POP; STOP`.
     const WARMING_CONTRACT_CODE: [u8; 5] = [0x60, 0x00, 0x54, 0x50, 0x00];
+
+    /// Runtime that returns `BASEFEE` and `GASPRICE` as two consecutive ABI words.
+    const GAS_OPCODE_PROBE_CODE: [u8; 13] = [
+        0x48, // BASEFEE
+        0x60, 0x00, // PUSH1 0
+        0x52, // MSTORE
+        0x3a, // GASPRICE
+        0x60, 0x20, // PUSH1 32
+        0x52, // MSTORE
+        0x60, 0x40, // PUSH1 64
+        0x60, 0x00, // PUSH1 0
+        0xf3, // RETURN
+    ];
 
     fn legacy_op_tx(nonce: u64, caller: Address, target: Address) -> OpTx {
         let tx =
@@ -684,23 +700,50 @@ mod tests {
                 CfgEnv::new_with_spec(OpSpecId::REGOLITH),
                 BlockEnv { basefee: 100, gas_limit: 30_000, ..Default::default() },
             );
-            let tx = OpTransaction::builder()
-                .base(TxEnv::builder().gas_limit(21_000).gas_price(0))
+            let legacy = OpTransaction::builder()
+                .base(TxEnv::builder().tx_type(Some(0)).gas_limit(21_000).gas_price(0))
+                .build_fill();
+            let eip1559 = OpTransaction::builder()
+                .base(
+                    TxEnv::builder()
+                        .tx_type(Some(2))
+                        .gas_limit(21_000)
+                        .gas_price(0)
+                        .gas_priority_fee(Some(0)),
+                )
                 .build_fill();
 
-            // A zero-priced non-gasless tx is rejected: gas price (0) is below the base fee (100).
-            let mut evm = OpEvmFactory::default().create_evm(EmptyDB::default(), env.clone());
-            assert!(evm.transact(OpTx(tx.clone())).is_err());
+            for (name, expected_type, tx) in [("legacy", 0, legacy), ("EIP-1559", 2, eip1559)] {
+                assert_eq!(tx.base.tx_type(), expected_type, "wrong tx type for {name} case");
 
-            // The same tx flagged gasless executes because `transact_raw` (which `transact`
-            // delegates to) zeroes the base fee for the duration of the tx, then restores it.
-            let mut evm = OpEvmFactory::default().create_evm(EmptyDB::default(), env);
-            assert!(evm.transact(OpTx(OpTransaction { is_gasless: true, ..tx })).is_ok());
-            assert_eq!(evm.ctx().block.basefee, 100);
+                // A zero-fee non-gasless tx is rejected because its gas/max fee (0) is below the
+                // block base fee (100).
+                let mut evm = OpEvmFactory::default().create_evm(EmptyDB::default(), env.clone());
+                let err = evm.transact(OpTx(tx.clone())).unwrap_err();
+                assert!(
+                    matches!(
+                        err,
+                        EVMError::Transaction(OpTxError(op_revm::OpTransactionError::Base(
+                            revm::context_interface::result::InvalidTransaction::GasPriceLessThanBasefee
+                        )))
+                    ),
+                    "expected GasPriceLessThanBasefee for {name}, got {err:?}"
+                );
+
+                // The same tx flagged gasless executes because `transact_raw` (which `transact`
+                // delegates to) disables only base-fee validation for the duration of the tx.
+                let mut evm = OpEvmFactory::default().create_evm(EmptyDB::default(), env.clone());
+                assert!(
+                    evm.transact(OpTx(OpTransaction { is_gasless: true, ..tx })).is_ok(),
+                    "gasless {name} transaction should execute"
+                );
+                assert_eq!(evm.ctx().block.basefee, 100);
+                assert!(!evm.ctx().cfg.disable_base_fee);
+            }
         }
 
         #[test]
-        fn test_gasless_tx_restores_basefee_when_tx_fails() {
+        fn test_gasless_tx_restores_basefee_check_when_tx_fails() {
             let mut evm = OpEvmFactory::default().create_evm(
                 EmptyDB::default(),
                 EvmEnv::new(
@@ -709,17 +752,132 @@ mod tests {
                 ),
             );
             // Gas limit (21000) exceeds the block gas limit (20000), so the tx is rejected even
-            // though it is gasless: zeroing the base fee only relaxes the fee check, not other
+            // though it is gasless: disabling the base-fee check does not relax any other
             // validation. This gives us a failing gasless tx to exercise the error path.
             let tx = OpTransaction::builder()
                 .base(TxEnv::builder().gas_limit(21_000).gas_price(0))
                 .gasless(true)
                 .build_fill();
 
-            // `transact_raw` (which `transact` delegates to) restores the base fee on the error
-            // path, not just on success.
+            // `transact_raw` (which `transact` delegates to) restores the cfg on the error path,
+            // not just on success.
             assert!(evm.transact(OpTx(tx)).is_err());
             assert_eq!(evm.ctx().block.basefee, 100);
+            assert!(!evm.ctx().cfg.disable_base_fee);
+        }
+
+        #[test]
+        fn test_gasless_tx_restores_basefee_check_after_revert() {
+            let caller = Address::from([0x11; 20]);
+            let target = Address::from([0x22; 20]);
+            let mut db = InMemoryDB::default();
+            db.insert_account_info(
+                caller,
+                AccountInfo { balance: U256::from(1_000_000_000u64), ..Default::default() },
+            );
+            // `PUSH1 0; PUSH1 0; REVERT` exercises a completed EVM execution whose result is an
+            // execution failure rather than a transaction-validation error.
+            db.insert_account_info(
+                target,
+                AccountInfo {
+                    code: Some(Bytecode::new_raw(Bytes::from_static(&[
+                        0x60, 0x00, 0x60, 0x00, 0xfd,
+                    ]))),
+                    ..Default::default()
+                },
+            );
+            let mut evm = OpEvmFactory::default().create_evm(
+                db,
+                EvmEnv::new(
+                    CfgEnv::new_with_spec(OpSpecId::REGOLITH),
+                    BlockEnv { basefee: 100, gas_limit: 1_000_000, ..Default::default() },
+                ),
+            );
+            let tx = OpTransaction::builder()
+                .base(
+                    TxEnv::builder()
+                        .caller(caller)
+                        .kind(TxKind::Call(target))
+                        .gas_limit(100_000)
+                        .gas_price(0),
+                )
+                .gasless(true)
+                .build_fill();
+
+            let result = evm.transact(OpTx(tx)).expect("reverting tx should execute");
+            assert!(!result.result.is_success());
+            assert_eq!(evm.ctx().block.basefee, 100);
+            assert!(!evm.ctx().cfg.disable_base_fee);
+        }
+
+        #[test]
+        fn test_gasless_tx_preserves_pre_disabled_basefee_check() {
+            let mut cfg = CfgEnv::new_with_spec(OpSpecId::REGOLITH);
+            cfg.disable_base_fee = true;
+            let mut evm = OpEvmFactory::default().create_evm(
+                EmptyDB::default(),
+                EvmEnv::new(
+                    cfg,
+                    BlockEnv { basefee: 100, gas_limit: 30_000, ..Default::default() },
+                ),
+            );
+            let tx = OpTransaction::builder()
+                .base(TxEnv::builder().gas_limit(21_000).gas_price(0))
+                .gasless(true)
+                .build_fill();
+
+            assert!(evm.transact(OpTx(tx)).is_ok());
+            assert_eq!(evm.ctx().block.basefee, 100);
+            assert!(evm.ctx().cfg.disable_base_fee);
+        }
+
+        #[test]
+        fn test_gasless_tx_observes_real_basefee_and_zero_gasprice() {
+            let caller = Address::from([0x11; 20]);
+            let target = Address::from([0x22; 20]);
+            let mut db = InMemoryDB::default();
+            db.insert_account_info(
+                caller,
+                AccountInfo { balance: U256::from(1_000_000_000u64), ..Default::default() },
+            );
+            db.insert_account_info(
+                target,
+                AccountInfo {
+                    code: Some(Bytecode::new_raw(Bytes::from_static(&GAS_OPCODE_PROBE_CODE))),
+                    ..Default::default()
+                },
+            );
+
+            // Run the opcode probe through the inspector path as well: trace callers share this
+            // same `transact_raw` cfg toggle and must observe identical gasless semantics.
+            let mut evm = OpEvmFactory::default().create_evm_with_inspector(
+                db,
+                EvmEnv::new(
+                    CfgEnv::new_with_spec(OpSpecId::REGOLITH),
+                    BlockEnv { basefee: 100, gas_limit: 1_000_000, ..Default::default() },
+                ),
+                NoOpInspector {},
+            );
+            let tx = OpTransaction::builder()
+                .base(
+                    TxEnv::builder()
+                        .tx_type(Some(2))
+                        .caller(caller)
+                        .kind(TxKind::Call(target))
+                        .gas_limit(100_000)
+                        .gas_price(0)
+                        .gas_priority_fee(Some(0)),
+                )
+                .gasless(true)
+                .build_fill();
+
+            let result = evm.transact(OpTx(tx)).expect("gasless EIP-1559 tx should execute");
+            let output = result.result.output().expect("probe should return opcode values");
+            assert_eq!(output.len(), 64);
+            assert_eq!(U256::from_be_slice(&output[..32]), U256::from(100));
+            assert_eq!(U256::from_be_slice(&output[32..]), U256::ZERO);
+            assert_eq!(evm.ctx().block.basefee, 100);
+            assert!(!evm.ctx().cfg.disable_base_fee);
         }
     }
 }
