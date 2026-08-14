@@ -1790,3 +1790,188 @@ fn gasless_allowance_check_excluded_from_tx_and_block_gas() {
         "block cumulative gas_used must exclude the getGaslessAllowance system call"
     );
 }
+
+/// Same-block, shared-block-EVM cross-transaction isolation for the gasless base-fee bypass. The
+/// block executor and payload builder reuse one EVM for every tx in a block, so these
+/// executor-level tests are the only ones that can catch `cfg.disable_base_fee` leaking from a
+/// gasless transaction into the next transaction of the *same* block.
+///
+/// See [`run_gasless_cfg_isolation_scenario`] for the leak-detection contract (an underpriced
+/// non-gasless sentinel that reuses the following full-price tx's nonce).
+mod xlayer_gasless_isolation {
+    use super::*;
+
+    /// The outcome forced on the leading gasless transaction of the block. Each outcome must leave
+    /// `cfg.disable_base_fee` restored so the sentinel that follows is still rejected.
+    #[derive(Clone, Copy, Debug)]
+    enum GaslessOutcome {
+        /// Gasless tx executes and commits successfully.
+        Success,
+        /// Gasless contract `REVERT`s (executed-but-failed result); still an included tx.
+        Revert,
+        /// Gasless tx fails transaction validation *after* the cfg bypass is toggled (nonce too
+        /// high), exercising the restore-on-validation-error path through `OpEvm::transact_raw`.
+        ValidationError,
+    }
+
+    // Minimal contract returning ABI `(true, 0xffffff)` for any call — approves every gasless query
+    // with an allowance far above the per-tx gas limit. Same layout as
+    // `gasless_allowance_check_excluded_from_tx_and_block_gas`'s `ALLOW_HIGH_GAS_BYTECODE`.
+    const ALLOW_HIGH_GAS_BYTECODE: [u8; 17] = [
+        0x60, 0x01, 0x60, 0x00, 0x52, 0x62, 0xff, 0xff, 0xff, 0x60, 0x20, 0x52, 0x60, 0x40, 0x60,
+        0x00, 0xf3,
+    ];
+    /// Contract runtime that unconditionally reverts: `PUSH1 0x00 PUSH1 0x00 REVERT`.
+    const REVERT_BYTECODE: [u8; 5] = [0x60, 0x00, 0x60, 0x00, 0xfd];
+
+    const BLOCK_GAS_LIMIT: u64 = 30_000_000;
+    const TX_GAS_LIMIT: u64 = 50_000;
+    const HEADER_BASEFEE: u64 = 100;
+
+    const GASLESS_SENDER: Address = Address::new([0x11; 20]);
+    const SENTINEL_NORMAL_SENDER: Address = Address::new([0x22; 20]);
+    const CALL_TARGET: Address = Address::new([0x33; 20]);
+    const REVERT_CONTRACT: Address = Address::new([0x44; 20]);
+
+    fn contract_account(code_bytes: &'static [u8]) -> AccountInfo {
+        let code = Bytecode::new_raw(Bytes::from_static(code_bytes));
+        AccountInfo { code_hash: code.hash_slow(), code: Some(code), ..Default::default() }
+    }
+
+    fn funded_account() -> AccountInfo {
+        AccountInfo { balance: uint!(1_000_000_000_000_000_000_U256), ..Default::default() }
+    }
+
+    /// Builds the leading gasless tx for `outcome`. All are zero-priced (`max_fee_per_gas == 0`)
+    /// so the executor classifies them gasless via the whitelist contract.
+    fn gasless_tx(outcome: GaslessOutcome) -> Recovered<OpTxEnvelope> {
+        let (nonce, to) = match outcome {
+            GaslessOutcome::Success => (0, TxKind::Call(CALL_TARGET)),
+            GaslessOutcome::Revert => (0, TxKind::Call(REVERT_CONTRACT)),
+            // Nonce far ahead of the sender's actual nonce (0) → `NonceTooHigh` inside `transact`,
+            // i.e. after `disable_base_fee` has been toggled on for the gasless tx.
+            GaslessOutcome::ValidationError => (9, TxKind::Call(CALL_TARGET)),
+        };
+        recovered_legacy_from(
+            GASLESS_SENDER,
+            TxLegacy {
+                nonce,
+                gas_price: 0,
+                gas_limit: TX_GAS_LIMIT,
+                to,
+                value: U256::ZERO,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// The underpriced non-gasless **sentinel**. Leak-detection contract:
+    /// - `gas_price > 0` so it is never classified gasless;
+    /// - `gas_price < HEADER_BASEFEE` so, when `disable_base_fee` is correctly restored, it is
+    ///   rejected by the base-fee check and consumes no nonce;
+    /// - shares [`SENTINEL_NORMAL_SENDER`] + nonce `0` with the follow-up full-price tx, so a cfg
+    ///   leak (sentinel wrongly executes) would consume that nonce and break the follow-up tx.
+    fn sentinel_tx() -> Recovered<OpTxEnvelope> {
+        recovered_legacy_from(
+            SENTINEL_NORMAL_SENDER,
+            TxLegacy {
+                nonce: 0,
+                gas_price: (HEADER_BASEFEE / 2) as u128,
+                gas_limit: TX_GAS_LIMIT,
+                to: TxKind::Call(CALL_TARGET),
+                value: U256::ZERO,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// The follow-up full-price normal tx: `gas_price >= HEADER_BASEFEE`, same nonce as the
+    /// sentinel. Must be included once the sentinel is (correctly) rejected.
+    fn normal_tx() -> Recovered<OpTxEnvelope> {
+        recovered_legacy_from(
+            SENTINEL_NORMAL_SENDER,
+            TxLegacy {
+                nonce: 0,
+                gas_price: HEADER_BASEFEE as u128,
+                gas_limit: TX_GAS_LIMIT,
+                to: TxKind::Call(CALL_TARGET),
+                value: U256::ZERO,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Runs, on a single shared block EVM: gasless tx (per `outcome`) → underpriced non-gasless
+    /// sentinel → full-price normal tx. Asserts the sentinel is rejected and the normal tx is
+    /// included, which proves `disable_base_fee` did not leak out of the gasless tx.
+    fn run_gasless_cfg_isolation_scenario(outcome: GaslessOutcome) {
+        // Funded sender (Address::ZERO) + L1 block info; DA footprint scalar 0 so Jovian adds none.
+        let mut db = prepare_jovian_db(0);
+        db.insert_account(
+            XLAYER_DEVNET_GASLESS_CONTRACT,
+            contract_account(&ALLOW_HIGH_GAS_BYTECODE),
+        );
+        db.insert_account(REVERT_CONTRACT, contract_account(&REVERT_BYTECODE));
+        db.insert_account(GASLESS_SENDER, funded_account());
+        db.insert_account(SENTINEL_NORMAL_SENDER, funded_account());
+
+        let op_chain_hardforks = OpChainHardforks::new(
+            OpHardfork::op_mainnet()
+                .into_iter()
+                .chain(vec![(OpHardfork::Jovian, ForkCondition::Timestamp(JOVIAN_TIMESTAMP))]),
+        );
+        let receipt_builder = OpAlloyReceiptBuilder::default();
+        let mut executor = build_executor(
+            &mut db,
+            &receipt_builder,
+            &op_chain_hardforks,
+            BLOCK_GAS_LIMIT,
+            JOVIAN_TIMESTAMP,
+            None,
+            HEADER_BASEFEE,
+            Address::ZERO,
+        )
+        .with_gasless_contract(Some(GaslessContract::new(XLAYER_DEVNET_GASLESS_CONTRACT)));
+
+        // 1) Leading gasless tx: Success/Revert are included (Ok), ValidationError is rejected
+        //    (Err) — in every case `transact_raw` must restore `disable_base_fee` before returning.
+        let gasless_result = executor.execute_transaction(&gasless_tx(outcome));
+        match outcome {
+            GaslessOutcome::Success | GaslessOutcome::Revert => assert!(
+                gasless_result.is_ok(),
+                "gasless {outcome:?} tx should be included (Ok), got {gasless_result:?}"
+            ),
+            GaslessOutcome::ValidationError => assert!(
+                gasless_result.is_err(),
+                "gasless {outcome:?} tx should be rejected by validation (Err)"
+            ),
+        }
+
+        // 2) Underpriced non-gasless sentinel: rejected iff `disable_base_fee` was restored.
+        assert!(
+            executor.execute_transaction(&sentinel_tx()).is_err(),
+            "underpriced non-gasless sentinel must be rejected after gasless {outcome:?}: a cfg \
+             leak would let it execute and consume the shared nonce",
+        );
+
+        // 3) Full-price normal tx reusing the sentinel's nonce: included only if the sentinel
+        //    neither executed nor consumed the nonce (i.e. no cfg leak).
+        assert!(
+            executor.execute_transaction(&normal_tx()).is_ok(),
+            "full-price normal tx (sentinel's nonce) must be included after gasless {outcome:?}: \
+             failure implies the sentinel leaked through and consumed the nonce",
+        );
+    }
+
+    /// Drives the three leading-gasless outcomes `success | REVERT | validation-failure -> normal`,
+    /// each guarded by the underpriced non-gasless sentinel, through one parameterized scenario so
+    /// every outcome is proven not to leak the base-fee bypass into a later tx of the same block.
+    #[test]
+    fn test_gasless_cfg_does_not_leak_within_block() {
+        for outcome in
+            [GaslessOutcome::Success, GaslessOutcome::Revert, GaslessOutcome::ValidationError]
+        {
+            run_gasless_cfg_isolation_scenario(outcome);
+        }
+    }
+}
