@@ -1717,88 +1717,15 @@ mod sdm {
     }
 }
 
-/// The `getGaslessAllowance` whitelist system call must not inflate the transaction's or the
-/// block's reported `gas_used`: it is metered separately and excluded from both counters.
-#[test]
-fn gasless_allowance_check_excluded_from_tx_and_block_gas() {
-    use revm::state::Bytecode;
-
-    const JOVIAN_TS: u64 = 1_746_806_402;
-    const BLOCK_GAS_LIMIT: u64 = 1_000_000;
-    const TX_GAS_LIMIT: u64 = 21_000;
-    // Minimal contract returning ABI `(true, 0xffffff)` for any call: approves every gasless query
-    // with a gas allowance far above the tx's 21000 gas limit.
-    // Layout: `mem[0..32]=1` (allowed), `mem[32..64]=0xffffff` (gasLimit), `return mem[0..64]`.
-    const ALLOW_HIGH_GAS_BYTECODE: [u8; 17] = [
-        0x60, 0x01, 0x60, 0x00, 0x52, 0x62, 0xff, 0xff, 0xff, 0x60, 0x20, 0x52, 0x60, 0x40, 0x60,
-        0x00, 0xf3,
-    ];
-
-    // Funded sender (Address::ZERO) + L1 block info; DA footprint scalar 0 so Jovian adds none.
-    let mut db = prepare_jovian_db(0);
-
-    // Deploy the whitelist contract at the gasless predeploy address.
-    let code = Bytecode::new_raw(Bytes::from_static(&ALLOW_HIGH_GAS_BYTECODE));
-    db.insert_account(
-        XLAYER_DEVNET_GASLESS_CONTRACT,
-        AccountInfo { code_hash: code.hash_slow(), code: Some(code), ..Default::default() },
-    );
-
-    let op_chain_hardforks = OpChainHardforks::new(
-        OpHardfork::op_mainnet()
-            .into_iter()
-            .chain(vec![(OpHardfork::Jovian, ForkCondition::Timestamp(JOVIAN_TS))]),
-    );
-    let receipt_builder = OpAlloyReceiptBuilder::default();
-    let mut executor = build_executor(
-        &mut db,
-        &receipt_builder,
-        &op_chain_hardforks,
-        BLOCK_GAS_LIMIT,
-        JOVIAN_TS,
-        // No parent timestamp: this is a plain Jovian block, not a fork-activation block, so
-        // the no-user-tx activation guard stays off and the gasless user tx is admitted.
-        None,
-        0,
-        Address::ZERO,
-    )
-    .with_gasless_contract(Some(GaslessContract::new(XLAYER_DEVNET_GASLESS_CONTRACT)));
-
-    // Zero-priced (`gas_price == 0` => `max_fee_per_gas == 0`) legacy transfer to a fresh EOA.
-    // Zero value keeps the cost at exactly the 21000 intrinsic gas (no new-account charge).
-    let tx = recovered_legacy(TxLegacy {
-        gas_limit: TX_GAS_LIMIT,
-        gas_price: 0,
-        to: TxKind::Call(Address::from([0x11; 20])),
-        value: U256::ZERO,
-        ..Default::default()
-    });
-
-    let tx_gas_used = executor
-        .execute_transaction(&tx)
-        .expect("gasless whitelisted tx should execute")
-        .tx_gas_used();
-    let (_, result) = executor.finish().expect("failed to finish executor");
-
-    assert_eq!(
-        tx_gas_used, TX_GAS_LIMIT,
-        "tx gasUsed must be the intrinsic transfer cost, not inflated by the \
-         getGaslessAllowance system call"
-    );
-    assert_eq!(
-        result.gas_used, TX_GAS_LIMIT,
-        "block cumulative gas_used must exclude the getGaslessAllowance system call"
-    );
-}
-
-/// Same-block, shared-block-EVM cross-transaction isolation for the gasless base-fee bypass. The
-/// block executor and payload builder reuse one EVM for every tx in a block, so these
-/// executor-level tests are the only ones that can catch `cfg.disable_base_fee` leaking from a
-/// gasless transaction into the next transaction of the *same* block.
+/// Block-executor-level tests for X Layer gasless transactions. The block executor and payload
+/// builder reuse one EVM for every tx in a block, so these executor-level tests are the only ones
+/// that can observe cross-transaction effects — e.g. `cfg.disable_base_fee` leaking from a gasless
+/// transaction into the next transaction of the *same* block, or the `getGaslessAllowance` system
+/// call inflating a transaction's or the block's reported `gas_used`.
 ///
 /// See [`run_gasless_cfg_isolation_scenario`] for the leak-detection contract (an underpriced
 /// non-gasless sentinel that reuses the following full-price tx's nonce).
-mod xlayer_gasless_isolation {
+mod xlayer_tests {
     use super::*;
 
     /// The outcome forced on the leading gasless transaction of the block. Each outcome must leave
@@ -1815,8 +1742,8 @@ mod xlayer_gasless_isolation {
     }
 
     // Minimal contract returning ABI `(true, 0xffffff)` for any call — approves every gasless query
-    // with an allowance far above the per-tx gas limit. Same layout as
-    // `gasless_allowance_check_excluded_from_tx_and_block_gas`'s `ALLOW_HIGH_GAS_BYTECODE`.
+    // with a gas allowance far above the per-tx gas limit. Layout: `mem[0..32]=1` (allowed),
+    // `mem[32..64]=0xffffff` (gasLimit), `return mem[0..64]`.
     const ALLOW_HIGH_GAS_BYTECODE: [u8; 17] = [
         0x60, 0x01, 0x60, 0x00, 0x52, 0x62, 0xff, 0xff, 0xff, 0x60, 0x20, 0x52, 0x60, 0x40, 0x60,
         0x00, 0xf3,
@@ -1840,6 +1767,71 @@ mod xlayer_gasless_isolation {
 
     fn funded_account() -> AccountInfo {
         AccountInfo { balance: uint!(1_000_000_000_000_000_000_U256), ..Default::default() }
+    }
+
+    /// The `getGaslessAllowance` whitelist system call must not inflate the transaction's or the
+    /// block's reported `gas_used`: it is metered separately and excluded from both counters.
+    #[test]
+    fn gasless_allowance_check_excluded_from_tx_and_block_gas() {
+        // This gasless whitelist test executes a single zero-priced transfer, so it uses a smaller
+        // block/tx gas budget than the cross-transaction isolation scenario above.
+        const BLOCK_GAS_LIMIT: u64 = 1_000_000;
+        const TX_GAS_LIMIT: u64 = 21_000;
+
+        // Funded sender (Address::ZERO) + L1 block info; DA footprint scalar 0 so Jovian adds none.
+        let mut db = prepare_jovian_db(0);
+
+        // Deploy the whitelist contract at the gasless predeploy address.
+        db.insert_account(
+            XLAYER_DEVNET_GASLESS_CONTRACT,
+            contract_account(&ALLOW_HIGH_GAS_BYTECODE),
+        );
+
+        let op_chain_hardforks = OpChainHardforks::new(
+            OpHardfork::op_mainnet()
+                .into_iter()
+                .chain(vec![(OpHardfork::Jovian, ForkCondition::Timestamp(JOVIAN_TIMESTAMP))]),
+        );
+        let receipt_builder = OpAlloyReceiptBuilder::default();
+        let mut executor = build_executor(
+            &mut db,
+            &receipt_builder,
+            &op_chain_hardforks,
+            BLOCK_GAS_LIMIT,
+            JOVIAN_TIMESTAMP,
+            // No parent timestamp: this is a plain Jovian block, not a fork-activation block, so
+            // the no-user-tx activation guard stays off and the gasless user tx is admitted.
+            None,
+            0,
+            Address::ZERO,
+        )
+        .with_gasless_contract(Some(GaslessContract::new(XLAYER_DEVNET_GASLESS_CONTRACT)));
+
+        // Zero-priced (`gas_price == 0` => `max_fee_per_gas == 0`) legacy transfer to a fresh EOA.
+        // Zero value keeps the cost at exactly the 21000 intrinsic gas (no new-account charge).
+        let tx = recovered_legacy(TxLegacy {
+            gas_limit: TX_GAS_LIMIT,
+            gas_price: 0,
+            to: TxKind::Call(Address::from([0x11; 20])),
+            value: U256::ZERO,
+            ..Default::default()
+        });
+
+        let tx_gas_used = executor
+            .execute_transaction(&tx)
+            .expect("gasless whitelisted tx should execute")
+            .tx_gas_used();
+        let (_, result) = executor.finish().expect("failed to finish executor");
+
+        assert_eq!(
+            tx_gas_used, TX_GAS_LIMIT,
+            "tx gasUsed must be the intrinsic transfer cost, not inflated by the \
+             getGaslessAllowance system call"
+        );
+        assert_eq!(
+            result.gas_used, TX_GAS_LIMIT,
+            "block cumulative gas_used must exclude the getGaslessAllowance system call"
+        );
     }
 
     /// Builds the leading gasless tx for `outcome`. All are zero-priced (`max_fee_per_gas == 0`)
