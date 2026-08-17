@@ -633,3 +633,4 @@ release-notes component from='latest' to='latest-rc' mode='':
 # Run the rust-code-reviewer agent over the current branch (delegates to rust/justfile).
 rust-review base='':
   cd rust && just rust-review "{{base}}"
+# OLI submodule orchestration test: 20260817151605-dae68ab8
