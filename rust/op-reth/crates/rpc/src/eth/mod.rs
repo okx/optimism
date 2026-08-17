@@ -402,9 +402,10 @@ where
     /// `debug_traceTransaction` re-executes the target tx via this method. For a zero-priced
     /// gasless tx, the default builds a normal-cfg EVM and the base-fee check rejects it. This
     /// detects gasless first on a **non-inspector** EVM (so the whitelist system call never enters
-    /// the trace), then marks the `tx_env` gasless before inspecting — `OpEvm::transact_raw` zeroes
-    /// the base fee for that flagged tx, exactly as block execution does. The non-gasless path is
-    /// byte-for-byte the default.
+    /// the trace), then marks the `tx_env` gasless before inspecting — `OpEvm::transact_raw`
+    /// temporarily bypasses base-fee validation for that flagged tx (leaving the opcode-visible
+    /// base fee intact), exactly as block execution does. The non-gasless path is byte-for-byte the
+    /// default.
     fn inspect<DB, I>(
         &self,
         mut db: DB,

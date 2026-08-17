@@ -992,8 +992,10 @@ where
         }
 
         // Execute transaction and return the result. Gasless txs have `is_gasless = true` on the
-        // tx env; `OpEvm::transact_raw` zeroes `block.basefee` for the duration of that single tx
-        // so the zero-priced gasless tx clears fee validation, then restores it immediately.
+        // tx env; `OpEvm::transact_raw` temporarily enables the `disable_base_fee` cfg flag for the
+        // duration of that single tx so the zero-priced gasless tx clears base-fee validation, then
+        // restores the flag immediately. `block.basefee` itself is never changed, so `BASEFEE`
+        // observes the real header base fee for every tx in the block.
         let mut result = self.evm.transact(tx_env).map_err(|err| {
             let hash = tx.tx().trie_hash();
             BlockExecutionError::evm(err, hash)

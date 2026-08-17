@@ -1,10 +1,11 @@
 //! Gasless-aware re-execution support for the OP `eth_`/`debug_` RPC paths.
 //!
 //! Block execution waives the base-fee check for zero-priced "gasless" transactions:
-//! `OpEvm::transact_raw` zeroes the base fee for any tx flagged `is_gasless`. The default RPC
-//! re-execution helpers (`Trace::inspect`, `Call::transact`) build the `tx_env` with
-//! `is_gasless == false`, so re-running a gasless tx — e.g. via `debug_traceTransaction` — fails
-//! with `max fee per gas less than block base fee`.
+//! `OpEvm::transact_raw` temporarily enables the `disable_base_fee` cfg flag for any tx flagged
+//! `is_gasless` (the opcode-visible base fee is left untouched). The default RPC re-execution
+//! helpers (`Trace::inspect`, `Call::transact`) build the `tx_env` with `is_gasless == false`, so
+//! re-running a gasless tx — e.g. via `debug_traceTransaction` — fails with `max fee per gas less
+//! than block base fee`.
 //!
 //! This module mirrors the *exact* gasless detection the executor and the txpool validator use:
 //!
