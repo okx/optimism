@@ -23,7 +23,11 @@ alloy-primitives = { workspace = true }
 alloy-op-hardforks.workspace = true
 op-alloy = { workspace = true, features = ["consensus"] }
 
-revm = { workspace = true }
+# `optional_no_base_fee` exposes revm's `CfgEnv::disable_base_fee` flag, which `OpEvm::transact_raw`
+# toggles to bypass base-fee validation for gasless transactions without mutating `block.basefee`.
+# It is enabled directly here (not via workspace feature unification) so the flag is available in
+# every build shape, including `--no-default-features`, the full OP node and the Kona/FPVM client.
+revm = { workspace = true, features = ["optional_no_base_fee"] }
 op-revm = { workspace = true }
 
 thiserror = { workspace = true }

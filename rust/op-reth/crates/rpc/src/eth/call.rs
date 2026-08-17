@@ -59,9 +59,9 @@ where
     ///
     /// Builds a fresh EVM per call, so (like `inspect`) it detects gasless on this same plain
     /// EVM and, when gasless, marks the `tx_env` gasless before building the EVM. The flagged tx
-    /// then runs through `OpEvm::transact_raw`, which zeroes the base fee for it. There is no
-    /// inspector here, so detection cannot pollute a trace. The non-gasless path is byte-for-byte
-    /// the default.
+    /// then runs through `OpEvm::transact_raw`, which temporarily bypasses base-fee validation for
+    /// it (without changing the opcode-visible base fee). There is no inspector here, so detection
+    /// cannot pollute a trace. The non-gasless path is byte-for-byte the default.
     fn transact<DB>(
         &self,
         mut db: DB,
