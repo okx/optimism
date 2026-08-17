@@ -354,7 +354,7 @@ fn query_database_error_aborts_execution() {
     let error = evm.transact_raw(blacklist_deposit_tx(10)).unwrap_err();
 
     assert!(matches!(error, EVMError::Database(InjectedDbError)));
-    assert!(!evm.inner.0.ctx.journaled_state.state.contains_key(&BLACKLIST_TEST_TARGET));
+    assert!(!evm.ctx().journaled_state.state.contains_key(&BLACKLIST_TEST_TARGET));
     assert!(!evm.post_exec_tracking_active);
     assert_eq!(evm.ctx().tx.caller(), BLACKLIST_TEST_CALLER);
     assert_eq!(evm.ctx().tx.source_hash(), Some(BLACKLIST_TEST_SOURCE));
@@ -434,11 +434,9 @@ fn query_database_error_after_state_write_discards_journal() {
 
     let error = evm.transact_raw(blacklist_deposit_tx(10)).unwrap_err();
     assert!(matches!(error, EVMError::Database(InjectedDbError)));
-    assert!(!evm.inner.0.ctx.journaled_state.state.contains_key(&BLACKLIST_TEST_TARGET));
+    assert!(!evm.ctx().journaled_state.state.contains_key(&BLACKLIST_TEST_TARGET));
     let query = evm
-        .inner
-        .0
-        .ctx
+        .ctx()
         .journaled_state
         .state
         .get(&BLACKLIST_TEST_CONTRACT)

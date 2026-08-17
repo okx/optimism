@@ -404,7 +404,7 @@ where
                 // blacklist/gasless fail-open query may therefore have already touched state
                 // before a database error. Restore the pre-call journal before the caller runs
                 // the real transaction.
-                self.inner.0.ctx.journaled_state.discard_tx();
+                self.ctx_mut().journaled_state.discard_tx();
                 Err(map_op_err(error))
             }
         }
