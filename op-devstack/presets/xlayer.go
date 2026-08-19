@@ -6,6 +6,11 @@ import (
 	"github.com/ethereum-optimism/optimism/op-devstack/sysgo"
 )
 
+// xlayerPresetSupportedOptionKinds extends the minimal set with the op-reth
+// option kind so callers can supply the XLayer execution binary (XLAYER_RETH_BIN)
+// and per-node execution args via WithOpRethOption.
+const xlayerPresetSupportedOptionKinds = minimalPresetSupportedOptionKinds | optionKindOpReth
+
 // XLayer is the XLayer single-chain preset target: the minimal sequencer stack
 // (L1 EL+CL, L2 sequencer, batcher, proposer) plus one follower RPC/validator
 // node that tracks the sequencer through L1 derivation.
@@ -19,7 +24,7 @@ type XLayer struct {
 // NewXLayer creates a fresh XLayer single-chain target for the current test from
 // the XLayer runtime plus any additional preset options.
 func NewXLayer(t devtest.T, opts ...Option) *XLayer {
-	presetCfg, presetOpts := collectSupportedPresetConfig(t, "NewXLayer", opts, minimalPresetSupportedOptionKinds)
+	presetCfg, presetOpts := collectSupportedPresetConfig(t, "NewXLayer", opts, xlayerPresetSupportedOptionKinds)
 	out := xlayerFromRuntime(t, sysgo.NewXLayerRuntimeWithConfig(t, presetCfg))
 	presetOpts.applyPreset(out)
 	return out

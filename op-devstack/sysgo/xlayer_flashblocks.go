@@ -1,6 +1,10 @@
 package sysgo
 
 import (
+	"fmt"
+	"net"
+	"strconv"
+
 	"github.com/ethereum-optimism/optimism/op-devstack/devtest"
 )
 
@@ -10,7 +14,20 @@ import (
 const (
 	XLayerFlashblocksRelay1NodeName = "rpc1"
 	XLayerFlashblocksRelay2NodeName = "rpc2"
+
+	xlayerFlashblocksListenAddr = "127.0.0.1"
 )
+
+// xlayerFreePort reserves an ephemeral local TCP port for the producer's
+// flashblocks WebSocket server. The listener is closed immediately so the reth
+// node can bind it; using an OS-assigned port keeps parallel devnets isolated.
+func xlayerFreePort(t devtest.T) int {
+	ln, err := net.Listen("tcp", xlayerFlashblocksListenAddr+":0")
+	t.Require().NoError(err, "allocate a free flashblocks websocket port")
+	port := ln.Addr().(*net.TCPAddr).Port
+	t.Require().NoError(ln.Close(), "release the reserved flashblocks port")
+	return port
+}
 
 // NewXLayerFlashblocksRuntime builds the default XLayer flashblocks devnet
 // topology.
@@ -18,30 +35,49 @@ func NewXLayerFlashblocksRuntime(t devtest.T) *SingleChainRuntime {
 	return NewXLayerFlashblocksRuntimeWithConfig(t, PresetConfig{})
 }
 
-// NewXLayerFlashblocksRuntimeWithConfig assembles the XLayer flashblocks
-// topology: a single producer sequencer (with its op-rbuilder + rollup-boost
-// flashblocks support) plus a batcher, and two follower RPC nodes rpc1 and rpc2.
-// It never starts a second sequencer.
+// NewXLayerFlashblocksRuntimeWithConfig assembles the XLayer flashblocks topology
+// using the XLayer reth binary's built-in flashblocks builder — no op-rbuilder or
+// rollup-boost. The single producer sequencer runs with the flashblocks builder
+// enabled and publishes flashblocks over a WebSocket on an isolated local port;
+// two relay followers (rpc1, rpc2) subscribe to that stream to serve pending
+// state. It never starts a second sequencer.
 func NewXLayerFlashblocksRuntimeWithConfig(t devtest.T, cfg PresetConfig) *SingleChainRuntime {
+	// Match the single-chain topology's non-zero XLayer L2 genesis height.
+	cfg.DeployerOptions = append([]DeployerOption{WithXLayerL2GenesisHeight(XLayerDefaultL2GenesisHeight)}, cfg.DeployerOptions...)
+
+	producerPort := xlayerFreePort(t)
+
+	producerArgs := OpRethWithExtraArgs(
+		"--flashblocks.enabled",
+		"--flashblocks.addr", xlayerFlashblocksListenAddr,
+		"--flashblocks.port", strconv.Itoa(producerPort),
+	)
+
 	runtime := newSingleChainRuntimeWithConfig(t, cfg, singleChainRuntimeSpec{
-		BuildWorld:      newDefaultSingleChainWorld,
-		StartPrimary:    startFlashblocksSingleChainPrimary,
+		BuildWorld:      buildXLayerWorld,
+		StartPrimary:    xlayerSequencerPrimary(producerArgs),
 		StartBatcher:    true,
 		StartProposer:   false,
 		StartChallenger: false,
 	})
 
-	// Two relay RPC followers track the single producer sequencer via L1
-	// derivation. Keeping them as followers (not sequencers) guarantees the
-	// topology has no seq2.
-	addSingleChainOpNode(t, runtime, XLayerFlashblocksRelay1NodeName, false, "", cfg.GlobalL2CLOptions...)
-	addSingleChainOpNode(t, runtime, XLayerFlashblocksRelay2NodeName, false, "", cfg.GlobalL2CLOptions...)
+	// Each relay subscribes to the producer's flashblock stream and re-publishes
+	// it on its OWN isolated WebSocket endpoint. The relay's re-publisher binds
+	// --flashblocks.port, which defaults to a fixed port; without a distinct port
+	// per relay the second relay fails with "address already in use". Allocating a
+	// free port per relay also gives each of producer/rpc1/rpc2 an isolated
+	// flashblocks WS endpoint.
+	subscribeURL := fmt.Sprintf("ws://%s:%d", xlayerFlashblocksListenAddr, producerPort)
+	relayOpts := func(relayPort int) []OpRethOption {
+		return append(append([]OpRethOption{}, cfg.OpRethOptions...),
+			OpRethWithExtraArgs(
+				"--flashblocks-url", subscribeURL,
+				"--flashblocks.addr", xlayerFlashblocksListenAddr,
+				"--flashblocks.port", strconv.Itoa(relayPort),
+			))
+	}
 
-	// TODO: give rpc1 and rpc2 their own isolated flashblocks WebSocket
-	// endpoints that relay the producer's flashblock stream. The producer side
-	// (op-rbuilder + rollup-boost) already exposes a flashblocks WS endpoint;
-	// per-relay endpoints require additional per-node op-rbuilder/rollup-boost
-	// wiring that has no ready-made helper in this package yet, so rpc1/rpc2
-	// currently serve standard RPC only.
+	addXLayerFollowerNode(t, runtime, XLayerFlashblocksRelay1NodeName, relayOpts(xlayerFreePort(t)), cfg.GlobalL2CLOptions)
+	addXLayerFollowerNode(t, runtime, XLayerFlashblocksRelay2NodeName, relayOpts(xlayerFreePort(t)), cfg.GlobalL2CLOptions)
 	return runtime
 }

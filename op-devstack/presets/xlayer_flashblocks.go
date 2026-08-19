@@ -6,11 +6,13 @@ import (
 	"github.com/ethereum-optimism/optimism/op-devstack/sysgo"
 )
 
-// XLayerFlashblocks is the XLayer flashblocks preset target: the single-producer
-// flashblocks stack (sequencer + op-rbuilder + rollup-boost) plus two relay/RPC
-// follower nodes rpc1 and rpc2. It never contains a second sequencer.
+// XLayerFlashblocks is the XLayer flashblocks preset target. The sequencer (the
+// embedded Minimal.L2EL) runs the XLayer reth binary with its built-in
+// flashblocks builder enabled; rpc1 and rpc2 are relay/RPC followers that
+// subscribe to the sequencer's flashblocks stream. There is no second sequencer,
+// and no op-rbuilder or rollup-boost process is involved.
 type XLayerFlashblocks struct {
-	*SingleChainWithFlashblocks
+	*Minimal
 
 	L2ELRPC1 *dsl.L2ELNode
 	L2CLRPC1 *dsl.L2CLNode
@@ -21,15 +23,16 @@ type XLayerFlashblocks struct {
 // NewXLayerFlashblocks creates a fresh XLayer flashblocks target for the current
 // test from the XLayer flashblocks runtime plus any additional preset options.
 func NewXLayerFlashblocks(t devtest.T, opts ...Option) *XLayerFlashblocks {
-	presetCfg, _ := collectSupportedPresetConfig(t, "NewXLayerFlashblocks", opts, singleChainWithFlashblocksPresetSupportedOptionKinds)
-	runtime := sysgo.NewXLayerFlashblocksRuntimeWithConfig(t, presetCfg)
-	base := singleChainWithFlashblocksFromRuntime(t, runtime)
-	return xlayerFlashblocksFromRuntime(t, runtime, base)
+	presetCfg, presetOpts := collectSupportedPresetConfig(t, "NewXLayerFlashblocks", opts, xlayerPresetSupportedOptionKinds)
+	out := xlayerFlashblocksFromRuntime(t, sysgo.NewXLayerFlashblocksRuntimeWithConfig(t, presetCfg))
+	presetOpts.applyPreset(out)
+	return out
 }
 
-func xlayerFlashblocksFromRuntime(t devtest.T, runtime *sysgo.SingleChainRuntime, base *SingleChainWithFlashblocks) *XLayerFlashblocks {
+func xlayerFlashblocksFromRuntime(t devtest.T, runtime *sysgo.SingleChainRuntime) *XLayerFlashblocks {
+	minimal := minimalFromRuntime(t, runtime)
 	l2ChainID := runtime.L2Network.ChainID()
-	l2Net, ok := base.L2Chain.Escape().(*presetL2Network)
+	l2Net, ok := minimal.L2Chain.Escape().(*presetL2Network)
 	t.Require().True(ok, "expected preset L2 network")
 
 	newRelayFrontends := func(name string) (*dsl.L2ELNode, *dsl.L2CLNode) {
@@ -56,10 +59,10 @@ func xlayerFlashblocksFromRuntime(t devtest.T, runtime *sysgo.SingleChainRuntime
 	el2, cl2 := newRelayFrontends(sysgo.XLayerFlashblocksRelay2NodeName)
 
 	return &XLayerFlashblocks{
-		SingleChainWithFlashblocks: base,
-		L2ELRPC1:                   el1,
-		L2CLRPC1:                   cl1,
-		L2ELRPC2:                   el2,
-		L2CLRPC2:                   cl2,
+		Minimal:  minimal,
+		L2ELRPC1: el1,
+		L2CLRPC1: cl1,
+		L2ELRPC2: el2,
+		L2CLRPC2: cl2,
 	}
 }
