@@ -1,6 +1,6 @@
 use alloc::{string::ToString, vec};
 use alloy_consensus::{Sealed, SignableTransaction, TxLegacy, transaction::Recovered};
-use alloy_eips::eip2718::WithEncoded;
+use alloy_eips::{Encodable2718, eip2718::WithEncoded};
 use alloy_evm::{EvmEnv, ToTxEnv};
 use alloy_hardforks::ForkCondition;
 use alloy_op_hardforks::{OpHardfork, OpHardforks};
@@ -41,6 +41,556 @@ fn recovered_legacy_from(sender: Address, tx: TxLegacy) -> Recovered<OpTxEnvelop
         ))),
         sender,
     )
+}
+
+const BLACKLIST_IT_CONTRACT: Address = Address::repeat_byte(0x77);
+const BLACKLIST_IT_CALLER: Address = Address::repeat_byte(0x11);
+const BLACKLIST_IT_TARGET: Address = Address::repeat_byte(0x22);
+const BLACKLIST_IT_SOURCE: B256 = B256::repeat_byte(0x42);
+const BLACKLIST_IT_GAS_LIMIT: u64 = 100_000;
+const BLACKLIST_RETURN_TRUE: &[u8] = &[0x60, 0x01, 0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3];
+const BLACKLIST_RETURN_FALSE: &[u8] = &[0x60, 0x00, 0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3];
+const BLACKLIST_REVERT: &[u8] = &[0x60, 0x00, 0x60, 0x00, 0xfd];
+const BLACKLIST_PAYLOAD_SSTORE: &[u8] =
+    &[0x60, 0x01, 0x60, 0x00, 0x55, 0x60, 0x00, 0x60, 0x00, 0xa0, 0x00];
+const BLACKLIST_SSTORE_AND_RETURN_TRUE: &[u8] = &[
+    0x60, 0x01, 0x60, 0x00, 0x55, 0x60, 0x00, 0x60, 0x00, 0xa0, 0x60, 0x01, 0x60, 0x00, 0x52, 0x60,
+    0x20, 0x60, 0x00, 0xf3,
+];
+const GASLESS_ALLOW_HIGH: &[u8] = &[
+    0x60, 0x01, 0x60, 0x00, 0x52, 0x62, 0xff, 0xff, 0xff, 0x60, 0x20, 0x52, 0x60, 0x40, 0x60, 0x00,
+    0xf3,
+];
+// If called by the EIP-4788 system address, returns storage slot 0 as an ABI bool. Otherwise an
+// empty-calldata call sets slot 0 to one and a non-empty-calldata call clears it.
+const STATEFUL_BLACKLIST: &[u8] = &[
+    0x33, 0x73, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xfe, 0x14, 0x60, 0x2c, 0x57, 0x36, 0x15, 0x60, 0x25, 0x57, 0x60,
+    0x00, 0x60, 0x00, 0x55, 0x00, 0x5b, 0x60, 0x01, 0x60, 0x00, 0x55, 0x00, 0x5b, 0x60, 0x00, 0x54,
+    0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3,
+];
+
+fn recovered_blacklist_deposit() -> Recovered<OpTxEnvelope> {
+    recovered_deposit_from(BLACKLIST_IT_CALLER, BLACKLIST_IT_SOURCE)
+}
+
+fn recovered_deposit_from(from: Address, source_hash: B256) -> Recovered<OpTxEnvelope> {
+    recovered_deposit_with_system_flag(from, source_hash, false)
+}
+
+fn recovered_deposit_with_system_flag(
+    from: Address,
+    source_hash: B256,
+    is_system_transaction: bool,
+) -> Recovered<OpTxEnvelope> {
+    Recovered::new_unchecked(
+        TxDeposit {
+            source_hash,
+            from,
+            to: TxKind::Call(BLACKLIST_IT_TARGET),
+            mint: 10,
+            gas_limit: BLACKLIST_IT_GAS_LIMIT,
+            is_system_transaction,
+            ..Default::default()
+        }
+        .into(),
+        from,
+    )
+}
+
+fn insert_test_code(db: &mut State<InMemoryDB>, address: Address, raw_code: &'static [u8]) {
+    let code = Bytecode::new_raw(Bytes::from_static(raw_code));
+    db.insert_account(
+        address,
+        AccountInfo { code_hash: code.hash_slow(), code: Some(code), ..Default::default() },
+    );
+}
+
+fn build_blacklist_executor<'a>(
+    db: &'a mut State<InMemoryDB>,
+    receipt_builder: &'a OpAlloyReceiptBuilder,
+    hardforks: &'a OpChainHardforks,
+    query_code: &'static [u8],
+) -> SDMTestExecutor<'a> {
+    insert_test_code(db, BLACKLIST_IT_CONTRACT, query_code);
+    insert_test_code(db, BLACKLIST_IT_TARGET, BLACKLIST_PAYLOAD_SSTORE);
+    let mut executor = build_executor(
+        db,
+        receipt_builder,
+        hardforks,
+        1_000_000,
+        JOVIAN_TIMESTAMP,
+        None,
+        0,
+        Address::ZERO,
+    );
+    executor.evm.set_test_blacklist_contract(TxBlacklistContract::new(BLACKLIST_IT_CONTRACT));
+    executor
+}
+
+fn build_stateful_blacklist_executor<'a>(
+    db: &'a mut State<InMemoryDB>,
+    receipt_builder: &'a OpAlloyReceiptBuilder,
+    hardforks: &'a OpChainHardforks,
+    initial_blacklisted: bool,
+) -> SDMTestExecutor<'a> {
+    insert_stateful_blacklist(db, initial_blacklisted);
+    insert_test_code(db, BLACKLIST_IT_TARGET, BLACKLIST_PAYLOAD_SSTORE);
+    let mut executor = build_executor(
+        db,
+        receipt_builder,
+        hardforks,
+        1_000_000,
+        JOVIAN_TIMESTAMP,
+        None,
+        0,
+        Address::ZERO,
+    );
+    executor.evm.set_test_blacklist_contract(TxBlacklistContract::new(BLACKLIST_IT_CONTRACT));
+    executor
+}
+
+fn insert_stateful_blacklist(db: &mut State<InMemoryDB>, initial_blacklisted: bool) {
+    let code = Bytecode::new_raw(Bytes::from_static(STATEFUL_BLACKLIST));
+    db.insert_account_with_storage(
+        BLACKLIST_IT_CONTRACT,
+        AccountInfo { code_hash: code.hash_slow(), code: Some(code), ..Default::default() },
+        HashMap::from_iter([(
+            U256::ZERO,
+            if initial_blacklisted { U256::from(1) } else { U256::ZERO },
+        )]),
+    );
+}
+
+fn assert_bypass_matches_baseline(tx: &Recovered<OpTxEnvelope>) {
+    let mut feature_fixture = SDMExecutorFixture::default();
+    let mut feature = build_stateful_blacklist_executor(
+        &mut feature_fixture.db,
+        &feature_fixture.receipt_builder,
+        &feature_fixture.op_chain_hardforks,
+        true,
+    );
+    let feature_gas = feature.execute_transaction(tx).expect("feature bypass executes");
+
+    let mut baseline_fixture = SDMExecutorFixture::default();
+    insert_stateful_blacklist(&mut baseline_fixture.db, true);
+    insert_test_code(&mut baseline_fixture.db, BLACKLIST_IT_TARGET, BLACKLIST_PAYLOAD_SSTORE);
+    let mut baseline = build_executor(
+        &mut baseline_fixture.db,
+        &baseline_fixture.receipt_builder,
+        &baseline_fixture.op_chain_hardforks,
+        1_000_000,
+        JOVIAN_TIMESTAMP,
+        None,
+        0,
+        Address::ZERO,
+    );
+    let baseline_gas = baseline.execute_transaction(tx).expect("baseline bypass executes");
+
+    assert_eq!(feature.receipts, baseline.receipts);
+    assert_eq!(feature_gas.tx_gas_used(), baseline_gas.tx_gas_used());
+    assert_eq!(feature.gas_used, baseline.gas_used);
+    assert_eq!(feature.evm_gas_used, baseline.evm_gas_used);
+    assert_eq!(feature.da_footprint_used, baseline.da_footprint_used);
+    assert_eq!(feature.warming_events_by_tx, baseline.warming_events_by_tx);
+    assert_eq!(feature.evm.db().bundle_state, baseline.evm.db().bundle_state);
+    assert_eq!(
+        revm::Database::storage(feature.evm.db_mut(), BLACKLIST_IT_CONTRACT, U256::ZERO).unwrap(),
+        U256::from(1),
+        "bypassed deposits must not execute the query contract"
+    );
+}
+
+fn blacklist_update(nonce: u64, add: bool) -> Recovered<OpTxEnvelope> {
+    recovered_legacy(TxLegacy {
+        nonce,
+        gas_limit: 100_000,
+        to: TxKind::Call(BLACKLIST_IT_CONTRACT),
+        input: if add { Bytes::new() } else { Bytes::from_static(&[1]) },
+        ..Default::default()
+    })
+}
+
+#[test]
+fn it_blacklisted_deposit_receipt_and_hash() {
+    let mut fixture = SDMExecutorFixture::default();
+    let tx = recovered_blacklist_deposit();
+    let hash_before = tx.tx().trie_hash();
+    let encoded_before: Bytes = tx.encoded_2718().into();
+    let tx = WithEncoded::new(encoded_before.clone(), tx);
+    let mut executor = build_blacklist_executor(
+        &mut fixture.db,
+        &fixture.receipt_builder,
+        &fixture.op_chain_hardforks,
+        BLACKLIST_RETURN_TRUE,
+    );
+
+    let gas = executor.execute_transaction(&tx).expect("failed deposits remain includable");
+    assert_eq!(gas.tx_gas_used(), BLACKLIST_IT_GAS_LIMIT);
+    assert_eq!(tx.value().tx().trie_hash(), hash_before);
+    assert_eq!(tx.encoded_bytes(), &encoded_before);
+    assert_eq!(alloy_primitives::keccak256(tx.encoded_bytes()), hash_before);
+    assert_eq!(executor.receipts.len(), 1);
+    assert!(!executor.receipts[0].status());
+    assert!(executor.receipts[0].logs().is_empty());
+    assert_eq!(executor.receipts[0].cumulative_gas_used(), BLACKLIST_IT_GAS_LIMIT);
+    assert_eq!(
+        revm::Database::storage(executor.evm.db_mut(), BLACKLIST_IT_TARGET, U256::ZERO).unwrap(),
+        U256::ZERO,
+        "blacklisted payload must not execute"
+    );
+    let caller = revm::Database::basic(executor.evm.db_mut(), BLACKLIST_IT_CALLER)
+        .unwrap()
+        .expect("failed deposit persists caller");
+    assert_eq!(caller.balance, U256::from(10));
+    assert_eq!(caller.nonce, 1);
+
+    let expected = op_alloy::consensus::OpReceiptEnvelope::from_parts(
+        false,
+        BLACKLIST_IT_GAS_LIMIT,
+        core::iter::empty::<&alloy_primitives::Log>(),
+        op_alloy::consensus::OpTxType::Deposit,
+        Some(0),
+        Some(1),
+    );
+    assert_eq!(executor.receipts[0], expected);
+    assert_eq!(executor.receipts[0].encoded_2718(), expected.encoded_2718());
+    assert_eq!(
+        alloy_primitives::keccak256(executor.receipts[0].encoded_2718()),
+        alloy_primitives::keccak256(expected.encoded_2718())
+    );
+}
+
+#[test]
+fn it_unblacklisted_deposit_matches_baseline() {
+    let tx = recovered_blacklist_deposit();
+
+    let mut feature_fixture = SDMExecutorFixture::default();
+    let mut feature = build_blacklist_executor(
+        &mut feature_fixture.db,
+        &feature_fixture.receipt_builder,
+        &feature_fixture.op_chain_hardforks,
+        BLACKLIST_RETURN_FALSE,
+    );
+    let feature_gas = feature.execute_transaction(&tx).expect("feature deposit executes");
+    let feature_receipts = feature.receipts.clone();
+    let feature_target =
+        revm::Database::storage(feature.evm.db_mut(), BLACKLIST_IT_TARGET, U256::ZERO).unwrap();
+    let feature_query =
+        revm::Database::storage(feature.evm.db_mut(), BLACKLIST_IT_CONTRACT, U256::ZERO).unwrap();
+    let feature_caller = revm::Database::basic(feature.evm.db_mut(), BLACKLIST_IT_CALLER).unwrap();
+
+    let mut baseline_fixture = SDMExecutorFixture::default();
+    insert_test_code(&mut baseline_fixture.db, BLACKLIST_IT_CONTRACT, BLACKLIST_RETURN_FALSE);
+    insert_test_code(&mut baseline_fixture.db, BLACKLIST_IT_TARGET, BLACKLIST_PAYLOAD_SSTORE);
+    let mut baseline = build_executor(
+        &mut baseline_fixture.db,
+        &baseline_fixture.receipt_builder,
+        &baseline_fixture.op_chain_hardforks,
+        1_000_000,
+        JOVIAN_TIMESTAMP,
+        None,
+        0,
+        Address::ZERO,
+    );
+    let baseline_gas = baseline.execute_transaction(&tx).expect("baseline deposit executes");
+    let baseline_target =
+        revm::Database::storage(baseline.evm.db_mut(), BLACKLIST_IT_TARGET, U256::ZERO).unwrap();
+    let baseline_query =
+        revm::Database::storage(baseline.evm.db_mut(), BLACKLIST_IT_CONTRACT, U256::ZERO).unwrap();
+    let baseline_caller =
+        revm::Database::basic(baseline.evm.db_mut(), BLACKLIST_IT_CALLER).unwrap();
+
+    assert_eq!(feature_receipts, baseline.receipts);
+    assert_eq!(feature_gas.tx_gas_used(), baseline_gas.tx_gas_used());
+    assert_eq!(feature_target, baseline_target);
+    assert_eq!(feature_query, baseline_query);
+    assert_eq!(feature_caller, baseline_caller);
+    assert_eq!(feature.evm.db().bundle_state, baseline.evm.db().bundle_state);
+    assert_eq!(feature.gas_used, baseline.gas_used);
+    assert_eq!(feature.evm_gas_used, baseline.evm_gas_used);
+    assert_eq!(feature.da_footprint_used, baseline.da_footprint_used);
+    assert_eq!(feature.warming_events_by_tx, baseline.warming_events_by_tx);
+    assert!(feature_receipts[0].status());
+    assert_eq!(feature_receipts[0].logs().len(), 1);
+    assert_eq!(feature_target, U256::from(1), "unblacklisted payload must execute");
+    assert_eq!(feature_query, U256::ZERO, "read-only query must leave no storage");
+}
+
+#[test]
+fn it_query_revert_and_malformed_fail_open() {
+    for query_code in
+        [BLACKLIST_REVERT, &[0x60, 0x01, 0x60, 0x00, 0x53, 0x60, 0x01, 0x60, 0x00, 0xf3][..]]
+    {
+        let mut fixture = SDMExecutorFixture::default();
+        let mut executor = build_blacklist_executor(
+            &mut fixture.db,
+            &fixture.receipt_builder,
+            &fixture.op_chain_hardforks,
+            query_code,
+        );
+        executor
+            .execute_transaction(&recovered_blacklist_deposit())
+            .expect("query failure is fail-open");
+        assert!(executor.receipts[0].status());
+        assert_eq!(
+            revm::Database::storage(executor.evm.db_mut(), BLACKLIST_IT_TARGET, U256::ZERO)
+                .unwrap(),
+            U256::from(1)
+        );
+    }
+}
+
+#[test]
+fn it_add_then_deposit_intercepts() {
+    let mut fixture = SDMExecutorFixture::default();
+    let mut executor = build_stateful_blacklist_executor(
+        &mut fixture.db,
+        &fixture.receipt_builder,
+        &fixture.op_chain_hardforks,
+        false,
+    );
+    executor.execute_transaction(&blacklist_update(0, true)).expect("add hash");
+    executor
+        .execute_transaction(&recovered_blacklist_deposit())
+        .expect("deposit remains includable");
+    assert!(executor.receipts[0].status());
+    assert!(!executor.receipts[1].status());
+}
+
+#[test]
+fn it_remove_then_deposit_executes() {
+    let mut fixture = SDMExecutorFixture::default();
+    let mut executor = build_stateful_blacklist_executor(
+        &mut fixture.db,
+        &fixture.receipt_builder,
+        &fixture.op_chain_hardforks,
+        true,
+    );
+    executor.execute_transaction(&blacklist_update(0, false)).expect("remove hash");
+    executor.execute_transaction(&recovered_blacklist_deposit()).expect("deposit executes");
+    assert!(executor.receipts[0].status());
+    assert!(executor.receipts[1].status());
+}
+
+#[test]
+fn it_deposit_then_later_add_not_retroactive() {
+    let mut fixture = SDMExecutorFixture::default();
+    let mut executor = build_stateful_blacklist_executor(
+        &mut fixture.db,
+        &fixture.receipt_builder,
+        &fixture.op_chain_hardforks,
+        false,
+    );
+    executor.execute_transaction(&recovered_blacklist_deposit()).expect("deposit executes first");
+    executor.execute_transaction(&blacklist_update(0, true)).expect("later add succeeds");
+    assert!(executor.receipts[0].status());
+    assert!(executor.receipts[1].status());
+}
+
+#[test]
+fn it_hit_then_normal_tx_isolated() {
+    let normal = recovered_legacy(TxLegacy {
+        nonce: 0,
+        gas_limit: 100_000,
+        to: TxKind::Call(BLACKLIST_IT_TARGET),
+        ..Default::default()
+    });
+    let mut side_effect_fixture = SDMExecutorFixture::default();
+    let mut side_effect = build_blacklist_executor(
+        &mut side_effect_fixture.db,
+        &side_effect_fixture.receipt_builder,
+        &side_effect_fixture.op_chain_hardforks,
+        BLACKLIST_SSTORE_AND_RETURN_TRUE,
+    );
+    side_effect
+        .execute_transaction(&recovered_blacklist_deposit())
+        .expect("failed deposit included");
+    side_effect.execute_transaction(&normal).expect("following tx executes independently");
+
+    let mut control_fixture = SDMExecutorFixture::default();
+    let mut control = build_blacklist_executor(
+        &mut control_fixture.db,
+        &control_fixture.receipt_builder,
+        &control_fixture.op_chain_hardforks,
+        BLACKLIST_RETURN_TRUE,
+    );
+    control
+        .execute_transaction(&recovered_blacklist_deposit())
+        .expect("control failed deposit included");
+    control.execute_transaction(&normal).expect("control following tx executes independently");
+
+    assert_eq!(side_effect.receipts, control.receipts);
+    assert_eq!(side_effect.gas_used, control.gas_used);
+    assert_eq!(side_effect.evm_gas_used, control.evm_gas_used);
+    assert_eq!(side_effect.da_footprint_used, control.da_footprint_used);
+    assert_eq!(side_effect.warming_events_by_tx, control.warming_events_by_tx);
+    assert_eq!(side_effect.evm.db().bundle_state, control.evm.db().bundle_state);
+    assert!(!side_effect.receipts[0].status());
+    assert!(side_effect.receipts[1].status());
+    assert_eq!(side_effect.receipts[1].logs().len(), 1);
+    assert_eq!(
+        revm::Database::storage(side_effect.evm.db_mut(), BLACKLIST_IT_TARGET, U256::ZERO).unwrap(),
+        U256::from(1)
+    );
+}
+
+#[test]
+fn it_attributes_blacklisted_hash_bypasses() {
+    let tx = recovered_deposit_from(
+        xlayer_blacklist_contract::L1_ATTRIBUTES_DEPOSITOR,
+        BLACKLIST_IT_SOURCE,
+    );
+    assert_bypass_matches_baseline(&tx);
+}
+
+#[test]
+fn it_system_deposit_bypasses_without_query() {
+    let tx =
+        recovered_deposit_with_system_flag(Address::repeat_byte(0x33), BLACKLIST_IT_SOURCE, true);
+    assert_bypass_matches_baseline(&tx);
+}
+
+#[test]
+fn it_query_state_is_never_committed() {
+    let mut side_effect_fixture = SDMExecutorFixture::default();
+    let mut side_effect = build_blacklist_executor(
+        &mut side_effect_fixture.db,
+        &side_effect_fixture.receipt_builder,
+        &side_effect_fixture.op_chain_hardforks,
+        BLACKLIST_SSTORE_AND_RETURN_TRUE,
+    );
+    let side_effect_gas = side_effect
+        .execute_transaction(&recovered_blacklist_deposit())
+        .expect("failed deposit included");
+
+    let mut control_fixture = SDMExecutorFixture::default();
+    let mut control = build_blacklist_executor(
+        &mut control_fixture.db,
+        &control_fixture.receipt_builder,
+        &control_fixture.op_chain_hardforks,
+        BLACKLIST_RETURN_TRUE,
+    );
+    let control_gas = control
+        .execute_transaction(&recovered_blacklist_deposit())
+        .expect("control deposit included");
+
+    assert_eq!(side_effect.receipts, control.receipts);
+    assert_eq!(side_effect_gas.tx_gas_used(), control_gas.tx_gas_used());
+    assert_eq!(side_effect.gas_used, control.gas_used);
+    assert_eq!(side_effect.evm_gas_used, control.evm_gas_used);
+    assert_eq!(side_effect.da_footprint_used, control.da_footprint_used);
+    assert_eq!(side_effect.warming_events_by_tx, control.warming_events_by_tx);
+    assert_eq!(side_effect.evm.db().bundle_state, control.evm.db().bundle_state);
+    assert!(!side_effect.receipts[0].status());
+    assert!(side_effect.receipts[0].logs().is_empty());
+    assert_eq!(side_effect.receipts[0].cumulative_gas_used(), BLACKLIST_IT_GAS_LIMIT);
+    assert_eq!(
+        revm::Database::storage(side_effect.evm.db_mut(), BLACKLIST_IT_CONTRACT, U256::ZERO)
+            .unwrap(),
+        U256::ZERO
+    );
+}
+
+#[test]
+fn it_hit_then_gasless_tx_isolated() {
+    let gasless = recovered_legacy(TxLegacy {
+        nonce: 0,
+        gas_limit: 100_000,
+        gas_price: 0,
+        to: TxKind::Call(BLACKLIST_IT_TARGET),
+        ..Default::default()
+    });
+    let mut side_effect_fixture = SDMExecutorFixture::default();
+    insert_test_code(
+        &mut side_effect_fixture.db,
+        XLAYER_DEVNET_GASLESS_CONTRACT,
+        GASLESS_ALLOW_HIGH,
+    );
+    let mut side_effect = build_blacklist_executor(
+        &mut side_effect_fixture.db,
+        &side_effect_fixture.receipt_builder,
+        &side_effect_fixture.op_chain_hardforks,
+        BLACKLIST_SSTORE_AND_RETURN_TRUE,
+    )
+    .with_gasless_contract(Some(GaslessContract::new(XLAYER_DEVNET_GASLESS_CONTRACT)));
+    side_effect
+        .execute_transaction(&recovered_blacklist_deposit())
+        .expect("failed deposit included");
+    side_effect.execute_transaction(&gasless).expect("following gasless tx executes");
+
+    let mut control_fixture = SDMExecutorFixture::default();
+    insert_test_code(&mut control_fixture.db, XLAYER_DEVNET_GASLESS_CONTRACT, GASLESS_ALLOW_HIGH);
+    let mut control = build_blacklist_executor(
+        &mut control_fixture.db,
+        &control_fixture.receipt_builder,
+        &control_fixture.op_chain_hardforks,
+        BLACKLIST_RETURN_TRUE,
+    )
+    .with_gasless_contract(Some(GaslessContract::new(XLAYER_DEVNET_GASLESS_CONTRACT)));
+    control
+        .execute_transaction(&recovered_blacklist_deposit())
+        .expect("control failed deposit included");
+    control.execute_transaction(&gasless).expect("control gasless tx executes");
+
+    assert_eq!(side_effect.receipts, control.receipts);
+    assert_eq!(side_effect.gas_used, control.gas_used);
+    assert_eq!(side_effect.evm_gas_used, control.evm_gas_used);
+    assert_eq!(side_effect.da_footprint_used, control.da_footprint_used);
+    assert_eq!(side_effect.warming_events_by_tx, control.warming_events_by_tx);
+    assert_eq!(side_effect.evm.db().bundle_state, control.evm.db().bundle_state);
+    assert!(!side_effect.receipts[0].status());
+    assert!(side_effect.receipts[1].status());
+    assert_eq!(side_effect.receipts[1].logs().len(), 1);
+    assert_eq!(
+        revm::Database::storage(side_effect.evm.db_mut(), BLACKLIST_IT_TARGET, U256::ZERO).unwrap(),
+        U256::from(1)
+    );
+}
+
+#[test]
+fn it_hit_does_not_leak_post_exec_tracking() {
+    let normal = recovered_legacy(TxLegacy {
+        nonce: 0,
+        gas_limit: 100_000,
+        to: TxKind::Call(BLACKLIST_IT_TARGET),
+        ..Default::default()
+    });
+    let mut side_effect_fixture = SDMExecutorFixture::default();
+    let mut side_effect = build_blacklist_executor(
+        &mut side_effect_fixture.db,
+        &side_effect_fixture.receipt_builder,
+        &side_effect_fixture.op_chain_hardforks,
+        BLACKLIST_SSTORE_AND_RETURN_TRUE,
+    );
+    side_effect.set_post_exec_mode(PostExecMode::Produce);
+    side_effect
+        .execute_transaction(&recovered_blacklist_deposit())
+        .expect("failed deposit included");
+    side_effect.execute_transaction(&normal).expect("following tracked tx executes");
+
+    let mut control_fixture = SDMExecutorFixture::default();
+    let mut control = build_blacklist_executor(
+        &mut control_fixture.db,
+        &control_fixture.receipt_builder,
+        &control_fixture.op_chain_hardforks,
+        BLACKLIST_RETURN_TRUE,
+    );
+    control.set_post_exec_mode(PostExecMode::Produce);
+    control
+        .execute_transaction(&recovered_blacklist_deposit())
+        .expect("control failed deposit included");
+    control.execute_transaction(&normal).expect("control tracked tx executes");
+
+    assert_eq!(side_effect.receipts, control.receipts);
+    assert_eq!(side_effect.gas_used, control.gas_used);
+    assert_eq!(side_effect.evm_gas_used, control.evm_gas_used);
+    assert_eq!(side_effect.da_footprint_used, control.da_footprint_used);
+    assert_eq!(side_effect.warming_events_by_tx, control.warming_events_by_tx);
+    assert_eq!(side_effect.evm.db().bundle_state, control.evm.db().bundle_state);
+    assert!(!side_effect.receipts[0].status());
+    assert!(side_effect.receipts[1].status());
+    assert_eq!(side_effect.warming_events_by_tx.len(), 2);
 }
 
 /// Build the standard verifier payload (version 1) used by every test.

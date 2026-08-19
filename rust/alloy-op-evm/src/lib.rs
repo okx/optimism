@@ -27,18 +27,19 @@ use core::{
     ops::{Deref, DerefMut},
 };
 use op_revm::{
-    L1BlockInfo, OpBuilder, OpHaltReason, OpSpecId, OpTransaction,
+    L1BlockInfo, OpBuilder, OpHaltReason, OpSpecId, OpTransaction, OpTransactionError,
     constants::{BASE_FEE_RECIPIENT, L1_FEE_RECIPIENT, OPERATOR_FEE_RECIPIENT},
+    handler::OpHandler,
     precompiles::OpPrecompiles,
 };
 use revm::{
     Context, ExecuteEvm, InspectEvm, Inspector, Journal, MainContext, SystemCallEvm,
     context::{BlockEnv, CfgEnv, DBErrorMarker, TxEnv},
     context_interface::{
-        Transaction,
-        result::{EVMError, ResultAndState},
+        ContextSetters, JournalTr, Transaction,
+        result::{EVMError, InvalidTransaction, ResultAndState},
     },
-    handler::{PrecompileProvider, instructions::EthInstructions},
+    handler::{EthFrame, Handler, PrecompileProvider, instructions::EthInstructions},
     inspector::NoOpInspector,
     interpreter::{InterpreterResult, interpreter::EthInterpreter},
 };
@@ -49,8 +50,11 @@ pub use tx::OpTx;
 pub mod block;
 pub use block::{
     GaslessContract, OpBlockExecutionCtx, OpBlockExecutor, OpBlockExecutorFactory, PostExecMode,
-    PreRefundGasUsed, XLAYER_DEVNET_GASLESS_CONTRACT, XLAYER_MAINNET_GASLESS_CONTRACT,
-    XLAYER_TESTNET_GASLESS_CONTRACT, xlayer_gasless_contract,
+    PreRefundGasUsed, TxBlacklistContract, XLAYER_DEVNET_BLACKLIST_CONTRACT,
+    XLAYER_DEVNET_GASLESS_CONTRACT, XLAYER_MAINNET_BLACKLIST_CONTRACT,
+    XLAYER_MAINNET_GASLESS_CONTRACT, XLAYER_TESTNET_BLACKLIST_CONTRACT,
+    XLAYER_TESTNET_GASLESS_CONTRACT, interceptable_user_deposit_source, xlayer_blacklist_contract,
+    xlayer_gasless_contract,
 };
 
 pub mod post_exec;
@@ -77,6 +81,8 @@ pub struct OpEvm<DB: Database, I, P = OpPrecompiles, Tx = OpTx> {
     inspect: bool,
     post_exec_tracking_active: bool,
     last_tx_post_exec_result: post_exec::PostExecExecutedTx,
+    #[cfg(test)]
+    test_blacklist_contract: Option<TxBlacklistContract>,
     _tx: PhantomData<Tx>,
 }
 
@@ -147,6 +153,8 @@ impl<DB: Database, I, P, Tx> OpEvm<DB, I, P, Tx> {
             inspect,
             post_exec_tracking_active: false,
             last_tx_post_exec_result: Default::default(),
+            #[cfg(test)]
+            test_blacklist_contract: None,
             _tx: PhantomData,
         }
     }
@@ -174,6 +182,20 @@ impl<DB: Database, I, P, Tx> OpEvm<DB, I, P, Tx> {
     /// Seed the block-scoped warming state captured from a prior flashblock's executor.
     pub fn seed_warming_state(&mut self, state: post_exec::WarmingState) {
         self.inner.0.inspector.seed_warming_state(state);
+    }
+
+    fn blacklist_contract(&self) -> Option<TxBlacklistContract> {
+        #[cfg(test)]
+        if let Some(contract) = self.test_blacklist_contract {
+            return Some(contract);
+        }
+
+        block::xlayer_blacklist_contract(self.ctx().cfg.chain_id).map(TxBlacklistContract::new)
+    }
+
+    #[cfg(test)]
+    const fn set_test_blacklist_contract(&mut self, contract: TxBlacklistContract) {
+        self.test_blacklist_contract = Some(contract);
     }
 }
 
@@ -253,6 +275,46 @@ impl<DB: Database, I, P, Tx> DerefMut for OpEvm<DB, I, P, Tx> {
     }
 }
 
+impl<DB, I, P, Tx> OpEvm<DB, I, P, Tx>
+where
+    DB: Database,
+    I: Inspector<OpEvmContext<DB>>,
+    P: PrecompileProvider<OpEvmContext<DB>, Output = InterpreterResult>,
+    Tx: IntoTxEnv<Tx> + Into<OpTransaction<TxEnv>>,
+{
+    /// Runs the blacklist query and, on a hit, produces the canonical OP failed-deposit result.
+    /// `Ok(None)` means the transaction is ineligible or the deterministic fail-open query did
+    /// not return `true`. Local database errors are propagated to prevent node-local execution
+    /// decisions.
+    fn intercept_blacklisted_deposit(
+        &mut self,
+        op_tx: &OpTx,
+        contract: TxBlacklistContract,
+    ) -> Result<Option<ResultAndState<OpHaltReason>>, EVMError<DB::Error, OpTxError>> {
+        let Some(source_hash) = block::interceptable_user_deposit_source(op_tx) else {
+            return Ok(None);
+        };
+        let is_blacklisted = contract.is_blacklisted(self, source_hash);
+
+        // The system call replaces the context transaction on both success and error. Restore the
+        // original deposit before either propagating an infrastructure error or running common
+        // post-exec cleanup, which classifies the current transaction and records warming state.
+        self.ctx_mut().set_tx(op_tx.clone());
+
+        if !is_blacklisted? {
+            return Ok(None);
+        }
+
+        let handler = OpHandler::<_, _, EthFrame<EthInterpreter>>::new();
+        let error = EVMError::Transaction(OpTransactionError::Base(InvalidTransaction::Str(
+            "deposit blacklisted".into(),
+        )));
+        let output = handler.catch_error(&mut self.inner, error);
+        let state = self.inner.finalize();
+        output.map(|result| Some(ResultAndState::new(result, state))).map_err(map_op_err)
+    }
+}
+
 impl<DB, I, P, Tx> Evm for OpEvm<DB, I, P, Tx>
 where
     DB: Database,
@@ -305,10 +367,18 @@ where
         });
 
         let track_post_exec = self.post_exec_tracking_active;
-        let result = if self.inspect || track_post_exec {
-            self.inner.inspect_tx(op_tx)
-        } else {
-            self.inner.transact(op_tx)
+        let blacklist_result = self
+            .blacklist_contract()
+            .map(|contract| self.intercept_blacklisted_deposit(&op_tx, contract))
+            .unwrap_or(Ok(None));
+
+        let result = match blacklist_result {
+            Ok(Some(result)) => Ok(result),
+            Ok(None) if self.inspect || track_post_exec => {
+                self.inner.inspect_tx(op_tx).map_err(map_op_err)
+            }
+            Ok(None) => self.inner.transact(op_tx).map_err(map_op_err),
+            Err(error) => Err(error),
         };
 
         // Restore the original `disable_base_fee` on EVERY result path (success, REVERT/HALT,
@@ -334,7 +404,7 @@ where
             self.post_exec_tracking_active = false;
         }
 
-        result.map_err(map_op_err)
+        result
     }
 
     fn transact_system_call(
@@ -343,7 +413,18 @@ where
         contract: Address,
         data: Bytes,
     ) -> Result<ResultAndState<Self::HaltReason>, Self::Error> {
-        self.inner.system_call_with_caller(caller, contract, data).map_err(map_op_err)
+        match self.inner.system_call_with_caller(caller, contract, data) {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                // `op-revm` uses `OpHandler` for system calls. Unlike the default mainnet
+                // handler, its non-transaction error path does not discard the journal. A
+                // blacklist/gasless fail-open query may therefore have already touched state
+                // before a database error. Restore the pre-call journal before the caller runs
+                // the real transaction.
+                self.ctx_mut().journaled_state.discard_tx();
+                Err(map_op_err(error))
+            }
+        }
     }
 
     fn finish(self) -> (Self::DB, EvmEnv<Self::Spec, Self::BlockEnv>) {
@@ -451,6 +532,9 @@ where
         OpEvm::new(inner, true)
     }
 }
+
+#[cfg(test)]
+mod xlayer_blacklist_tests;
 
 #[cfg(test)]
 mod tests {
