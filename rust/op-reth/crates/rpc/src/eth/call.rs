@@ -1,14 +1,16 @@
 use crate::{OpEthApi, OpEthApiError, eth::RpcNodeCore};
+use alloy_consensus::transaction::TxHashRef;
 use op_revm::transaction::OpTxTr;
 use reth_evm::{ConfigureEvm, Evm, EvmEnvFor, HaltReasonFor, TxEnvFor};
 use reth_optimism_evm::OpTxEnv;
+use reth_primitives_traits::Recovered;
 use reth_revm::db::bal::EvmDatabaseError;
 use reth_rpc_eth_api::{
     FromEvmError, RpcConvert,
     helpers::{Call, EthCall, estimate::EstimateCall},
 };
-use reth_storage_api::errors::ProviderError;
-use revm::{Database, context_interface::result::ResultAndState};
+use reth_storage_api::{ProviderTx, errors::ProviderError};
+use revm::{Database, DatabaseCommit, context_interface::result::ResultAndState};
 
 impl<N, Rpc> EthCall for OpEthApi<N, Rpc>
 where
@@ -78,5 +80,42 @@ where
 
         let mut evm = self.evm_config().evm_with_env(db, evm_env);
         evm.transact(tx_env).map_err(Self::Error::from_evm_err)
+    }
+
+    /// Gasless-aware override of the transaction replay used by tracing RPCs.
+    ///
+    /// `debug_traceTransaction` starts from the parent block and commits every transaction before
+    /// the target into an in-memory database. The default helper constructs an ordinary `tx_env`
+    /// for those preceding transactions, so a zero-priced gasless transaction fails the base-fee
+    /// check before the target can be traced. Detect and flag every replayed transaction against
+    /// the state produced by its predecessors, matching the canonical block executor's ordering
+    /// and state-dependent whitelist lookup.
+    fn replay_transactions_until<'a, DB, I>(
+        &self,
+        db: &mut DB,
+        evm_env: EvmEnvFor<Self::Evm>,
+        transactions: I,
+        target_tx_hash: alloy_primitives::B256,
+    ) -> Result<usize, Self::Error>
+    where
+        DB: Database<Error = EvmDatabaseError<ProviderError>> + DatabaseCommit + core::fmt::Debug,
+        I: IntoIterator<Item = Recovered<&'a ProviderTx<Self::Provider>>>,
+    {
+        let mut index = 0;
+        for tx in transactions {
+            if *tx.tx_hash() == target_tx_hash {
+                break;
+            }
+
+            let mut tx_env = self.evm_config().tx_env(tx);
+            if self.detect_gasless(&mut *db, evm_env.clone(), &tx_env)? {
+                tx_env.set_gasless(true);
+            }
+
+            let mut evm = self.evm_config().evm_with_env(&mut *db, evm_env.clone());
+            evm.transact_commit(tx_env).map_err(Self::Error::from_evm_err)?;
+            index += 1;
+        }
+        Ok(index)
     }
 }

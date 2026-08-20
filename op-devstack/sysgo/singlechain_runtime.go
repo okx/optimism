@@ -43,6 +43,7 @@ type singleChainPrimaryRuntime struct {
 
 type singleChainRuntimeSpec struct {
 	BuildWorld      func(t devtest.T, keys devkeys.Keys, cfg PresetConfig) singleChainRuntimeWorld
+	ConfigureL1     func(t devtest.T, keys devkeys.Keys, world singleChainRuntimeWorld, l1EL *L1Geth)
 	StartPrimary    func(t devtest.T, keys devkeys.Keys, world singleChainRuntimeWorld, l1EL *L1Geth, l1CL *L1CLNode, jwtPath string, jwtSecret [32]byte, cfg PresetConfig) singleChainPrimaryRuntime
 	StartBatcher    bool
 	StartProposer   bool
@@ -123,6 +124,9 @@ func newSingleChainRuntimeWithConfig(t devtest.T, cfg PresetConfig, spec singleC
 		l1Clock = timeTravelClock
 	}
 	l1EL, l1CL := startInProcessL1WithClockConfig(t, world.L1Network, jwtPath, l1Clock, cfg)
+	if spec.ConfigureL1 != nil {
+		spec.ConfigureL1(t, keys, world, l1EL)
+	}
 
 	primary := spec.StartPrimary(t, keys, world, l1EL, l1CL, jwtPath, jwtSecret, cfg)
 	primaryNode := newSingleChainNodeRuntime("sequencer", true, primary.EL, primary.CL)

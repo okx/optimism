@@ -29,6 +29,19 @@ func xlayerFreePort(t devtest.T) int {
 	return port
 }
 
+// xlayerFlashblocksProducerOption enables the sequencer's built-in flashblocks
+// producer on an isolated local endpoint.
+func xlayerFlashblocksProducerOption(port int) OpRethOption {
+	return OpRethWithExtraArgs(
+		"--xlayer.sequencer-mode",
+		"--flashblocks.enabled",
+		"--flashblocks.addr", xlayerFlashblocksListenAddr,
+		"--flashblocks.port", strconv.Itoa(port),
+		"--flashblocks.block-time", strconv.FormatUint(XLayerFlashblockTimeMS, 10),
+		"--rollup.chain-block-time", strconv.FormatUint(XLayerDefaultL2BlockTime*1_000, 10),
+	)
+}
+
 // NewXLayerFlashblocksRuntime builds the default XLayer flashblocks devnet
 // topology.
 func NewXLayerFlashblocksRuntime(t devtest.T) *SingleChainRuntime {
@@ -42,20 +55,22 @@ func NewXLayerFlashblocksRuntime(t devtest.T) *SingleChainRuntime {
 // two relay followers (rpc1, rpc2) subscribe to that stream to serve pending
 // state. It never starts a second sequencer.
 func NewXLayerFlashblocksRuntimeWithConfig(t devtest.T, cfg PresetConfig) *SingleChainRuntime {
-	// Match the single-chain topology's non-zero XLayer L2 genesis height.
-	cfg.DeployerOptions = append([]DeployerOption{WithXLayerL2GenesisHeight(XLayerDefaultL2GenesisHeight)}, cfg.DeployerOptions...)
+	// Match the single-chain topology's non-zero genesis height and one-second L2
+	// block cadence.
+	cfg.DeployerOptions = append([]DeployerOption{
+		WithXLayerL2GenesisHeight(XLayerDefaultL2GenesisHeight),
+		WithUniformL2BlockTimes(XLayerDefaultL2BlockTime),
+		WithXLayerFeeMarketConfig(),
+		WithSequencingWindow(XLayerSequencerWindowSize),
+	}, cfg.DeployerOptions...)
 
 	producerPort := xlayerFreePort(t)
-
-	producerArgs := OpRethWithExtraArgs(
-		"--flashblocks.enabled",
-		"--flashblocks.addr", xlayerFlashblocksListenAddr,
-		"--flashblocks.port", strconv.Itoa(producerPort),
-	)
+	producerOpts := xlayerFlashblocksProducerOption(producerPort)
 
 	runtime := newSingleChainRuntimeWithConfig(t, cfg, singleChainRuntimeSpec{
 		BuildWorld:      buildXLayerWorld,
-		StartPrimary:    xlayerSequencerPrimary(producerArgs),
+		ConfigureL1:     configureXLayerSystemConfig,
+		StartPrimary:    xlayerSequencerPrimary(producerOpts),
 		StartBatcher:    true,
 		StartProposer:   false,
 		StartChallenger: false,
