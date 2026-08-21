@@ -1,8 +1,6 @@
 package sysgo
 
 import (
-	"fmt"
-	"net"
 	"strconv"
 
 	"github.com/ethereum-optimism/optimism/op-devstack/devtest"
@@ -18,25 +16,14 @@ const (
 	xlayerFlashblocksListenAddr = "127.0.0.1"
 )
 
-// xlayerFreePort reserves an ephemeral local TCP port for the producer's
-// flashblocks WebSocket server. The listener is closed immediately so the reth
-// node can bind it; using an OS-assigned port keeps parallel devnets isolated.
-func xlayerFreePort(t devtest.T) int {
-	ln, err := net.Listen("tcp", xlayerFlashblocksListenAddr+":0")
-	t.Require().NoError(err, "allocate a free flashblocks websocket port")
-	port := ln.Addr().(*net.TCPAddr).Port
-	t.Require().NoError(ln.Close(), "release the reserved flashblocks port")
-	return port
-}
-
 // xlayerFlashblocksProducerOption enables the sequencer's built-in flashblocks
-// producer on an isolated local endpoint.
-func xlayerFlashblocksProducerOption(port int) OpRethOption {
+// producer on an OS-assigned local endpoint.
+func xlayerFlashblocksProducerOption() OpRethOption {
 	return OpRethWithExtraArgs(
 		"--xlayer.sequencer-mode",
 		"--flashblocks.enabled",
 		"--flashblocks.addr", xlayerFlashblocksListenAddr,
-		"--flashblocks.port", strconv.Itoa(port),
+		"--flashblocks.port", "0",
 		"--flashblocks.block-time", strconv.FormatUint(XLayerFlashblockTimeMS, 10),
 		"--rollup.chain-block-time", strconv.FormatUint(XLayerDefaultL2BlockTime*1_000, 10),
 	)
@@ -64,8 +51,7 @@ func NewXLayerFlashblocksRuntimeWithConfig(t devtest.T, cfg PresetConfig) *Singl
 		WithSequencingWindow(XLayerSequencerWindowSize),
 	}, cfg.DeployerOptions...)
 
-	producerPort := xlayerFreePort(t)
-	producerOpts := xlayerFlashblocksProducerOption(producerPort)
+	producerOpts := xlayerFlashblocksProducerOption()
 
 	runtime := newSingleChainRuntimeWithConfig(t, cfg, singleChainRuntimeSpec{
 		BuildWorld:      buildXLayerWorld,
@@ -79,20 +65,30 @@ func NewXLayerFlashblocksRuntimeWithConfig(t devtest.T, cfg PresetConfig) *Singl
 	// Each relay subscribes to the producer's flashblock stream and re-publishes
 	// it on its OWN isolated WebSocket endpoint. The relay's re-publisher binds
 	// --flashblocks.port, which defaults to a fixed port; without a distinct port
-	// per relay the second relay fails with "address already in use". Allocating a
-	// free port per relay also gives each of producer/rpc1/rpc2 an isolated
-	// flashblocks WS endpoint.
-	subscribeURL := fmt.Sprintf("ws://%s:%d", xlayerFlashblocksListenAddr, producerPort)
-	relayOpts := func(relayPort int) []OpRethOption {
+	// per relay the second relay fails with "address already in use". Port 0 lets
+	// the OS bind an isolated endpoint without a bind-close-rebind race.
+	producer, ok := runtime.L2EL.(*OpReth)
+	t.Require().True(ok, "XLayer flashblocks producer must be an op-reth node")
+	subscribeURL := producer.FlashblocksWS()
+	t.Require().NotEmpty(subscribeURL, "XLayer flashblocks producer URL was not discovered")
+	relayOpts := func() []OpRethOption {
 		return append(append([]OpRethOption{}, cfg.OpRethOptions...),
 			OpRethWithExtraArgs(
 				"--flashblocks-url", subscribeURL,
 				"--flashblocks.addr", xlayerFlashblocksListenAddr,
-				"--flashblocks.port", strconv.Itoa(relayPort),
+				"--flashblocks.port", "0",
+				"--xlayer.flashblocks-subscription",
 			))
 	}
 
-	addXLayerFollowerNode(t, runtime, XLayerFlashblocksRelay1NodeName, relayOpts(xlayerFreePort(t)), cfg.GlobalL2CLOptions)
-	addXLayerFollowerNode(t, runtime, XLayerFlashblocksRelay2NodeName, relayOpts(xlayerFreePort(t)), cfg.GlobalL2CLOptions)
+	// A relay needs the producer's canonical unsafe payloads as the base state for
+	// the next flashblock sequence. Connect both CL and EL peers: op-node's follow
+	// source reports head references but does not transfer the payload bodies that
+	// a fresh op-reth database needs to advance from genesis.
+	relay1 := addXLayerFollowerNode(t, runtime, XLayerFlashblocksRelay1NodeName, relayOpts(), cfg.GlobalL2CLOptions)
+	connectSingleChainNodes(t, runtime.L2EL, runtime.L2CL, relay1)
+	relay2 := addXLayerFollowerNode(t, runtime, XLayerFlashblocksRelay2NodeName, relayOpts(), cfg.GlobalL2CLOptions)
+	connectSingleChainNodes(t, runtime.L2EL, runtime.L2CL, relay2)
+	runtime.P2PEnabled = true
 	return runtime
 }

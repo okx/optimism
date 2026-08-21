@@ -14,7 +14,6 @@ import (
 	bindings "github.com/ethereum-optimism/optimism/op-e2e/bindings"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/intentbuilder"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/wait"
-	ps "github.com/ethereum-optimism/optimism/op-proposer/proposer"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 )
 
@@ -159,15 +158,6 @@ func configureXLayerSystemConfig(t devtest.T, keys devkeys.Keys, world singleCha
 	}
 }
 
-// WithProposerGenesisHeight returns a ProposerOption that informs op-proposer of
-// the L2 genesis block height, so it does not try to propose an output for a
-// non-existent pre-genesis block on chains whose genesis height is not zero.
-func WithProposerGenesisHeight(height uint64) ProposerOption {
-	return func(_ ComponentTarget, cfg *ps.CLIConfig) {
-		cfg.GenesisHeight = height
-	}
-}
-
 // buildXLayerWorld builds the XLayer single-chain world from the local
 // contracts-bedrock artifacts (resolved from cfg.LocalContractArtifactsPath,
 // i.e. OPTIMISM_ROOT/.../forge-artifacts). It mirrors buildSingleChainWorld but
@@ -236,9 +226,10 @@ func xlayerSequencerPrimary(seqExtraOpts ...OpRethOption) func(devtest.T, devkey
 }
 
 // addXLayerFollowerNode starts an XLayer follower (RPC/validator or flashblocks
-// relay) node and registers it in the runtime. The follower tracks the sequencer
-// through L1 derivation; elOpts carries the execution binary and any per-node CLI
-// arguments (e.g. the flashblocks subscription URL for a relay).
+// relay) node and registers it in the runtime. The follower is L1-derivation-only
+// unless its caller explicitly connects it to another node after startup.
+// elOpts carries the execution binary and any per-node CLI arguments (e.g. the
+// flashblocks subscription URL for a relay).
 func addXLayerFollowerNode(t devtest.T, runtime *SingleChainRuntime, name string, elOpts []OpRethOption, clOpts []L2CLOption) *SingleChainNodeRuntime {
 	jwtPath := runtime.L2EL.JWTPath()
 	jwtSecret := readJWTSecretFromPath(t, jwtPath)
@@ -266,16 +257,15 @@ func NewXLayerRuntime(t devtest.T) *SingleChainRuntime {
 // sequencer purely from L1 even with EL/CL P2P turned off.
 func NewXLayerRuntimeWithConfig(t devtest.T, cfg PresetConfig) *SingleChainRuntime {
 	// Start the L2 genesis at the non-zero XLayer height with the production
-	// one-second block cadence, and tell the proposer the same height so it does
-	// not propose the genesis block itself.
+	// one-second block cadence. The proposer derives the same height from the
+	// resulting rollup config.
 	cfg.DeployerOptions = append([]DeployerOption{
 		WithXLayerL2GenesisHeight(XLayerDefaultL2GenesisHeight),
 		WithUniformL2BlockTimes(XLayerDefaultL2BlockTime),
 		WithXLayerFeeMarketConfig(),
 		WithSequencingWindow(XLayerSequencerWindowSize),
 	}, cfg.DeployerOptions...)
-	cfg.ProposerOptions = append(cfg.ProposerOptions, WithProposerGenesisHeight(XLayerDefaultL2GenesisHeight))
-	producerOpts := xlayerFlashblocksProducerOption(xlayerFreePort(t))
+	producerOpts := xlayerFlashblocksProducerOption()
 
 	runtime := newSingleChainRuntimeWithConfig(t, cfg, singleChainRuntimeSpec{
 		BuildWorld:      buildXLayerWorld,

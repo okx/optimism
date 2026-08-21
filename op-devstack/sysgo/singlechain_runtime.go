@@ -322,6 +322,7 @@ func startMinimalProposer(
 		DGFAddress:                   l2Net.deployment.DisputeGameFactoryProxyAddr().Hex(),
 		ProposalInterval:             6 * time.Second,
 		DisputeGameType:              1,
+		GenesisHeight:                l2Net.RollupConfig().Genesis.L2.Number,
 		ActiveSequencerCheckDuration: 5 * time.Second,
 		WaitNodeSync:                 false,
 		RollupRpc:                    l2CL.UserRPC(),
