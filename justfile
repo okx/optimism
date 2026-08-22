@@ -94,16 +94,12 @@ build-customlint:
 
 # Lints Go code with specific linters.
 #
-# X Layer: ok-kms-go is deliberately kept out of go.mod (see mod-tidy), but tidy
-# ignores build tags and tries to re-add it — a hard error on machines without
-# gitlab.okg.com access, a non-empty -diff on machines with it. `go mod download`
-# first fills the module cache, then GOPROXY=off pins tidy to that cache so the
-# private module can never resolve, and -e demotes that one unresolved import to
-# a warning. Everything else is still checked for go.mod/go.sum drift.
+# X Layer: tidy ignores build tags and tries to add the private ok-kms-go module.
+# An isolated cache plus the public-only proxy makes that lookup consistently
+# fail while public dependencies and go.mod/go.sum drift are still checked.
 lint-go: build-customlint build-superchain-go
   ./linter/bin/op-golangci-lint run ./...
-  go mod download
-  GOPROXY=off go mod tidy -e -diff
+  GOMODCACHE="$(mktemp -d)" GOPROXY="https://proxy.golang.org" GONOPROXY="none" GOPRIVATE="" go mod tidy -e -diff
 
 # Lints Go code with specific linters and fixes reported issues.
 lint-go-fix: build-customlint build-superchain-go

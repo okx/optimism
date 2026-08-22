@@ -38,6 +38,22 @@ func (c *CheatCodesPrecompile) GetBlockNumber() *big.Int {
 	return c.h.env.Context().BlockNumber
 }
 
+// IsContext implements the vm.isContext(ForgeContext) cheatcode. Scripts such as
+// contracts-bedrock scripts/deploy/Deployer.sol call it directly (unguarded) to
+// distinguish test/coverage from script execution. This Go host runs deploy
+// scripts, so it reports the script-group contexts as true and the
+// test/coverage/snapshot contexts as false. The argument matches the forge-std
+// ForgeContext enum ordering: 0..3 = TestGroup/Test/Coverage/Snapshot,
+// 4..7 = ScriptGroup/ScriptDryRun/ScriptBroadcast/ScriptResume, 8 = Unknown.
+func (c *CheatCodesPrecompile) IsContext(context uint8) bool {
+	switch context {
+	case 4, 5, 6, 7:
+		return true
+	default:
+		return false
+	}
+}
+
 // Difficulty implements https://book.getfoundry.sh/cheatcodes/difficulty
 func (c *CheatCodesPrecompile) Difficulty(_ *big.Int) error {
 	return vm.ErrExecutionReverted // only post-merge is supported

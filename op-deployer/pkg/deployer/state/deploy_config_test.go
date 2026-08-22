@@ -20,6 +20,7 @@ func TestCombineDeployConfig(t *testing.T) {
 		ID: common.HexToHash("0x123"),
 	}
 	chainIntent := ChainIntent{
+		Eip1559DenominatorCanyon:   123,
 		Eip1559Denominator:         1,
 		Eip1559Elasticity:          2,
 		GasLimit:                   standard.GasLimit,
@@ -61,4 +62,5 @@ func TestCombineDeployConfig(t *testing.T) {
 	require.Equal(t, *out.L2InitializationConfig.UpgradeScheduleDeployConfig.L2GenesisJovianTimeOffset, hexutil.Uint64(5))
 	require.Equal(t, *out.L2InitializationConfig.UpgradeScheduleDeployConfig.L2GenesisKarstTimeOffset, hexutil.Uint64(6))
 	require.Equal(t, *out.L2InitializationConfig.UpgradeScheduleDeployConfig.L2GenesisLagoonTimeOffset, hexutil.Uint64(7))
+	require.Equal(t, uint64(123), out.L2InitializationConfig.EIP1559DeployConfig.EIP1559DenominatorCanyon)
 }
