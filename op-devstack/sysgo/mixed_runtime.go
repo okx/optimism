@@ -452,6 +452,7 @@ func buildMixedOpRethNode(
 		jwtSecret:          jwtSecret,
 		authRPC:            "",
 		userRPC:            "",
+		flashblocksWSChan:  make(chan string, 1),
 		execPath:           execPath,
 		args:               args,
 		env:                []string{},

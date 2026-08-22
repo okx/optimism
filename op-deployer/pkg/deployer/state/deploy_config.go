@@ -23,6 +23,13 @@ var l2GenesisBlockBaseFeePerGas = hexutil.Big(*(big.NewInt(1000000000)))
 
 func CombineDeployConfig(intent *Intent, chainIntent *ChainIntent, state *State, chainState *ChainState) (genesis.DeployConfig, error) {
 	upgradeSchedule := standard.DefaultHardforkSchedule()
+	// UPSTREAM(optimism): honor the public ChainIntent field instead of always
+	// forcing the standard Canyon denominator. Keep 250 as the zero-value fallback
+	// for callers that rely on the historical default.
+	eip1559DenominatorCanyon := chainIntent.Eip1559DenominatorCanyon
+	if eip1559DenominatorCanyon == 0 {
+		eip1559DenominatorCanyon = 250
+	}
 
 	cfg := genesis.DeployConfig{
 		L1DependenciesConfig: genesis.L1DependenciesConfig{
@@ -68,7 +75,7 @@ func CombineDeployConfig(intent *Intent, chainIntent *ChainIntent, state *State,
 			},
 			EIP1559DeployConfig: genesis.EIP1559DeployConfig{
 				EIP1559Denominator:       chainIntent.Eip1559Denominator,
-				EIP1559DenominatorCanyon: 250,
+				EIP1559DenominatorCanyon: eip1559DenominatorCanyon,
 				EIP1559Elasticity:        chainIntent.Eip1559Elasticity,
 			},
 			GasTokenDeployConfig: genesis.GasTokenDeployConfig{

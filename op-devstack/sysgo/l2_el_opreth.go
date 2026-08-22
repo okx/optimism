@@ -89,12 +89,13 @@ func OpRethWithInteropURL(interopURL string) OpRethOption {
 type OpReth struct {
 	mu sync.Mutex
 
-	name      string
-	chainID   eth.ChainID
-	jwtPath   string
-	jwtSecret [32]byte
-	authRPC   string
-	userRPC   string
+	name              string
+	chainID           eth.ChainID
+	jwtPath           string
+	jwtSecret         [32]byte
+	authRPC           string
+	userRPC           string
+	flashblocksWSChan chan string
 
 	authProxy *tcpproxy.Proxy
 	userProxy *tcpproxy.Proxy
@@ -157,6 +158,11 @@ func (n *OpReth) Start() {
 		} else if msg == "RPC auth server started" {
 			select {
 			case authRPCChan <- "ws://" + e.FieldValue("url").(string):
+			default:
+			}
+		} else if strings.HasPrefix(msg, "Flashblocks WebSocketPublisher listening on ") {
+			select {
+			case n.flashblocksWSChan <- "ws://" + strings.TrimPrefix(msg, "Flashblocks WebSocketPublisher listening on "):
 			default:
 			}
 		} else if metricsUrl, found := strings.CutPrefix(msg, "Starting metrics endpoint at "); found {
@@ -241,6 +247,13 @@ func (n *OpReth) UserRPC() string {
 
 func (n *OpReth) EngineRPC() string {
 	return n.authRPC
+}
+
+// FlashblocksWS waits for and returns the publisher address reported during startup.
+func (n *OpReth) FlashblocksWS() string {
+	var addr string
+	n.p.Require().NoError(tasks.Await(n.p.Ctx(), n.flashblocksWSChan, &addr), "need Flashblocks WS address from logs")
+	return addr
 }
 
 func (n *OpReth) JWTPath() string {
