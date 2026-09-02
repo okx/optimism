@@ -4,12 +4,7 @@ use alloy_eips::eip4788::SYSTEM_ADDRESS;
 use alloy_evm::Evm;
 use alloy_primitives::{Address, B256, Bytes, address};
 use op_revm::transaction::{OpTxTr, deposit::DEPOSIT_TRANSACTION_TYPE};
-use revm::context_interface::{
-    Transaction,
-    result::{ExecutionResult, Output},
-};
-
-use crate::OpTx;
+use revm::context_interface::result::{ExecutionResult, Output};
 
 /// X Layer devnet chain ID.
 pub const XLAYER_DEVNET_CHAIN_ID: u64 = 195;
@@ -85,7 +80,7 @@ impl TxBlacklistContract {
 
 /// Returns the source hash only when `tx` is an L1 user deposit eligible for interception.
 #[inline]
-pub fn interceptable_user_deposit_source(tx: &OpTx) -> Option<B256> {
+pub fn interceptable_user_deposit_source(tx: &impl OpTxTr) -> Option<B256> {
     if tx.tx_type() != DEPOSIT_TRANSACTION_TYPE ||
         tx.is_system_transaction() ||
         tx.caller() == L1_ATTRIBUTES_DEPOSITOR
@@ -119,7 +114,7 @@ fn decode_is_blacklisted_word(data: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::OpEvmFactory;
+    use crate::{OpEvmFactory, OpTx};
     use alloy_evm::{EvmEnv, EvmFactory};
     use alloy_primitives::U256;
     use op_revm::{OpTransaction, transaction::deposit::DepositTransactionParts};
