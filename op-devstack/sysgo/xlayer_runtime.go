@@ -202,13 +202,31 @@ func buildXLayerWorld(t devtest.T, keys devkeys.Keys, cfg PresetConfig) singleCh
 		keys:       keys,
 	}
 
-	// Install the gasless predeploys (CREATE2 factory + the whitelist runtime at
-	// the fixed address the execution client reads gasless rules from) so the
-	// gasless scenarios can enable and exercise gasless transactions on the
-	// running devnet.
-	injectXLayerGaslessPredeploys(t, l2Net, cfg.LocalContractArtifactsPath)
+	// Install the XLayer system predeploys, then finalize the genesis hash exactly
+	// once. Order matters: both predeploys must be present before the single re-pin
+	// (see spec §6.3). Neither injector re-pins.
+	injectXLayerGaslessPredeploys(t, l2Net, cfg.LocalContractArtifactsPath) // gasless only, no re-pin
+	injectXLayerTxBlacklist(t, l2Net, cfg.LocalContractArtifactsPath)       // blacklist only, no re-pin
+	repinXLayerGenesisL2Hash(l2Net)                                         // exactly once, after both
 
 	return singleChainRuntimeWorld{L1Network: l1Net, L2Network: l2Net}
+}
+
+// repinXLayerGenesisL2Hash finalizes the XLayer L2 genesis after all predeploys are written.
+// Adding accounts changes the genesis state root (and therefore the genesis block hash), so the
+// rollup config's genesis L2 hash/number must be re-derived from the mutated genesis block or the
+// consensus client rejects the execution client's genesis. This is genesis finalization — neither a
+// gasless nor a blacklist concern — so it is called exactly once by buildXLayerWorld after both
+// injectors. It nil-guards l2, l2.genesis, and l2.rollupCfg (the original re-pin was protected by
+// injectXLayerGaslessPredeploys's top-of-function nil guard; extracting it must reproduce that or
+// it panics on a nil genesis via ToBlock()).
+func repinXLayerGenesisL2Hash(l2 *L2Network) {
+	if l2 == nil || l2.genesis == nil || l2.rollupCfg == nil {
+		return
+	}
+	block := l2.genesis.ToBlock()
+	l2.rollupCfg.Genesis.L2.Hash = block.Hash()
+	l2.rollupCfg.Genesis.L2.Number = block.NumberU64()
 }
 
 // xlayerSequencerPrimary returns a StartPrimary that launches the XLayer L2

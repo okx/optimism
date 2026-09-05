@@ -2,7 +2,6 @@ package sysgo
 
 import (
 	"encoding/json"
-	"fmt"
 	"math/big"
 	"os"
 	"os/exec"
@@ -53,45 +52,6 @@ var xlayerGaslessProxyLogPattern = regexp.MustCompile(`(?i)GaslessWhitelist prox
 // gasless whitelist predeploy address.
 const xlayerGaslessWhitelistArtifact = "XlayerGaslessWhitelist.sol/GaslessWhitelist.json"
 
-// XLayerTxBlacklist is the fixed devnet address the execution layer performs the
-// isBlacklisted(bytes32) Force-Tx system call against. It MUST equal the execution-layer
-// constant XLAYER_DEVNET_BLACKLIST_CONTRACT in
-// rust/alloy-op-evm/src/block/xlayer_blacklist_contract.rs (devnet chain id 195).
-var XLayerTxBlacklist = common.HexToAddress("0xb1ac000000000000000000000000000000000001")
-
-// xlayerTxBlacklistArtifact is the Forge artifact (relative to the local contract
-// artifacts directory) whose runtime bytecode is installed at XLayerTxBlacklist.
-const xlayerTxBlacklistArtifact = "XlayerTxBlacklist.sol/TxBlacklistTestable.json"
-
-// readTxBlacklistRuntime loads the compiled TxBlacklistTestable runtime bytecode from the
-// local Forge artifacts directory. Unlike readGaslessWhitelistRuntime, every failure is a HARD
-// error: XLOP-1195 requires the injector to fail loudly and stop startup — never silently skip —
-// when the blacklist artifact is missing, unreadable, malformed, or carries empty runtime
-// bytecode. Errors include the artifact path so the failing stage is diagnosable.
-func readTxBlacklistRuntime(artifactsDir string) ([]byte, error) {
-	if artifactsDir == "" {
-		return nil, fmt.Errorf("txblacklist: local contract artifacts dir is required")
-	}
-	path := filepath.Join(artifactsDir, xlayerTxBlacklistArtifact)
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("txblacklist: read artifact %s: %w", path, err)
-	}
-	var artifact struct {
-		DeployedBytecode struct {
-			Object string `json:"object"`
-		} `json:"deployedBytecode"`
-	}
-	if err := json.Unmarshal(raw, &artifact); err != nil {
-		return nil, fmt.Errorf("txblacklist: parse artifact %s: %w", path, err)
-	}
-	runtime := common.FromHex(artifact.DeployedBytecode.Object)
-	if len(runtime) == 0 {
-		return nil, fmt.Errorf("txblacklist: empty runtime bytecode in artifact %s", path)
-	}
-	return runtime, nil
-}
-
 // readGaslessWhitelistRuntime loads the compiled GaslessWhitelist runtime
 // bytecode from the local Forge artifacts directory. It returns nil (and no
 // error) when the artifacts directory is not configured; a configured-but-broken
@@ -116,28 +76,23 @@ func readGaslessWhitelistRuntime(artifactsDir string) ([]byte, error) {
 	return common.FromHex(artifact.DeployedBytecode.Object), nil
 }
 
-// injectXLayerGaslessPredeploys installs the XLayer system predeploys into the L2
-// genesis so the execution client enforces gasless rules, the deploy script has a
-// live CREATE2 factory to route through, and the Force-Tx blacklist system call
-// resolves to real code at block 0:
+// injectXLayerGaslessPredeploys installs the gasless-related predeploys into the
+// L2 genesis so the execution client enforces gasless rules and the deploy script
+// has a live CREATE2 factory to route through:
 //
-//   - the CREATE2 deploy factory at XLayerGaslessDeployFactory,
+//   - the CREATE2 deploy factory at XLayerGaslessDeployFactory, and
 //   - the GaslessWhitelist runtime at XLayerGaslessWhitelistProxy, which is the
 //     fixed address the execution client reads gasless rules from. The
 //     implementation's constructor disables initializers, but that only runs on a
 //     real deployment; a genesis-placed runtime starts with zeroed storage, so a
-//     test can call initialize() on it directly, and
-//   - the TxBlacklistTestable runtime at XLayerTxBlacklist, the fixed devnet address
-//     the execution client performs the isBlacklisted(bytes32) Force-Tx system call
-//     against. Unlike the gasless whitelist (which is lenient), a missing/unreadable/
-//     malformed/empty blacklist artifact is a hard error that stops startup (Jira
-//     XLOP-1195).
+//     test can call initialize() on it directly.
 //
-// Because adding accounts changes the genesis state root (and therefore the
-// genesis block hash), it re-derives the rollup config's genesis L2 hash — once,
-// after all predeploys are written — so the consensus client still accepts the
-// execution client's genesis block. It is safe to call on any XLayer topology; a
-// devnet that never uses gasless simply carries extra, unused predeploys.
+// It installs ONLY the gasless predeploys and does NOT finalize the genesis hash:
+// re-pinning the rollup config's genesis L2 hash after all predeploys are written is
+// the caller's responsibility (repinXLayerGenesisL2Hash in buildXLayerWorld), so the
+// hash is computed exactly once, after every predeploy is present. It is safe to call
+// on any XLayer topology; a devnet that never uses gasless simply carries extra,
+// unused predeploys.
 func injectXLayerGaslessPredeploys(t devtest.T, l2 *L2Network, artifactsDir string) {
 	if l2 == nil || l2.genesis == nil {
 		return
@@ -163,25 +118,6 @@ func injectXLayerGaslessPredeploys(t devtest.T, l2 *L2Network, artifactsDir stri
 	} else {
 		t.Logger().Warn("gasless whitelist runtime unavailable; gasless enforcement not installed at genesis",
 			"artifactsDir", artifactsDir)
-	}
-
-	// Install the Force-Tx blacklist runtime at the fixed devnet address so the execution client's
-	// isBlacklisted(bytes32) system call resolves to real code at block 0. Strict by Jira XLOP-1195:
-	// a missing/unreadable/malformed/empty artifact is a hard error that stops startup.
-	blacklistRuntime, err := readTxBlacklistRuntime(artifactsDir)
-	t.Require().NoError(err, "read txblacklist runtime bytecode")
-	l2.genesis.Alloc[XLayerTxBlacklist] = types.Account{
-		Code:    blacklistRuntime,
-		Balance: big.NewInt(0),
-		Nonce:   1,
-	}
-
-	// Re-pin the rollup config's genesis hash to the mutated genesis block so the
-	// consensus client's expected L2 genesis hash matches the execution client's.
-	if l2.rollupCfg != nil {
-		block := l2.genesis.ToBlock()
-		l2.rollupCfg.Genesis.L2.Hash = block.Hash()
-		l2.rollupCfg.Genesis.L2.Number = block.NumberU64()
 	}
 }
 
