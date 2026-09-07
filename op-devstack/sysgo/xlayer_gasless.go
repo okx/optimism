@@ -87,11 +87,12 @@ func readGaslessWhitelistRuntime(artifactsDir string) ([]byte, error) {
 //     real deployment; a genesis-placed runtime starts with zeroed storage, so a
 //     test can call initialize() on it directly.
 //
-// Because adding accounts changes the genesis state root (and therefore the
-// genesis block hash), it re-derives the rollup config's genesis L2 hash so the
-// consensus client still accepts the execution client's genesis block. It is safe
-// to call on any XLayer topology; a devnet that never uses gasless simply carries
-// extra, unused predeploys.
+// It installs ONLY the gasless predeploys and does NOT finalize the genesis hash:
+// re-pinning the rollup config's genesis L2 hash after all predeploys are written is
+// the caller's responsibility (repinXLayerGenesisL2Hash in buildXLayerWorld), so the
+// hash is computed exactly once, after every predeploy is present. It is safe to call
+// on any XLayer topology; a devnet that never uses gasless simply carries extra,
+// unused predeploys.
 func injectXLayerGaslessPredeploys(t devtest.T, l2 *L2Network, artifactsDir string) {
 	if l2 == nil || l2.genesis == nil {
 		return
@@ -117,14 +118,6 @@ func injectXLayerGaslessPredeploys(t devtest.T, l2 *L2Network, artifactsDir stri
 	} else {
 		t.Logger().Warn("gasless whitelist runtime unavailable; gasless enforcement not installed at genesis",
 			"artifactsDir", artifactsDir)
-	}
-
-	// Re-pin the rollup config's genesis hash to the mutated genesis block so the
-	// consensus client's expected L2 genesis hash matches the execution client's.
-	if l2.rollupCfg != nil {
-		block := l2.genesis.ToBlock()
-		l2.rollupCfg.Genesis.L2.Hash = block.Hash()
-		l2.rollupCfg.Genesis.L2.Number = block.NumberU64()
 	}
 }
 
