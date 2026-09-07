@@ -25,7 +25,7 @@ const xlayerTxBlacklistArtifact = "XlayerTxBlacklist.sol/TxBlacklistTestable.jso
 
 // readTxBlacklistRuntime loads the compiled TxBlacklistTestable runtime bytecode from the local
 // Forge artifacts directory. Unlike readGaslessWhitelistRuntime, every failure is a HARD error:
-// XLOP-1195 requires the injector to fail loudly and stop startup — never silently skip — when the
+// the injector must fail loudly and stop startup — never silently skip — when the
 // blacklist artifact is missing, unreadable, malformed, or carries empty runtime bytecode. Errors
 // include the artifact path so the failing stage is diagnosable.
 func readTxBlacklistRuntime(artifactsDir string) ([]byte, error) {
@@ -55,8 +55,8 @@ func readTxBlacklistRuntime(artifactsDir string) ([]byte, error) {
 // injectXLayerTxBlacklist installs the Force-Tx blacklist runtime at the fixed devnet address
 // XLayerTxBlacklist so the execution client's isBlacklisted(bytes32) system call resolves to real
 // code at block 0. It writes ONLY the blacklist account; genesis-hash finalization is the caller's
-// responsibility (repinXLayerGenesisL2Hash), invoked once after all predeploys. Strict by Jira
-// XLOP-1195: a missing/unreadable/malformed/empty artifact is a hard error that stops startup.
+// responsibility (repinXLayerGenesisL2Hash), invoked once after all predeploys. Strict by design:
+// a missing/unreadable/malformed/empty artifact is a hard error that stops startup.
 func injectXLayerTxBlacklist(t devtest.T, l2 *L2Network, artifactsDir string) {
 	if l2 == nil || l2.genesis == nil {
 		return

@@ -203,8 +203,8 @@ func buildXLayerWorld(t devtest.T, keys devkeys.Keys, cfg PresetConfig) singleCh
 	}
 
 	// Install the XLayer system predeploys, then finalize the genesis hash exactly
-	// once. Order matters: both predeploys must be present before the single re-pin
-	// (see spec §6.3). Neither injector re-pins.
+	// once. Order matters: both predeploys must be present before the single re-pin.
+	// Neither injector re-pins.
 	injectXLayerGaslessPredeploys(t, l2Net, cfg.LocalContractArtifactsPath) // gasless only, no re-pin
 	injectXLayerTxBlacklist(t, l2Net, cfg.LocalContractArtifactsPath)       // blacklist only, no re-pin
 	repinXLayerGenesisL2Hash(l2Net)                                         // exactly once, after both
