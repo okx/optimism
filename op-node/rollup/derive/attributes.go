@@ -11,6 +11,7 @@ import (
 
 	"github.com/ethereum-optimism/optimism/op-core/forks"
 	"github.com/ethereum-optimism/optimism/op-core/predeploys"
+	optypes "github.com/ethereum-optimism/optimism/op-core/types"
 	"github.com/ethereum-optimism/optimism/op-node/rollup"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 )
@@ -23,7 +24,7 @@ type DependencySet interface {
 // L1ReceiptsFetcher fetches L1 header info and receipts for the payload attributes derivation (the info tx and deposits)
 type L1ReceiptsFetcher interface {
 	InfoByHash(ctx context.Context, hash common.Hash) (eth.BlockInfo, error)
-	FetchReceipts(ctx context.Context, blockHash common.Hash) (eth.BlockInfo, types.Receipts, error)
+	FetchReceipts(ctx context.Context, blockHash common.Hash) (eth.BlockInfo, optypes.Receipts, error)
 }
 
 type SystemConfigL2Fetcher interface {
@@ -89,7 +90,7 @@ func (ba *FetchingAttributesBuilder) PreparePayloadAttributes(ctx context.Contex
 					epoch, info.ParentHash(), l2Parent.L1Origin))
 		}
 
-		deposits, err := DeriveDeposits(receipts, ba.rollupCfg.DepositContractAddress)
+		deposits, err := DeriveDeposits(receipts.Geth(), ba.rollupCfg.DepositContractAddress)
 		if err != nil {
 			// deposits may never be ignored. Failing to process them is a critical error.
 			return nil, NewCriticalError(fmt.Errorf("failed to derive some deposits: %w", err))
@@ -97,7 +98,7 @@ func (ba *FetchingAttributesBuilder) PreparePayloadAttributes(ctx context.Contex
 
 		// errors from UpdateSystemConfigWithL1Receipts are ignored as they represent malformed or invalid updates
 		// and there is no recovery mechanism for malformed updates, we must process past them.
-		_ = UpdateSystemConfigWithL1Receipts(&sysConfig, receipts, ba.rollupCfg, info.Time())
+		_ = UpdateSystemConfigWithL1Receipts(&sysConfig, receipts.Geth(), ba.rollupCfg, info.Time())
 
 		l1Info = info
 		depositTxs = deposits
@@ -167,17 +168,18 @@ func (ba *FetchingAttributesBuilder) PreparePayloadAttributes(ctx context.Contex
 		upgradeGas += nutGas
 	}
 
-	if ba.rollupCfg.IsInteropActivationBlock(nextL2Time) {
-		// The Interop NUT bundle executes on all chains. The setFeature and
-		// ETHLiquidity funding wrappers only execute for chains in a multi-chain
-		// dependency set, which signals the L2ContractsManager to activate
-		// Interop-specific contracts.
-		interopTxs, interopGas, err := InteropActivationUpgradeTransactions(len(ba.depSet.Chains()) > 1)
+	if ba.rollupCfg.IsLagoonActivationBlock(nextL2Time) {
+		// The NUT bundle carries the fork's predeploy upgrades, so it executes on every chain
+		// activating Lagoon. The setFeature and ETHLiquidity funding wrappers are interop-specific:
+		// they additionally require the interop feature, and a multi-chain dependency set, which is
+		// what signals the L2ContractsManager to activate the Interop-gated contracts.
+		activateInteropContracts := ba.rollupCfg.IsInterop(nextL2Time) && len(ba.depSet.Chains()) > 1
+		lagoonTxs, lagoonGas, err := LagoonActivationUpgradeTransactions(activateInteropContracts)
 		if err != nil {
 			return nil, NewCriticalError(err)
 		}
-		upgradeTxs = append(upgradeTxs, interopTxs...)
-		upgradeGas += interopGas
+		upgradeTxs = append(upgradeTxs, lagoonTxs...)
+		upgradeGas += lagoonGas
 	}
 
 	l1InfoTx, err := L1InfoDepositBytes(ba.rollupCfg, ba.l1ChainConfig, sysConfig, seqNumber, l1Info, nextL2Time)

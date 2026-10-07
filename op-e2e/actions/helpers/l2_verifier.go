@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
+	"net/http"
 	"time"
 
 	"github.com/ethereum-optimism/optimism/op-core/interop/depset"
@@ -13,12 +15,12 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 	gnode "github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
 
+	optypes "github.com/ethereum-optimism/optimism/op-core/types"
 	opnodemetrics "github.com/ethereum-optimism/optimism/op-node/metrics"
 	"github.com/ethereum-optimism/optimism/op-node/node"
 	"github.com/ethereum-optimism/optimism/op-node/rollup"
@@ -29,7 +31,6 @@ import (
 	"github.com/ethereum-optimism/optimism/op-node/rollup/finality"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/status"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/sync"
-	"github.com/ethereum-optimism/optimism/op-service/apis"
 	"github.com/ethereum-optimism/optimism/op-service/client"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/event"
@@ -88,7 +89,7 @@ type L2API interface {
 	GetProof(ctx context.Context, address common.Address, storage []common.Hash, blockTag string) (*eth.AccountResult, error)
 	OutputV0AtBlock(ctx context.Context, blockHash common.Hash) (*eth.OutputV0, error)
 
-	FetchReceipts(ctx context.Context, blockHash common.Hash) (eth.BlockInfo, types.Receipts, error)
+	FetchReceipts(ctx context.Context, blockHash common.Hash) (eth.BlockInfo, optypes.Receipts, error)
 	BlockRefByNumber(ctx context.Context, num uint64) (eth.BlockRef, error)
 	ChainID(ctx context.Context) (*big.Int, error)
 }
@@ -211,11 +212,53 @@ func NewL2Verifier(t Testing, log log.Logger, l1 derive.L1Fetcher,
 		},
 		{
 			Namespace: "opstack",
-			Service:   node.NewOpstackAPI(ec, &testutils.FakePublishAPI{Log: log}),
+			Service:   node.NewOpstackAPI(ec, &FakePublishAPI{Log: log}),
 		},
 	}
 	require.NoError(t, gnode.RegisterApis(apis, nil, rollupNode.rpc), "failed to set up APIs")
 	return rollupNode
+}
+
+type proposerSuperRootSafeDB struct{}
+
+func (proposerSuperRootSafeDB) SafeHeadAtL1(context.Context, uint64) (eth.BlockID, eth.BlockID, error) {
+	return eth.BlockID{}, eth.BlockID{}, errors.New("safe head at L1 is unsupported by the action proposer superroot API")
+}
+
+func (proposerSuperRootSafeDB) L1AtSafeHead(context.Context, uint64) (eth.BlockID, eth.BlockID, error) {
+	return eth.BlockID{}, eth.BlockID{}, nil
+}
+
+func (proposerSuperRootSafeDB) FirstEntry(context.Context) (eth.BlockID, eth.BlockID, error) {
+	return eth.BlockID{}, eth.BlockID{}, errors.New("first safe head entry is unsupported by the action proposer superroot API")
+}
+
+func (proposerSuperRootSafeDB) LastEntry(context.Context) (eth.BlockID, eth.BlockID, error) {
+	return eth.BlockID{}, eth.BlockID{}, errors.New("last safe head entry is unsupported by the action proposer superroot API")
+}
+
+func (s *L2Verifier) EnableProposerSuperRootAPI(t Testing) {
+	api := node.NewSuperrootAPI(s.RollupCfg, s.Eng, &l2VerifierBackend{verifier: s}, proposerSuperRootSafeDB{})
+	require.NoError(t, s.rpc.RegisterName("superroot", api))
+}
+
+// StartSuperRootHTTPRPC enables the superroot API and serves the verifier's RPC over a loopback
+// HTTP listener, returning its endpoint. RPCClient hands out an in-process handle, which a
+// separate process — e.g. the kona-sp1 super-range executor, which needs a `--supernode-address`
+// to call `superroot_atTimestamp` on — cannot dial. The listener is closed on test cleanup.
+func (s *L2Verifier) StartSuperRootHTTPRPC(t Testing) string {
+	s.EnableProposerSuperRootAPI(t)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "listen for the verifier superroot RPC")
+	server := &http.Server{Handler: s.rpc, ReadHeaderTimeout: 30 * time.Second}
+	go func() {
+		_ = server.Serve(listener)
+	}()
+	t.Cleanup(func() {
+		_ = server.Close()
+	})
+	return "http://" + listener.Addr().String()
 }
 
 type l2VerifierBackend struct {
@@ -246,14 +289,6 @@ func (s *l2VerifierBackend) StopSequencer(ctx context.Context) (common.Hash, err
 
 func (s *l2VerifierBackend) SequencerActive(ctx context.Context) (bool, error) {
 	return false, nil
-}
-
-func (s *l2VerifierBackend) SetSdmPostExecOptIn(ctx context.Context, enabled bool) error {
-	return errors.New("SDM sequencing unsupported")
-}
-
-func (s *l2VerifierBackend) SdmStatus(ctx context.Context) (apis.SdmStatus, error) {
-	return apis.SdmStatus{}, errors.New("SDM sequencing unsupported")
 }
 
 func (s *l2VerifierBackend) OverrideLeader(ctx context.Context) error {

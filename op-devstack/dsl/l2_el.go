@@ -514,11 +514,11 @@ func (el *L2ELNode) ChainBlockID(chainID eth.ChainID, number uint64) (eth.BlockI
 func (el *L2ELNode) WaitForReceipt(txHash common.Hash) *types.Receipt {
 	var receipt *types.Receipt
 	err := retry.Do0(el.ctx, 30, &retry.FixedStrategy{Dur: 500 * time.Millisecond}, func() error {
-		var err error
-		receipt, err = el.inner.EthClient().TransactionReceipt(el.ctx, txHash)
+		opReceipt, err := el.inner.EthClient().TransactionReceipt(el.ctx, txHash)
 		if err != nil {
 			return fmt.Errorf("waiting for receipt of %s: %w", txHash.Hex(), err)
 		}
+		receipt = &opReceipt.Receipt
 		return nil
 	})
 	el.require.NoError(err, "failed to get receipt for tx %s", txHash.Hex())

@@ -82,7 +82,7 @@ func (e *ExecMsgSpammer) Spam(t devtest.T) error {
 
 	// All executing messages are initiating messages. Send the executing message to the sink as
 	// an initiating message.
-	initMsg, err = initMsgFromReceipt(t, e.l2, tx.Receipt)
+	initMsg, err = initMsgFromReceipt(t, e.l2, &tx.Receipt.Receipt)
 	if err != nil {
 		return err
 	}
@@ -136,7 +136,7 @@ func initiate(t devtest.T, l2 *L2) *messages.Message {
 		Emitter: l2.EventLogger,
 	}))
 	t.Require().NoError(err)
-	msg, err := initMsgFromReceipt(t, l2, tx.Receipt)
+	msg, err := initMsgFromReceipt(t, l2, &tx.Receipt.Receipt)
 	t.Require().NoError(err)
 	return msg
 }

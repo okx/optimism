@@ -78,7 +78,7 @@ type SyncDeriver interface {
 }
 
 type AttributesForceResetter interface {
-	ForceReset(ctx context.Context, localUnsafe, crossUnsafe, localSafe, crossSafe, finalized eth.L2BlockRef)
+	ForceReset()
 }
 
 type PipelineForceResetter interface {
@@ -89,11 +89,10 @@ type OriginSelectorForceResetter interface {
 	ResetOrigins()
 }
 
-// CrossUpdateHandler handles both cross-unsafe and cross-safe L2 head changes.
+// CrossUpdateHandler handles cross-safe L2 head changes.
 // It is optional: callers that don't track cross-chain safety leave it unset, so
 // consumers must nil-check before invoking it.
 type CrossUpdateHandler interface {
-	OnCrossUnsafeUpdate(ctx context.Context, crossUnsafe eth.L2BlockRef, localUnsafe eth.L2BlockRef)
 	OnCrossSafeUpdate(ctx context.Context, crossSafe eth.L2BlockRef, localSafe eth.L2BlockRef)
 }
 
@@ -119,8 +118,6 @@ type EngineController struct {
 
 	// Block Head State
 	unsafeHead eth.L2BlockRef
-	// Cross-verified unsafeHead, always equal to unsafeHead pre-interop
-	crossUnsafeHead eth.L2BlockRef
 	// Pending localSafeHead
 	// L2 block processed from the middle of a span batch,
 	// but not marked as the safe block yet.
@@ -167,11 +164,16 @@ type EngineController struct {
 	pipelineResetter       PipelineForceResetter
 	originSelectorResetter OriginSelectorForceResetter
 
-	// Handler for cross-unsafe and cross-safe updates
+	// Handler for cross-safe updates
 	crossUpdateHandler CrossUpdateHandler
 
 	// SuperAuthority for payload validation (may be nil when not in supernode context)
 	superAuthority rollup.SuperAuthority
+
+	// Last observed state of the unsafe-ingestion deny gate, so entering and
+	// leaving invalidation recovery is logged once rather than per payload.
+	// See unsafeDenyGatingActive.
+	unsafeDenyGated bool
 
 	// crossSafeCache holds the last canonical cross-safe head; consulted by
 	// crossSafeFallback when the verifier is unavailable or returns a reorg
@@ -246,6 +248,7 @@ func (e *EngineController) resolveVerifiedAsSafe(block eth.BlockID) eth.L2BlockR
 	}
 	br, err := e.engine.L2BlockRefByHash(e.ctx, block.Hash)
 	if err != nil {
+		e.metrics.RecordSuperAuthorityReorgSignal("unknown_to_engine")
 		e.log.Warn("super authority safe head unknown to engine (reorg signal)",
 			"super_authority_safe", block, "err", err)
 		return e.crossSafeFallback("el-unknown")
@@ -255,6 +258,7 @@ func (e *EngineController) resolveVerifiedAsSafe(block eth.BlockID) eth.L2BlockR
 			"super_authority_safe", br, "err", err)
 		return e.crossSafeFallback("canonicality-lookup-failed")
 	} else if !canonical {
+		e.metrics.RecordSuperAuthorityReorgSignal("non_canonical")
 		e.log.Warn("super authority safe head non-canonical (reorg signal)",
 			"super_authority_safe", br, "canonical", canonicalRef)
 		return e.crossSafeFallback("non-canonical")
@@ -497,12 +501,6 @@ func (e *EngineController) SetUnsafeHead(r eth.L2BlockRef) {
 	e.chainSpec.CheckForkActivation(e.log, r)
 }
 
-// SetCrossUnsafeHead the cross-unsafe head.
-func (e *EngineController) SetCrossUnsafeHead(r eth.L2BlockRef) {
-	e.metrics.RecordL2Ref("l2_cross_unsafe", r)
-	e.crossUnsafeHead = r
-}
-
 // SetBackupUnsafeL2Head implements LocalEngineControl.
 func (e *EngineController) SetBackupUnsafeL2Head(r eth.L2BlockRef, triggerReorg bool) {
 	e.metrics.RecordL2Ref("l2_backup_unsafe", r)
@@ -512,13 +510,6 @@ func (e *EngineController) SetBackupUnsafeL2Head(r eth.L2BlockRef, triggerReorg 
 
 func (e *EngineController) SetCrossUpdateHandler(handler CrossUpdateHandler) {
 	e.crossUpdateHandler = handler
-}
-
-func (e *EngineController) onUnsafeUpdate(ctx context.Context, crossUnsafe, localUnsafe eth.L2BlockRef) {
-	// Nil check required because the handler is optional and may be unset.
-	if e.crossUpdateHandler != nil {
-		e.crossUpdateHandler.OnCrossUnsafeUpdate(ctx, crossUnsafe, localUnsafe)
-	}
 }
 
 func (e *EngineController) onSafeUpdate(ctx context.Context, crossSafe, localSafe eth.L2BlockRef) {
@@ -664,10 +655,6 @@ func (e *EngineController) initializeUnknowns(ctx context.Context) error {
 		e.SetDeprecatedSafeHead(e.localSafeHead)
 		e.log.Info("Set initial cross-safe block ref to match local-safe", "cross_safe", e.localSafeHead)
 	}
-	if e.crossUnsafeHead == (eth.L2BlockRef{}) {
-		e.SetCrossUnsafeHead(e.SafeL2Head()) // preserve cross-safety, don't fall back to a non-cross safety level
-		e.log.Info("Set initial cross-unsafe block ref to match cross-safe", "cross_unsafe", e.SafeL2Head())
-	}
 	return nil
 }
 
@@ -752,6 +739,44 @@ func (e *EngineController) InsertUnsafePayload(ctx context.Context, envelope *et
 	return e.insertUnsafePayload(ctx, envelope, ref)
 }
 
+// unsafeDenyGatingActive reports whether unsafe-payload ingestion is blocked
+// by the SuperAuthority deny list: from the moment a block is denied until the
+// finalized head passes the highest denied height, so unsafe sync cannot
+// re-adopt the invalidated branch.
+//
+// Both ingestion paths consult it. AddUnsafePayload keeps new arrivals out of
+// the queue; insertUnsafePayload guards the ELSync direct-insert path and the
+// driver gap-fill, and drains the queue there so payloads buffered before the
+// invalidation don't outlive the window and get gap-filled once it closes.
+//
+// A deny-list read error fails open: a wedged unsafe pipeline is worse than
+// looping invalidation until the DB heals. It is always logged.
+//
+// Callers must hold e.mu.
+func (e *EngineController) unsafeDenyGatingActive() bool {
+	if e.superAuthority == nil {
+		return false
+	}
+	maxDenied, ok, err := e.superAuthority.MaxDeniedHeight()
+	if err != nil {
+		e.log.Error("Failed to read max denied height, allowing unsafe ingestion", "err", err)
+		return false
+	}
+	finalized := e.FinalizedHead()
+	active := ok && maxDenied > finalized.Number
+	if active != e.unsafeDenyGated {
+		e.unsafeDenyGated = active
+		if active {
+			e.log.Warn("Gating unsafe ingestion during invalidation recovery",
+				"maxDeniedHeight", maxDenied, "finalized", finalized)
+		} else {
+			e.log.Warn("Resuming unsafe ingestion, finality passed the invalidation",
+				"maxDeniedHeight", maxDenied, "finalized", finalized)
+		}
+	}
+	return active
+}
+
 func (e *EngineController) insertUnsafePayload(ctx context.Context, envelope *eth.ExecutionPayloadEnvelope, ref eth.L2BlockRef) error {
 	// Check if there is a finalized head once when doing EL sync. If so, transition to CL sync
 	if e.syncStatus == syncStatusWillStartEL {
@@ -769,6 +794,21 @@ func (e *EngineController) insertUnsafePayload(ctx context.Context, envelope *et
 			return derive.NewTemporaryError(fmt.Errorf("failed to fetch finalized head: %w", err))
 		}
 	}
+	// See unsafeDenyGatingActive: no unsafe ingestion during invalidation recovery.
+	if e.unsafeDenyGatingActive() {
+		e.log.Debug("Dropping unsafe payload during invalidation recovery",
+			"block", envelope.ExecutionPayload.ID())
+		// Drain what was buffered before the gate activated. A rewind leaves the
+		// queue holding denied-branch payloads far ahead of the new unsafe head,
+		// which DropInapplicableUnsafePayloads never removes; the driver's gap
+		// ticker reaches this path on every tick while such an entry is queued,
+		// so draining here keeps them from surviving the window.
+		for e.unsafePayloads.Pop() != nil {
+		}
+		e.metrics.RecordUnsafePayloadsBuffer(uint64(e.unsafePayloads.Len()), e.unsafePayloads.MemSize(), eth.BlockID{})
+		return nil
+	}
+
 	// Insert the payload & then call FCU
 	newPayloadStart := time.Now()
 	status, err := e.engine.NewPayload(ctx, envelope.ExecutionPayload, envelope.ParentBeaconBlockRoot)
@@ -803,14 +843,16 @@ func (e *EngineController) insertUnsafePayload(ctx context.Context, envelope *et
 		if err != nil {
 			return err
 		}
-		fc.SafeBlockHash = safeRef.Hash
 		fc.FinalizedBlockHash = finalizedRef.Hash
 		e.SetUnsafeHead(ref)
 		e.emitter.Emit(ctx, UnsafeUpdateEvent{Ref: ref})
 		e.SetLocalSafeHead(safeRef)
 		e.SetDeprecatedSafeHead(safeRef)
-		e.onSafeUpdate(ctx, safeRef, safeRef)
 		e.SetFinalizedHead(finalizedRef)
+		// safeRef is only local-safe; SafeL2Head bounds it by the verified head.
+		crossSafe := e.SafeL2Head()
+		fc.SafeBlockHash = crossSafe.Hash
+		e.onSafeUpdate(ctx, crossSafe, safeRef)
 	}
 	logFn := e.logSyncProgressMaybe()
 	defer logFn()
@@ -1043,14 +1085,8 @@ func (e *EngineController) OnEvent(ctx context.Context, ev event.Event) bool {
 	defer e.mu.Unlock()
 	switch x := ev.(type) {
 	case UnsafeUpdateEvent:
-		if e.localSafeIsFullySafe(x.Ref.Time) {
-			e.emitter.Emit(ctx, PromoteCrossUnsafeEvent(x))
-		}
 		// Try to apply the forkchoice changes
 		e.tryUpdateEngine(ctx)
-	case PromoteCrossUnsafeEvent:
-		e.SetCrossUnsafeHead(x.Ref)
-		e.onUnsafeUpdate(ctx, x.Ref, e.unsafeHead)
 	case LocalSafeUpdateEvent:
 		if e.localSafeIsFullySafe(x.Ref.Time) {
 			e.PromoteSafe(ctx, x.Ref, x.Source)
@@ -1097,6 +1133,15 @@ func (e *EngineController) RequestPendingSafeUpdate(ctx context.Context) {
 		PendingSafe: e.pendingSafeHead,
 		Unsafe:      e.unsafeHead,
 	})
+}
+
+// IsDenied reports whether the payload is on the SuperAuthority deny-list;
+// false when no SuperAuthority is registered.
+func (e *EngineController) IsDenied(blockNumber uint64, payloadHash common.Hash) (bool, error) {
+	if e.superAuthority == nil {
+		return false, nil
+	}
+	return e.superAuthority.IsDenied(blockNumber, payloadHash)
 }
 
 // TryUpdatePendingSafe updates the pending safe head if the new reference is newer, acquiring lock
@@ -1159,11 +1204,6 @@ func (e *EngineController) PromoteSafe(ctx context.Context, ref eth.L2BlockRef, 
 	// Finalizer can pick up this safe cross-block now
 	e.emitter.Emit(ctx, SafeDerivedEvent{Safe: ref, Source: source})
 	e.onSafeUpdate(ctx, e.SafeL2Head(), e.localSafeHead)
-	if ref.Number > e.crossUnsafeHead.Number {
-		e.log.Debug("Cross Unsafe Head is stale, updating to match cross safe", "cross_unsafe", e.crossUnsafeHead, "cross_safe", ref)
-		e.SetCrossUnsafeHead(ref)
-		e.onUnsafeUpdate(ctx, ref, e.unsafeHead)
-	}
 }
 
 func (e *EngineController) PromoteFinalized(ctx context.Context, ref eth.L2BlockRef) {
@@ -1203,17 +1243,17 @@ func (e *EngineController) SetOriginSelectorResetter(resetter OriginSelectorForc
 }
 
 // ForceReset performs a forced reset to the specified block references, acquiring lock
-func (e *EngineController) ForceReset(ctx context.Context, localUnsafe, crossUnsafe, localSafe, crossSafe, finalized eth.L2BlockRef) {
+func (e *EngineController) ForceReset(ctx context.Context, localUnsafe, localSafe, crossSafe, finalized eth.L2BlockRef) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.forceReset(ctx, localUnsafe, crossUnsafe, localSafe, crossSafe, finalized, false)
+	e.forceReset(ctx, localUnsafe, localSafe, crossSafe, finalized, false)
 }
 
 // forceReset performs a forced reset to the specified block references
-func (e *EngineController) forceReset(ctx context.Context, localUnsafe, crossUnsafe, localSafe, crossSafe, finalized eth.L2BlockRef, signalOnlySeq bool) {
+func (e *EngineController) forceReset(ctx context.Context, localUnsafe, localSafe, crossSafe, finalized eth.L2BlockRef, signalOnlySeq bool) {
 	// Reset other components before resetting the engine
 	if e.attributesResetter != nil {
-		e.attributesResetter.ForceReset(ctx, localUnsafe, crossUnsafe, localSafe, crossSafe, finalized)
+		e.attributesResetter.ForceReset()
 	}
 	if e.pipelineResetter != nil {
 		e.pipelineResetter.ResetPipeline()
@@ -1223,7 +1263,7 @@ func (e *EngineController) forceReset(ctx context.Context, localUnsafe, crossUns
 		e.originSelectorResetter.ResetOrigins()
 	}
 
-	ForceEngineReset(e, localUnsafe, crossUnsafe, localSafe, crossSafe, finalized)
+	ForceEngineReset(e, localUnsafe, localSafe, crossSafe, finalized)
 	e.crossSafeCache.Store(crossSafe)
 
 	if e.pipelineResetter != nil {
@@ -1246,7 +1286,6 @@ func (e *EngineController) forceReset(ctx context.Context, localUnsafe, crossUns
 
 	v := EngineResetConfirmedEvent{
 		LocalUnsafe: e.unsafeHead,
-		CrossUnsafe: e.crossUnsafeHead,
 		LocalSafe:   e.localSafeHead,
 		CrossSafe:   e.SafeL2Head(),
 		Finalized:   e.FinalizedHead(),
@@ -1255,7 +1294,6 @@ func (e *EngineController) forceReset(ctx context.Context, localUnsafe, crossUns
 	e.emitter.Emit(ctx, v)
 	e.log.Info("Reset of Engine is completed",
 		"local_unsafe", v.LocalUnsafe,
-		"cross_unsafe", v.CrossUnsafe,
 		"local_safe", v.LocalSafe,
 		"cross_safe", v.CrossSafe,
 		"finalized", v.Finalized,
@@ -1365,6 +1403,13 @@ func (e *EngineController) AddUnsafePayload(ctx context.Context, envelope *eth.E
 
 	e.log.Debug("Received payload", "payload", envelope.ExecutionPayload.ID())
 
+	// See unsafeDenyGatingActive: no unsafe ingestion during invalidation recovery.
+	if e.unsafeDenyGatingActive() {
+		e.log.Debug("Dropping unsafe payload during invalidation recovery",
+			"block", envelope.ExecutionPayload.ID())
+		return
+	}
+
 	if err := e.unsafePayloads.Push(envelope); err != nil {
 		e.log.Warn("Could not add unsafe payload", "id", envelope.ExecutionPayload.ID(), "timestamp", uint64(envelope.ExecutionPayload.Timestamp), "err", err)
 		return
@@ -1386,7 +1431,7 @@ func (e *EngineController) onResetEngineRequest(ctx context.Context) {
 		})
 		return
 	}
-	e.forceReset(ctx, result.Unsafe, result.Unsafe, result.Safe, result.Safe, result.Finalized, false)
+	e.forceReset(ctx, result.Unsafe, result.Safe, result.Safe, result.Finalized, false)
 }
 
 // TryInitialResetEngineForSequencer resets engine controller with the info from FindL2Heads and only propagates
@@ -1407,7 +1452,7 @@ func (e *EngineController) TryInitialResetEngineForSequencer(ctx context.Context
 		// Because the engine controller failed to initialize, the next SyncStep will retry this method
 		return
 	}
-	e.forceReset(ctx, result.Unsafe, result.Unsafe, result.Safe, result.Safe, result.Finalized, true)
+	e.forceReset(ctx, result.Unsafe, result.Safe, result.Safe, result.Finalized, true)
 }
 
 var ErrEngineSyncing = errors.New("engine is syncing")
@@ -1528,6 +1573,12 @@ func (e *EngineController) FollowSource(eSafeBlockRef, eLocalSafeRef, eFinalized
 
 	// External local safe is found locally but differs: the follower diverged from upstream
 	// and must reorg onto it.
+	e.log.Warn("Follow Source: local safe diverged from upstream",
+		"external_local_safe", eLocalSafeRef,
+		"local_safe", e.localSafeHead,
+		"local_unsafe", e.unsafeHead,
+		"external_safe", eSafeBlockRef,
+		"finalized", eFinalizedRef)
 	if e.originSelectorResetter != nil {
 		// This follower is also a sequencer (the origin-selector resetter is wired only when
 		// sequencing is enabled). A soft unsafe-head update would be clobbered by the next
@@ -1536,12 +1587,24 @@ func (e *EngineController) FollowSource(eSafeBlockRef, eLocalSafeRef, eFinalized
 		// cancels the in-flight build and FCUs onto the upstream chain in one shot (head==safe);
 		// the sequencer then rebuilds from there.
 		logger.Warn("Follow Source: Reorg onto upstream chain")
-		e.forceReset(e.ctx, eLocalSafeRef, eLocalSafeRef, eLocalSafeRef, eSafeBlockRef, eFinalizedRef, false)
+		e.metrics.RecordFollowSourceReorg("force_reset")
+		e.forceReset(e.ctx, eLocalSafeRef, eLocalSafeRef, eSafeBlockRef, eFinalizedRef, false)
+		e.log.Info("Follow Source: reorg onto upstream chain applied",
+			"action", "force_reset",
+			"local_safe", e.localSafeHead,
+			"local_unsafe", e.unsafeHead,
+			"cross_safe", e.SafeL2Head())
 		return
 	}
 
 	// Pure verifier (no local block production): a soft update suffices and may trigger or
 	// retarget EL sync.
+	e.metrics.RecordFollowSourceReorg("soft_update")
 	logger.Warn("Follow Source: Reorg. May Trigger EL sync")
 	followExternalRefs(true)
+	e.log.Info("Follow Source: upstream refs applied",
+		"action", "soft_update",
+		"local_safe", e.localSafeHead,
+		"local_unsafe", e.unsafeHead,
+		"cross_safe", e.SafeL2Head())
 }

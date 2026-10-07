@@ -11,6 +11,7 @@ import (
 
 	altda "github.com/ethereum-optimism/optimism/op-alt-da"
 	"github.com/ethereum-optimism/optimism/op-core/forks"
+	opparams "github.com/ethereum-optimism/optimism/op-core/params"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -64,12 +65,23 @@ type AltDAConfig struct {
 	DAChallengeAddress common.Address `json:"da_challenge_contract_address,omitempty"`
 	// CommitmentType specifies which commitment type can be used. Defaults to Keccak (type 0) if not present
 	CommitmentType string `json:"da_commitment_type"`
+	// MaxInputSize is the maximum byte size accepted for Keccak commitments.
+	// It defaults to the protocol limit when omitted.
+	MaxInputSize *uint64 `json:"da_max_input_size,omitempty"`
 	// DA challenge window value set on the DAC contract. Used in alt-da mode
 	// to compute when a commitment can no longer be challenged.
 	DAChallengeWindow uint64 `json:"da_challenge_window"`
 	// DA resolve window value set on the DAC contract. Used in alt-da mode
 	// to compute when a challenge expires and trigger a reorg if needed.
 	DAResolveWindow uint64 `json:"da_resolve_window"`
+}
+
+// MaxInputSizeOrDefault returns the configured maximum input size or the protocol default.
+func (c *AltDAConfig) MaxInputSizeOrDefault() uint64 {
+	if c == nil || c.MaxInputSize == nil {
+		return altda.MaxInputSize
+	}
+	return *c.MaxInputSize
 }
 
 type Config struct {
@@ -166,7 +178,7 @@ type Config struct {
 	// It is used during safe chain consolidation to translate zero SystemConfig EIP1559
 	// parameters to the protocol values, like the execution layer does.
 	// If missing, it is loaded by the op-node from the embedded superchain config at startup.
-	ChainOpConfig *params.OptimismConfig `json:"chain_op_config,omitempty"`
+	ChainOpConfig *opparams.OptimismConfig `json:"chain_op_config,omitempty"`
 
 	// Optional Features
 
@@ -373,25 +385,7 @@ func (cfg *Config) Check() error {
 		return err
 	}
 
-	if err := checkFork(cfg.RegolithTime, cfg.CanyonTime, forks.Regolith, forks.Canyon); err != nil {
-		return err
-	}
-	if err := checkFork(cfg.CanyonTime, cfg.DeltaTime, forks.Canyon, forks.Delta); err != nil {
-		return err
-	}
-	if err := checkFork(cfg.DeltaTime, cfg.EcotoneTime, forks.Delta, forks.Ecotone); err != nil {
-		return err
-	}
-	if err := checkFork(cfg.EcotoneTime, cfg.FjordTime, forks.Ecotone, forks.Fjord); err != nil {
-		return err
-	}
-	if err := checkFork(cfg.FjordTime, cfg.GraniteTime, forks.Fjord, forks.Granite); err != nil {
-		return err
-	}
-	if err := checkFork(cfg.GraniteTime, cfg.HoloceneTime, forks.Granite, forks.Holocene); err != nil {
-		return err
-	}
-	if err := checkFork(cfg.HoloceneTime, cfg.IsthmusTime, forks.Holocene, forks.Isthmus); err != nil {
+	if err := cfg.checkForkOrder(); err != nil {
 		return err
 	}
 
@@ -432,6 +426,12 @@ func (cfg *Config) ProbablyMissingPectraBlobSchedule() bool {
 // If the legacy values are set, they are copied to the new location. If both are set, they are check for consistency.
 func validateAltDAConfig(cfg *Config) error {
 	if cfg.AltDAConfig != nil {
+		if cfg.AltDAConfig.CommitmentType == altda.GenericCommitmentString && cfg.AltDAConfig.MaxInputSize != nil {
+			return errors.New("altDA max input size must be omitted for generic commitments")
+		}
+		if cfg.AltDAConfig.MaxInputSize != nil && *cfg.AltDAConfig.MaxInputSize == 0 {
+			return errors.New("altDA max input size must be greater than zero")
+		}
 		if !(cfg.AltDAConfig.CommitmentType == altda.KeccakCommitmentString || cfg.AltDAConfig.CommitmentType == altda.GenericCommitmentString) {
 			return fmt.Errorf("invalid commitment type: %v", cfg.AltDAConfig.CommitmentType)
 		}
@@ -444,19 +444,56 @@ func validateAltDAConfig(cfg *Config) error {
 	return nil
 }
 
-// checkFork checks that fork A is before or at the same time as fork B
-func checkFork(a, b *uint64, aName, bName ForkName) error {
-	if a == nil && b == nil {
+// strictActivationOrderFrom is the first fork for which sharing a post-genesis activation
+// timestamp with its predecessor is rejected rather than merely unsupported.
+//
+// Simultaneous activation is not a supported configuration for any fork, but six chains in the
+// superchain registry were configured that way before the rule was written down — Celo mainnet
+// activated Holocene and Isthmus in the same block, and five Sepolia chains did the same for
+// earlier pairs. Their activations are chain history and cannot be changed, so op-node must keep
+// syncing them. Every one of those pairs predates Jovian, so enforcing from Jovian onwards rejects
+// new simultaneous activations without locking those chains out.
+const strictActivationOrderFrom = forks.Jovian
+
+// checkForkOrder checks that the scheduled mainline forks activate in the order given by
+// [forks.All]: a fork may only be scheduled if all of its predecessors are, and each fork must
+// activate after its predecessor.
+func (cfg *Config) checkForkOrder() error {
+	// forks.All starts at Bedrock, which is not activated by timestamp.
+	ordered := forks.From(forks.Regolith)
+	var strict bool
+	for i, name := range ordered[1:] {
+		strict = strict || name == strictActivationOrderFrom
+		if err := cfg.checkFork(ordered[i], name, strict); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkFork checks the activation time of fork B against that of fork A, its immediate
+// predecessor. Fork A must be scheduled if fork B is, and must activate before fork B.
+//
+// When strict is set, fork B may only share fork A's activation time at or before genesis, where
+// both activate in the genesis block and no activation-block processing happens. Past genesis,
+// activating two forks at the same timestamp is not supported: each fork's activation-block
+// behavior is only defined against a chain on which every preceding fork is already active, so
+// sharing an activation block leaves the combined behavior undefined. See the activation rules of
+// the superchain upgrades specification:
+// https://specs.optimism.io/protocol/superchain-upgrades.html#activation-rules
+func (cfg *Config) checkFork(aName, bName ForkName, strict bool) error {
+	a, b := cfg.ActivationTime(aName), cfg.ActivationTime(bName)
+	if b == nil {
 		return nil
 	}
-	if a == nil && b != nil {
+	if a == nil {
 		return fmt.Errorf("fork %s set (to %d), but prior fork %s missing", bName, *b, aName)
-	}
-	if a != nil && b == nil {
-		return nil
 	}
 	if *a > *b {
 		return fmt.Errorf("fork %s set to %d, but prior fork %s has higher offset %d", bName, *b, aName, *a)
+	}
+	if strict && *a == *b && *b > cfg.Genesis.L2Time {
+		return fmt.Errorf("fork %s and prior fork %s both set to %d, but activating multiple forks at the same time after genesis is not supported", bName, aName, *b)
 	}
 	return nil
 }
@@ -810,7 +847,8 @@ func (c *Config) SyncLookback() uint64 {
 }
 
 // Description outputs a banner describing the important parts of rollup configuration in a human-readable form.
-// Optionally provide a mapping of L2 chain IDs to network names to label the L2 chain with if not unknown.
+// Optionally provide a mapping of L2 chain IDs to network names to label the L2 chain with; unlike
+// LogDescription, the human-readable banner always prints a name, falling back to "unknown L2".
 // The config should be config.Check()-ed before creating a description.
 func (c *Config) Description(l2Chains map[string]string) string {
 	// Find and report the network the user is running
@@ -849,17 +887,10 @@ func (c *Config) Description(l2Chains map[string]string) string {
 }
 
 // LogDescription outputs a banner describing the important parts of rollup configuration in a log format.
-// Optionally provide a mapping of L2 chain IDs to network names to label the L2 chain with if not unknown.
+// Optionally provide a mapping of L2 chain IDs to network names to label the L2 chain; without a
+// name for the chain, the l2_network field is omitted (l2_chain_id identifies the chain either way).
 // The config should be config.Check()-ed before creating a description.
 func (c *Config) LogDescription(log log.Logger, l2Chains map[string]string) {
-	// Find and report the network the user is running
-	networkL2 := ""
-	if l2Chains != nil {
-		networkL2 = l2Chains[c.L2ChainID.String()]
-	}
-	if networkL2 == "" {
-		networkL2 = "unknown L2"
-	}
 	networkL1 := params.NetworkNames[c.L1ChainID.String()]
 	if networkL1 == "" {
 		networkL1 = "unknown L1"
@@ -867,7 +898,11 @@ func (c *Config) LogDescription(log log.Logger, l2Chains map[string]string) {
 
 	ctx := []any{
 		"l2_chain_id", c.L2ChainID,
-		"l2_network", networkL2,
+	}
+	if networkL2 := l2Chains[c.L2ChainID.String()]; networkL2 != "" {
+		ctx = append(ctx, "l2_network", networkL2)
+	}
+	ctx = append(ctx,
 		"l1_chain_id", c.L1ChainID,
 		"l1_network", networkL1,
 		"l2_start_time", c.Genesis.L2Time,
@@ -875,7 +910,7 @@ func (c *Config) LogDescription(log log.Logger, l2Chains map[string]string) {
 		"l2_block_number", c.Genesis.L2.Number,
 		"l1_block_hash", c.Genesis.L1.Hash.String(),
 		"l1_block_number", c.Genesis.L1.Number,
-	}
+	)
 	c.forEachFork(func(_ string, logName string, time *uint64) {
 		ctx = append(ctx, logName, fmtForkTimeOrUnset(time))
 	})

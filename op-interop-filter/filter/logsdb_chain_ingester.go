@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	gethTypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 
+	optypes "github.com/ethereum-optimism/optimism/op-core/types"
 	"github.com/ethereum-optimism/optimism/op-interop-filter/metrics"
 	"github.com/ethereum-optimism/optimism/op-node/rollup"
 	"github.com/ethereum-optimism/optimism/op-service/client"
@@ -34,14 +34,14 @@ const progressLogInterval = 10 * time.Second
 type EthClient interface {
 	InfoByLabel(ctx context.Context, label eth.BlockLabel) (eth.BlockInfo, error)
 	InfoByNumber(ctx context.Context, number uint64) (eth.BlockInfo, error)
-	FetchReceipts(ctx context.Context, blockHash common.Hash) (eth.BlockInfo, gethTypes.Receipts, error)
+	FetchReceipts(ctx context.Context, blockHash common.Hash) (eth.BlockInfo, optypes.Receipts, error)
 	Close()
 }
 
 type blockFetch struct {
 	blockNum  uint64
 	blockInfo eth.BlockInfo
-	receipts  gethTypes.Receipts
+	receipts  optypes.Receipts
 	err       error
 }
 
@@ -252,6 +252,11 @@ func (c *LogsDBChainIngester) Contains(query messages.ContainsQuery) (messages.B
 	return c.logsDB.Contains(query)
 }
 
+// IsValidInitiatingTimestamp returns true if the timestamp can contain initiating messages.
+func (c *LogsDBChainIngester) IsValidInitiatingTimestamp(timestamp uint64) bool {
+	return c.rollupCfg.IsInterop(timestamp) && !c.rollupCfg.IsInteropActivationBlock(timestamp)
+}
+
 // LatestBlock returns the latest sealed block
 func (c *LogsDBChainIngester) LatestBlock() (eth.BlockID, bool) {
 	c.mu.RLock()
@@ -381,14 +386,12 @@ func (c *LogsDBChainIngester) findAndSetEarliestBlock() error {
 func (c *LogsDBChainIngester) calculateStartingBlock() uint64 {
 	backfillSeconds := uint64(c.backfillDuration.Seconds())
 	if c.startTimestamp < backfillSeconds {
-		// Backfill reaches before epoch 0; start from genesis
 		return c.rollupCfg.Genesis.L2.Number
 	}
 	backfillTimestamp := c.startTimestamp - backfillSeconds
 
 	startingBlock, err := c.rollupCfg.TargetBlockNumber(backfillTimestamp)
 	if err != nil {
-		// Timestamp is before genesis, start from genesis block
 		return c.rollupCfg.Genesis.L2.Number
 	}
 	return startingBlock
@@ -681,7 +684,7 @@ func (c *LogsDBChainIngester) ingestBlockRange(startBlock, endBlock uint64, last
 			// Resolve the number to a hash first, then fetch receipts by hash so
 			// the receipts are pinned to the block identity we are about to write.
 			blockInfo, err := c.ethClient.InfoByNumber(rangeCtx, blockNum)
-			var receipts gethTypes.Receipts
+			var receipts optypes.Receipts
 			if err != nil {
 				err = fmt.Errorf("fetch block info: %w", err)
 			} else {
@@ -822,7 +825,7 @@ func (c *LogsDBChainIngester) recordIngestionProgress(blockNum, head uint64) {
 }
 
 func (c *LogsDBChainIngester) processBlockLogs(blockInfo eth.BlockInfo, blockID eth.BlockID,
-	receipts gethTypes.Receipts, blockNum uint64) (uint32, error) {
+	receipts optypes.Receipts, blockNum uint64) (uint32, error) {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()

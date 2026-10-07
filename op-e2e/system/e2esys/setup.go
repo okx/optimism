@@ -19,6 +19,7 @@ import (
 	"time"
 
 	gameTypes "github.com/ethereum-optimism/optimism/op-challenger/game/types"
+	opcoreparams "github.com/ethereum-optimism/optimism/op-core/params"
 	"github.com/stretchr/testify/require"
 
 	ds "github.com/ipfs/go-datastore"
@@ -729,7 +730,7 @@ func (cfg SystemConfig) Start(t *testing.T, startOpts ...StartOption) (*System, 
 			KarstTime:              cfg.DeployConfig.KarstTime(uint64(cfg.DeployConfig.L1GenesisBlockTimestamp)),
 			LagoonTime:             cfg.DeployConfig.LagoonTime(uint64(cfg.DeployConfig.L1GenesisBlockTimestamp)),
 			AltDAConfig:            rollupAltDAConfig,
-			ChainOpConfig: &params.OptimismConfig{
+			ChainOpConfig: &opcoreparams.OptimismConfig{
 				EIP1559Elasticity:        cfg.DeployConfig.EIP1559Elasticity,
 				EIP1559Denominator:       cfg.DeployConfig.EIP1559Denominator,
 				EIP1559DenominatorCanyon: &cfg.DeployConfig.EIP1559DenominatorCanyon,

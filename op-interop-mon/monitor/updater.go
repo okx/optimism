@@ -7,6 +7,7 @@ import (
 	"time"
 
 	messages "github.com/ethereum-optimism/optimism/op-core/interop/messages"
+	optypes "github.com/ethereum-optimism/optimism/op-core/types"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/locks"
 	"github.com/ethereum-optimism/optimism/op-service/sources"
@@ -23,7 +24,7 @@ var ErrLogNotFound = errors.New("log not found")
 var updateInterval = 1 * time.Second
 
 type UpdaterClient interface {
-	FetchReceiptsByNumber(ctx context.Context, number uint64) (eth.BlockInfo, types.Receipts, error)
+	FetchReceiptsByNumber(ctx context.Context, number uint64) (eth.BlockInfo, optypes.Receipts, error)
 }
 
 var _ UpdaterClient = &sources.EthClient{}
@@ -97,14 +98,14 @@ func (t *RPCUpdater) Run(ctx context.Context) {
 			t.jobs.Store(job.ID(), job)
 		case <-processTicker.C:
 			t.log.Trace("processing jobs")
-			t.processJobs()
+			t.processJobs(ctx)
 			t.log.Trace("processed jobs done")
 		}
 	}
 }
 
 // processJobs handles updating all jobs in the map
-func (t *RPCUpdater) processJobs() {
+func (t *RPCUpdater) processJobs(ctx context.Context) {
 	var toUpdate []*Job
 	var toExpire []JobID
 
@@ -125,7 +126,7 @@ func (t *RPCUpdater) processJobs() {
 
 	// Update jobs that need updating
 	for _, job := range toUpdate {
-		err := t.UpdateJob(job)
+		err := t.UpdateJob(ctx, job)
 		if err != nil {
 			t.log.Error("error updating job", "error", err, "job", job.String())
 		}
@@ -183,15 +184,15 @@ func (t *RPCUpdater) ShouldExpire(job *Job) bool {
 	return false
 }
 
-func (t *RPCUpdater) UpdateJob(job *Job) error {
-	t.UpdateJobStatus(job)
+func (t *RPCUpdater) UpdateJob(ctx context.Context, job *Job) error {
+	t.UpdateJobStatus(ctx, job)
 	job.UpdateLastEvaluated(time.Now())
 	t.log.Debug("updated job", "job", job.String())
 	return nil
 }
 
-func (t *RPCUpdater) UpdateJobStatus(job *Job) {
-	blockInfo, receipts, err := t.client.FetchReceiptsByNumber(context.Background(), job.initiating.BlockNumber)
+func (t *RPCUpdater) UpdateJobStatus(ctx context.Context, job *Job) {
+	blockInfo, receipts, err := t.client.FetchReceiptsByNumber(ctx, job.initiating.BlockNumber)
 	if err != nil {
 		t.log.Error("error getting block receipts", "error", err)
 		job.UpdateStatus(jobStatusUnknown)
@@ -201,7 +202,7 @@ func (t *RPCUpdater) UpdateJobStatus(job *Job) {
 	// Add the block hash to the job's initiating hashes
 	job.AddInitiatingHash(blockInfo.Hash())
 
-	log, err := t.findLogEvent(receipts, job)
+	log, err := t.findLogEvent(receipts.Geth(), job)
 	if err == ErrLogNotFound {
 		t.log.Warn("initiating log not found", "job", job.String())
 		job.UpdateStatus(jobStatusInvalid)
@@ -242,7 +243,7 @@ func (t *RPCUpdater) UpdateJobStatus(job *Job) {
 		job.UpdateStatus(jobStatusInvalid)
 		return
 	}
-	if job.executingTimestamp > job.initiating.Timestamp+t.messageExpiryWindow {
+	if job.executingTimestamp-job.initiating.Timestamp > t.messageExpiryWindow {
 		t.log.Warn("executing message is expired",
 			"executing_ts", job.executingTimestamp, "initiating_ts", job.initiating.Timestamp, "window", t.messageExpiryWindow)
 		job.UpdateStatus(jobStatusExpired)

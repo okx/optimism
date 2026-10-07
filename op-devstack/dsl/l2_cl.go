@@ -168,8 +168,6 @@ func (cl *L2CLNode) headBlockRef(lvl safety.Level) (eth.L2BlockRef, error) {
 		return syncStatus.SafeL2, nil
 	case safety.LocalSafe:
 		return syncStatus.LocalSafeL2, nil
-	case safety.CrossUnsafe:
-		return syncStatus.CrossUnsafeL2, nil
 	case safety.LocalUnsafe:
 		return syncStatus.UnsafeL2, nil
 	default:

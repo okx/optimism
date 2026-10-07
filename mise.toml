@@ -1,19 +1,23 @@
 [tools]
 
 # Core dependencies
-bun = "1.2.5"
-go = "1.26.4"
+bun = "1.4.0"
+go = "1.26.5"
 golangci-lint = "2.8.0"
 gotestsum = "1.12.3"
 mockery = "2.53.6"
 rust = [
-  { version = "1.94.0", components = "clippy,rustfmt,llvm-tools-preview", targets = "riscv32imac-unknown-none-elf,wasm32-unknown-unknown,wasm32-wasip1" },
-  { version = "nightly-2026-02-20", components = "rustfmt,clippy" },
+  { version = "1.95.0", components = "clippy,rustfmt,llvm-tools", targets = "riscv32imac-unknown-none-elf,wasm32-unknown-unknown,wasm32-wasip1" },
+  { version = "nightly-2026-08-22", components = "rustfmt,clippy" },
 ]
 python = "3.12.13"
 uv = "0.5.5"
 jq = "1.7.1"
 yq = "4.44.5"
+# Used by ops/scripts/todo-checker.sh. Pinned here rather than apt-installed in
+# the todo-issues job so the check rides the mise cache instead of depending on
+# an Ubuntu mirror being reachable.
+ripgrep = "15.2.0"
 # Required by the kona-sp1 dependency tree: sp1-prover-types' build script runs
 # prost-build, which shells out to protoc. Without it `cargo check` in rust/ fails.
 protoc = "35.1"
@@ -25,10 +29,20 @@ make = "4.4.1"
 
 svm-rs = "0.5.19"
 
+# Fast linker used for Rust link steps in CI (see .circleci rust-build). Linux
+# only: mold ships no macOS build, so gate on os to keep `mise install` green on
+# developer Macs. Pinned here so CI's linker version is fixed and reproducible.
+mold = { version = "2.41.0", os = ["linux"] }
+
+# Required to build the Rust workspace: prost-build (via sp1-prover-types)
+# shells out to protoc and fails the build if it is absent.
+protoc = "35.1"
+
 # Rust tooling
 "github:crate-ci/cargo-release" = { version = "1.1.2" }
 
 "github:nextest-rs/nextest" = { version = "0.9.132", version_prefix = "cargo-nextest-", bin = "cargo-nextest" }
+"github:succinctlabs/sp1" = { version = "6.8.0", version_prefix = "v", bin = "cargo-prove" }
 "github:EmbarkStudios/cargo-deny" = "0.19.4"
 "github:ggwpez/zepter" = { version = "1.88.0", version_prefix = "v" }
 "github:crate-ci/typos" = { version = "1.45.1", version_prefix = "v" }
@@ -39,7 +53,7 @@ svm-rs = "0.5.19"
 
 # Go dependencies
 "go:github.com/ethereum/go-ethereum/cmd/abigen" = "1.15.10"
-"go:github.com/ethereum/go-ethereum/cmd/geth" = "1.16.4"    # Osaka testnet release.
+"go:github.com/ethereum/go-ethereum/cmd/geth" = "e9bac5fac00d77fe87e4c1a28c48ee57cda942cc" # Glamsterdam development commit.
 
 # Python dependencies
 "pipx:slither-analyzer" = "0.10.2"
@@ -63,7 +77,7 @@ git-cliff = "2.12.0"
 # Put things here if you need to track versions of tools or projects that can't
 # actually be managed by mise (yet). Make sure that anything you put in here is
 # also found inside of disabled_tools or mise will try to install it.
-kontrol = "1.0.90"
+kontrol = "1.0.255"
 binary_signer = "1.0.4"
 
 [tool_alias]

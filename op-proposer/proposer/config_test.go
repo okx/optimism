@@ -19,24 +19,65 @@ func TestValidConfigIsValid(t *testing.T) {
 	require.NoError(t, cfg.Check())
 }
 
-func TestNewConfigReadsSuperNodeRpcs(t *testing.T) {
-	var cfg *CLIConfig
-	app := cli.NewApp()
-	app.Flags = proposerFlags.Flags
-	app.Action = func(ctx *cli.Context) error {
-		cfg = NewConfig(ctx)
-		return nil
+func TestNewConfigReadsSuperRootRpcs(t *testing.T) {
+	testCases := []struct {
+		name     string
+		args     []string
+		envName  string
+		expected []string
+	}{
+		{
+			name: "PrimaryFlag",
+			args: []string{
+				"--superroot-rpcs", "http://localhost:8882/superroot-a",
+				"--superroot-rpcs", "http://localhost:8883/superroot-b",
+			},
+			expected: []string{
+				"http://localhost:8882/superroot-a",
+				"http://localhost:8883/superroot-b",
+			},
+		},
+		{
+			name: "LegacyFlagAlias",
+			args: []string{
+				"--supernode-rpcs", "http://localhost:8882/supernode-a",
+				"--supernode-rpcs", "http://localhost:8883/supernode-b",
+			},
+			expected: []string{
+				"http://localhost:8882/supernode-a",
+				"http://localhost:8883/supernode-b",
+			},
+		},
+		{
+			name:     "PrimaryEnvVar",
+			envName:  "OP_PROPOSER_SUPERROOT_RPCS",
+			expected: []string{"http://localhost:8882/superroot"},
+		},
+		{
+			name:     "LegacyEnvVarAlias",
+			envName:  "OP_PROPOSER_SUPERNODE_RPCS",
+			expected: []string{"http://localhost:8882/superroot"},
+		},
 	}
-	err := app.Run([]string{
-		"op-proposer",
-		"--supernode-rpcs", "http://localhost:8882/supernode-a",
-		"--supernode-rpcs", "http://localhost:8883/supernode-b",
-	})
-	require.NoError(t, err)
-	require.Equal(t, []string{
-		"http://localhost:8882/supernode-a",
-		"http://localhost:8883/supernode-b",
-	}, cfg.SuperNodeRpcs)
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if testCase.envName != "" {
+				t.Setenv(testCase.envName, testCase.expected[0])
+			}
+
+			var cfg *CLIConfig
+			app := cli.NewApp()
+			app.Flags = proposerFlags.Flags
+			app.Action = func(ctx *cli.Context) error {
+				cfg = NewConfig(ctx)
+				return nil
+			}
+			err := app.Run(append([]string{"op-proposer"}, testCase.args...))
+			require.NoError(t, err)
+			require.Equal(t, testCase.expected, cfg.SuperRootRpcs)
+		})
+	}
 }
 
 func TestRollupRpc(t *testing.T) {
@@ -47,7 +88,7 @@ func TestRollupRpc(t *testing.T) {
 			cfg.DGFAddress = common.Address{0xaa}.Hex()
 			cfg.ProposalInterval = 20
 			cfg.RollupRpc = ""
-			cfg.SuperNodeRpcs = []string{"http://localhost:8882/supernode"}
+			cfg.SuperRootRpcs = []string{"http://localhost:8882/superroot"}
 			cfg.DisputeGameType = gameType
 			require.ErrorIs(t, cfg.Check(), ErrMissingRollupRpc)
 		})
@@ -58,22 +99,22 @@ func TestRollupRpc(t *testing.T) {
 		cfg.DGFAddress = common.Address{0xaa}.Hex()
 		cfg.ProposalInterval = 20
 		cfg.RollupRpc = ""
-		cfg.SuperNodeRpcs = []string{"http://localhost:8882/supernode"}
+		cfg.SuperRootRpcs = []string{"http://localhost:8882/superroot"}
 		cfg.DisputeGameType = 492743
 		require.ErrorIs(t, cfg.Check(), ErrUnsupportedDisputeGameType)
 	})
 }
 
-func TestSuperNodeRpc(t *testing.T) {
+func TestSuperRootRpc(t *testing.T) {
 	// For xlayer: postInterop game types (>1) are rejected by ErrUnsupportedDisputeGameType
-	// before the supernode source check is reached.
+	// before the super-root source check is reached.
 	for _, gameType := range postInteropGameTypes {
 		t.Run("UnsupportedPostInteropGame", func(t *testing.T) {
 			cfg := validConfig()
 			cfg.DGFAddress = common.Address{0xaa}.Hex()
 			cfg.ProposalInterval = 20
 			cfg.RollupRpc = ""
-			cfg.SuperNodeRpcs = []string{"http://localhost:8882/supernode"}
+			cfg.SuperRootRpcs = []string{"http://localhost:8882/superroot"}
 			cfg.DisputeGameType = gameType
 			require.ErrorIs(t, cfg.Check(), ErrUnsupportedDisputeGameType)
 		})
@@ -84,17 +125,17 @@ func TestSuperNodeRpc(t *testing.T) {
 		cfg.DGFAddress = common.Address{0xaa}.Hex()
 		cfg.ProposalInterval = 20
 		cfg.RollupRpc = ""
-		cfg.SuperNodeRpcs = []string{"http://localhost:8882/supernode"}
+		cfg.SuperRootRpcs = []string{"http://localhost:8882/superroot"}
 		cfg.DisputeGameType = 492743
 		require.ErrorIs(t, cfg.Check(), ErrUnsupportedDisputeGameType)
 	})
 }
 
-func TestDisallowRollupAndSuperNodeRPC(t *testing.T) {
+func TestDisallowRollupAndSuperRootRPC(t *testing.T) {
 	cfg := validConfig()
 	cfg.ProposalInterval = 20
 	cfg.RollupRpc = "http://localhost:8882/rollup"
-	cfg.SuperNodeRpcs = []string{"http://localhost:8882/supernode"}
+	cfg.SuperRootRpcs = []string{"http://localhost:8882/superroot"}
 	cfg.DisputeGameType = 492743
 	require.ErrorIs(t, cfg.Check(), ErrConflictingSource)
 }
@@ -102,7 +143,7 @@ func TestDisallowRollupAndSuperNodeRPC(t *testing.T) {
 func TestRequireSomeRPCSourceForUnknownGameTypes(t *testing.T) {
 	cfg := validConfig()
 	cfg.RollupRpc = ""
-	cfg.SuperNodeRpcs = nil
+	cfg.SuperRootRpcs = nil
 	cfg.DisputeGameType = 492743
 	// For xlayer: unknown game types are rejected before the missing source check.
 	require.ErrorIs(t, cfg.Check(), ErrUnsupportedDisputeGameType)
@@ -112,7 +153,7 @@ func validConfig() *CLIConfig {
 	return &CLIConfig{
 		L1EthRpc:                     "http://localhost:8888/l1",
 		RollupRpc:                    "http://localhost:8888/l2",
-		SuperNodeRpcs:                nil,
+		SuperRootRpcs:                nil,
 		PollInterval:                 100,
 		AllowNonFinalized:            false,
 		TxMgrConfig:                  txmgr.NewCLIConfig("http://localhost:8888/l1", txmgr.DefaultBatcherFlagValues),

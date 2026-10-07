@@ -12,6 +12,7 @@ import (
 	gethTypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 
+	optypes "github.com/ethereum-optimism/optimism/op-core/types"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 
 	"github.com/ethereum-optimism/optimism/op-core/interop"
@@ -34,11 +35,12 @@ type mockChainIngester struct {
 	execMsgs []IncludedMessage
 
 	// State
-	ready                 bool
-	err                   *IngesterError
-	latestBlock           eth.BlockID
-	latestTimestamp       uint64
-	earliestIngestedBlock uint64
+	ready                         bool
+	err                           *IngesterError
+	latestBlock                   eth.BlockID
+	latestTimestamp               uint64
+	earliestIngestedBlock         uint64
+	firstValidInitiatingTimestamp uint64
 
 	rewindToFinalizedErr   error
 	rewindToFinalizedCount int
@@ -144,6 +146,20 @@ func (m *mockChainIngester) Contains(query messages.ContainsQuery) (messages.Blo
 		return messages.BlockSeal{}, interop.ErrConflict
 	}
 	return seal, nil
+}
+
+// SetFirstValidInitiatingTimestamp sets the earliest timestamp that may hold
+// initiating messages, i.e. the first block after Lagoon activation.
+func (m *mockChainIngester) SetFirstValidInitiatingTimestamp(ts uint64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.firstValidInitiatingTimestamp = ts
+}
+
+func (m *mockChainIngester) IsValidInitiatingTimestamp(timestamp uint64) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return timestamp >= m.firstValidInitiatingTimestamp
 }
 
 // LatestBlock implements ChainIngester.
@@ -351,7 +367,7 @@ func (m *MockEthClient) InfoByNumber(ctx context.Context, number uint64) (eth.Bl
 }
 
 // FetchReceipts implements EthClient.
-func (m *MockEthClient) FetchReceipts(ctx context.Context, blockHash common.Hash) (eth.BlockInfo, gethTypes.Receipts, error) {
+func (m *MockEthClient) FetchReceipts(ctx context.Context, blockHash common.Hash) (eth.BlockInfo, optypes.Receipts, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -367,11 +383,11 @@ func (m *MockEthClient) FetchReceipts(ctx context.Context, blockHash common.Hash
 	// Find the block info for this hash
 	for _, block := range m.blocksByNumber {
 		if block.Hash() == blockHash {
-			return block, receipts, nil
+			return block, optypes.FromGethReceipts(receipts), nil
 		}
 	}
 
-	return nil, receipts, nil
+	return nil, optypes.FromGethReceipts(receipts), nil
 }
 
 // Close implements EthClient.

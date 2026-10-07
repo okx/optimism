@@ -29,6 +29,11 @@ FRAUD_PROOF_TEST_PKGS := "./op-e2e/faultproofs/..."
 help:
   @just --list
 
+# Install the repo's git hooks (core.hooksPath -> .githooks). Idempotent; run once per clone.
+install-git-hooks:
+  git config core.hooksPath .githooks
+  @echo "Installed git hooks: core.hooksPath -> .githooks"
+
 # Initializes/updates the superchain-registry submodule — the single canonical SR
 # commit pin. Scoped to ONLY this submodule (never a bare `git submodule update`).
 # With no ref it initializes at the pinned commit (shallow) and leaves an
@@ -253,20 +258,20 @@ op-interop-filter:
 cannon:
   cd cannon && just cannon
 
-# Builds reproducible prestate for kona.
+# Builds the reproducible kona prestates (all variants).
 reproducible-prestate-kona:
   cd rust && just build-kona-reproducible-prestate
 
-# Builds the reproducible kona prestate and prints its hash.
+# Builds the reproducible kona prestates and prints their hashes.
 [script('bash')]
 reproducible-prestate:
   set -euo pipefail
   (cd rust && just build-kona-reproducible-prestate)
   (cd rust && just output-kona-prestate-hash)
 
-# Builds the cannon prestate.
+# Builds the kona prestates, natively when the MIPS64 cross-linker is installed and via Docker otherwise.
 cannon-prestates:
-  cd rust && just build-kona-prestates
+  cd rust && just build-kona-prestates-auto
 
 # Verifies the reproducibility of released cannon prestates against the
 # superchain-registry standard prestates. Each tagged release (op-program/v*
@@ -393,20 +398,34 @@ _go-tests-ci-internal go_test_flags="": build-superchain-go
   if [ -n "${CIRCLE_NODE_TOTAL:-}" ] && [ "$CIRCLE_NODE_TOTAL" -gt 1 ]; then
       NODE_INDEX=${CIRCLE_NODE_INDEX:-0}
       NODE_TOTAL=${CIRCLE_NODE_TOTAL:-1}
-      PARALLEL_PACKAGES=$(echo "$ALL_PACKAGES" | tr ' ' '\n' | awk -v idx="$NODE_INDEX" -v total="$NODE_TOTAL" 'NR % total == idx' | tr '\n' ' ')
-      if [ -n "$PARALLEL_PACKAGES" ]; then
-          echo "Node $NODE_INDEX/$NODE_TOTAL running packages: $PARALLEL_PACKAGES"
-          ./ops/scripts/gotestsum-split.sh --format=standard-verbose \
-              --junitfile=./tmp/test-results/results-"$NODE_INDEX".xml \
-              --jsonfile=./tmp/testlogs/log-"$NODE_INDEX".json \
-              --rerun-fails=3 \
-              --rerun-fails-max-failures=50 \
-              --packages="$PARALLEL_PACKAGES" \
-              -- -p=4 -parallel="$PARALLEL" {{go_test_flags}} -timeout={{TEST_TIMEOUT}} -tags="ci"
-      else
-          echo "ERROR: Node $NODE_INDEX/$NODE_TOTAL has no packages to run! Perhaps parallelism is set too high? (package list has $(echo "$ALL_PACKAGES" | wc -w) packages)"
+      if [ -z "${ALL_PACKAGES// /}" ]; then
+          echo "ERROR: list-test-packages produced no packages" >&2
           exit 1
       fi
+      # Split by historical timing instead of round-robin: timing-balanced
+      # packing keyed on the JUnit classname (= Go import path) that gotestsum
+      # uploads via store_test_results. list-test-packages already emits one
+      # concrete import path per line; `circleci tests split` reads
+      # CIRCLE_NODE_TOTAL/INDEX itself and falls back to name-based splitting
+      # for packages with no timing data yet.
+      PARALLEL_PACKAGES=$(printf '%s\n' $ALL_PACKAGES \
+          | circleci tests split --split-by=timings --timings-type=classname \
+          | tr '\n' ' ')
+      # An empty share for one node is a legitimate timing-bucketing outcome;
+      # the packages run on the other nodes. Only an empty package list
+      # (checked above) means the job would silently test nothing.
+      if [ -z "${PARALLEL_PACKAGES// /}" ]; then
+          echo "No packages assigned to node $NODE_INDEX/$NODE_TOTAL, skipping."
+          exit 0
+      fi
+      echo "Node $NODE_INDEX/$NODE_TOTAL running packages: $PARALLEL_PACKAGES"
+      ./ops/scripts/gotestsum-split.sh --format=standard-verbose \
+          --junitfile=./tmp/test-results/results-"$NODE_INDEX".xml \
+          --jsonfile=./tmp/testlogs/log-"$NODE_INDEX".json \
+          --rerun-fails=3 \
+          --rerun-fails-max-failures=50 \
+          --packages="$PARALLEL_PACKAGES" \
+          -- -p=4 -parallel="$PARALLEL" {{go_test_flags}} -timeout={{TEST_TIMEOUT}} -tags="ci"
   else
       ./ops/scripts/gotestsum-split.sh --format=standard-verbose \
           --junitfile=./tmp/test-results/results.xml \
@@ -457,14 +476,32 @@ update-op-geth:
   ./ops/scripts/update-op-geth.py
 
 # Build all Rust binaries (release) for sysgo tests.
+# Every binary needs an explicit `-p`: a bare `--bin` only resolves against the
+# `default-members` of the workspace, and op-reth-sdm-fixture is a plain member.
 build-rust-release:
-  cd rust && cargo build --release --bin kona-node --bin kona-host --bin op-reth
-  cd rust/op-rbuilder && cargo build --release -p op-rbuilder --bin op-rbuilder
-  cd rust/rollup-boost && cargo build --release -p rollup-boost --bin rollup-boost
+  cd rust && cargo build --release -p kona-node --bin kona-node -p kona-host --bin kona-host -p op-reth --bin op-reth -p op-reth-sdm-fixture --bin op-reth-sdm-fixture
 
 # Checks that locked NUT bundles have not been modified.
 check-nut-locks:
   go run ./ops/scripts/check-nut-locks
+
+# Checks that committed NUT pre-fork states regenerate without drift. Assumes required build artifacts are present.
+[script('bash')]
+_check-nut-prefork-states:
+  set -euo pipefail
+  shopt -s nullglob
+  for state in op-core/nuts/state/*_state.json; do
+    fork="$(basename "$state" _state.json)"
+    if [ "$fork" = "jovian" ]; then
+      continue
+    fi
+    just _nut-prefork-state-for "$fork"
+  done
+  git diff --exit-code -- op-core/nuts/state/*_state.json
+
+# Checks that committed NUT pre-fork states regenerate without drift.
+check-nut-prefork-states: build-contracts build-superchain-go
+  just _check-nut-prefork-states
 
 # Snapshots current-upgrade-bundle.json as a fork's NUT bundle and updates the lock file.
 nut-snapshot-for fork:
@@ -475,9 +512,12 @@ nut-provenance-verify fork:
   go run ./ops/scripts/nut-provenance-verify {{fork}}
 
 # Generates op-core/nuts/state/<fork>_state.json (predecessor state + frozen <fork> bundle).
-nut-prefork-state-for fork:
-  OP_E2E_GEN_PREFORK_STATE={{fork}} go test -run TestGenerateForkState ./rust/kona/tests/proofs/
+_nut-prefork-state-for fork:
+  OP_E2E_GEN_PREFORK_STATE={{fork}} go test -count=1 -run TestGenerateForkState ./rust/kona/tests/proofs/
 
+# Generates op-core/nuts/state/<fork>_state.json (predecessor state + frozen <fork> bundle).
+nut-prefork-state-for fork: build-contracts build-superchain-go
+  just _nut-prefork-state-for {{fork}}
 
 # Checks that TODO comments have corresponding issues.
 todo-checker:
@@ -528,6 +568,84 @@ latest-tag component:
 latest-rc-tag component:
     @git tag -l '{{ component }}/v*' --sort=-v:refname | grep -E '^[^/]+/v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' | head -1
 
+# Prints the repository paths that ship in a component — the single source of
+# truth for "what belongs to <component>", defined next to the code it describes.
+# Release notes read it, and so does the proofs release tooling, so a component's
+# paths are never restated anywhere else.
+#
+# Output is one `<label><TAB><path>` pair per line. Consecutive lines sharing a
+# label form a group: a set of paths that ship as one unit — a bundled binary's
+# dependency closure, or the shared infrastructure every Go component links.
+# Consumers that section their output group by label, keeping a closure from
+# swamping the component's own changes; consumers that only need the path set
+# read the second column. Emitting both in one stream means a component's paths
+# and their grouping cannot disagree.
+#
+# A directory is written as a plain prefix ("cannon/"), not a glob, because the
+# two disagree: as a git pathspec, `cannon/**/*` skips files sitting directly in
+# cannon/ (README.md, Dockerfile.diff) since `**/` needs an intervening
+# directory. Consumers needing a glob append `**/*` themselves — release-notes
+# does, for git-cliff.
+#
+#   just release-paths op-challenger
+[script('bash')]
+release-paths component:
+    set -euo pipefail
+    # Shared Go infrastructure linked into every Go binary.
+    go_shared="shared=go.*,op-core/,op-service/"
+    # kona-host's local-path dependency closure per `cargo metadata`, excluding
+    # rust/kona/crates/node/ because kona-node is a separate binary. rust/Cargo.toml
+    # is included because a dependency bump reaches the binary; a bump touching only
+    # rust/Cargo.lock still appears under no path here.
+    kona_host="kona-host=rust/Cargo.toml,rust/kona/bin/host/,rust/kona/crates/proof/,rust/kona/crates/protocol/,rust/kona/crates/providers/,rust/kona/crates/utilities/,rust/alloy-op-evm/,rust/alloy-op-hardforks/,rust/op-alloy/,rust/op-revm/"
+    specs=()
+    case "{{ component }}" in
+        op-node|op-batcher|op-proposer|op-supernode|op-dispute-mon)
+            specs=("{{ component }}/" "$go_shared")
+            ;;
+        op-challenger)
+            # The op-challenger image ships three binaries, so all three are
+            # release-relevant: op-challenger itself, the cannon VM, and kona-host
+            # built from the in-repo rust/ workspace. See the op-challenger-target
+            # stage in ops/docker/op-stack-go/Dockerfile. A kona-host-only fix has
+            # no op-challenger/ diff yet still changes what operators run.
+            # kona-client is not in the image — it ships as a prestate hash.
+            specs=("op-challenger/" "cannon/" "$kona_host" "$go_shared")
+            ;;
+        op-reth)
+            specs=("rust/{{ component }}/" "rust/Cargo.toml" "rust/op-alloy/" "rust/alloy-op-evm/" "rust/alloy-op-hardforks/")
+            ;;
+        kona-*)
+            specs=("rust/kona/" "rust/Cargo.toml" "rust/op-alloy/" "rust/alloy-op-evm/" "rust/alloy-op-hardforks/" "rust/op-revm/")
+            ;;
+        op-deployer)
+            specs=("op-deployer/")
+            ;;
+        op-contracts)
+            specs=("packages/contracts-bedrock/")
+            ;;
+        *)
+            echo "error: component must be one of: op-node, op-batcher, op-proposer, op-challenger, op-dispute-mon, op-reth, op-deployer, op-contracts, op-supernode, kona-*; is {{ component }}" >&2
+            exit 1
+            ;;
+    esac
+    # `label=a,b` is private to this recipe: it is expanded to labelled pairs
+    # here, so no consumer ever has to know the separators.
+    for spec in "${specs[@]}"; do
+        if [[ "$spec" == *=* ]]; then
+            label="${spec%%=*}"
+            group="${spec#*=}"
+        else
+            # A lone path is its own section; "cannon/" reads as cannon.
+            label="${spec%/}"
+            group="$spec"
+        fi
+        IFS=',' read -r -a group_paths <<< "$group"
+        for p in "${group_paths[@]}"; do
+            printf '%s\t%s\n' "$label" "$p"
+        done
+    done
+
 # Generates release notes between two tags using git-cliff.
 # <from> and <to> can be explicit tags (e.g. v1.16.5), or:
 #   'latest'    - resolves to the latest stable tag (vX.Y.Z)
@@ -562,47 +680,19 @@ release-notes component from='latest' to='latest-rc' mode='':
     }
     from_tag=$(resolve_tag "{{ from }}")
     if [ -z "$from_tag" ]; then echo "error: could not resolve from tag '{{ from }}' for {{ component }}"; exit 1; fi
+    # release-paths is the single source of truth for what ships in a component.
+    # Assigning first (rather than piping) so `set -e` aborts on an unknown one.
+    component_paths="$({{ just_executable() }} --justfile {{ justfile() }} release-paths "{{ component }}")"
     include_path_args=()
-    case "{{ component }}" in
-        op-node|op-batcher|op-proposer|op-challenger|op-supernode)
-            include_path_args=(
-                --include-path "{{ component }}/**/*"
-                --include-path "go.*"
-                --include-path "op-core/**/*"
-                --include-path "op-service/**/*"
-            )
-            ;;
-        op-reth)
-            include_path_args=(
-                --include-path "rust/{{ component }}/**/*"
-                --include-path "rust/Cargo.toml"
-                --include-path "rust/op-alloy/**/*"
-                --include-path "rust/alloy-op*/**/*"
-            )
-            ;;
-        kona-*)
-            include_path_args=(
-                --include-path "rust/kona/**/*"
-                --include-path "rust/Cargo.toml"
-                --include-path "rust/op-alloy/**/*"
-                --include-path "rust/alloy-op*/**/*"
-            )
-            ;;
-        op-deployer)
-            include_path_args=(
-                --include-path "op-deployer/**/*"
-            )
-            ;;
-        op-contracts)
-            include_path_args=(
-                --include-path "packages/contracts-bedrock/**/*"
-            )
-            ;;
-        *)
-            echo "error: component must be one of: op-node, op-batcher, op-proposer, op-challenger, op-reth, op-deployer, op-contracts, op-supernode, kona-*; is {{ component }}"
-            exit 1
-            ;;
-    esac
+    # Second column only — the label just names a section, which notes don't use.
+    # Not `path`: this recipe is zsh, where $path is tied to $PATH and reading
+    # into it empties PATH, so every later command silently vanishes.
+    while IFS=$'\t' read -r _label include_path; do
+        [ -z "$include_path" ] && continue
+        # release-paths yields directories as prefixes; git-cliff wants globs.
+        case "$include_path" in */) include_path="${include_path}**/*" ;; esac
+        include_path_args+=(--include-path "$include_path")
+    done <<< "$component_paths"
     tag_args=()
     if [ "{{ to }}" = "develop" ]; then
         tag_args=(--unreleased)

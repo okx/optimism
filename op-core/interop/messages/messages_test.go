@@ -3,6 +3,7 @@ package messages
 import (
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"math/rand"
 	"testing"
@@ -13,8 +14,8 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethTypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/params"
 
+	"github.com/ethereum-optimism/optimism/op-core/predeploys"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 )
 
@@ -88,7 +89,7 @@ func TestInteropMessageFormatEdgeCases(t *testing.T) {
 		{
 			name: "Empty Topics",
 			log: &ethTypes.Log{
-				Address: params.InteropCrossL2InboxAddress,
+				Address: predeploys.CrossL2InboxAddr,
 				Topics:  []common.Hash{},
 				Data:    make([]byte, 32*5),
 			},
@@ -97,7 +98,7 @@ func TestInteropMessageFormatEdgeCases(t *testing.T) {
 		{
 			name: "Wrong Event Topic",
 			log: &ethTypes.Log{
-				Address: params.InteropCrossL2InboxAddress,
+				Address: predeploys.CrossL2InboxAddr,
 				Topics: []common.Hash{
 					common.BytesToHash([]byte("wrong topic")),
 					common.BytesToHash([]byte("payloadHash")),
@@ -109,7 +110,7 @@ func TestInteropMessageFormatEdgeCases(t *testing.T) {
 		{
 			name: "Missing PayloadHash Topic",
 			log: &ethTypes.Log{
-				Address: params.InteropCrossL2InboxAddress,
+				Address: predeploys.CrossL2InboxAddr,
 				Topics: []common.Hash{
 					common.BytesToHash(ExecutingMessageEventTopic[:]),
 				},
@@ -120,7 +121,7 @@ func TestInteropMessageFormatEdgeCases(t *testing.T) {
 		{
 			name: "Too Many Topics",
 			log: &ethTypes.Log{
-				Address: params.InteropCrossL2InboxAddress,
+				Address: predeploys.CrossL2InboxAddr,
 				Topics: []common.Hash{
 					common.BytesToHash(ExecutingMessageEventTopic[:]),
 					common.BytesToHash([]byte("payloadHash")),
@@ -133,7 +134,7 @@ func TestInteropMessageFormatEdgeCases(t *testing.T) {
 		{
 			name: "Data Too Short",
 			log: &ethTypes.Log{
-				Address: params.InteropCrossL2InboxAddress,
+				Address: predeploys.CrossL2InboxAddr,
 				Topics: []common.Hash{
 					common.BytesToHash(ExecutingMessageEventTopic[:]),
 					common.BytesToHash([]byte("payloadHash")),
@@ -145,7 +146,7 @@ func TestInteropMessageFormatEdgeCases(t *testing.T) {
 		{
 			name: "Data Too Long",
 			log: &ethTypes.Log{
-				Address: params.InteropCrossL2InboxAddress,
+				Address: predeploys.CrossL2InboxAddr,
 				Topics: []common.Hash{
 					common.BytesToHash(ExecutingMessageEventTopic[:]),
 					common.BytesToHash([]byte("payloadHash")),
@@ -157,7 +158,7 @@ func TestInteropMessageFormatEdgeCases(t *testing.T) {
 		{
 			name: "Invalid Address Padding",
 			log: &ethTypes.Log{
-				Address: params.InteropCrossL2InboxAddress,
+				Address: predeploys.CrossL2InboxAddr,
 				Topics: []common.Hash{
 					common.BytesToHash(ExecutingMessageEventTopic[:]),
 					common.BytesToHash([]byte("payloadHash")),
@@ -173,7 +174,7 @@ func TestInteropMessageFormatEdgeCases(t *testing.T) {
 		{
 			name: "Invalid Block Number Padding",
 			log: &ethTypes.Log{
-				Address: params.InteropCrossL2InboxAddress,
+				Address: predeploys.CrossL2InboxAddr,
 				Topics: []common.Hash{
 					common.BytesToHash(ExecutingMessageEventTopic[:]),
 					common.BytesToHash([]byte("payloadHash")),
@@ -570,5 +571,72 @@ func TestEncodeAccessList(t *testing.T) {
 		}
 		require.Empty(t, list, "need to exhaust entries, expecting to be done")
 		require.Equal(t, accObjects, result, "roundtrip of random entries should work")
+	})
+}
+
+func TestDecodeAccessList(t *testing.T) {
+	accesses := []Access{
+		{BlockNumber: testBlockNumber, Timestamp: testTimestamp, LogIndex: testLogIndex,
+			ChainID: testChainID, Checksum: MessageChecksum(testChecksum)},
+		{BlockNumber: testBlockNumber + 1, Timestamp: testTimestamp + 2, LogIndex: 0,
+			ChainID: eth.ChainIDFromBytes32([32]byte{0: 0xff}), Checksum: MessageChecksum(testChecksum)},
+	}
+
+	t.Run("roundtrip", func(t *testing.T) {
+		result, err := DecodeAccessList(ethTypes.AccessList{{
+			Address:     predeploys.CrossL2InboxAddr,
+			StorageKeys: EncodeAccessList(accesses),
+		}})
+		require.NoError(t, err)
+		require.Equal(t, accesses, result)
+	})
+
+	t.Run("across tuples", func(t *testing.T) {
+		result, err := DecodeAccessList(ethTypes.AccessList{
+			{Address: predeploys.CrossL2InboxAddr, StorageKeys: EncodeAccessList(accesses[:1])},
+			{Address: predeploys.CrossL2InboxAddr, StorageKeys: EncodeAccessList(accesses[1:])},
+		})
+		require.NoError(t, err)
+		require.Equal(t, accesses, result)
+	})
+
+	t.Run("split across tuples", func(t *testing.T) {
+		entries := EncodeAccessList(accesses)
+		for split := 1; split < len(entries); split++ {
+			t.Run(fmt.Sprintf("after entry %d", split), func(t *testing.T) {
+				result, err := DecodeAccessList(ethTypes.AccessList{
+					{Address: predeploys.CrossL2InboxAddr, StorageKeys: entries[:split]},
+					{Address: common.Address{0xaa}, StorageKeys: []common.Hash{{0x01}}},
+					{Address: predeploys.CrossL2InboxAddr, StorageKeys: entries[split:]},
+				})
+				require.NoError(t, err)
+				require.Equal(t, accesses, result)
+			})
+		}
+	})
+
+	t.Run("ignores other addresses", func(t *testing.T) {
+		result, err := DecodeAccessList(ethTypes.AccessList{{
+			Address:     common.Address{0xaa},
+			StorageKeys: []common.Hash{{0x01}},
+		}})
+		require.NoError(t, err)
+		require.Empty(t, result)
+	})
+
+	t.Run("unknown entry type", func(t *testing.T) {
+		_, err := DecodeAccessList(ethTypes.AccessList{{
+			Address:     predeploys.CrossL2InboxAddr,
+			StorageKeys: []common.Hash{{0: 0x09}},
+		}})
+		require.ErrorIs(t, err, errUnexpectedEntryType)
+	})
+
+	t.Run("truncated", func(t *testing.T) {
+		_, err := DecodeAccessList(ethTypes.AccessList{{
+			Address:     predeploys.CrossL2InboxAddr,
+			StorageKeys: []common.Hash{{0: PrefixLookup}},
+		}})
+		require.ErrorIs(t, err, errExpectedEntry)
 	})
 }

@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"testing"
 
+	optypes "github.com/ethereum-optimism/optimism/op-core/types"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-supernode/supernode/activity"
 	cc "github.com/ethereum-optimism/optimism/op-supernode/supernode/chain_container"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
 	gethlog "github.com/ethereum/go-ethereum/log"
 	"github.com/stretchr/testify/require"
 )
@@ -82,7 +82,7 @@ func (m *mockCC) L1ForL2(ctx context.Context, l2Block eth.BlockID) (eth.BlockID,
 	return eth.BlockID{}, nil
 }
 
-func (m *mockCC) FetchReceipts(ctx context.Context, blockID eth.BlockID) (eth.BlockInfo, types.Receipts, error) {
+func (m *mockCC) FetchReceipts(ctx context.Context, blockID eth.BlockID) (eth.BlockInfo, optypes.Receipts, error) {
 	return nil, nil, nil
 }
 
@@ -139,22 +139,20 @@ func TestSupernode_SyncStatus_Succeeds(t *testing.T) {
 	chains := map[eth.ChainID]cc.ChainContainer{
 		chainA: &mockCC{
 			status: &eth.SyncStatus{
-				CurrentL1:     eth.L1BlockRef{Number: 2000},
-				UnsafeL2:      eth.L2BlockRef{Number: 120, Time: 220},
-				CrossUnsafeL2: eth.L2BlockRef{Number: 118, Time: 205},
-				SafeL2:        eth.L2BlockRef{Number: 110, Time: 170},
-				LocalSafeL2:   eth.L2BlockRef{Number: 111, Time: 180},
-				FinalizedL2:   eth.L2BlockRef{Number: 100, Time: 140},
+				CurrentL1:   eth.L1BlockRef{Number: 2000},
+				UnsafeL2:    eth.L2BlockRef{Number: 120, Time: 220},
+				SafeL2:      eth.L2BlockRef{Number: 110, Time: 170},
+				LocalSafeL2: eth.L2BlockRef{Number: 111, Time: 180},
+				FinalizedL2: eth.L2BlockRef{Number: 100, Time: 140},
 			},
 		},
 		chainB: &mockCC{
 			status: &eth.SyncStatus{
-				CurrentL1:     eth.L1BlockRef{Number: 2000},
-				UnsafeL2:      eth.L2BlockRef{Number: 130, Time: 230},
-				CrossUnsafeL2: eth.L2BlockRef{Number: 128, Time: 215},
-				SafeL2:        eth.L2BlockRef{Number: 112, Time: 175},
-				LocalSafeL2:   eth.L2BlockRef{Number: 113, Time: 190},
-				FinalizedL2:   eth.L2BlockRef{Number: 101, Time: 150},
+				CurrentL1:   eth.L1BlockRef{Number: 2000},
+				UnsafeL2:    eth.L2BlockRef{Number: 130, Time: 230},
+				SafeL2:      eth.L2BlockRef{Number: 112, Time: 175},
+				LocalSafeL2: eth.L2BlockRef{Number: 113, Time: 190},
+				FinalizedL2: eth.L2BlockRef{Number: 101, Time: 150},
 			},
 		},
 	}

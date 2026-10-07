@@ -3,12 +3,9 @@ package extract
 import (
 	"context"
 	"fmt"
-	"math/big"
 	"testing"
 
-	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/contracts"
 	contractMetrics "github.com/ethereum-optimism/optimism/op-challenger/game/fault/contracts/metrics"
-	"github.com/ethereum-optimism/optimism/op-service/bigs"
 	"github.com/ethereum-optimism/optimism/op-service/sources/batching/rpcblock"
 	"github.com/ethereum-optimism/optimism/packages/contracts-bedrock/snapshots"
 	"github.com/ethereum/go-ethereum/common"
@@ -58,6 +55,10 @@ func TestMetadataCreator_CreateContract(t *testing.T) {
 			game: types.GameMetadata{GameType: uint32(types.SuperCannonKonaGameType), Proxy: fdgAddr},
 		},
 		{
+			name: "validZKGameType",
+			game: types.GameMetadata{GameType: uint32(types.ZKDisputeGameType), Proxy: fdgAddr},
+		},
+		{
 			name:        "InvalidGameType",
 			game:        types.GameMetadata{GameType: 6, Proxy: fdgAddr},
 			expectedErr: fmt.Errorf("unsupported game type: 6"),
@@ -91,6 +92,8 @@ func setupMetadataLoaderTest(t *testing.T, gameType uint32) (*batching.MultiCall
 		fdgAbi = snapshots.LoadSuperPermissionedDisputeGameABI()
 	} else if gameType == uint32(types.SuperCannonKonaGameType) {
 		fdgAbi = snapshots.LoadSuperFaultDisputeGameABI()
+	} else if gameType == uint32(types.ZKDisputeGameType) {
+		fdgAbi = snapshots.LoadZKDisputeGameABI()
 	}
 	stubRpc := batchingTest.NewAbiBasedRpc(t, fdgAddr, fdgAbi)
 	caller := batching.NewMultiCaller(stubRpc, batching.DefaultBatchSize)
@@ -99,35 +102,6 @@ func setupMetadataLoaderTest(t *testing.T, gameType uint32) (*batching.MultiCall
 		stubRpc.SetResponse(fdgAddr, "gameType", rpcblock.Latest, nil, []interface{}{gameType})
 	}
 	return caller, &mockCacheMetrics{}
-}
-
-func TestSuperPermissionedGameCaller(t *testing.T) {
-	stubRpc := batchingTest.NewAbiBasedRpc(t, fdgAddr, snapshots.LoadSuperPermissionedDisputeGameABI())
-	caller := batching.NewMultiCaller(stubRpc, batching.DefaultBatchSize)
-	metrics := &mockCacheMetrics{}
-	game := NewSuperPermissionedGameCaller(metrics, fdgAddr, caller)
-
-	l1Head := common.Hash{0xaa}
-	l2SequenceNumber := big.NewInt(1234)
-	rootClaim := common.Hash{0xbb}
-	status := types.GameStatusDefenderWon
-	stubRpc.SetResponse(fdgAddr, "l1Head", rpcblock.Latest, nil, []interface{}{l1Head})
-	stubRpc.SetResponse(fdgAddr, "l2SequenceNumber", rpcblock.Latest, nil, []interface{}{l2SequenceNumber})
-	stubRpc.SetResponse(fdgAddr, "rootClaim", rpcblock.Latest, nil, []interface{}{rootClaim})
-	stubRpc.SetResponse(fdgAddr, "status", rpcblock.Latest, nil, []interface{}{uint8(status)})
-
-	metadata, err := game.GetExtendedMetadata(context.Background(), rpcblock.Latest)
-	require.NoError(t, err)
-	require.Equal(t, contracts.GameMetadata{
-		L1Head:        l1Head,
-		L2SequenceNum: bigs.Uint64Strict(l2SequenceNumber),
-		RootClaim:     rootClaim,
-		Status:        status,
-	}, metadata)
-
-	claims, err := game.GetAllClaims(context.Background(), rpcblock.Latest)
-	require.NoError(t, err)
-	require.Empty(t, claims)
 }
 
 type mockCacheMetrics struct {

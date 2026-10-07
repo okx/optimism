@@ -9,6 +9,7 @@ import (
 	coredepset "github.com/ethereum-optimism/optimism/op-core/interop/depset"
 	"github.com/ethereum-optimism/optimism/op-core/superchain"
 	"github.com/ethereum-optimism/optimism/op-node/rollup"
+	nodesuperchain "github.com/ethereum-optimism/optimism/op-node/superchain"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 )
 
@@ -29,14 +30,14 @@ func NewRegistryFullConfigSetSource(l1RPCURL string, networks []string) (*Regist
 		// Use the dependency set from the first chain.
 		// superchain-registry has checks to ensure consistency for all chains in the same set
 		if dependencySet == nil {
-			depSet, err := coredepset.FromRegistry(eth.ChainIDFromUInt64(chainID))
+			depSet, err := nodesuperchain.LoadDependencySet(eth.ChainIDFromUInt64(chainID))
 			if err != nil {
 				return nil, fmt.Errorf("failed to load dependency set for network %s: %w", network, err)
 			}
 			dependencySet = depSet
 		}
 
-		rollupCfg, err := rollup.LoadOPStackRollupConfig(chainID)
+		rollupCfg, err := nodesuperchain.LoadOPStackRollupConfig(chainID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load rollup config for network %s: %w", network, err)
 		}

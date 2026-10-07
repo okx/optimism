@@ -8,7 +8,7 @@ coverage.json
 **/lcov-all.info
 
 # Rust files
-**/target
+rust/**/target*
 
 yarn-error.log
 .yarn/*
@@ -89,9 +89,6 @@ test-pp-op/mainnet.env
 test-pp-op/fakemainnet.env
 
 .tool-versions
-
-# Rust files
-**/target
 
 # Locally-built superchain bundles, generated from the superchain-registry submodule.
 # The binary archives are gitignored; only their .sha256 (and generated text) are committed.

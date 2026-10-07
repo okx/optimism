@@ -30,8 +30,7 @@ import (
 var (
 	codeNamespacePrefix = common.HexToAddress("0xc0D3C0d3C0d3C0D3c0d3C0d3c0D3C0d3c0d30000")
 
-	conditionalDeployerAddr = common.HexToAddress("0x420000000000000000000000000000000000002C")
-	l2DevFeatureFlagsAddr   = common.HexToAddress("0x420000000000000000000000000000000000002D")
+	l2DevFeatureFlagsAddr = common.HexToAddress("0x420000000000000000000000000000000000002D")
 
 	l2DevFeatureBitmapSlot = common.HexToHash("0xc8bc8f9195cfb2d040744aac63412d02ffc186ea9bd519039edc4666ee9032bc")
 	ozV5InitializableSlot  = common.HexToHash("0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00")
@@ -39,7 +38,6 @@ var (
 
 type allocMode struct {
 	name             string
-	l2cm             bool
 	customGasToken   bool
 	devFeatureBitmap common.Hash
 	configure        func(t *testing.T, intent *state.Intent)
@@ -59,16 +57,6 @@ func allocModes(t *testing.T) []allocMode {
 		{
 			name:      "default",
 			configure: func(t *testing.T, intent *state.Intent) {},
-		},
-		{
-			name:             "l2cm",
-			l2cm:             true,
-			devFeatureBitmap: devfeatures.L2CMFlag,
-			configure: func(t *testing.T, intent *state.Intent) {
-				intent.GlobalDeployOverrides = map[string]any{
-					"devFeatureBitmap": devfeatures.L2CMFlag,
-				}
-			},
 		},
 		{
 			name:           "cgt",
@@ -219,9 +207,6 @@ func activePredeploys(mode allocMode) []common.Address {
 	}
 	if mode.customGasToken {
 		proxies = append(proxies, predeploys.LiquidityControllerAddr, predeploys.NativeAssetLiquidityAddr)
-	}
-	if mode.l2cm {
-		proxies = append(proxies, conditionalDeployerAddr, l2DevFeatureFlagsAddr)
 	}
 	return proxies
 }

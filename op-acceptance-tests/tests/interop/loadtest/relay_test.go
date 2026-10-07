@@ -35,7 +35,7 @@ func (r *RelaySpammer) Spam(t devtest.T) error {
 		return fmt.Errorf("include init msg: %w", err)
 	}
 	messageLatency.WithLabelValues(r.source.Config.ChainID.String(), "init").Observe(time.Since(startInit).Seconds())
-	initMsg, err := initMsgFromReceipt(t, r.source, initTx.Receipt)
+	initMsg, err := initMsgFromReceipt(t, r.source, &initTx.Receipt.Receipt)
 	if err != nil {
 		return err
 	}

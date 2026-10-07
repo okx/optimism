@@ -22,9 +22,9 @@ import (
 	"github.com/ethereum-optimism/optimism/op-node/rollup/sequencing"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/status"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/sync"
-	"github.com/ethereum-optimism/optimism/op-service/apis"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/event"
+	"github.com/ethereum-optimism/optimism/op-service/sources"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -115,15 +115,8 @@ func NewDriver(
 		// Connect origin selector to the engine controller for force reset notifications
 		ec.SetOriginSelectorResetter(findL1Origin)
 
-		seq := sequencing.NewSequencer(driverCtx, log, cfg, driverCfg.SequencerSealingDuration, attrBuilder, findL1Origin,
+		sequencer = sequencing.NewSequencer(driverCtx, log, cfg, driverCfg.SequencerSealingDuration, attrBuilder, findL1Origin,
 			sequencerStateListener, sequencerConductor, asyncGossiper, metrics, ec)
-		// Seed the persisted opt-in before attaching the listener so we don't write-back
-		// the value we just loaded. Without a listener attached, this call cannot fail.
-		_ = seq.SetSdmPostExecOptIn(driverCtx, driverCfg.SdmPostExecOptIn)
-		if sdmListener, ok := sequencerStateListener.(sequencing.SequencerSdmListener); ok {
-			seq.AttachSdmListener(sdmListener)
-		}
-		sequencer = seq
 		sys.Register("sequencer", sequencer)
 	} else {
 		sequencer = sequencing.DisabledSequencer{}
@@ -140,7 +133,6 @@ func NewDriver(
 		stateReq:             make(chan chan struct{}),
 		forceReset:           make(chan chan struct{}, 10),
 		driverConfig:         driverCfg,
-		syncConfig:           syncCfg,
 		driverCtx:            driverCtx,
 		driverCancel:         driverCancel,
 		log:                  log,
@@ -174,8 +166,6 @@ type Driver struct {
 	// May not be modified after starting the Driver.
 	driverConfig *Config
 
-	syncConfig *sync.Config
-
 	sequencer sequencing.SequencerIface
 
 	metrics Metrics
@@ -188,20 +178,17 @@ type Driver struct {
 
 	upstreamFollowSource UpstreamFollowSource
 
-	// XLayer: state for skip-l1-check mode, grouped to minimize upstream merge conflicts.
+	// XLayer: state for trusted follow-source mode.
 	xlayer xlayerFollowState
 }
 
-// xlayerFollowState holds XLayer-specific fields for skip-l1-check follow source mode.
 type xlayerFollowState struct {
 	runtimeConfigSetter        RuntimeConfigSetter
 	lastRuntimeConfigFetchAt   time.Time
 	runtimeConfigFetchInterval time.Duration
-
-	// Cached upstream L1 refs for change detection (avoid unconditional StatusTracker writes)
-	lastHeadL1      eth.L1BlockRef
-	lastSafeL1      eth.L1BlockRef
-	lastFinalizedL1 eth.L1BlockRef
+	lastHeadL1                 eth.L1BlockRef
+	lastSafeL1                 eth.L1BlockRef
+	lastFinalizedL1            eth.L1BlockRef
 }
 
 // RuntimeConfigSetter allows updating the P2P sequencer address from an external source.
@@ -209,9 +196,8 @@ type RuntimeConfigSetter interface {
 	SetP2PSequencerAddress(addr common.Address)
 }
 
-// SetRuntimeConfigSetter sets the runtime config setter for skip-l1-check mode.
-// interval should be cfg.RuntimeConfigReloadInterval (default 10 min).
-// If interval <= 0, runtime config is not periodically refreshed (only startup preload).
+// SetRuntimeConfigSetter configures periodic runtime-config refreshes for
+// XLayer's trusted follow-source mode.
 func (s *Driver) SetRuntimeConfigSetter(setter RuntimeConfigSetter, interval time.Duration) {
 	s.xlayer.runtimeConfigSetter = setter
 	s.xlayer.runtimeConfigFetchInterval = interval
@@ -235,6 +221,14 @@ func (s *Driver) Start() error {
 		}
 	}
 
+	// The sequencer runs on its own goroutine: block production must not
+	// wait behind derivation-event draining on the event loop.
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.sequencer.RunLoop(s.driverCtx)
+	}()
+
 	s.wg.Add(1)
 	go s.eventLoop()
 
@@ -248,7 +242,7 @@ func (s *Driver) Close() error {
 	return nil
 }
 
-// the eventLoop responds to L1 changes and internal timers to produce L2 blocks.
+// the eventLoop responds to L1 changes and internal timers to drive derivation and syncing.
 func (s *Driver) eventLoop() {
 	defer s.wg.Done()
 	s.log.Info("State loop started")
@@ -265,35 +259,6 @@ func (s *Driver) eventLoop() {
 	// reqStep will also be triggered when the L1 head moves forward or if there was a reorg on the
 	// L1 chain that we need to handle.
 	reqStep()
-
-	sequencerTimer := time.NewTimer(0)
-	var sequencerCh <-chan time.Time
-	var prevTime time.Time
-	// planSequencerAction updates the sequencerTimer with the next action, if any.
-	// The sequencerCh is nil (indefinitely blocks on read) if no action needs to be performed,
-	// or set to the timer channel if there is an action scheduled.
-	planSequencerAction := func() {
-		nextAction, ok := s.sequencer.NextAction()
-		if !ok {
-			if sequencerCh != nil {
-				s.log.Info("Sequencer paused until new events")
-			}
-			sequencerCh = nil
-			return
-		}
-		// avoid unnecessary timer resets
-		if nextAction == prevTime {
-			return
-		}
-		prevTime = nextAction
-		sequencerCh = sequencerTimer.C
-		if len(sequencerCh) > 0 { // empty if not already drained before resetting
-			<-sequencerCh
-		}
-		delta := time.Until(nextAction)
-		s.log.Info("Scheduled sequencer action", "delta", delta)
-		sequencerTimer.Reset(delta)
-	}
 
 	// Create a ticker to check if there is a gap in the engine queue.
 	unsafeGapCheckInterval := time.Duration(s.SyncDeriver.Config.BlockTime) * time.Second * 2
@@ -324,19 +289,20 @@ func (s *Driver) eventLoop() {
 	// from an external source. Since the normal derivation pipeline is inactive, reorg
 	// detection must be performed here instead.
 	var upstreamSyncTickerC <-chan time.Time
+	var upstreamSyncResultCh chan *sources.FollowStatus
 	if followSource {
 		upstreamSyncTickerCheckInterval := time.Duration(s.SyncDeriver.Config.BlockTime) * time.Second * 2
 		upstreamSyncTicker := time.NewTicker(upstreamSyncTickerCheckInterval)
 		upstreamSyncTickerC = upstreamSyncTicker.C
+		upstreamSyncResultCh = make(chan *sources.FollowStatus, 1)
 		defer upstreamSyncTicker.Stop()
 	}
+	upstreamSyncInFlight := false
 
 	for {
 		if s.driverCtx.Err() != nil { // don't try to schedule/handle more work when we are closing.
 			return
 		}
-
-		planSequencerAction()
 
 		head := s.SyncDeriver.Engine.UnsafeL2Head()
 		derivationReady := s.SyncDeriver.Derivation.DerivationReady()
@@ -350,8 +316,6 @@ func (s *Driver) eventLoop() {
 		}
 
 		select {
-		case <-sequencerCh:
-			s.emitter.Emit(s.driverCtx, sequencing.SequencerActionEvent{})
 		case <-unsafeGapTicker.C:
 			// Check if there is a gap in the current unsafe payload queue.
 			ctx, cancel := context.WithTimeout(s.driverCtx, time.Second*2)
@@ -361,7 +325,15 @@ func (s *Driver) eventLoop() {
 				s.log.Warn("failed to check for unsafe L2 blocks to sync", "err", err)
 			}
 		case <-upstreamSyncTickerC:
-			s.followUpstream()
+			if !upstreamSyncInFlight && !s.SyncDeriver.Engine.IsEngineInitialELSyncing() {
+				upstreamSyncInFlight = true
+				s.startFollowUpstreamFetch(upstreamSyncResultCh)
+			}
+		case status := <-upstreamSyncResultCh:
+			upstreamSyncInFlight = false
+			if status != nil && !s.SyncDeriver.Engine.IsEngineInitialELSyncing() {
+				s.applyFollowStatus(status)
+			}
 		case <-s.sched.NextDelayedStep():
 			s.sched.AttemptStep(s.driverCtx)
 		case <-s.sched.NextStep():
@@ -418,15 +390,6 @@ func (s *Driver) StopSequencer(ctx context.Context) (common.Hash, error) {
 
 func (s *Driver) SequencerActive(ctx context.Context) (bool, error) {
 	return s.sequencer.Active(), nil
-}
-
-func (s *Driver) SetSdmPostExecOptIn(ctx context.Context, enabled bool) error {
-	return s.sequencer.SetSdmPostExecOptIn(ctx, enabled)
-}
-
-func (s *Driver) SdmStatus(ctx context.Context) (apis.SdmStatus, error) {
-	status := s.StatusTracker.SyncStatus()
-	return s.sequencer.SdmStatus(ctx, status.UnsafeL2.Time+s.SyncDeriver.Config.BlockTime)
 }
 
 func (s *Driver) OverrideLeader(ctx context.Context) error {
@@ -497,47 +460,124 @@ func (s *Driver) OnUnsafeL2Payload(ctx context.Context, payload *eth.ExecutionPa
 	s.SyncDeriver.OnUnsafeL2Payload(ctx, payload)
 }
 
-// followUpstream reconciles the local engine state with upstream sources when
-// derivation is disabled (UnsafeOnly).
-//
-// In this mode, the driver does not derive L2 from L1. Instead, it:
-// Uses the followTracker to fetch external safe / finalized / CurrentL1,
-// validates that the external state is sane (e.g. finalized is not ahead
-// of safe), and then updates the engine via FollowSource.
-//
-// This function is intended to be called periodically by a ticker and is a
-// no-op while derivation is enabled or the EL is still performing its initial
-// sync.
-func (s *Driver) followUpstream() {
-	if !s.syncConfig.FollowSourceEnabled() {
-		return
-	}
-	if s.SyncDeriver.Engine.IsEngineInitialELSyncing() {
-		// Do not interfere with initial EL Sync and wait until it is done
-		return
-	}
+// startFollowUpstreamFetch runs the upstream request sequence in a background
+// goroutine so the driver event loop stays responsive, and always delivers
+// exactly one result (nil on failure) to resultCh, unless the driver is closing.
+// The event loop relies on that delivery to clear its in-flight flag, and must
+// keep at most one fetch in flight so results cannot arrive out of order.
+func (s *Driver) startFollowUpstreamFetch(resultCh chan<- *sources.FollowStatus) {
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		status := s.followUpstream()
+		select {
+		case resultCh <- status:
+		case <-s.driverCtx.Done():
+		}
+	}()
+}
+
+// followUpstream fetches and validates external safe, finalized, and CurrentL1
+// references when derivation is disabled (UnsafeOnly). It returns nil if the
+// fetch fails or the external state is inconsistent; a non-nil status has
+// passed all checks. It performs no engine or event side effects — the driver
+// event loop applies those when it receives the returned status.
+func (s *Driver) followUpstream() *sources.FollowStatus {
 	status, err := s.upstreamFollowSource.GetFollowStatus(s.driverCtx)
 	if err != nil {
 		s.log.Warn("Follow Upstream: Failed to fetch status", "err", err)
 		s.metrics.RecordFollowSourceRequest("error_fetch_status")
-		return
+		return nil
 	}
 	s.log.Info("Follow Upstream", "eSafe", status.SafeL2, "eLocalSafe", status.LocalSafeL2, "eFinalized", status.FinalizedL2, "eCurrentL1", status.CurrentL1)
 	if status.SafeL2.Number > status.LocalSafeL2.Number {
 		s.log.Warn("Follow Upstream: Invalid external state, safe is ahead of local safe",
 			"safe", status.SafeL2.Number, "localSafe", status.LocalSafeL2.Number)
 		s.metrics.RecordFollowSourceRequest("error_invalid_state")
-		return
+		return nil
 	}
 	if status.FinalizedL2.Number > status.SafeL2.Number {
 		s.log.Warn("Follow Upstream: Invalid external state, finalized is ahead of safe", "safe", status.SafeL2.Number, "finalized", status.FinalizedL2.Number)
 		s.metrics.RecordFollowSourceRequest("error_invalid_state")
-		return
+		return nil
+	}
+	if s.shouldSkipFollowSourceL1Check() {
+		return status
 	}
 
-	// XLayer: skip L1 origin verification when fully trusting upstream source
-	if s.syncConfig.ShouldSkipFollowSourceL1Check() {
-		// Fill StatusTracker L1 fields from upstream (only when changed)
+	eLocalSafeL1Origin, err := s.upstreamFollowSource.L1BlockRefByNumber(s.driverCtx, status.LocalSafeL2.L1Origin.Number)
+	if err != nil {
+		s.log.Warn("Follow Upstream: Failed to look up L1 origin of external local safe head", "err", err)
+		s.metrics.RecordFollowSourceRequest("error_l1_lookup")
+		return nil
+	}
+	if eLocalSafeL1Origin.Hash != status.LocalSafeL2.L1Origin.Hash {
+		s.log.Warn(
+			"Follow Upstream: Invalid external local safe: L1 origin of external local safe head mismatch",
+			"actual", eLocalSafeL1Origin,
+			"expected", status.LocalSafeL2.L1Origin,
+		)
+		s.metrics.RecordFollowSourceRequest("error_l1_mismatch")
+		return nil
+	}
+
+	eSafeL1Origin, err := s.upstreamFollowSource.L1BlockRefByNumber(s.driverCtx, status.SafeL2.L1Origin.Number)
+	if err != nil {
+		s.log.Warn("Follow Upstream: Failed to look up L1 origin of external safe head", "err", err)
+		s.metrics.RecordFollowSourceRequest("error_l1_lookup")
+		return nil
+	}
+	if eSafeL1Origin.Hash != status.SafeL2.L1Origin.Hash {
+		s.log.Warn(
+			"Follow Upstream: Invalid external safe: L1 origin of external safe head mismatch",
+			"actual", eSafeL1Origin,
+			"expected", status.SafeL2.L1Origin,
+		)
+		s.metrics.RecordFollowSourceRequest("error_l1_mismatch")
+		return nil
+	}
+
+	eFinalizedL1Origin, err := s.upstreamFollowSource.L1BlockRefByNumber(s.driverCtx, status.FinalizedL2.L1Origin.Number)
+	if err != nil {
+		s.log.Warn("Follow Upstream: Failed to look up L1 origin of external finalized head", "err", err)
+		s.metrics.RecordFollowSourceRequest("error_l1_lookup")
+		return nil
+	}
+	if eFinalizedL1Origin.Hash != status.FinalizedL2.L1Origin.Hash {
+		s.log.Warn(
+			"Follow Upstream: Invalid external finalized: L1 origin of external finalized head mismatch",
+			"actual", eFinalizedL1Origin,
+			"expected", status.FinalizedL2.L1Origin,
+		)
+		s.metrics.RecordFollowSourceRequest("error_l1_mismatch")
+		return nil
+	}
+
+	if (status.CurrentL1 == eth.L1BlockRef{}) {
+		s.log.Debug("Follow Upstream: CurrentL1 not available")
+	} else {
+		eCurrentL1, err := s.upstreamFollowSource.L1BlockRefByNumber(s.driverCtx, status.CurrentL1.Number)
+		if err != nil {
+			s.log.Warn("Follow Upstream: Failed to look up external currentL1", "err", err)
+			s.metrics.RecordFollowSourceRequest("error_l1_lookup")
+			return nil
+		}
+		if eCurrentL1.Hash != status.CurrentL1.Hash {
+			s.log.Warn(
+				"Follow Upstream: Invalid external CurrentL1: L1 head mismatch",
+				"actual", eCurrentL1,
+				"expected", status.CurrentL1,
+			)
+			s.metrics.RecordFollowSourceRequest("error_l1_mismatch")
+			return nil
+		}
+	}
+	return status
+}
+
+func (s *Driver) applyFollowStatus(status *sources.FollowStatus) {
+	trustedFollowSource := s.shouldSkipFollowSourceL1Check()
+	if trustedFollowSource {
 		if (status.HeadL1 != eth.L1BlockRef{}) && status.HeadL1 != s.xlayer.lastHeadL1 {
 			s.xlayer.lastHeadL1 = status.HeadL1
 			s.StatusTracker.OnL1Unsafe(status.HeadL1)
@@ -550,105 +590,42 @@ func (s *Driver) followUpstream() {
 			s.xlayer.lastFinalizedL1 = status.FinalizedL1
 			s.StatusTracker.OnL1Finalized(status.FinalizedL1)
 		}
-		// Inject CurrentL1 without L1 hash verification (trusted upstream)
-		if (status.CurrentL1 != eth.L1BlockRef{}) {
-			s.log.Debug("Follow Upstream: Inject L1 Info (trusted)", "currentL1", status.CurrentL1)
-			s.emitter.Emit(s.driverCtx, derive.DeriverL1StatusEvent{Origin: status.CurrentL1})
-		}
-	} else {
-		// L1 origin verification: validate external local-safe/safe/finalized/CurrentL1 against local L1.
-		eLocalSafeL1Origin, err := s.upstreamFollowSource.L1BlockRefByNumber(s.driverCtx, status.LocalSafeL2.L1Origin.Number)
-		if err != nil {
-			s.log.Warn("Follow Upstream: Failed to look up L1 origin of external local safe head", "err", err)
-			s.metrics.RecordFollowSourceRequest("error_l1_lookup")
-			return
-		}
-		if eLocalSafeL1Origin.Hash != status.LocalSafeL2.L1Origin.Hash {
-			s.log.Warn(
-				"Follow Upstream: Invalid external local safe: L1 origin of external local safe head mismatch",
-				"actual", eLocalSafeL1Origin,
-				"expected", status.LocalSafeL2.L1Origin,
-			)
-			s.metrics.RecordFollowSourceRequest("error_l1_mismatch")
-			return
-		}
-
-		eSafeL1Origin, err := s.upstreamFollowSource.L1BlockRefByNumber(s.driverCtx, status.SafeL2.L1Origin.Number)
-		if err != nil {
-			s.log.Warn("Follow Upstream: Failed to look up L1 origin of external safe head", "err", err)
-			s.metrics.RecordFollowSourceRequest("error_l1_lookup")
-			return
-		}
-		if eSafeL1Origin.Hash != status.SafeL2.L1Origin.Hash {
-			s.log.Warn(
-				"Follow Upstream: Invalid external safe: L1 origin of external safe head mismatch",
-				"actual", eSafeL1Origin,
-				"expected", status.SafeL2.L1Origin,
-			)
-			s.metrics.RecordFollowSourceRequest("error_l1_mismatch")
-			return
-		}
-
-		eFinalizedL1Origin, err := s.upstreamFollowSource.L1BlockRefByNumber(s.driverCtx, status.FinalizedL2.L1Origin.Number)
-		if err != nil {
-			s.log.Warn("Follow Upstream: Failed to look up L1 origin of external finalized head", "err", err)
-			s.metrics.RecordFollowSourceRequest("error_l1_lookup")
-			return
-		}
-		if eFinalizedL1Origin.Hash != status.FinalizedL2.L1Origin.Hash {
-			s.log.Warn(
-				"Follow Upstream: Invalid external finalized: L1 origin of external finalized head mismatch",
-				"actual", eFinalizedL1Origin,
-				"expected", status.FinalizedL2.L1Origin,
-			)
-			s.metrics.RecordFollowSourceRequest("error_l1_mismatch")
-			return
-		}
-
-		if (status.CurrentL1 == eth.L1BlockRef{}) {
-			s.log.Debug("Follow Upstream: CurrentL1 not available")
-		} else {
-			eCurrentL1, err := s.upstreamFollowSource.L1BlockRefByNumber(s.driverCtx, status.CurrentL1.Number)
-			if err != nil {
-				s.log.Warn("Follow Upstream: Failed to look up external currentL1", "err", err)
-				s.metrics.RecordFollowSourceRequest("error_l1_lookup")
-				return
-			}
-			if eCurrentL1.Hash != status.CurrentL1.Hash {
-				s.log.Warn(
-					"Follow Upstream: Invalid external CurrentL1: L1 head mismatch",
-					"actual", eCurrentL1,
-					"expected", status.CurrentL1,
-				)
-				s.metrics.RecordFollowSourceRequest("error_l1_mismatch")
-				return
-			}
-
-			s.log.Debug("Follow Upstream: Inject L1 Info", "currentL1", status.CurrentL1)
-			s.emitter.Emit(s.driverCtx, derive.DeriverL1StatusEvent{Origin: status.CurrentL1})
-		}
 	}
 
-	// Only reach this point if all L1 checks passed
+	if status.CurrentL1 != (eth.L1BlockRef{}) {
+		s.log.Debug("Follow Upstream: Inject L1 Info", "currentL1", status.CurrentL1, "trusted", trustedFollowSource)
+		s.emitter.Emit(s.driverCtx, derive.DeriverL1StatusEvent{Origin: status.CurrentL1})
+	}
 	s.metrics.RecordFollowSourceRequest("success")
 	s.SyncDeriver.Engine.FollowSource(status.SafeL2, status.LocalSafeL2, status.FinalizedL2)
+	s.refreshXLayerRuntimeConfig(trustedFollowSource)
+}
 
-	// XLayer: periodically fetch P2PSequencerAddress from upstream when skip-l1-check is enabled.
-	// Throttled to runtimeConfigFetchInterval (default 10 min) to match upstream L1 reload behavior.
-	// Disabled when runtimeConfigFetchInterval <= 0 (only startup preload).
-	if s.syncConfig.ShouldSkipFollowSourceL1Check() && s.xlayer.runtimeConfigSetter != nil &&
-		s.xlayer.runtimeConfigFetchInterval > 0 &&
-		time.Since(s.xlayer.lastRuntimeConfigFetchAt) >= s.xlayer.runtimeConfigFetchInterval {
-		s.xlayer.lastRuntimeConfigFetchAt = time.Now()
-		if rcSrc, ok := s.upstreamFollowSource.(XLayerRuntimeConfigSource); ok {
-			runtimeCfg, err := rcSrc.GetRuntimeConfig(s.driverCtx)
-			if err != nil {
-				s.log.Warn("Follow Upstream: Failed to fetch runtime config from upstream", "err", err)
-			} else if (runtimeCfg.P2PSequencerAddress != common.Address{}) {
-				s.xlayer.runtimeConfigSetter.SetP2PSequencerAddress(runtimeCfg.P2PSequencerAddress)
-			} else {
-				s.log.Warn("Follow Upstream: upstream returned zero P2PSequencerAddress, keeping previous value")
-			}
-		}
+func (s *Driver) refreshXLayerRuntimeConfig(trustedFollowSource bool) {
+	if !trustedFollowSource || s.xlayer.runtimeConfigSetter == nil ||
+		s.xlayer.runtimeConfigFetchInterval <= 0 ||
+		time.Since(s.xlayer.lastRuntimeConfigFetchAt) < s.xlayer.runtimeConfigFetchInterval {
+		return
 	}
+
+	s.xlayer.lastRuntimeConfigFetchAt = time.Now()
+	runtimeConfigSource, ok := s.upstreamFollowSource.(XLayerRuntimeConfigSource)
+	if !ok {
+		return
+	}
+	runtimeCfg, err := runtimeConfigSource.GetRuntimeConfig(s.driverCtx)
+	if err != nil {
+		s.log.Warn("Follow Upstream: Failed to fetch runtime config from upstream", "err", err)
+		return
+	}
+	if runtimeCfg.P2PSequencerAddress == (common.Address{}) {
+		s.log.Warn("Follow Upstream: upstream returned zero P2PSequencerAddress, keeping previous value")
+		return
+	}
+	s.xlayer.runtimeConfigSetter.SetP2PSequencerAddress(runtimeCfg.P2PSequencerAddress)
+}
+
+func (s *Driver) shouldSkipFollowSourceL1Check() bool {
+	return s.SyncDeriver != nil && s.SyncDeriver.SyncCfg != nil &&
+		s.SyncDeriver.SyncCfg.ShouldSkipFollowSourceL1Check()
 }
