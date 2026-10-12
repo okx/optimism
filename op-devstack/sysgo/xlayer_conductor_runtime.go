@@ -9,12 +9,16 @@ import (
 	"sync/atomic"
 	"time"
 
+	ds "github.com/ipfs/go-datastore"
+	dssync "github.com/ipfs/go-datastore/sync"
+
 	bss "github.com/ethereum-optimism/optimism/op-batcher/batcher"
 	batcherFlags "github.com/ethereum-optimism/optimism/op-batcher/flags"
 	"github.com/ethereum-optimism/optimism/op-chain-ops/devkeys"
 	opconductor "github.com/ethereum-optimism/optimism/op-conductor/conductor"
 	"github.com/ethereum-optimism/optimism/op-devstack/devtest"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/setuputils"
+	"github.com/ethereum-optimism/optimism/op-node/p2p"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/derive"
 	"github.com/ethereum-optimism/optimism/op-service/dial"
 	"github.com/ethereum-optimism/optimism/op-service/endpoint"
@@ -91,6 +95,14 @@ func startXLayerConductorNode(
 	}
 	opNode.cfg.Driver.SequencerStopped = true
 	opNode.Stop()
+	// The in-memory P2P peerstore datastore (cfg.P2P.Store) is created once in
+	// startL2CLNode and reused across Stop/Start cycles. After stop it still holds
+	// the pre-restart listen address, so the peerstore returned by Self() on the
+	// next Start would report the old (dead) port. Replacing the store here gives
+	// the restarted op-node a clean peerstore with no stale address entries.
+	if p2pCfg, ok := opNode.cfg.P2P.(*p2p.Config); ok && p2pCfg != nil {
+		p2pCfg.Store = dssync.MutexWrap(ds.NewMapDatastore())
+	}
 	opNode.Start()
 
 	metricsPortStr, metricsPortErr := getAvailableLocalPort()
@@ -217,58 +229,55 @@ func startXLayerConductorClusterSeeded(
 	})
 	require.NoError(err, "conductor cluster did not converge to expected membership")
 
-	// Seed from the XLayer genesis block, which all three EL/CL nodes possess at
-	// startup. The primary EL may have already advanced above genesis because the
-	// sequencer was running before the conductors were attached; the secondary CLs
-	// are only at genesis and cannot advance to the primary's head without P2P
-	// gossip of historical blocks. Using genesis avoids a convergence wait that
-	// cannot succeed with a paused sequencer.
-	genesisHeight := l2Net.rollupCfg.Genesis.L2.Number
-	genesisHash := l2Net.rollupCfg.Genesis.L2.Hash
-	targetHeight := genesisHeight
-	targetHash := genesisHash
+	// Seed from the primary EL's current unsafe head. When conductors are attached
+	// after the primary sequencer has already produced blocks, seeding from genesis
+	// would cause compareUnsafeHead in op-conductor to fail (Raft consensus behind
+	// the EL's latest unsafe block). The primary sequencer is stopped before this
+	// call, so the primary EL head is stable for the duration of seeding.
+	elClient, err := ethclient.DialContext(ctx, primaryEL.UserRPC())
+	require.NoError(err, "dial primary EL for seeded bootstrap")
+	t.Cleanup(elClient.Close)
 
-	// Verify secondary CLs are at the genesis block before seeding (should pass
-	// immediately since they start from genesis).
+	block, err := elClient.BlockByNumber(ctx, nil) // nil = latest
+	require.NoError(err, "get latest block from primary EL for seed target")
+	targetHeight := block.NumberU64()
+	targetHash := block.Hash()
+
+	// Wait for secondary CLs to reach the primary's current unsafe head. Secondary
+	// ELs sync historical blocks from the primary via EL P2P; once they catch up,
+	// secondary CLs derive their unsafe L2 head from the EL to match.
 	for _, cl := range secondaryCLs {
 		rollupCl, dialErr := dial.DialRollupClientWithTimeout(ctx, t.Logger(), cl.UserRPC())
-		require.NoError(dialErr, "dial secondary CL for genesis check")
+		require.NoError(dialErr, "dial secondary CL for sync check")
 		convErr := retry.Do0(ctx, 60, retry.Fixed(500*time.Millisecond), func() error {
 			status, statusErr := rollupCl.SyncStatus(ctx)
 			if statusErr != nil {
 				return statusErr
 			}
 			if status.UnsafeL2.Number < targetHeight {
-				return fmt.Errorf("secondary CL unsafe head %d < genesis %d", status.UnsafeL2.Number, targetHeight)
+				return fmt.Errorf("secondary CL unsafe head %d < target %d", status.UnsafeL2.Number, targetHeight)
 			}
 			if status.UnsafeL2.Hash != targetHash {
-				return fmt.Errorf("secondary CL unsafe hash %s != genesis %s", status.UnsafeL2.Hash, targetHash)
+				return fmt.Errorf("secondary CL unsafe hash %s != target %s", status.UnsafeL2.Hash, targetHash)
 			}
 			return nil
 		})
-		require.NoError(convErr, "secondary CL did not reach genesis before seeding")
+		rollupCl.Close()
+		require.NoError(convErr, "secondary CL did not sync to primary's unsafe head before seeding")
 	}
 
-	// Fetch the genesis block from the primary EL to obtain the full payload data.
-	elClient, err := ethclient.DialContext(ctx, primaryEL.UserRPC())
-	require.NoError(err, "dial primary EL for seeded bootstrap")
-	t.Cleanup(elClient.Close)
-
-	block, err := elClient.BlockByHash(ctx, targetHash)
-	require.NoError(err, "get genesis block from primary EL")
-
-	// Seed the Raft FSM with the genesis payload so all conductors start from a
-	// consistent view of the XLayer non-zero genesis.
+	// Seed the Raft FSM with the primary's current head payload so all conductors
+	// start from a consistent state matching the EL.
 	payload, err := eth.BlockAsPayloadEnv(block, l2Net.ChainConfig())
-	require.NoError(err, "convert genesis block to execution payload envelope")
-	require.NoError(bootstrap.service.CommitUnsafePayload(ctx, payload), "seed Raft FSM with genesis payload")
+	require.NoError(err, "convert block to execution payload envelope")
+	require.NoError(bootstrap.service.CommitUnsafePayload(ctx, payload), "seed Raft FSM with current head payload")
 
 	// Verify the seeded payload is readable back from the leader (P2 criterion).
 	latest, readbackErr := bootstrap.service.LatestUnsafePayload(ctx)
 	require.NoError(readbackErr, "read back LatestUnsafePayload after commit")
 	require.NotNil(latest, "LatestUnsafePayload must not be nil after commit")
-	require.Equal(targetHash, latest.ExecutionPayload.BlockHash, "readback hash must equal seeded genesis H")
-	require.Equal(targetHeight, uint64(latest.ExecutionPayload.BlockNumber), "readback number must equal seeded genesis H")
+	require.Equal(targetHash, latest.ExecutionPayload.BlockHash, "readback hash must equal seeded H")
+	require.Equal(targetHeight, uint64(latest.ExecutionPayload.BlockNumber), "readback number must equal seeded H")
 
 	// Resume all conductors so they start sequencing.
 	cluster := append([]*Conductor{bootstrap}, members...)
@@ -408,6 +417,27 @@ func startXLayerHABatcher(
 	}
 }
 
+// xlayerConductorPrimary returns a StartPrimary that starts the primary CL with
+// SequencerStopped:true, preventing block production before the conductor cluster
+// is formed and Raft consensus is seeded. This avoids the primary EL advancing
+// beyond the XLayer genesis height while secondary CLs (which cannot receive
+// historical blocks via EL P2P in sequencer mode) are still at genesis.
+func xlayerConductorPrimary(seqExtraOpts ...OpRethOption) func(devtest.T, devkeys.Keys, singleChainRuntimeWorld, *L1Geth, *L1CLNode, string, [32]byte, PresetConfig) singleChainPrimaryRuntime {
+	return func(t devtest.T, keys devkeys.Keys, world singleChainRuntimeWorld, l1EL *L1Geth, l1CL *L1CLNode, jwtPath string, jwtSecret [32]byte, cfg PresetConfig) singleChainPrimaryRuntime {
+		elOpts := append(append([]OpRethOption{}, cfg.OpRethOptions...), seqExtraOpts...)
+		l2EL := startL2ELForKey(t, world.L2Network, jwtPath, jwtSecret, XLayerSequencerNodeName, NewELNodeIdentity(0), elOpts...)
+		l2CL := startL2CLNode(t, keys, world.L1Network, world.L2Network, l1EL, l1CL, l2EL, jwtSecret, l2CLNodeStartConfig{
+			Key:              XLayerSequencerNodeName,
+			IsSequencer:      true,
+			NoDiscovery:      true,
+			EnableReqResp:    true,
+			L2CLOptions:      cfg.GlobalL2CLOptions,
+			SequencerStopped: true,
+		})
+		return singleChainPrimaryRuntime{EL: l2EL, CL: l2CL}
+	}
+}
+
 // NewXLayerWithConductorsRuntimeWithConfig assembles the XLayer 3-sequencer +
 // 3-conductor + HA-batcher topology. All three ELs and CLs are wired as a full
 // P2P mesh. All conductors start paused; after Raft consensus is seeded from the
@@ -433,7 +463,7 @@ func NewXLayerWithConductorsRuntimeWithConfig(t devtest.T, cfg PresetConfig) *Si
 	runtime := newSingleChainRuntimeWithConfig(t, cfg, singleChainRuntimeSpec{
 		BuildWorld:      buildXLayerWorld,
 		ConfigureL1:     configureXLayerSystemConfig,
-		StartPrimary:    xlayerSequencerPrimary(producerOpts...),
+		StartPrimary:    xlayerConductorPrimary(producerOpts...),
 		StartBatcher:    false,
 		StartProposer:   true,
 		StartChallenger: false,
