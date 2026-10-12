@@ -406,3 +406,15 @@ func WithPreGenesisSuperGame(claimedOutputs ...eth.Bytes32) Option {
 		},
 	}
 }
+
+// WithXLayerFixedPorts requests fixed HTTP/RPC ports for the XLayer
+// multi-conductor topology. Use a zero-value plan to keep all ports random.
+func WithXLayerFixedPorts(plan sysgo.XLayerFixedPortPlan) Option {
+	return option{
+		kinds: optionKindXLayerFixedPorts,
+		applyFn: func(cfg *sysgo.PresetConfig) {
+			p := plan
+			cfg.XLayerFixedPorts = &p
+		},
+	}
+}

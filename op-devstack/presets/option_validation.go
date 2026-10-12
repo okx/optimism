@@ -35,6 +35,7 @@ const (
 	optionKindInteropActivationDelay
 	optionKindInteropAtGenesis
 	optionKindSupernodeVNSequencerForBootstrap
+	optionKindXLayerFixedPorts
 )
 
 const allOptionKinds = optionKindDeployer |
@@ -60,7 +61,8 @@ const allOptionKinds = optionKindDeployer |
 	optionKindSupernodeVerifierSyncMode |
 	optionKindInteropActivationDelay |
 	optionKindInteropAtGenesis |
-	optionKindSupernodeVNSequencerForBootstrap
+	optionKindSupernodeVNSequencerForBootstrap |
+	optionKindXLayerFixedPorts
 
 var optionKindLabels = []struct {
 	kind  optionKinds
@@ -90,6 +92,7 @@ var optionKindLabels = []struct {
 	{kind: optionKindInteropActivationDelay, label: "interop activation delay"},
 	{kind: optionKindInteropAtGenesis, label: "interop at genesis"},
 	{kind: optionKindSupernodeVNSequencerForBootstrap, label: "supernode VN sequencer for bootstrap"},
+	{kind: optionKindXLayerFixedPorts, label: "xlayer fixed ports"},
 }
 
 func (k optionKinds) String() string {
@@ -183,3 +186,39 @@ const singleChainWithFlashblocksPresetSupportedOptionKinds = optionKindDeployer 
 	optionKindOPRBuilder |
 	optionKindOpReth |
 	optionKindInteropAtGenesis
+
+const xlayerWithConductorsPresetSupportedOptionKinds = minimalPresetSupportedOptionKinds |
+	optionKindOpReth |
+	optionKindXLayerFixedPorts
+
+// validateXLayerFixedPorts checks that every non-zero port in plan is in the
+// valid TCP range [1, 65535] and that no two non-zero ports are equal.
+func validateXLayerFixedPorts(plan sysgo.XLayerFixedPortPlan) error {
+	all := make([]int, 0, 7)
+	if plan.L1HTTPPort != 0 {
+		all = append(all, plan.L1HTTPPort)
+	}
+	for _, p := range plan.ELHTTPPorts {
+		if p != 0 {
+			all = append(all, p)
+		}
+	}
+	for _, p := range plan.ConductorRPCPorts {
+		if p != 0 {
+			all = append(all, p)
+		}
+	}
+	for _, p := range all {
+		if p < 1 || p > 65535 {
+			return fmt.Errorf("port %d is out of valid TCP range [1, 65535]", p)
+		}
+	}
+	seen := make(map[int]struct{}, len(all))
+	for _, p := range all {
+		if _, dup := seen[p]; dup {
+			return fmt.Errorf("duplicate port %d in XLayerFixedPortPlan", p)
+		}
+		seen[p] = struct{}{}
+	}
+	return nil
+}

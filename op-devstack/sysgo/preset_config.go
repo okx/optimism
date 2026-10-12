@@ -12,6 +12,21 @@ type PreGenesisSuperGameConfig struct {
 	ClaimedOutputs []eth.Bytes32
 }
 
+// XLayerFixedPortPlan describes optional fixed TCP ports for the XLayer
+// multi-conductor topology. A nil pointer means all ports use OS-assigned
+// (random) values. A zero field within a non-nil plan also uses a random port
+// for that component.
+type XLayerFixedPortPlan struct {
+	// L1HTTPPort is the HTTP port for the in-process L1 geth node.
+	L1HTTPPort int
+	// ELHTTPPorts are the HTTP ports for the three L2 EL (op-reth) nodes.
+	// Index 0 = sequencer, 1 = seq2, 2 = seq3.
+	ELHTTPPorts [3]int
+	// ConductorRPCPorts are the RPC ports for the three op-conductor instances.
+	// Index 0 = conductor1, 1 = conductor2, 2 = conductor3.
+	ConductorRPCPorts [3]int
+}
+
 // PresetConfig captures preset constructor mutations.
 // It is independent from orchestrator lifecycle hooks.
 type PresetConfig struct {
@@ -52,6 +67,9 @@ type PresetConfig struct {
 	// sequencers stopped, so the VN can bootstrap the chain the light sequencers EL-sync
 	// from before a test hands off sequencing to them.
 	SupernodeVNSequencerForBootstrap bool
+	// XLayerFixedPorts, when non-nil, requests fixed HTTP/RPC ports for the
+	// XLayer multi-conductor topology instead of OS-assigned random ports.
+	XLayerFixedPorts *XLayerFixedPortPlan
 }
 
 func NewPresetConfig() PresetConfig {
