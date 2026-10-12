@@ -33,7 +33,13 @@ func TestXLayerConductorClusterElectsLeader(gt *testing.T) {
 	leader := awaitLeader(t, ctx, conductors, 30*time.Second)
 	require.NotNil(t, leader, "a leader must be elected")
 	require.True(t, leader.IsLeader(), "elected conductor must report itself as leader")
-	require.True(t, leader.FetchSequencerHealthy(), "leader must report a healthy sequencer")
+
+	// Wait for the health monitor to fire at least once (interval: 2s) and
+	// report the sequencer healthy. The check is polled rather than instant
+	// because SequencerHealthy starts false until the first health check tick.
+	require.Eventually(t, func() bool {
+		return leader.FetchSequencerHealthy()
+	}, 30*time.Second, 500*time.Millisecond, "leader must report a healthy sequencer")
 }
 
 // TestXLayerConductorFailoverOnLeaderStop verifies the HA failover path: stopping
