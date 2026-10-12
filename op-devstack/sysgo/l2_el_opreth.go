@@ -23,6 +23,9 @@ type OpRethConfig struct {
 	// (e.g. "op-reth-premium", which accepts every op-reth subcommand/flag plus the --subblocks.*
 	// namespace) may be selected via OpRethWithBinary.
 	Binary string
+	// HTTPPort, when non-zero, fixes the HTTP-RPC listener port. Setting a non-zero value
+	// also suppresses --with-unused-ports so the chosen port is not overwritten.
+	HTTPPort int
 }
 
 // DefaultOpRethConfig returns a zero-valued OpRethConfig that callers can mutate via OpRethOptions.
@@ -83,6 +86,14 @@ func OpRethWithInteropURL(interopURL string) OpRethOption {
 			return
 		}
 		cfg.ExtraArgs = append(cfg.ExtraArgs, "--rollup.interop-http="+interopURL)
+	})
+}
+
+// OpRethWithHTTPPort fixes the HTTP-RPC listener to port. When non-zero this
+// also suppresses --with-unused-ports so the chosen port is not overwritten.
+func OpRethWithHTTPPort(port int) OpRethOption {
+	return OpRethOptionFn(func(p devtest.T, _ ComponentTarget, cfg *OpRethConfig) {
+		cfg.HTTPPort = port
 	})
 }
 

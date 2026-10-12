@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -372,6 +373,10 @@ func buildMixedOpRethNode(
 	}.EnsureExists(t.Ctx(), t.Logger())
 	t.Require().NoError(err, "%s binary not available (build with 'just build-rust-release', set RUST_JIT_BUILD=1, or for op-reth-premium set RUST_BINARY_PATH_OP_RETH_PREMIUM)", elBinary)
 
+	httpPort := "0"
+	if opRethCfg.HTTPPort > 0 {
+		httpPort = strconv.Itoa(opRethCfg.HTTPPort)
+	}
 	args := []string{
 		"node",
 		"--addr=127.0.0.1",
@@ -387,7 +392,7 @@ func buildMixedOpRethNode(
 		"--http",
 		"--http.api=admin,debug,eth,net,trace,txpool,web3,rpc,reth,miner",
 		"--http.addr=127.0.0.1",
-		"--http.port=0",
+		"--http.port=" + httpPort,
 		"--ipcdisable",
 		"--log.file.directory=" + logDirPath,
 		"--log.stdout.format=json",
@@ -396,12 +401,17 @@ func buildMixedOpRethNode(
 		"--port=0",
 		"--txpool.minimum-priority-fee=1",
 		"--txpool.nolocals",
-		"--with-unused-ports",
 		"--ws",
 		"--ws.api=admin,debug,eth,net,trace,txpool,web3,rpc,reth,miner",
 		"--ws.addr=127.0.0.1",
 		"--ws.port=0",
 		"-vvvv",
+	}
+	// --with-unused-ports instructs reth to atomically acquire ports for all
+	// zero-valued listeners. When a fixed HTTP port is requested we omit it to
+	// avoid having reth overwrite the explicitly chosen port.
+	if opRethCfg.HTTPPort == 0 {
+		args = append(args, "--with-unused-ports")
 	}
 
 	if areMetricsEnabled() {
