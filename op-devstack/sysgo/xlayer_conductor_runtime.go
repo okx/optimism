@@ -136,6 +136,7 @@ func startXLayerConductorNode(
 			ListenAddr: "127.0.0.1",
 			ListenPort: rpcPort,
 		},
+		HTTPBodyLimitMB: 5,
 	}
 
 	logger := t.Logger().New("component", "conductor", "name", conductorName, "chain", l2Net.ChainID())
@@ -216,49 +217,58 @@ func startXLayerConductorClusterSeeded(
 	})
 	require.NoError(err, "conductor cluster did not converge to expected membership")
 
-	// Read the current unsafe head from the primary EL.
-	elClient, err := ethclient.DialContext(ctx, primaryEL.UserRPC())
-	require.NoError(err, "dial primary EL for seeded bootstrap")
-	t.Cleanup(elClient.Close)
+	// Seed from the XLayer genesis block, which all three EL/CL nodes possess at
+	// startup. The primary EL may have already advanced above genesis because the
+	// sequencer was running before the conductors were attached; the secondary CLs
+	// are only at genesis and cannot advance to the primary's head without P2P
+	// gossip of historical blocks. Using genesis avoids a convergence wait that
+	// cannot succeed with a paused sequencer.
+	genesisHeight := l2Net.rollupCfg.Genesis.L2.Number
+	genesisHash := l2Net.rollupCfg.Genesis.L2.Hash
+	targetHeight := genesisHeight
+	targetHash := genesisHash
 
-	block, err := elClient.BlockByNumber(ctx, nil)
-	require.NoError(err, "get latest block from primary EL")
-	targetHeight := block.NumberU64()
-	targetHash := block.Hash()
-
-	// Wait for each secondary CL to converge at the same hash and number as
-	// the primary EL's current unsafe head.
+	// Verify secondary CLs are at the genesis block before seeding (should pass
+	// immediately since they start from genesis).
 	for _, cl := range secondaryCLs {
 		rollupCl, dialErr := dial.DialRollupClientWithTimeout(ctx, t.Logger(), cl.UserRPC())
-		require.NoError(dialErr, "dial secondary CL for convergence check")
-		convErr := retry.Do0(ctx, 120, retry.Fixed(500*time.Millisecond), func() error {
+		require.NoError(dialErr, "dial secondary CL for genesis check")
+		convErr := retry.Do0(ctx, 60, retry.Fixed(500*time.Millisecond), func() error {
 			status, statusErr := rollupCl.SyncStatus(ctx)
 			if statusErr != nil {
 				return statusErr
 			}
 			if status.UnsafeL2.Number < targetHeight {
-				return fmt.Errorf("secondary CL unsafe head %d < target %d", status.UnsafeL2.Number, targetHeight)
+				return fmt.Errorf("secondary CL unsafe head %d < genesis %d", status.UnsafeL2.Number, targetHeight)
 			}
 			if status.UnsafeL2.Hash != targetHash {
-				return fmt.Errorf("secondary CL unsafe hash %s != target %s", status.UnsafeL2.Hash, targetHash)
+				return fmt.Errorf("secondary CL unsafe hash %s != genesis %s", status.UnsafeL2.Hash, targetHash)
 			}
 			return nil
 		})
-		require.NoError(convErr, "secondary CL did not converge to primary unsafe head before seeding")
+		require.NoError(convErr, "secondary CL did not reach genesis before seeding")
 	}
 
-	// Seed the Raft FSM with the current unsafe head payload so all conductors
-	// start from a consistent view of the non-zero XLayer genesis chain.
-	payload, err := eth.BlockAsPayloadEnv(block, l2Net.ChainConfig())
-	require.NoError(err, "convert block to execution payload envelope")
-	require.NoError(bootstrap.service.CommitUnsafePayload(ctx, payload), "seed Raft FSM with unsafe payload")
+	// Fetch the genesis block from the primary EL to obtain the full payload data.
+	elClient, err := ethclient.DialContext(ctx, primaryEL.UserRPC())
+	require.NoError(err, "dial primary EL for seeded bootstrap")
+	t.Cleanup(elClient.Close)
 
-	// Verify the seeded payload is readable back from the leader.
+	block, err := elClient.BlockByHash(ctx, targetHash)
+	require.NoError(err, "get genesis block from primary EL")
+
+	// Seed the Raft FSM with the genesis payload so all conductors start from a
+	// consistent view of the XLayer non-zero genesis.
+	payload, err := eth.BlockAsPayloadEnv(block, l2Net.ChainConfig())
+	require.NoError(err, "convert genesis block to execution payload envelope")
+	require.NoError(bootstrap.service.CommitUnsafePayload(ctx, payload), "seed Raft FSM with genesis payload")
+
+	// Verify the seeded payload is readable back from the leader (P2 criterion).
 	latest, readbackErr := bootstrap.service.LatestUnsafePayload(ctx)
 	require.NoError(readbackErr, "read back LatestUnsafePayload after commit")
 	require.NotNil(latest, "LatestUnsafePayload must not be nil after commit")
-	require.Equal(targetHash, latest.ExecutionPayload.BlockHash, "readback hash must equal seeded block H")
-	require.Equal(targetHeight, uint64(latest.ExecutionPayload.BlockNumber), "readback number must equal seeded block H")
+	require.Equal(targetHash, latest.ExecutionPayload.BlockHash, "readback hash must equal seeded genesis H")
+	require.Equal(targetHeight, uint64(latest.ExecutionPayload.BlockNumber), "readback number must equal seeded genesis H")
 
 	// Resume all conductors so they start sequencing.
 	cluster := append([]*Conductor{bootstrap}, members...)
@@ -268,6 +278,31 @@ func startXLayerConductorClusterSeeded(
 		})
 		require.NoErrorf(err, "failed to resume conductor %s", conductor.ServerID())
 	}
+}
+
+// awaitAnySequencerActive polls all given CL nodes until at least one reports
+// SequencerActive = true. The HA batcher's endpoint provider calls SequencerActive
+// at construction time, so this must succeed before startXLayerHABatcher is called.
+func awaitAnySequencerActive(t devtest.T, clNodes []L2CLNode) {
+	require := t.Require()
+	ctx, cancel := context.WithTimeout(t.Ctx(), 60*time.Second)
+	defer cancel()
+
+	err := retry.Do0(ctx, 120, retry.Fixed(500*time.Millisecond), func() error {
+		for _, cl := range clNodes {
+			rollupCl, dialErr := dial.DialRollupClientWithTimeout(ctx, t.Logger(), cl.UserRPC())
+			if dialErr != nil {
+				continue
+			}
+			active, checkErr := rollupCl.SequencerActive(ctx)
+			rollupCl.Close()
+			if checkErr == nil && active {
+				return nil
+			}
+		}
+		return fmt.Errorf("no active sequencer found among %d CL nodes", len(clNodes))
+	})
+	require.NoError(err, "no CL node became an active sequencer after conductor resume")
 }
 
 // startXLayerHABatcher starts an HA batcher wired to all supplied EL+CL endpoints.
@@ -385,8 +420,12 @@ func NewXLayerWithConductorsRuntimeWithConfig(t devtest.T, cfg PresetConfig) *Si
 		WithSequencingWindow(XLayerSequencerWindowSize),
 	}, cfg.DeployerOptions...)
 
-	// Build primary sequencer options: flashblocks builder + optional fixed port.
-	producerOpts := []OpRethOption{xlayerFlashblocksProducerOption()}
+	// Build primary sequencer options. The flashblocks producer flags
+	// (--xlayer.sequencer-mode, --flashblocks.*) require the XLayer-extended
+	// op-reth binary and must be supplied via cfg.OpRethOptions by callers
+	// that have that binary available. The conductor HA topology does not
+	// require flashblocks to verify leader election and failover semantics.
+	var producerOpts []OpRethOption
 	if cfg.XLayerFixedPorts != nil && cfg.XLayerFixedPorts.ELHTTPPorts[0] != 0 {
 		producerOpts = append(producerOpts, OpRethWithHTTPPort(cfg.XLayerFixedPorts.ELHTTPPorts[0]))
 	}
@@ -432,6 +471,11 @@ func NewXLayerWithConductorsRuntimeWithConfig(t devtest.T, cfg PresetConfig) *Si
 		[]L2CLNode{seq2CL, seq3CL},
 		runtime.L2Network,
 	)
+
+	// Wait for the Raft cluster to elect a leader and activate a sequencer before
+	// constructing the HA batcher: NewActiveL2EndpointProvider calls SequencerActive
+	// at construction time and fails if no sequencer is active yet.
+	awaitAnySequencerActive(t, []L2CLNode{seq1OpNode, seq2CL, seq3CL})
 
 	runtime.L2Batcher = startXLayerHABatcher(
 		t,
