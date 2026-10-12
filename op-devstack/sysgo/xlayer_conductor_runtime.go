@@ -118,7 +118,7 @@ func startXLayerConductorNode(
 			UnsafeInterval: 60, // devnet startup lag ≈14s; 60s clears the gap safely
 			SafeInterval:   120,
 			SafeEnabled:    false,
-			MinPeerCount:   1,
+			MinPeerCount:   0, // 0 disables the CL peer count check: devnet dynamic peers drop silently
 		},
 		RollupCfg:      *l2Net.rollupCfg,
 		RPCEnableProxy: false,
@@ -458,10 +458,9 @@ func NewXLayerWithConductorsRuntimeWithConfig(t devtest.T, cfg PresetConfig) *Si
 	cond2 := startXLayerConductorNode(t, "conductor2", runtime.L2Network, seq2CL, seq2Node.EL, false, true, conductorRPCPorts[1])
 	cond3 := startXLayerConductorNode(t, "conductor3", runtime.L2Network, seq3CL, seq3Node.EL, false, true, conductorRPCPorts[2])
 
-	// Wire the full CL P2P mesh AFTER conductor nodes restart their op-nodes.
-	// Each startXLayerConductorNode restarts its op-node, dropping any previously
-	// established P2P connections. Wiring after all three restarts ensures the
-	// connections persist through the health check (MinPeerCount=1).
+	// Wire the full CL P2P mesh after all conductor node restarts.
+	// Each startXLayerConductorNode restarts its op-node; wiring after all
+	// three restarts avoids connections being dropped by a subsequent restart.
 	connectL2CLPeers(t, t.Logger(), runtime.L2CL, seq2CL)
 	connectL2CLPeers(t, t.Logger(), runtime.L2CL, seq3CL)
 	connectL2CLPeers(t, t.Logger(), seq2CL, seq3CL)

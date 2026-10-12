@@ -104,6 +104,14 @@ func TestConfigCheck_HTTPBodyLimit(t *testing.T) {
 	}
 }
 
+// TestConfigCheck_MinPeerCountZeroAllowed verifies that MinPeerCount=0 passes
+// HealthCheckConfig.Check(), i.e. 0 disables the CL peer count check.
+func TestConfigCheck_MinPeerCountZeroAllowed(t *testing.T) {
+	cfg := newValidConfig(t)
+	cfg.HealthCheck.MinPeerCount = 0
+	require.NoError(t, cfg.Check(), "MinPeerCount=0 must be accepted (disables peer count check)")
+}
+
 // newValidConfig creates a valid Config for testing
 func newValidConfig(t *testing.T) Config {
 	now := uint64(time.Now().Unix())
