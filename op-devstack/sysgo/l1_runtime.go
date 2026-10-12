@@ -41,6 +41,9 @@ func startInProcessL1WithClock(t devtest.T, l1Net *L1Network, jwtPath string, l1
 
 func startInProcessL1WithClockConfig(t devtest.T, l1Net *L1Network, jwtPath string, l1Clock clock.Clock, cfg PresetConfig) (*L1Geth, *L1CLNode) {
 	if useSubprocessL1Geth(cfg) {
+		if cfg.XLayerFixedPorts != nil && cfg.XLayerFixedPorts.L1HTTPPort != 0 {
+			t.Require().FailNow("fixed L1 HTTP port is not supported with the subprocess L1 backend")
+		}
 		return startSubprocessL1WithClock(t, l1Net, jwtPath, l1Clock, cfg)
 	}
 
@@ -56,6 +59,10 @@ func startInProcessL1WithClockConfig(t devtest.T, l1Net *L1Network, jwtPath stri
 	beaconAddr := bcn.BeaconAddr()
 	require.NotEmpty(beaconAddr, "beacon API listener must be up")
 
+	l1GethOpts := []geth.GethOption{geth.WithAuth(jwtPath)}
+	if cfg.XLayerFixedPorts != nil && cfg.XLayerFixedPorts.L1HTTPPort != 0 {
+		l1GethOpts = append(l1GethOpts, geth.WithHTTPEndpoint("127.0.0.1", cfg.XLayerFixedPorts.L1HTTPPort))
+	}
 	l1Geth, fp, err := geth.InitL1(
 		l1Net.blockTime,
 		20,
@@ -63,7 +70,7 @@ func startInProcessL1WithClockConfig(t devtest.T, l1Net *L1Network, jwtPath stri
 		l1Clock,
 		filepath.Join(blobPath, "l1_el"),
 		bcn,
-		geth.WithAuth(jwtPath),
+		l1GethOpts...,
 	)
 	require.NoError(err)
 	require.NoError(l1Geth.Node.Start())
