@@ -115,10 +115,10 @@ func startXLayerConductorNode(
 		Paused:                  paused,
 		HealthCheck: opconductor.HealthCheckConfig{
 			Interval:       2,
-			UnsafeInterval: 60,  // devnet startup lag ≈14s; 60s clears the gap safely
+			UnsafeInterval: 60, // devnet startup lag ≈14s; 60s clears the gap safely
 			SafeInterval:   120,
 			SafeEnabled:    false,
-			MinPeerCount:   0, // CL P2P peers may not reconnect immediately after restart
+			MinPeerCount:   1,
 		},
 		RollupCfg:      *l2Net.rollupCfg,
 		RPCEnableProxy: false,
@@ -447,11 +447,6 @@ func NewXLayerWithConductorsRuntimeWithConfig(t devtest.T, cfg PresetConfig) *Si
 	connectL2ELPeers(t, t.Logger(), runtime.L2EL.UserRPC(), seq3Node.EL.UserRPC(), true)
 	connectL2ELPeers(t, t.Logger(), seq2Node.EL.UserRPC(), seq3Node.EL.UserRPC(), true)
 
-	// Wire the full CL P2P mesh.
-	connectL2CLPeers(t, t.Logger(), runtime.L2CL, seq2CL)
-	connectL2CLPeers(t, t.Logger(), runtime.L2CL, seq3CL)
-	connectL2CLPeers(t, t.Logger(), seq2CL, seq3CL)
-
 	// Resolve fixed conductor RPC ports, defaulting to 0 (OS-assigned).
 	var conductorRPCPorts [3]int
 	if cfg.XLayerFixedPorts != nil {
@@ -462,6 +457,14 @@ func NewXLayerWithConductorsRuntimeWithConfig(t devtest.T, cfg PresetConfig) *Si
 	cond1 := startXLayerConductorNode(t, "conductor1", runtime.L2Network, seq1OpNode, runtime.L2EL, true, true, conductorRPCPorts[0])
 	cond2 := startXLayerConductorNode(t, "conductor2", runtime.L2Network, seq2CL, seq2Node.EL, false, true, conductorRPCPorts[1])
 	cond3 := startXLayerConductorNode(t, "conductor3", runtime.L2Network, seq3CL, seq3Node.EL, false, true, conductorRPCPorts[2])
+
+	// Wire the full CL P2P mesh AFTER conductor nodes restart their op-nodes.
+	// Each startXLayerConductorNode restarts its op-node, dropping any previously
+	// established P2P connections. Wiring after all three restarts ensures the
+	// connections persist through the health check (MinPeerCount=1).
+	connectL2CLPeers(t, t.Logger(), runtime.L2CL, seq2CL)
+	connectL2CLPeers(t, t.Logger(), runtime.L2CL, seq3CL)
+	connectL2CLPeers(t, t.Logger(), seq2CL, seq3CL)
 
 	startXLayerConductorClusterSeeded(
 		t,
