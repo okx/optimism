@@ -3,8 +3,6 @@ package xlayer
 import (
 	"context"
 	"fmt"
-	"net/url"
-	"strconv"
 	"testing"
 	"time"
 
@@ -14,6 +12,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-devstack/devtest"
 	"github.com/ethereum-optimism/optimism/op-devstack/presets"
 	"github.com/ethereum-optimism/optimism/op-devstack/sysgo"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,45 +24,44 @@ var fixedPlan = sysgo.XLayerFixedPortPlan{
 	ConductorRPCPorts: [3]int{8547, 8548, 8549},
 }
 
-// portFromURL parses the port component from an HTTP URL string.
-func portFromURL(t devtest.T, rawURL string) int {
-	u, err := url.Parse(rawURL)
-	require.NoError(t, err, "parse URL %q", rawURL)
-	port, err := strconv.Atoi(u.Port())
-	require.NoError(t, err, "extract port from URL %q", rawURL)
-	return port
-}
-
 // TestXLayerL1HTTPPortIsFixed verifies that the in-process L1 EL binds to the
-// port specified in XLayerFixedPortPlan.L1HTTPPort.
+// port specified in XLayerFixedPortPlan.L1HTTPPort by dialling it directly.
 func TestXLayerL1HTTPPortIsFixed(gt *testing.T) {
-	t := devtest.ParallelT(gt)
+	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 
-	sys := presets.NewXLayerWithConductors(t, presets.WithXLayerFixedPorts(fixedPlan))
+	_ = presets.NewXLayerWithConductors(t, presets.WithXLayerFixedPorts(fixedPlan))
 
-	actualPort := portFromURL(t, sys.L1EL.Escape().UserRPC())
-	require.Equal(t, fixedPlan.L1HTTPPort, actualPort,
-		"L1 HTTP port must equal the configured fixed port")
+	ctx, cancel := context.WithTimeout(t.Ctx(), 15*time.Second)
+	defer cancel()
+
+	endpoint := fmt.Sprintf("http://127.0.0.1:%d", fixedPlan.L1HTTPPort)
+	cl, err := ethclient.DialContext(ctx, endpoint)
+	require.NoError(t, err, "L1 EL must be reachable at the configured fixed HTTP port")
+	defer cl.Close()
+	_, err = cl.BlockNumber(ctx)
+	require.NoError(t, err, "L1 EL at fixed port must respond to eth_blockNumber")
 }
 
 // TestXLayerELHTTPPortsAreFixed verifies that each of the three sequencer EL
-// nodes binds to the port specified in XLayerFixedPortPlan.ELHTTPPorts.
+// nodes binds to the port specified in XLayerFixedPortPlan.ELHTTPPorts by
+// dialling each fixed port directly over HTTP.
 func TestXLayerELHTTPPortsAreFixed(gt *testing.T) {
-	t := devtest.ParallelT(gt)
+	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 
-	sys := presets.NewXLayerWithConductors(t, presets.WithXLayerFixedPorts(fixedPlan))
+	_ = presets.NewXLayerWithConductors(t, presets.WithXLayerFixedPorts(fixedPlan))
 
-	elRPCs := []string{
-		sys.L2EL.Escape().UserRPC(),
-		sys.L2ELSeq2.Escape().UserRPC(),
-		sys.L2ELSeq3.Escape().UserRPC(),
-	}
-	for i, rpc := range elRPCs {
-		actual := portFromURL(t, rpc)
-		require.Equalf(t, fixedPlan.ELHTTPPorts[i], actual,
-			"L2 EL sequencer%d HTTP port must equal the configured fixed port", i+1)
+	ctx, cancel := context.WithTimeout(t.Ctx(), 15*time.Second)
+	defer cancel()
+
+	for i, port := range fixedPlan.ELHTTPPorts {
+		endpoint := fmt.Sprintf("http://127.0.0.1:%d", port)
+		cl, err := ethclient.DialContext(ctx, endpoint)
+		require.NoErrorf(t, err, "L2 EL sequencer%d must be reachable at fixed HTTP port %d", i+1, port)
+		defer cl.Close()
+		_, err = cl.BlockNumber(ctx)
+		require.NoErrorf(t, err, "L2 EL sequencer%d at fixed port %d must respond to eth_blockNumber", i+1, port)
 	}
 }
 
@@ -71,7 +69,7 @@ func TestXLayerELHTTPPortsAreFixed(gt *testing.T) {
 // conductors binds to the port specified in XLayerFixedPortPlan.ConductorRPCPorts
 // by dialling the expected address and calling Leader().
 func TestXLayerConductorRPCPortsAreFixed(gt *testing.T) {
-	t := devtest.ParallelT(gt)
+	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 
 	_ = presets.NewXLayerWithConductors(t, presets.WithXLayerFixedPorts(fixedPlan))

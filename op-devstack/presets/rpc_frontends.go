@@ -524,18 +524,22 @@ func (r *supernodeFrontend) Running() bool {
 
 type conductorFrontend struct {
 	presetCommon
-	chainID eth.ChainID
-	api     conductorRpc.API
+	chainID    eth.ChainID
+	api        conductorRpc.API
+	metricsURL string
 }
 
 var _ stack.Conductor = (*conductorFrontend)(nil)
 
-func newPresetConductor(t devtest.T, name string, chainID eth.ChainID, rpcCl *gethrpc.Client) *conductorFrontend {
+func (r *conductorFrontend) MetricsURL() string { return r.metricsURL }
+
+func newPresetConductor(t devtest.T, name string, chainID eth.ChainID, rpcCl *gethrpc.Client, metricsURL string) *conductorFrontend {
 	t = t.WithCtx(stack.ContextWithChainID(t.Ctx(), chainID))
 	return &conductorFrontend{
 		presetCommon: newPresetCommon(t, name),
 		chainID:      chainID,
 		api:          conductorRpc.NewAPIClient(rpcCl),
+		metricsURL:   metricsURL,
 	}
 }
 

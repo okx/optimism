@@ -12,6 +12,7 @@ type Conductor struct {
 	serverID          string
 	consensusEndpoint string
 	rpcEndpoint       string
+	metricsURL        string
 	service           *opconductor.OpConductor
 }
 
@@ -25,4 +26,8 @@ func (c *Conductor) ConsensusEndpoint() string {
 
 func (c *Conductor) HTTPEndpoint() string {
 	return c.rpcEndpoint
+}
+
+func (c *Conductor) MetricsURL() string {
+	return c.metricsURL
 }

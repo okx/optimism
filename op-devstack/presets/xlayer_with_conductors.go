@@ -3,8 +3,8 @@ package presets
 import (
 	"github.com/ethereum-optimism/optimism/op-devstack/devtest"
 	"github.com/ethereum-optimism/optimism/op-devstack/dsl"
-	"github.com/ethereum-optimism/optimism/op-devstack/sysgo"
 	"github.com/ethereum-optimism/optimism/op-devstack/stack"
+	"github.com/ethereum-optimism/optimism/op-devstack/sysgo"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 )
 
@@ -27,6 +27,9 @@ type XLayerWithConductors struct {
 // NewXLayerWithConductors creates a fresh XLayerWithConductors preset target.
 func NewXLayerWithConductors(t devtest.T, opts ...Option) *XLayerWithConductors {
 	presetCfg, presetOpts := collectSupportedPresetConfig(t, "NewXLayerWithConductors", opts, xlayerWithConductorsPresetSupportedOptionKinds)
+	if presetCfg.XLayerFixedPorts != nil {
+		t.Require().NoError(validateXLayerFixedPorts(*presetCfg.XLayerFixedPorts), "invalid XLayerFixedPortPlan")
+	}
 	out := xlayerWithConductorsFromRuntime(t, sysgo.NewXLayerWithConductorsRuntimeWithConfig(t, presetCfg))
 	presetOpts.applyPreset(out)
 	return out
@@ -85,9 +88,9 @@ func xlayerWithConductorsFromRuntime(t devtest.T, runtime *sysgo.SingleChainRunt
 	c1Name := "conductor1"
 	c2Name := "conductor2"
 	c3Name := "conductor3"
-	c1 := newConductorFrontend(t, c1Name, l2ChainID, runtime.Conductors[c1Name].HTTPEndpoint())
-	c2 := newConductorFrontend(t, c2Name, l2ChainID, runtime.Conductors[c2Name].HTTPEndpoint())
-	c3 := newConductorFrontend(t, c3Name, l2ChainID, runtime.Conductors[c3Name].HTTPEndpoint())
+	c1 := newConductorFrontend(t, c1Name, l2ChainID, runtime.Conductors[c1Name].HTTPEndpoint(), runtime.Conductors[c1Name].MetricsURL())
+	c2 := newConductorFrontend(t, c2Name, l2ChainID, runtime.Conductors[c2Name].HTTPEndpoint(), runtime.Conductors[c2Name].MetricsURL())
+	c3 := newConductorFrontend(t, c3Name, l2ChainID, runtime.Conductors[c3Name].HTTPEndpoint(), runtime.Conductors[c3Name].MetricsURL())
 	l2Net.AddConductor(c1)
 	l2Net.AddConductor(c2)
 	l2Net.AddConductor(c3)

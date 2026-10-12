@@ -5,21 +5,22 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"sync/atomic"
 	"time"
 
-	opconductor "github.com/ethereum-optimism/optimism/op-conductor/conductor"
 	bss "github.com/ethereum-optimism/optimism/op-batcher/batcher"
 	batcherFlags "github.com/ethereum-optimism/optimism/op-batcher/flags"
 	"github.com/ethereum-optimism/optimism/op-chain-ops/devkeys"
+	opconductor "github.com/ethereum-optimism/optimism/op-conductor/conductor"
 	"github.com/ethereum-optimism/optimism/op-devstack/devtest"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/setuputils"
-	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/wait"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/derive"
 	"github.com/ethereum-optimism/optimism/op-service/dial"
 	"github.com/ethereum-optimism/optimism/op-service/endpoint"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	oplog "github.com/ethereum-optimism/optimism/op-service/log"
+	opmetrics "github.com/ethereum-optimism/optimism/op-service/metrics"
 	"github.com/ethereum-optimism/optimism/op-service/retry"
 	oprpc "github.com/ethereum-optimism/optimism/op-service/rpc"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -92,6 +93,11 @@ func startXLayerConductorNode(
 	opNode.Stop()
 	opNode.Start()
 
+	metricsPortStr, metricsPortErr := getAvailableLocalPort()
+	require.NoError(metricsPortErr, "allocate metrics port for conductor")
+	metricsPort, metricsPortParseErr := strconv.Atoi(metricsPortStr)
+	require.NoError(metricsPortParseErr, "parse metrics port")
+
 	conductorCfg := opconductor.Config{
 		ConsensusAddr:           "127.0.0.1",
 		ConsensusPort:           0,
@@ -108,9 +114,10 @@ func startXLayerConductorNode(
 		ExecutionRPC:            l2EL.UserRPC(),
 		Paused:                  paused,
 		HealthCheck: opconductor.HealthCheckConfig{
-			Interval:       3600,
-			UnsafeInterval: 3600,
-			SafeInterval:   3600,
+			Interval:       2,
+			UnsafeInterval: 12,
+			SafeInterval:   120,
+			SafeEnabled:    false,
 			MinPeerCount:   1,
 		},
 		RollupCfg:      *l2Net.rollupCfg,
@@ -119,6 +126,11 @@ func startXLayerConductorNode(
 			Level:  log.LevelInfo,
 			Format: oplog.FormatText,
 			Color:  false,
+		},
+		MetricsConfig: opmetrics.CLIConfig{
+			Enabled:    true,
+			ListenAddr: "127.0.0.1",
+			ListenPort: metricsPort,
 		},
 		RPC: oprpc.CLIConfig{
 			ListenAddr: "127.0.0.1",
@@ -145,6 +157,7 @@ func startXLayerConductorNode(
 		serverID:          serverID,
 		consensusEndpoint: svc.ConsensusEndpoint(),
 		rpcEndpoint:       svc.HTTPEndpoint(),
+		metricsURL:        fmt.Sprintf("http://127.0.0.1:%d/metrics", metricsPort),
 		service:           svc,
 	}
 	conductorRPCEndpoint.Store(svc.HTTPEndpoint())
@@ -211,13 +224,27 @@ func startXLayerConductorClusterSeeded(
 	block, err := elClient.BlockByNumber(ctx, nil)
 	require.NoError(err, "get latest block from primary EL")
 	targetHeight := block.NumberU64()
+	targetHash := block.Hash()
 
-	// Wait for each secondary CL to report the same unsafe head.
+	// Wait for each secondary CL to converge at the same hash and number as
+	// the primary EL's current unsafe head.
 	for _, cl := range secondaryCLs {
 		rollupCl, dialErr := dial.DialRollupClientWithTimeout(ctx, t.Logger(), cl.UserRPC())
-		require.NoError(dialErr, "dial secondary CL for unsafe block wait")
-		waitErr := wait.ForUnsafeBlock(ctx, rollupCl, targetHeight)
-		require.NoError(waitErr, "secondary CL did not reach target height before seeding")
+		require.NoError(dialErr, "dial secondary CL for convergence check")
+		convErr := retry.Do0(ctx, 120, retry.Fixed(500*time.Millisecond), func() error {
+			status, statusErr := rollupCl.SyncStatus(ctx)
+			if statusErr != nil {
+				return statusErr
+			}
+			if status.UnsafeL2.Number < targetHeight {
+				return fmt.Errorf("secondary CL unsafe head %d < target %d", status.UnsafeL2.Number, targetHeight)
+			}
+			if status.UnsafeL2.Hash != targetHash {
+				return fmt.Errorf("secondary CL unsafe hash %s != target %s", status.UnsafeL2.Hash, targetHash)
+			}
+			return nil
+		})
+		require.NoError(convErr, "secondary CL did not converge to primary unsafe head before seeding")
 	}
 
 	// Seed the Raft FSM with the current unsafe head payload so all conductors
@@ -226,6 +253,13 @@ func startXLayerConductorClusterSeeded(
 	require.NoError(err, "convert block to execution payload envelope")
 	require.NoError(bootstrap.service.CommitUnsafePayload(ctx, payload), "seed Raft FSM with unsafe payload")
 
+	// Verify the seeded payload is readable back from the leader.
+	latest, readbackErr := bootstrap.service.LatestUnsafePayload(ctx)
+	require.NoError(readbackErr, "read back LatestUnsafePayload after commit")
+	require.NotNil(latest, "LatestUnsafePayload must not be nil after commit")
+	require.Equal(targetHash, latest.ExecutionPayload.BlockHash, "readback hash must equal seeded block H")
+	require.Equal(targetHeight, uint64(latest.ExecutionPayload.BlockNumber), "readback number must equal seeded block H")
+
 	// Resume all conductors so they start sequencing.
 	cluster := append([]*Conductor{bootstrap}, members...)
 	for _, conductor := range cluster {
@@ -233,17 +267,6 @@ func startXLayerConductorClusterSeeded(
 			return conductor.service.Resume(ctx)
 		})
 		require.NoErrorf(err, "failed to resume conductor %s", conductor.ServerID())
-	}
-
-	// Wait for all conductors to report a healthy sequencer.
-	for _, conductor := range cluster {
-		err := retry.Do0(ctx, 90, retry.Fixed(500*time.Millisecond), func() error {
-			if !conductor.service.SequencerHealthy(ctx) {
-				return fmt.Errorf("conductor %s sequencer is not healthy yet", conductor.ServerID())
-			}
-			return nil
-		})
-		require.NoErrorf(err, "conductor %s never became healthy", conductor.ServerID())
 	}
 }
 

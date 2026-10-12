@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-devstack/devtest"
 	"github.com/ethereum-optimism/optimism/op-devstack/dsl"
 	"github.com/ethereum-optimism/optimism/op-devstack/presets"
+	"github.com/ethereum-optimism/optimism/op-devstack/stack"
 	"github.com/ethereum-optimism/optimism/op-devstack/sysgo"
 	safety "github.com/ethereum-optimism/optimism/op-service/eth/safety"
 	"github.com/stretchr/testify/require"
@@ -18,7 +19,7 @@ import (
 // cluster starts, exactly one conductor becomes the Raft leader and reports a
 // healthy sequencer within a bounded time.
 func TestXLayerConductorClusterElectsLeader(gt *testing.T) {
-	t := devtest.ParallelT(gt)
+	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 
 	sys := presets.NewXLayerWithConductors(t)
@@ -35,36 +36,119 @@ func TestXLayerConductorClusterElectsLeader(gt *testing.T) {
 	require.True(t, leader.FetchSequencerHealthy(), "leader must report a healthy sequencer")
 }
 
-// TestXLayerConductorFailoverOnLeaderStop verifies that when the current leader
-// is stopped via its RPC, the remaining conductors elect a new leader.
+// TestXLayerConductorFailoverOnLeaderStop verifies the HA failover path: stopping
+// the leader sequencer EL triggers real Raft re-election, all three conductors
+// lead in turn, the ex-leader rejoins as a follower after restart, and unsafe
+// block production plus batcher safe-head progress are verified after each switch.
 func TestXLayerConductorFailoverOnLeaderStop(gt *testing.T) {
-	t := devtest.ParallelT(gt)
+	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 
 	sys := presets.NewXLayerWithConductors(t)
 	l2ChainID := sys.L2Chain.ChainID()
 	conductors := sys.ConductorSets[l2ChainID]
-	require.NotEmpty(t, conductors, "expected at least one conductor")
+	require.Len(t, conductors, 3, "expected exactly 3 conductors")
 
-	ctx, cancel := context.WithTimeout(t.Ctx(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(t.Ctx(), 600*time.Second)
 	defer cancel()
 
+	// Map conductor names to their sequencer EL controlled-lifecycle handles so we
+	// can stop/restart the EL process rather than calling the conductor RPC, which
+	// triggers a real Raft re-election through the conductor health-check path.
+	els := map[string]stack.ControlledLifecycle{
+		"conductor1": sys.L2EL.Escape().(stack.ControlledLifecycle),
+		"conductor2": sys.L2ELSeq2.Escape().(stack.ControlledLifecycle),
+		"conductor3": sys.L2ELSeq3.Escape().(stack.ControlledLifecycle),
+	}
+	cls := map[string]*dsl.L2CLNode{
+		"conductor1": sys.L2CL,
+		"conductor2": sys.L2CLSeq2,
+		"conductor3": sys.L2CLSeq3,
+	}
+
+	conductorByName := make(map[string]*dsl.Conductor, len(conductors))
+	for _, c := range conductors {
+		conductorByName[c.String()] = c
+	}
+
+	wasLeader := make(map[string]bool, 3)
+
+	// --- Round 1: stop the current leader's EL, await a real Raft re-election ---
 	leader := awaitLeader(t, ctx, conductors, 30*time.Second)
-	require.NotNil(t, leader, "a leader must be elected before the failover test")
-	stoppedLeaderName := leader.String()
+	require.NotNil(t, leader, "initial leader must be elected")
+	wasLeader[leader.String()] = true
+	stoppedName := leader.String()
 
-	require.NoError(t, leader.Escape().RpcAPI().Stop(ctx), "stopping leader conductor must succeed")
+	require.NoError(t, els[stoppedName].StopControlled(ctx), "stop leader EL %s", stoppedName)
 
-	// After the leader stops, the remaining two must elect a new leader.
-	newLeader := awaitLeader(t, ctx, conductors, 60*time.Second)
-	require.NotNil(t, newLeader, "a new leader must be elected after the old leader stops")
-	require.NotEqual(t, stoppedLeaderName, newLeader.String(), "new leader must be a different conductor")
+	// Wait for a conductor other than the stopped one to win the election.
+	var newLeader *dsl.Conductor
+	require.Eventually(t, func() bool {
+		for _, c := range conductors {
+			if c.String() != stoppedName && c.IsLeader() {
+				newLeader = c
+				return true
+			}
+		}
+		return false
+	}, 60*time.Second, 500*time.Millisecond,
+		"a conductor other than %s must become leader after EL stop", stoppedName)
+	wasLeader[newLeader.String()] = true
+
+	cls[newLeader.String()].AdvancedUnsafe(3, 60)
+	cls[newLeader.String()].Advanced(safety.CrossSafe, 1, 90)
+
+	require.NoError(t, els[stoppedName].StartControlled(ctx), "restart EL %s", stoppedName)
+
+	// Verify the ex-leader rejoins the cluster as a follower.
+	require.Eventually(t, func() bool {
+		membership := newLeader.FetchClusterMembership()
+		for _, srv := range membership.Servers {
+			if srv.ID == stoppedName {
+				return !conductorByName[stoppedName].IsLeader()
+			}
+		}
+		return false
+	}, 30*time.Second, 500*time.Millisecond,
+		"ex-leader %s must rejoin as follower after EL restart", stoppedName)
+
+	// --- Round 2: transfer to the third conductor that has not yet led ---
+	var thirdName string
+	for _, c := range conductors {
+		if !wasLeader[c.String()] {
+			thirdName = c.String()
+			break
+		}
+	}
+	require.NotEmpty(t, thirdName, "expected a conductor that has not yet led")
+
+	membership := newLeader.FetchClusterMembership()
+	var thirdInfo *consensus.ServerInfo
+	for i := range membership.Servers {
+		if membership.Servers[i].ID == thirdName {
+			srv := membership.Servers[i]
+			thirdInfo = &srv
+			break
+		}
+	}
+	require.NotNil(t, thirdInfo, "third conductor %s must appear in membership", thirdName)
+
+	newLeader.TransferLeadershipTo(*thirdInfo)
+	require.Eventually(t, func() bool {
+		return conductorByName[thirdName].IsLeader()
+	}, 30*time.Second, 500*time.Millisecond, "third conductor %s must become leader", thirdName)
+	wasLeader[thirdName] = true
+
+	cls[thirdName].AdvancedUnsafe(3, 60)
+	cls[thirdName].Advanced(safety.CrossSafe, 1, 90)
+
+	require.Len(t, wasLeader, 3, "all three conductors must have led at some point")
 }
 
 // TestXLayerConductorLeadershipTransfer verifies that the leadership can be
 // explicitly transferred to each of the three conductors in turn.
 func TestXLayerConductorLeadershipTransfer(gt *testing.T) {
-	t := devtest.ParallelT(gt)
+	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 
 	sys := presets.NewXLayerWithConductors(t)
@@ -106,10 +190,10 @@ func TestXLayerConductorLeadershipTransfer(gt *testing.T) {
 }
 
 // TestXLayerConductorMemberStopPreservesQuorum verifies that stopping a
-// non-leader conductor does not disrupt the sequencing quorum: the remaining
-// two conductors still retain a leader.
+// non-leader conductor's sequencer EL does not disrupt the sequencing quorum:
+// the remaining two conductors still retain a leader.
 func TestXLayerConductorMemberStopPreservesQuorum(gt *testing.T) {
-	t := devtest.ParallelT(gt)
+	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 
 	sys := presets.NewXLayerWithConductors(t)
@@ -119,6 +203,12 @@ func TestXLayerConductorMemberStopPreservesQuorum(gt *testing.T) {
 
 	ctx, cancel := context.WithTimeout(t.Ctx(), 90*time.Second)
 	defer cancel()
+
+	els := map[string]stack.ControlledLifecycle{
+		"conductor1": sys.L2EL.Escape().(stack.ControlledLifecycle),
+		"conductor2": sys.L2ELSeq2.Escape().(stack.ControlledLifecycle),
+		"conductor3": sys.L2ELSeq3.Escape().(stack.ControlledLifecycle),
+	}
 
 	leader := awaitLeader(t, ctx, conductors, 30*time.Second)
 	require.NotNil(t, leader, "a leader must be elected")
@@ -132,18 +222,18 @@ func TestXLayerConductorMemberStopPreservesQuorum(gt *testing.T) {
 		}
 	}
 	require.NotNil(t, follower, "expected to find a non-leader conductor")
-	require.NoError(t, follower.Escape().RpcAPI().Stop(ctx), "stopping follower conductor must succeed")
+	require.NoError(t, els[follower.String()].StopControlled(ctx), "stop follower EL %s", follower.String())
 
-	// Leader must remain elected and healthy.
+	// Leader must remain elected and healthy after the follower EL stops.
 	require.Eventually(t, func() bool {
 		return leader.IsLeader() && leader.FetchSequencerHealthy()
-	}, 30*time.Second, 500*time.Millisecond, "leader must remain healthy after a follower stops")
+	}, 30*time.Second, 500*time.Millisecond, "leader must remain healthy after a follower EL stops")
 }
 
 // TestXLayerConductorUnsafeBlocksAdvance verifies that the HA cluster produces
 // new unsafe L2 blocks after startup.
 func TestXLayerConductorUnsafeBlocksAdvance(gt *testing.T) {
-	t := devtest.ParallelT(gt)
+	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 
 	sys := presets.NewXLayerWithConductors(t)
@@ -164,7 +254,7 @@ func TestXLayerConductorUnsafeBlocksAdvance(gt *testing.T) {
 // TestXLayerBatcherAdvancesSafeHead verifies that the HA batcher submits
 // batches and the safe head advances on the primary CL.
 func TestXLayerBatcherAdvancesSafeHead(gt *testing.T) {
-	t := devtest.ParallelT(gt)
+	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 
 	sys := presets.NewXLayerWithConductors(t)
