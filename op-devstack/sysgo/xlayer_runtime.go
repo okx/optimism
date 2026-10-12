@@ -166,6 +166,16 @@ func configureXLayerSystemConfig(t devtest.T, keys devkeys.Keys, world singleCha
 // which the op-deployer Go script host now implements (see cheatcodes host), so
 // genesis runs against the in-repo contracts rather than a downloaded bundle.
 func buildXLayerWorld(t devtest.T, keys devkeys.Keys, cfg PresetConfig) singleChainRuntimeWorld {
+	// Resolve the artifacts path once. When cfg.LocalContractArtifactsPath is
+	// empty, auto-detect from the monorepo root exactly as localContractSourcesLocator
+	// does; both the deployer step and the XLayer predeploy injectors need a real path.
+	artifactsPath := cfg.LocalContractArtifactsPath
+	if artifactsPath == "" {
+		paths, err := contractPaths()
+		t.Require().NoError(err, "resolve contract artifacts path")
+		artifactsPath = paths.FoundryArtifacts
+	}
+
 	wb := &worldBuilder{
 		p:       t,
 		logger:  t.Logger(),
@@ -174,7 +184,7 @@ func buildXLayerWorld(t devtest.T, keys devkeys.Keys, cfg PresetConfig) singleCh
 		builder: intentbuilder.New(),
 	}
 
-	applyConfigLocalContractSources(t, keys, wb.builder, cfg.LocalContractArtifactsPath)
+	applyConfigLocalContractSources(t, keys, wb.builder, artifactsPath)
 	applyConfigCommons(t, keys, DefaultL1ID, wb.builder)
 	applyConfigPrefundedL2(t, keys, DefaultL1ID, eth.ChainIDFromUInt64(XLayerDefaultL2ChainID), wb.builder)
 	applyConfigDeployerOptions(t, keys, wb.builder, cfg.DeployerOptions)
@@ -205,9 +215,9 @@ func buildXLayerWorld(t devtest.T, keys devkeys.Keys, cfg PresetConfig) singleCh
 	// Install the XLayer system predeploys, then finalize the genesis hash exactly
 	// once. Order matters: both predeploys must be present before the single re-pin.
 	// Neither injector re-pins.
-	injectXLayerGaslessPredeploys(t, l2Net, cfg.LocalContractArtifactsPath) // gasless only, no re-pin
-	injectXLayerTxBlacklist(t, l2Net, cfg.LocalContractArtifactsPath)       // blacklist only, no re-pin
-	repinXLayerGenesisL2Hash(l2Net)                                         // exactly once, after both
+	injectXLayerGaslessPredeploys(t, l2Net, artifactsPath) // gasless only, no re-pin
+	injectXLayerTxBlacklist(t, l2Net, artifactsPath)       // blacklist only, no re-pin
+	repinXLayerGenesisL2Hash(l2Net)                        // exactly once, after both
 
 	return singleChainRuntimeWorld{L1Network: l1Net, L2Network: l2Net}
 }
