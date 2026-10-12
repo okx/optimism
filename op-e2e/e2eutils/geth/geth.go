@@ -84,6 +84,16 @@ func WithAuth(jwtPath string) GethOption {
 	}
 }
 
+// WithHTTPEndpoint sets a fixed host and port for the HTTP RPC listener.
+// A zero port falls back to OS-assigned (random).
+func WithHTTPEndpoint(host string, port int) GethOption {
+	return func(_ *ethconfig.Config, nodeCfg *node.Config) error {
+		nodeCfg.HTTPHost = host
+		nodeCfg.HTTPPort = port
+		return nil
+	}
+}
+
 func WithSequencerHTTP(sequencerHTTP string) GethOption {
 	return func(ethCfg *ethconfig.Config, _ *node.Config) error {
 		ethCfg.RollupSequencerHTTP = sequencerHTTP
