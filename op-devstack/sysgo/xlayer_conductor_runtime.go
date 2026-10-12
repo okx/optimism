@@ -115,10 +115,10 @@ func startXLayerConductorNode(
 		Paused:                  paused,
 		HealthCheck: opconductor.HealthCheckConfig{
 			Interval:       2,
-			UnsafeInterval: 12,
+			UnsafeInterval: 60,  // devnet startup lag ≈14s; 60s clears the gap safely
 			SafeInterval:   120,
 			SafeEnabled:    false,
-			MinPeerCount:   1,
+			MinPeerCount:   0, // CL P2P peers may not reconnect immediately after restart
 		},
 		RollupCfg:      *l2Net.rollupCfg,
 		RPCEnableProxy: false,
