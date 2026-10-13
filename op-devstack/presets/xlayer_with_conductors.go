@@ -27,9 +27,10 @@ type XLayerWithConductors struct {
 // NewXLayerWithConductors creates a fresh XLayerWithConductors preset target.
 func NewXLayerWithConductors(t devtest.T, opts ...Option) *XLayerWithConductors {
 	presetCfg, presetOpts := collectSupportedPresetConfig(t, "NewXLayerWithConductors", opts, xlayerWithConductorsPresetSupportedOptionKinds)
-	if presetCfg.XLayerFixedPorts != nil {
-		t.Require().NoError(validateXLayerFixedPorts(*presetCfg.XLayerFixedPorts), "invalid XLayerFixedPortPlan")
-	}
+	// Validated on the public path, before the runtime allocates any world, L1,
+	// EL, conductor or batcher resource: an invalid or unavailable plan must
+	// fail the constructor without starting anything.
+	t.Require().NoError(ValidateXLayerFixedPortPlan(presetCfg.XLayerFixedPorts), "invalid XLayerFixedPortPlan")
 	out := xlayerWithConductorsFromRuntime(t, sysgo.NewXLayerWithConductorsRuntimeWithConfig(t, presetCfg))
 	presetOpts.applyPreset(out)
 	return out

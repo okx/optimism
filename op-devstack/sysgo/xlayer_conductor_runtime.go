@@ -90,13 +90,80 @@ func xlayerFixedPortEndpoints(plan *XLayerFixedPortPlan) []xlayerFixedPortEndpoi
 // between this check and that bind is still reported by the bind itself.
 func checkXLayerFixedPortsAvailable(plan *XLayerFixedPortPlan) error {
 	for _, ep := range xlayerFixedPortEndpoints(plan) {
-		ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(ep.port)))
-		if err != nil {
-			return fmt.Errorf("%s cannot bind fixed port %d: %w", ep.component, ep.port, err)
+		if err := checkXLayerFixedPortAt(ep.component, ep.port); err != nil {
+			return err
 		}
-		_ = ln.Close()
 	}
 	return nil
+}
+
+// CheckXLayerFixedPortsAvailable is the exported form of the availability check
+// so a caller outside this package can validate a plan without constructing a
+// topology — and therefore without triggering a fatal assertion.
+func CheckXLayerFixedPortsAvailable(plan *XLayerFixedPortPlan) error {
+	return checkXLayerFixedPortsAvailable(plan)
+}
+
+// checkXLayerFixedPortAt reports whether a single fixed port can be bound on
+// loopback right now, naming the component and the port when it cannot.
+func checkXLayerFixedPortAt(component string, port int) error {
+	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err != nil {
+		return fmt.Errorf("%s cannot bind fixed port %d: %w", component, port, err)
+	}
+	return ln.Close()
+}
+
+// xlayerSequencerELPort returns the fixed EL HTTP port planned for the sequencer
+// at index, and whether the plan fixes one at all. An absent plan, a short list
+// and a zero entry all mean "let the OS choose".
+func xlayerSequencerELPort(cfg PresetConfig, index int) (int, bool) {
+	if cfg.XLayerFixedPorts == nil || index < 0 || index >= len(cfg.XLayerFixedPorts.ELHTTPPorts) {
+		return 0, false
+	}
+	port := cfg.XLayerFixedPorts.ELHTTPPorts[index]
+	return port, port != 0
+}
+
+// xlayerProducerConfigAvailable reports whether the preset configured an XLayer
+// execution binary for the candidates.
+//
+// The producer and flashblocks flags are part of the XLayer build of the
+// execution client, supplied through XLAYER_RETH_BIN (OpRethWithBinary). The
+// repository's own op-reth rejects them outright — it exits with "unexpected
+// argument '--xlayer.sequencer-mode'" — so they are only attached when such a
+// binary is configured. Applying them to a generic client would not make it an
+// XLayer producer; it would only stop it from starting at all.
+func xlayerProducerConfigAvailable(t devtest.T, cfg PresetConfig) bool {
+	scratch := DefaultOpRethConfig()
+	target := NewComponentTarget(XLayerSequencerNodeName, eth.ChainIDFromUInt64(195))
+	for _, opt := range cfg.OpRethOptions {
+		if opt == nil {
+			continue
+		}
+		opt.Apply(t, target, scratch)
+	}
+	return scratch.Binary != ""
+}
+
+// xlayerCandidateExtraOptions returns the options one sequencer candidate adds
+// on top of the preset's own per-node options: the XLayer producer
+// configuration when an XLayer execution binary is configured, plus the
+// candidate's fixed HTTP port when the plan fixes one. Every candidate gets the
+// same treatment, because every candidate can be elected and must then be able
+// to produce.
+func xlayerCandidateExtraOptions(t devtest.T, cfg PresetConfig, name string, index int) ([]OpRethOption, error) {
+	extra := make([]OpRethOption, 0, 2)
+	if xlayerProducerConfigAvailable(t, cfg) {
+		extra = append(extra, xlayerFlashblocksProducerOption())
+	}
+	if port, ok := xlayerSequencerELPort(cfg, index); ok {
+		if err := checkXLayerFixedPortAt("L2 EL "+name, port); err != nil {
+			return nil, err
+		}
+		extra = append(extra, OpRethWithHTTPPort(port))
+	}
+	return extra, nil
 }
 
 // xlayerClosable is a started resource that can be released again. The rollback
@@ -146,27 +213,40 @@ func addXLayerSequencerNode(t devtest.T, runtime *SingleChainRuntime, name strin
 
 	starters := xlayerSequencerStartFuncs{
 		startEL: func(name string, index int, cfg PresetConfig) (L2ELNode, xlayerClosable, error) {
-			elOpts := append([]OpRethOption{}, cfg.OpRethOptions...)
-			if cfg.XLayerFixedPorts != nil && index < len(cfg.XLayerFixedPorts.ELHTTPPorts) {
-				if port := cfg.XLayerFixedPorts.ELHTTPPorts[index]; port != 0 {
-					elOpts = append(elOpts, OpRethWithHTTPPort(port))
-				}
+			// A backup is a leadership candidate, so it is built exactly like the
+			// primary: the preset's per-node options plus the candidate extras
+			// (XLayer producer configuration when the XLayer binary is configured,
+			// and this candidate's fixed HTTP port).
+			extra, extraErr := xlayerCandidateExtraOptions(t, cfg, name, index)
+			if extraErr != nil {
+				return nil, nil, extraErr
 			}
+			elOpts := append(append([]OpRethOption{}, cfg.OpRethOptions...), extra...)
 			el := startL2ELForKey(t, runtime.L2Network, jwtPath, jwtSecret, name, NewELNodeIdentity(0), elOpts...)
+			if el == nil {
+				return nil, nil, fmt.Errorf("L2 EL %s did not start", name)
+			}
 			// The EL process must be releasable if a later step of this node's
 			// startup fails. Every EL backend used here is a stack.Lifecycle.
 			closer, _ := el.(xlayerClosable)
 			return el, closer, nil
 		},
 		startCL: func(name string, el L2ELNode, cfg PresetConfig) (*OpNode, error) {
-			return startL2CLNode(t, runtime.Keys, runtime.L1Network, runtime.L2Network, runtime.L1EL, runtime.L1CL, el, jwtSecret, l2CLNodeStartConfig{
+			if el == nil {
+				return nil, fmt.Errorf("cannot start CL %s without an EL", name)
+			}
+			cl := startL2CLNode(t, runtime.Keys, runtime.L1Network, runtime.L2Network, runtime.L1EL, runtime.L1CL, el, jwtSecret, l2CLNodeStartConfig{
 				Key:              name,
 				IsSequencer:      true,
 				NoDiscovery:      true,
 				EnableReqResp:    true,
 				L2CLOptions:      cfg.GlobalL2CLOptions,
 				SequencerStopped: true,
-			}), nil
+			})
+			if cl == nil {
+				return nil, fmt.Errorf("L2 CL %s did not start", name)
+			}
+			return cl, nil
 		},
 	}
 
@@ -243,19 +323,16 @@ func startXLayerConductorNode(
 		ExecutionRPC:            l2EL.UserRPC(),
 		Paused:                  paused,
 		HealthCheck: opconductor.HealthCheckConfig{
+			// Health detection is driven purely by the CL peer count and the
+			// staleness of the unsafe head. A conductor whose sequencer stops
+			// producing therefore reads unhealthy once its unsafe head is older
+			// than UnsafeInterval, which is what lets the remaining conductors
+			// win the re-election.
 			Interval:       2,
 			UnsafeInterval: 12,
 			SafeInterval:   120,
 			SafeEnabled:    false,
 			MinPeerCount:   1,
-			// EL liveness probe: the conductor goes unhealthy as soon as its own
-			// EL process dies (the net_peerCount call errors out). That keeps a
-			// stopped leader from being reported healthy by its conductor while
-			// the other two conductors stay healthy and can win the re-election.
-			ExecutionP2pEnabled:      true,
-			ExecutionP2pRPCUrl:       l2EL.UserRPC(),
-			ExecutionP2pCheckApi:     "net",
-			ExecutionP2pMinPeerCount: 0,
 		},
 		RollupCfg:      *l2Net.rollupCfg,
 		RPCEnableProxy: false,
@@ -319,6 +396,7 @@ func startXLayerConductorClusterSeeded(
 	members []*Conductor,
 	primaryEL L2ELNode,
 	secondaryCLs []L2CLNode,
+	secondaryELs []L2ELNode,
 	l2Net *L2Network,
 ) {
 	require := t.Require()
@@ -412,6 +490,26 @@ func startXLayerConductorClusterSeeded(
 	require.Equal(targetHash, latest.ExecutionPayload.BlockHash, "readback hash must equal seeded H")
 	require.Equal(targetHeight, uint64(latest.ExecutionPayload.BlockNumber), "readback number must equal seeded H")
 
+	// The frozen head must still be the head everywhere at the moment the control
+	// loops are resumed. Every sequencer is stopped while the conductors are
+	// paused, so a head that moved since the freeze would mean something produced
+	// uncontrolled blocks during the mount — exactly the race this phasing exists
+	// to prevent. Sampling here, immediately before the first Resume, is what
+	// makes "no block was produced between freeze and Resume" an observation
+	// rather than an assumption.
+	allELs := append([]L2ELNode{primaryEL}, secondaryELs...)
+	for i, el := range allELs {
+		sampleCtx, sampleCancel := context.WithTimeout(ctx, 10*time.Second)
+		head, headErr := xlayerELHead(sampleCtx, el)
+		sampleCancel()
+		require.NoErrorf(headErr, "sample the head of sequencer candidate %d before resume", i)
+		require.Equalf(targetHeight, head,
+			"sequencer candidate %d produced a block between freeze and resume", i)
+	}
+	t.Logger().New("component", "xlayer-conductor-seed").Info(
+		"Seeded cold start reached the resume point with an unmoved head",
+		"seededHeight", targetHeight, "seededHash", targetHash)
+
 	// Resume all conductors so they start sequencing.
 	cluster := append([]*Conductor{bootstrap}, members...)
 	for _, conductor := range cluster {
@@ -420,6 +518,18 @@ func startXLayerConductorClusterSeeded(
 		})
 		require.NoErrorf(err, "failed to resume conductor %s", conductor.ServerID())
 	}
+}
+
+// xlayerELHead returns the latest block number served by an EL over its user
+// RPC endpoint. It is used to sample the frozen head without holding a client
+// open across the resume boundary.
+func xlayerELHead(ctx context.Context, el L2ELNode) (uint64, error) {
+	client, err := ethclient.DialContext(ctx, el.UserRPC())
+	if err != nil {
+		return 0, err
+	}
+	defer client.Close()
+	return client.BlockNumber(ctx)
 }
 
 // awaitAnySequencerActive polls all given CL nodes until at least one reports
@@ -489,7 +599,11 @@ func startXLayerHABatcher(
 		ApproxComprRatio:         0.4,
 		SubSafetyMargin:          4,
 		PollInterval:             500 * time.Millisecond,
-		TxMgrConfig:              setuputils.NewTxMgrConfig(endpoint.URL(l1EL.UserRPC()), batcherSecret),
+		// The batcher follows the sequencer that the conductor cluster has
+		// elected, so it must re-check which endpoint is active on a cadence
+		// shorter than the failover window.
+		ActiveSequencerCheckDuration: 2 * time.Second,
+		TxMgrConfig:                  setuputils.NewTxMgrConfig(endpoint.URL(l1EL.UserRPC()), batcherSecret),
 		LogConfig: oplog.CLIConfig{
 			Level:  log.LevelInfo,
 			Format: oplog.FormatText,
@@ -555,6 +669,9 @@ func startXLayerHABatcher(
 // is formed and Raft consensus is seeded. This avoids the primary EL advancing
 // beyond the XLayer genesis height while secondary CLs (which cannot receive
 // historical blocks via EL P2P in sequencer mode) are still at genesis.
+//
+// seqExtraOpts carries the XLayer producer configuration so the primary is built
+// exactly like the other two candidates, differing only in its index.
 func xlayerConductorPrimary(seqExtraOpts ...OpRethOption) func(devtest.T, devkeys.Keys, singleChainRuntimeWorld, *L1Geth, *L1CLNode, string, [32]byte, PresetConfig) singleChainPrimaryRuntime {
 	return func(t devtest.T, keys devkeys.Keys, world singleChainRuntimeWorld, l1EL *L1Geth, l1CL *L1CLNode, jwtPath string, jwtSecret [32]byte, cfg PresetConfig) singleChainPrimaryRuntime {
 		elOpts := append(append([]OpRethOption{}, cfg.OpRethOptions...), seqExtraOpts...)
@@ -588,15 +705,12 @@ func NewXLayerWithConductorsRuntimeWithConfig(t devtest.T, cfg PresetConfig) *Si
 		WithSequencingWindow(XLayerSequencerWindowSize),
 	}, cfg.DeployerOptions...)
 
-	// Build primary sequencer options. The flashblocks producer flags
-	// (--xlayer.sequencer-mode, --flashblocks.*) require the XLayer-extended
-	// op-reth binary and must be supplied via cfg.OpRethOptions by callers
-	// that have that binary available. The conductor HA topology does not
-	// require flashblocks to verify leader election and failover semantics.
-	var producerOpts []OpRethOption
-	if cfg.XLayerFixedPorts != nil && cfg.XLayerFixedPorts.ELHTTPPorts[0] != 0 {
-		producerOpts = append(producerOpts, OpRethWithHTTPPort(cfg.XLayerFixedPorts.ELHTTPPorts[0]))
-	}
+	// Every candidate — the primary and both backups — is built from the same
+	// recipe: the preset's per-node options plus the candidate extras. A backup is
+	// a leadership candidate, so the XLayer producer configuration travels with
+	// all three nodes rather than only the initial primary.
+	producerOpts, producerErr := xlayerCandidateExtraOptions(t, cfg, XLayerSequencerNodeName, 0)
+	t.Require().NoError(producerErr, "build the primary candidate's execution options")
 
 	runtime := newSingleChainRuntimeWithConfig(t, cfg, singleChainRuntimeSpec{
 		BuildWorld:      buildXLayerWorld,
@@ -641,6 +755,7 @@ func NewXLayerWithConductorsRuntimeWithConfig(t devtest.T, cfg PresetConfig) *Si
 		[]*Conductor{cond2, cond3},
 		runtime.L2EL,
 		[]L2CLNode{seq2CL, seq3CL},
+		[]L2ELNode{seq2Node.EL, seq3Node.EL},
 		runtime.L2Network,
 	)
 

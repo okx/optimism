@@ -270,14 +270,13 @@ func (c *HealthCheckConfig) Check() error {
 	if c.SafeInterval == 0 {
 		return fmt.Errorf("missing safe interval")
 	}
-	// MinPeerCount == 0 is allowed: it disables the CL peer count check entirely,
-	// which is useful in devnet environments where dynamic P2P connections drop.
+	if c.MinPeerCount == 0 {
+		return fmt.Errorf("missing minimum peer count")
+	}
 	if c.ExecutionP2pEnabled {
-		// ExecutionP2pMinPeerCount == 0 is allowed: it disables the EL peer count
-		// threshold while still checking EL availability (analogous to MinPeerCount=0
-		// for CL P2P).  This is useful in devnet environments where EL P2P is
-		// unconfigured but we still want the conductor to go unhealthy when the local
-		// EL process dies.
+		if c.ExecutionP2pMinPeerCount == 0 {
+			return fmt.Errorf("missing minimum el p2p peers")
+		}
 		if c.ExecutionP2pRPCUrl == "" {
 			return fmt.Errorf("missing el p2p rpc")
 		}

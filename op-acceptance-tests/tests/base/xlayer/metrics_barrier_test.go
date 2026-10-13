@@ -12,13 +12,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestScrapeHealthCheckCount_MetricAbsent verifies that scrapeHealthCheckCount returns an
-// error (never silently 0) when op_conductor_healthchecks_count{success="true"} is not
-// present in the metrics response.  A scrape or parse failure must surface as an error,
-// not as a zero baseline that would allow a false "no change" result.
-func TestScrapeHealthCheckCount_MetricAbsent(t *testing.T) {
+// TestScrapeHealthCheckCount_MetricAbsent verifies the zero-baseline rule: a
+// scrape that SUCCEEDS but does not yet contain
+// op_conductor_healthchecks_count{success="true"} reads 0 with no error. The
+// series is created by its first increment, so its absence is a legitimate
+// reading of a conductor that has not completed a health check yet.
+func TestScrapeHealthCheckCount_MetricAbsentReadsZero(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Return a valid Prometheus page that has NO op_conductor_healthchecks_count line.
+		// A valid Prometheus page with no op_conductor_healthchecks_count line.
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("# HELP some_other_metric A different metric\n# TYPE some_other_metric counter\nsome_other_metric 42\n"))
@@ -26,8 +27,72 @@ func TestScrapeHealthCheckCount_MetricAbsent(t *testing.T) {
 	defer srv.Close()
 
 	count, err := scrapeHealthCheckCount(context.Background(), srv.URL)
-	require.Error(t, err, "scrapeHealthCheckCount must return an error when metric is absent")
-	require.Zero(t, count, "count must be 0 on error")
+	require.NoError(t, err, "a successful scrape with no series yet is a zero reading, not a failure")
+	require.Zero(t, count, "an absent series reads 0")
+}
+
+// TestScrapeHealthCheckCount_SuccessFalseOnly verifies that a page carrying only
+// the success="false" series still reads 0 rather than picking up a failed check.
+func TestScrapeHealthCheckCount_SuccessFalseOnly(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`op_conductor_healthchecks_count{success="false"} 9` + "\n"))
+	}))
+	defer srv.Close()
+
+	count, err := scrapeHealthCheckCount(context.Background(), srv.URL)
+	require.NoError(t, err)
+	require.Zero(t, count, "only the success=true series may be read")
+}
+
+// TestScrapeHealthCheckCount_RejectsNaN verifies that a NaN counter is rejected
+// as an illegal value. Comparing NaN against a baseline is always false, so
+// accepting it would strand a caller in a timeout instead of surfacing the
+// malformed endpoint.
+func TestScrapeHealthCheckCount_RejectsNaN(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`op_conductor_healthchecks_count{success="true"} NaN` + "\n"))
+	}))
+	defer srv.Close()
+
+	_, err := scrapeHealthCheckCount(context.Background(), srv.URL)
+	require.Error(t, err, "NaN must be rejected as an illegal counter value")
+	require.Contains(t, err.Error(), "illegal counter value")
+}
+
+// TestScrapeHealthCheckCount_RejectsInf verifies the same for +Inf.
+func TestScrapeHealthCheckCount_RejectsInf(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`op_conductor_healthchecks_count{success="true"} +Inf` + "\n"))
+	}))
+	defer srv.Close()
+
+	_, err := scrapeHealthCheckCount(context.Background(), srv.URL)
+	require.Error(t, err, "Inf must be rejected as an illegal counter value")
+}
+
+// TestScrapeHealthCheckCount_RespectsContextDeadline verifies that an expired
+// request context surfaces as an error rather than reading the endpoint anyway:
+// the remaining deadline is applied to each individual HTTP request.
+func TestScrapeHealthCheckCount_RespectsContextDeadline(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(2 * time.Second)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := scrapeHealthCheckCount(ctx, srv.URL)
+	require.Error(t, err, "a request past its deadline must fail")
+	require.Less(t, time.Since(start), time.Second, "the deadline must bound the request, not the whole test")
 }
 
 // TestScrapeHealthCheckCount_MetricPresent verifies that scrapeHealthCheckCount returns the

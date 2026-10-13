@@ -191,6 +191,23 @@ const xlayerWithConductorsPresetSupportedOptionKinds = minimalPresetSupportedOpt
 	optionKindOpReth |
 	optionKindXLayerFixedPorts
 
+// ValidateXLayerFixedPortPlan reports whether a plan is usable right now: the
+// static rules (valid TCP range, index alignment, no duplicate ports) plus
+// whether every fixed port can actually be bound on loopback.
+//
+// It is the non-fatal form of what the public constructor enforces, so a caller
+// that wants to assert a rejected plan can do so without triggering the
+// constructor's fatal assertion. A nil plan is valid — that is the random path.
+func ValidateXLayerFixedPortPlan(plan *sysgo.XLayerFixedPortPlan) error {
+	if plan == nil {
+		return nil
+	}
+	if err := validateXLayerFixedPorts(*plan); err != nil {
+		return err
+	}
+	return sysgo.CheckXLayerFixedPortsAvailable(plan)
+}
+
 // validateXLayerFixedPorts checks that every non-zero port in plan is in the
 // valid TCP range [1, 65535] and that no two non-zero ports are equal.
 func validateXLayerFixedPorts(plan sysgo.XLayerFixedPortPlan) error {

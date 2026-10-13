@@ -104,26 +104,6 @@ func TestConfigCheck_HTTPBodyLimit(t *testing.T) {
 	}
 }
 
-// TestConfigCheck_MinPeerCountZeroAllowed verifies that MinPeerCount=0 passes
-// HealthCheckConfig.Check(), i.e. 0 disables the CL peer count check.
-func TestConfigCheck_MinPeerCountZeroAllowed(t *testing.T) {
-	cfg := newValidConfig(t)
-	cfg.HealthCheck.MinPeerCount = 0
-	require.NoError(t, cfg.Check(), "MinPeerCount=0 must be accepted (disables peer count check)")
-}
-
-// TestConfigCheck_ExecutionP2pMinPeerCountZeroAllowed verifies that
-// ExecutionP2pMinPeerCount=0 is accepted when ExecutionP2pEnabled=true.
-// Zero disables the peer count threshold while still checking EL availability.
-func TestConfigCheck_ExecutionP2pMinPeerCountZeroAllowed(t *testing.T) {
-	cfg := newValidConfig(t)
-	cfg.HealthCheck.ExecutionP2pEnabled = true
-	cfg.HealthCheck.ExecutionP2pRPCUrl = "ws://localhost:8546"
-	cfg.HealthCheck.ExecutionP2pCheckApi = "net"
-	cfg.HealthCheck.ExecutionP2pMinPeerCount = 0
-	require.NoError(t, cfg.Check(), "ExecutionP2pMinPeerCount=0 must be accepted (EL availability check only)")
-}
-
 // newValidConfig creates a valid Config for testing
 func newValidConfig(t *testing.T) Config {
 	now := uint64(time.Now().Unix())

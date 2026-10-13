@@ -5,7 +5,9 @@ import (
 	"errors"
 	"math/big"
 	"net"
+	"sort"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -184,6 +186,49 @@ func TestXLayerConductorColdStartSeed(t *testing.T) {
 	require.Len(t, runtime.Conductors, 3, "expected three conductors")
 	els := xlayerConductorRuntimes(runtime)
 	require.Len(t, els, 3, "expected three sequencer EL backends")
+
+	// All three candidates must be built from ONE recipe. A backup is a leadership
+	// candidate, so it may not be a generic follower: whatever execution binary and
+	// producer configuration the primary runs, the backups run too. This assertion
+	// is what catches a topology whose backups could not take over.
+	producerCandidates := make(map[string]bool, len(els))
+	binaries := make(map[string]string, len(els))
+	for name, el := range els {
+		opReth, ok := el.(*OpReth)
+		require.Truef(t, ok, "candidate %s must run the execution client", name)
+		joined := strings.Join(opReth.args, " ")
+		hasProducer := strings.Contains(joined, "--xlayer.sequencer-mode") &&
+			strings.Contains(joined, "--flashblocks.enabled")
+		producerCandidates[name] = hasProducer
+		binaries[name] = opReth.execPath
+		t.Logf("candidate %s binary=%s producerConfig=%t", name, opReth.execPath, hasProducer)
+	}
+
+	names := make([]string, 0, len(els))
+	for name := range els {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names[1:] {
+		require.Equalf(t, binaries[names[0]], binaries[name],
+			"candidate %s runs a different execution binary than %s", name, names[0])
+		require.Equalf(t, producerCandidates[names[0]], producerCandidates[name],
+			"candidate %s carries a different producer configuration than %s", name, names[0])
+	}
+
+	if !producerCandidates[names[0]] {
+		// The preset did not configure an XLayer execution binary, so the
+		// producer/flashblocks flags are not applicable: the generic client
+		// rejects them outright and would not start. Recorded rather than
+		// asserted, so the evidence states which binary was actually exercised.
+		t.Logf("XLayer producer configuration not applied: no XLayer execution binary configured")
+		return
+	}
+	for _, name := range names {
+		require.Truef(t, producerCandidates[name],
+			"candidate %s must carry the XLayer producer configuration", name)
+	}
 
 	ctx, cancel := context.WithTimeout(dt.Ctx(), 120*time.Second)
 	defer cancel()

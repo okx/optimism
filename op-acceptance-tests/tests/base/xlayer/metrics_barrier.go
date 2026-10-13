@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -26,11 +27,33 @@ func metricsURLForConductor(c *dsl.Conductor) string {
 	return ""
 }
 
+// healthCheckCounterName is the counter every conductor increments once per
+// health-check tick. Only the success="true" series is read.
+const healthCheckCounterName = "op_conductor_healthchecks_count"
+
 // scrapeHealthCheckCount fetches op_conductor_healthchecks_count{success="true"}
-// from the given Prometheus text endpoint. Returns an error (never 0) when the
-// metric line is absent or the scrape fails.
+// from the given Prometheus text endpoint.
+//
+// Three outcomes are distinguished deliberately:
+//
+//   - the scrape succeeds and the series is present -> its value;
+//   - the scrape succeeds but the series is absent -> 0. The counter is created
+//     by its first increment, so "no series yet" is a legitimate reading of a
+//     conductor that has not completed a health check, not a failure;
+//   - the scrape or the parse fails -> an error, never 0. Zeroing a failed read
+//     would let an unreachable conductor satisfy an increase check.
+//
+// NaN and ±Inf are rejected as illegal counter values: comparing them against a
+// baseline silently yields false, which would strand a caller in a timeout
+// instead of surfacing the malformed endpoint.
+//
+// The request inherits ctx, so a caller that passes a deadline gets it applied
+// to each individual HTTP request rather than to the whole polling loop only.
 func scrapeHealthCheckCount(ctx context.Context, metricsURL string) (float64, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", metricsURL, nil)
+	if err := ctx.Err(); err != nil {
+		return 0, fmt.Errorf("scrape %s: %w", metricsURL, err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metricsURL, nil)
 	if err != nil {
 		return 0, fmt.Errorf("build metrics request: %w", err)
 	}
@@ -44,29 +67,37 @@ func scrapeHealthCheckCount(ctx context.Context, metricsURL string) (float64, er
 	}
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "#") {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		// The metric may have additional labels (e.g. {success="true",error=""}) so
-		// we match by metric name prefix AND the success="true" label rather than an
+		// The metric may carry extra labels (e.g. {success="true",error=""}), so it
+		// is matched by metric name plus the success="true" label rather than by an
 		// exact label-set prefix.
-		if strings.HasPrefix(line, "op_conductor_healthchecks_count") && strings.Contains(line, `success="true"`) {
-			parts := strings.Fields(line)
-			if len(parts) < 2 {
-				return 0, fmt.Errorf("unexpected metrics line format: %q", line)
-			}
-			v, parseErr := strconv.ParseFloat(parts[1], 64)
-			if parseErr != nil {
-				return 0, fmt.Errorf("parse metric value %q: %w", parts[1], parseErr)
-			}
-			return v, nil
+		if !strings.HasPrefix(line, healthCheckCounterName) {
+			continue
 		}
+		if !strings.Contains(line, `success="true"`) {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) != 2 {
+			return 0, fmt.Errorf("unexpected metrics line format for %s: %q", healthCheckCounterName, line)
+		}
+		value, parseErr := strconv.ParseFloat(parts[1], 64)
+		if parseErr != nil {
+			return 0, fmt.Errorf("parse metric value %q: %w", parts[1], parseErr)
+		}
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return 0, fmt.Errorf("illegal counter value %q for %s", parts[1], healthCheckCounterName)
+		}
+		return value, nil
 	}
 	if scanErr := scanner.Err(); scanErr != nil {
 		return 0, fmt.Errorf("scan metrics response: %w", scanErr)
 	}
-	return 0, fmt.Errorf("op_conductor_healthchecks_count with success=true not found at %s", metricsURL)
+	// The endpoint answered but the series does not exist yet.
+	return 0, nil
 }
 
 // awaitHealthSampleIncrease polls every endpoint until each one reports a value
@@ -113,10 +144,21 @@ type healthBarrier struct {
 }
 
 // newHealthBarrier resolves each conductor's metrics endpoint and records its
-// current op_conductor_healthchecks_count{success="true"} value. Every reading
-// must succeed: a conductor whose metrics cannot be scraped is an error, not a
-// zero baseline.
+// current op_conductor_healthchecks_count{success="true"} value, taken at the
+// moment of the call so every trigger gets a fresh baseline rather than a stale
+// startup reading.
+//
+// The endpoint is normally reachable by the time a trigger runs; a scrape that
+// genuinely fails is retried only briefly before failing the test, because a
+// barrier built on an unreachable endpoint cannot measure anything. A conductor
+// whose counter series does not exist yet reads 0, which is a valid baseline.
 func newHealthBarrier(t devtest.T, ctx context.Context, conductors dsl.ConductorSet) *healthBarrier {
+	return newHealthBarrierWithTimeout(t, ctx, conductors, 30*time.Second)
+}
+
+// newHealthBarrierWithTimeout is newHealthBarrier with an explicit bound on how
+// long a failing scrape is retried before the test fails.
+func newHealthBarrierWithTimeout(t devtest.T, ctx context.Context, conductors dsl.ConductorSet, scrapeTimeout time.Duration) *healthBarrier {
 	urls := make([]string, 0, len(conductors))
 	for _, c := range conductors {
 		url := metricsURLForConductor(c)
@@ -124,23 +166,23 @@ func newHealthBarrier(t devtest.T, ctx context.Context, conductors dsl.Conductor
 		urls = append(urls, url)
 	}
 
-	// The counter series only appears once a conductor has completed its first
-	// successful health check, which can lag the RPC endpoint coming up. Wait for
-	// a readable baseline before returning: the barrier measures the increase that
-	// happens AFTER a trigger, so a baseline must exist first.
 	baselines := make(map[string]float64, len(urls))
 	for _, url := range urls {
+		deadline := time.Now().Add(scrapeTimeout)
 		var count float64
 		var err error
-		for i := 0; i < 120; i++ {
+		for {
 			count, err = scrapeHealthCheckCount(ctx, url)
 			if err == nil {
+				break
+			}
+			if !time.Now().Before(deadline) {
 				break
 			}
 			select {
 			case <-ctx.Done():
 				t.Require().FailNowf("context expired while recording a health-check baseline from %s", url)
-			case <-time.After(500 * time.Millisecond):
+			case <-time.After(300 * time.Millisecond):
 			}
 		}
 		t.Require().NoErrorf(err, "record baseline health-check count from %s", url)
