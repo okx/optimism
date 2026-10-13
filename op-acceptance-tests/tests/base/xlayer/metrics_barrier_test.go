@@ -46,6 +46,84 @@ func TestScrapeHealthCheckCount_SuccessFalseOnly(t *testing.T) {
 	require.Zero(t, count, "only the success=true series may be read")
 }
 
+// TestScrapeHealthCheckCount_RejectsNearMissName verifies that a metric whose
+// name merely starts with the health-check counter is not accepted: matching is
+// exact, so a look-alike series cannot stand in for the real one.
+func TestScrapeHealthCheckCount_RejectsNearMissName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`op_conductor_healthchecks_count_total{success="true"} 7` + "\n"))
+	}))
+	defer srv.Close()
+
+	count, err := scrapeHealthCheckCount(context.Background(), srv.URL)
+	require.NoError(t, err)
+	require.Zero(t, count, "a differently named metric must not satisfy the health-check series")
+}
+
+// TestScrapeHealthCheckCount_RejectsNearMissLabel verifies that a label whose
+// value merely starts with "true" is not accepted: the label is matched as a
+// complete name="value" pair.
+func TestScrapeHealthCheckCount_RejectsNearMissLabel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`op_conductor_healthchecks_count{success="true-ish"} 7` + "\n"))
+	}))
+	defer srv.Close()
+
+	count, err := scrapeHealthCheckCount(context.Background(), srv.URL)
+	require.NoError(t, err)
+	require.Zero(t, count, "a look-alike label value must not satisfy the health-check series")
+}
+
+// TestScrapeHealthCheckCount_ExtraLabelsStillMatch verifies that a genuine
+// sample carrying additional labels is still recognised, since the match is on
+// the presence of the exact success="true" pair rather than on the whole label
+// set.
+func TestScrapeHealthCheckCount_ExtraLabelsStillMatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`op_conductor_healthchecks_count{node="a",success="true",error=""} 11` + "\n"))
+	}))
+	defer srv.Close()
+
+	count, err := scrapeHealthCheckCount(context.Background(), srv.URL)
+	require.NoError(t, err)
+	require.InDelta(t, 11.0, count, 0.001)
+}
+
+// TestXLayerHealthDeadlineEnforcement verifies that a hung metrics endpoint is
+// bounded by the local request deadline rather than by the caller's much longer
+// context: with a 300s parent context and a 3s local timeout, the request must
+// return well before the parent would have expired.
+func TestXLayerHealthDeadlineEnforcement(t *testing.T) {
+	blocked := make(chan struct{})
+	defer close(blocked)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-blocked:
+		}
+	}))
+	defer srv.Close()
+
+	parent, parentCancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer parentCancel()
+	reqCtx, reqCancel := context.WithTimeout(parent, 3*time.Second)
+	defer reqCancel()
+
+	start := time.Now()
+	_, err := scrapeHealthCheckCount(reqCtx, srv.URL)
+	elapsed := time.Since(start)
+
+	require.Error(t, err, "a hung endpoint must fail once the local deadline expires")
+	require.Less(t, elapsed, 60*time.Second,
+		"the local 3s timeout must bound the request, not the 300s parent context (took %s)", elapsed)
+}
+
 // TestScrapeHealthCheckCount_RejectsNaN verifies that a NaN counter is rejected
 // as an illegal value. Comparing NaN against a baseline is always false, so
 // accepting it would strand a caller in a timeout instead of surfacing the

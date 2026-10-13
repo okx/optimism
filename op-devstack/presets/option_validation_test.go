@@ -8,7 +8,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-devstack/sysgo"
 )
 
-func TestValidateXLayerFixedPorts(t *testing.T) {
+func TestXLayerFixedPortsValidation(t *testing.T) {
 	t.Run("valid distinct ports", func(t *testing.T) {
 		plan := sysgo.XLayerFixedPortPlan{
 			L1HTTPPort:        8545,

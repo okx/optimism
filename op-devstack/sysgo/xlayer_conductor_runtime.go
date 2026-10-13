@@ -664,11 +664,15 @@ func startXLayerHABatcher(
 	}
 }
 
-// xlayerConductorPrimary returns a StartPrimary that starts the primary CL with
-// SequencerStopped:true, preventing block production before the conductor cluster
-// is formed and Raft consensus is seeded. This avoids the primary EL advancing
-// beyond the XLayer genesis height while secondary CLs (which cannot receive
-// historical blocks via EL P2P in sequencer mode) are still at genesis.
+// xlayerConductorPrimary returns a StartPrimary that starts the primary
+// sequencer ACTIVE.
+//
+// It deliberately does not start with SequencerStopped:true. A topology that
+// constructs its primary stopped has nothing to freeze: the seeded cold start
+// requires the primary to produce at least one real block before the conductors
+// attach, so that the frozen head the cluster is seeded with is a produced block
+// rather than the genesis block. The "start stopped, then resume" dance also
+// put the conductor in a state it then had to be talked out of.
 //
 // seqExtraOpts carries the XLayer producer configuration so the primary is built
 // exactly like the other two candidates, differing only in its index.
@@ -677,12 +681,11 @@ func xlayerConductorPrimary(seqExtraOpts ...OpRethOption) func(devtest.T, devkey
 		elOpts := append(append([]OpRethOption{}, cfg.OpRethOptions...), seqExtraOpts...)
 		l2EL := startL2ELForKey(t, world.L2Network, jwtPath, jwtSecret, XLayerSequencerNodeName, NewELNodeIdentity(0), elOpts...)
 		l2CL := startL2CLNode(t, keys, world.L1Network, world.L2Network, l1EL, l1CL, l2EL, jwtSecret, l2CLNodeStartConfig{
-			Key:              XLayerSequencerNodeName,
-			IsSequencer:      true,
-			NoDiscovery:      true,
-			EnableReqResp:    true,
-			L2CLOptions:      cfg.GlobalL2CLOptions,
-			SequencerStopped: true,
+			Key:           XLayerSequencerNodeName,
+			IsSequencer:   true,
+			NoDiscovery:   true,
+			EnableReqResp: true,
+			L2CLOptions:   cfg.GlobalL2CLOptions,
 		})
 		return singleChainPrimaryRuntime{EL: l2EL, CL: l2CL}
 	}

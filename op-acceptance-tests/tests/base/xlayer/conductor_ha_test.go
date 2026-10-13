@@ -111,6 +111,7 @@ func (h *haCluster) assertAdvancement(name string) {
 // Raft leader with a full three-member membership and that every conductor's
 // health monitor really ticks afterwards.
 func TestXLayerLeaderElection(gt *testing.T) {
+	requireXLayerExecutionBinary(gt)
 	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 
@@ -147,6 +148,7 @@ func TestXLayerLeaderElection(gt *testing.T) {
 // conductor takes over, the chain keeps advancing, and all three conductors lead
 // at some point in the ring.
 func TestXLayerAutomaticFailover(gt *testing.T) {
+	requireXLayerExecutionBinary(gt)
 	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 
@@ -237,6 +239,7 @@ func (h *haCluster) serverInfo(from *dsl.Conductor, target string) consensus.Ser
 // receiving conductor emits a new health sample — twice, so the second transfer
 // exercises a leader that was itself elected by transfer.
 func TestXLayerLeadershipTransfer(gt *testing.T) {
+	requireXLayerExecutionBinary(gt)
 	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 
@@ -282,6 +285,7 @@ func TestXLayerLeadershipTransfer(gt *testing.T) {
 // back level with the current leader's, its health monitor emits a new sample,
 // and the chain keeps producing throughout.
 func TestXLayerFollowerRecovery(gt *testing.T) {
+	requireXLayerExecutionBinary(gt)
 	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 
@@ -336,6 +340,7 @@ func TestXLayerFollowerRecovery(gt *testing.T) {
 // monotonically over a sustained window, which requires the HA batcher to keep
 // following the active sequencer.
 func TestXLayerProgression(gt *testing.T) {
+	requireXLayerExecutionBinary(gt)
 	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 
@@ -370,6 +375,7 @@ func TestXLayerProgression(gt *testing.T) {
 // TestXLayerMemberStopPreservesQuorum verifies that losing a non-leader's
 // sequencer does not disturb the sequencing quorum.
 func TestXLayerMemberStopPreservesQuorum(gt *testing.T) {
+	requireXLayerExecutionBinary(gt)
 	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 
@@ -397,6 +403,7 @@ func TestXLayerMemberStopPreservesQuorum(gt *testing.T) {
 // TestXLayerBatcherAdvancesSafeHead verifies that the single HA batcher keeps the
 // safe head moving on the active sequencer.
 func TestXLayerBatcherAdvancesSafeHead(gt *testing.T) {
+	requireXLayerExecutionBinary(gt)
 	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 

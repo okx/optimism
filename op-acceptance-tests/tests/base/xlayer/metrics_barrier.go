@@ -71,33 +71,73 @@ func scrapeHealthCheckCount(ctx context.Context, metricsURL string) (float64, er
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		// The metric may carry extra labels (e.g. {success="true",error=""}), so it
-		// is matched by metric name plus the success="true" label rather than by an
-		// exact label-set prefix.
-		if !strings.HasPrefix(line, healthCheckCounterName) {
-			continue
+		value, matched, lineErr := parseHealthCheckSample(line)
+		if lineErr != nil {
+			return 0, lineErr
 		}
-		if !strings.Contains(line, `success="true"`) {
-			continue
+		if matched {
+			return value, nil
 		}
-		parts := strings.Fields(line)
-		if len(parts) != 2 {
-			return 0, fmt.Errorf("unexpected metrics line format for %s: %q", healthCheckCounterName, line)
-		}
-		value, parseErr := strconv.ParseFloat(parts[1], 64)
-		if parseErr != nil {
-			return 0, fmt.Errorf("parse metric value %q: %w", parts[1], parseErr)
-		}
-		if math.IsNaN(value) || math.IsInf(value, 0) {
-			return 0, fmt.Errorf("illegal counter value %q for %s", parts[1], healthCheckCounterName)
-		}
-		return value, nil
 	}
 	if scanErr := scanner.Err(); scanErr != nil {
 		return 0, fmt.Errorf("scan metrics response: %w", scanErr)
 	}
 	// The endpoint answered but the series does not exist yet.
 	return 0, nil
+}
+
+// parseHealthCheckSample parses one Prometheus exposition line and reports
+// whether it is the health-check counter carrying the success="true" label.
+//
+// The metric name is matched EXACTLY and the label is matched as a complete
+// name="value" pair, never by prefix or substring: with substring matching a
+// different metric whose name merely starts with this one, or a label such as
+// success="true-ish", would be silently accepted as a health sample. The
+// returned error covers a malformed line, a non-numeric or illegal value; a
+// line that simply is not the series we want reports matched=false and no error.
+func parseHealthCheckSample(line string) (value float64, matched bool, err error) {
+	var name string
+	labelSet := ""
+	valueField := ""
+	if open := strings.IndexByte(line, '{'); open >= 0 {
+		closeIdx := strings.IndexByte(line[open:], '}')
+		if closeIdx < 0 {
+			return 0, false, fmt.Errorf("unterminated label set in metrics line %q", line)
+		}
+		closeIdx += open
+		name = line[:open]
+		labelSet = line[open+1 : closeIdx]
+		valueField = strings.TrimSpace(line[closeIdx+1:])
+	} else {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			return 0, false, fmt.Errorf("unexpected metrics line format: %q", line)
+		}
+		name = fields[0]
+		valueField = fields[1]
+	}
+	if name != healthCheckCounterName {
+		return 0, false, nil
+	}
+	wantLabel := `success="true"`
+	hasLabel := false
+	for _, label := range strings.Split(labelSet, ",") {
+		if strings.TrimSpace(label) == wantLabel {
+			hasLabel = true
+			break
+		}
+	}
+	if !hasLabel {
+		return 0, false, nil
+	}
+	value, parseErr := strconv.ParseFloat(valueField, 64)
+	if parseErr != nil {
+		return 0, false, fmt.Errorf("parse metric value %q: %w", valueField, parseErr)
+	}
+	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+		return 0, false, fmt.Errorf("illegal counter value %q for %s", valueField, healthCheckCounterName)
+	}
+	return value, true, nil
 }
 
 // awaitHealthSampleIncrease polls every endpoint until each one reports a value

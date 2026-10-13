@@ -70,6 +70,7 @@ func assertPortsFree(t require.TestingT, ports ...int) {
 // 8547/8548/8549 — and reports what it sees, so the assertions never read the
 // devstack's internal ws:// proxy (which is not the external listener).
 func TestXLayerFixedPortsCrossProcess(gt *testing.T) {
+	requireXLayerExecutionBinary(gt)
 	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 
@@ -178,6 +179,7 @@ sys.stdout.write(json.dumps(out))
 // well-known fixed ports is occupied by it. Two instances are alive at the same
 // time to show that the random path cannot clash with itself either.
 func TestXLayerRandomDefaultRegression(gt *testing.T) {
+	requireXLayerExecutionBinary(gt)
 	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 
@@ -243,6 +245,7 @@ func TestXLayerFixedPortCollisionCleanup(gt *testing.T) {
 // TestXLayerL1HTTPPortIsFixed verifies that the in-process L1 EL binds to the
 // port specified in XLayerFixedPortPlan.L1HTTPPort by dialling it directly.
 func TestXLayerL1HTTPPortIsFixed(gt *testing.T) {
+	requireXLayerExecutionBinary(gt)
 	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 
@@ -262,6 +265,7 @@ func TestXLayerL1HTTPPortIsFixed(gt *testing.T) {
 // TestXLayerELHTTPPortsAreFixed verifies that each sequencer EL binds to its own
 // planned port.
 func TestXLayerELHTTPPortsAreFixed(gt *testing.T) {
+	requireXLayerExecutionBinary(gt)
 	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 
@@ -283,6 +287,7 @@ func TestXLayerELHTTPPortsAreFixed(gt *testing.T) {
 // TestXLayerConductorRPCPortsAreFixed verifies that each in-process conductor
 // binds to its own planned RPC port.
 func TestXLayerConductorRPCPortsAreFixed(gt *testing.T) {
+	requireXLayerExecutionBinary(gt)
 	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"math/big"
 	"net"
+	"os"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,6 +19,32 @@ import (
 
 	"github.com/ethereum-optimism/optimism/op-devstack/devtest"
 )
+
+// requireXLayerExecutionBinary resolves the XLayer execution client from
+// XLAYER_RETH_BIN and records the version it reports.
+//
+// The producer and flashblocks flags this acceptance path depends on exist only
+// in that build. When the binary is absent or cannot report a version, the
+// caller is blocked: the test skips with an explicit reason and can never report
+// a pass, because a green XLayer-named test that never exercised an XLayer
+// client would be worse than no test at all.
+func requireXLayerExecutionBinary(t *testing.T) (path, version string) {
+	t.Helper()
+	path = os.Getenv("XLAYER_RETH_BIN")
+	if path == "" {
+		t.Skip("BLOCKED: XLAYER_RETH_BIN not available — cannot validate XLayer acceptance")
+	}
+	out, err := exec.Command(path, "--version").CombinedOutput()
+	if err != nil {
+		t.Skipf("BLOCKED: XLAYER_RETH_BIN at %s cannot report a version: %v (%s)",
+			path, err, strings.TrimSpace(string(out)))
+	}
+	version = strings.TrimSpace(string(out))
+	if version == "" {
+		t.Skipf("BLOCKED: XLAYER_RETH_BIN at %s reported an empty version string", path)
+	}
+	return path, version
+}
 
 // stubCloser records that the rollback path released the resource it wraps.
 type stubCloser struct {
@@ -181,8 +209,19 @@ func xlayerConductorRuntimes(runtime *SingleChainRuntime) map[string]L2ELNode {
 // head sampled inside the paused window is not observable from outside. Everything
 // asserted here is read from the running cluster.
 func TestXLayerConductorColdStartSeed(t *testing.T) {
+	// The producer and flashblocks flags this acceptance gate depends on belong to
+	// the XLayer build of the execution client, which is supplied out of band. A
+	// run without it cannot exercise the XLayer producer path, so it must report
+	// blocked rather than pass: a green XLayer-named test that never touched an
+	// XLayer client would be worse than no test at all.
+	binPath, binVersion := requireXLayerExecutionBinary(t)
+	t.Logf("XLayer execution binary: path=%s version=%s", binPath, binVersion)
+
+	cfg := PresetConfig{
+		OpRethOptions: []OpRethOption{OpRethWithBinary(binPath)},
+	}
 	dt := devtest.SerialT(t)
-	runtime := NewXLayerWithConductorsRuntimeWithConfig(dt, PresetConfig{})
+	runtime := NewXLayerWithConductorsRuntimeWithConfig(dt, cfg)
 	require.Len(t, runtime.Conductors, 3, "expected three conductors")
 	els := xlayerConductorRuntimes(runtime)
 	require.Len(t, els, 3, "expected three sequencer EL backends")
@@ -217,14 +256,9 @@ func TestXLayerConductorColdStartSeed(t *testing.T) {
 			"candidate %s carries a different producer configuration than %s", name, names[0])
 	}
 
-	if !producerCandidates[names[0]] {
-		// The preset did not configure an XLayer execution binary, so the
-		// producer/flashblocks flags are not applicable: the generic client
-		// rejects them outright and would not start. Recorded rather than
-		// asserted, so the evidence states which binary was actually exercised.
-		t.Logf("XLayer producer configuration not applied: no XLayer execution binary configured")
-		return
-	}
+	// The binary is present (gated above), so every candidate must actually carry
+	// the producer configuration. A candidate that quietly fell back to a plain
+	// follower would be unable to take over sequencing.
 	for _, name := range names {
 		require.Truef(t, producerCandidates[name],
 			"candidate %s must carry the XLayer producer configuration", name)
