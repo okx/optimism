@@ -226,7 +226,7 @@ mod tests {
             .expect("sepolia-devnet-2 missing from embedded DEPENDENCY_SETS");
         assert!(OPCHAINS.contains_key(&SEPOLIA_DEVNET_2));
         let expected: alloc::collections::BTreeSet<u64> =
-            [SEPOLIA_DEVNET_2].into_iter().collect();
+            core::iter::once(SEPOLIA_DEVNET_2).collect();
         let actual: alloc::collections::BTreeSet<u64> =
             depset.dependencies.keys().copied().collect();
         assert_eq!(actual, expected, "sepolia-devnet-2 cluster membership mismatch");
