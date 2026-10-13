@@ -206,26 +206,6 @@ func (b *healthBarrier) awaitNewSample(t devtest.T, ctx context.Context, conduct
 		"conductors must emit a new successful health-check sample within %s", timeout)
 }
 
-// awaitLeader polls the given ConductorSet until one conductor reports it is
-// the Raft leader, then returns that conductor.
-func awaitLeader(t devtest.T, ctx context.Context, conductors dsl.ConductorSet, timeout time.Duration) *dsl.Conductor {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		for _, c := range conductors {
-			if c.IsLeader() {
-				return c
-			}
-		}
-		select {
-		case <-ctx.Done():
-			t.Require().FailNow("context expired while waiting for a conductor leader")
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
-	t.Require().FailNow("timed out waiting for a conductor leader")
-	return nil
-}
-
 // awaitAllHealthy waits until every conductor in the set has emitted at least
 // one new successful health-check sample since this call was made, using the
 // Prometheus op_conductor_healthchecks_count{success="true"} counter as the
