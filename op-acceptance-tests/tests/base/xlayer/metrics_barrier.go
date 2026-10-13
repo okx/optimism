@@ -69,6 +69,101 @@ func scrapeHealthCheckCount(ctx context.Context, metricsURL string) (float64, er
 	return 0, fmt.Errorf("op_conductor_healthchecks_count with success=true not found at %s", metricsURL)
 }
 
+// awaitHealthSampleIncrease polls every endpoint until each one reports a value
+// strictly greater than the baseline recorded for it, or timeout elapses. A
+// successful scrape that has not moved yet is not an error — it is the condition
+// being waited for. A failed scrape or an unparsable value is an immediate
+// error, never a silent zero, because a silent zero would let a dead conductor
+// satisfy the barrier.
+func awaitHealthSampleIncrease(ctx context.Context, metricsURLs []string, baselines map[string]float64, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		allAdvanced := true
+		for _, url := range metricsURLs {
+			count, err := scrapeHealthCheckCount(ctx, url)
+			if err != nil {
+				return err
+			}
+			if count <= baselines[url] {
+				allAdvanced = false
+				break
+			}
+		}
+		if allAdvanced {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("no new successful health-check sample within %s from %d conductor(s)", timeout, len(metricsURLs))
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
+}
+
+// healthBarrier records one health-check-count reading per conductor at the
+// moment it is created, so a test can require a genuinely new sample after a
+// trigger (a failover, a leadership transfer) rather than trusting a cached
+// boolean that a stopped conductor can also carry.
+type healthBarrier struct {
+	metricsURLs []string
+	baselines   map[string]float64
+}
+
+// newHealthBarrier resolves each conductor's metrics endpoint and records its
+// current op_conductor_healthchecks_count{success="true"} value. Every reading
+// must succeed: a conductor whose metrics cannot be scraped is an error, not a
+// zero baseline.
+func newHealthBarrier(t devtest.T, ctx context.Context, conductors dsl.ConductorSet) *healthBarrier {
+	urls := make([]string, 0, len(conductors))
+	for _, c := range conductors {
+		url := metricsURLForConductor(c)
+		t.Require().NotEmptyf(url, "conductor %s has no metrics URL; the health barrier needs real metrics", c.String())
+		urls = append(urls, url)
+	}
+
+	// The counter series only appears once a conductor has completed its first
+	// successful health check, which can lag the RPC endpoint coming up. Wait for
+	// a readable baseline before returning: the barrier measures the increase that
+	// happens AFTER a trigger, so a baseline must exist first.
+	baselines := make(map[string]float64, len(urls))
+	for _, url := range urls {
+		var count float64
+		var err error
+		for i := 0; i < 120; i++ {
+			count, err = scrapeHealthCheckCount(ctx, url)
+			if err == nil {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				t.Require().FailNowf("context expired while recording a health-check baseline from %s", url)
+			case <-time.After(500 * time.Millisecond):
+			}
+		}
+		t.Require().NoErrorf(err, "record baseline health-check count from %s", url)
+		baselines[url] = count
+	}
+	return &healthBarrier{metricsURLs: urls, baselines: baselines}
+}
+
+// awaitNewSample requires at least one new successful health-check sample from
+// each of the given conductors within timeout.
+func (b *healthBarrier) awaitNewSample(t devtest.T, ctx context.Context, conductors dsl.ConductorSet, timeout time.Duration) {
+	urls := make([]string, 0, len(conductors))
+	for _, c := range conductors {
+		url := metricsURLForConductor(c)
+		t.Require().NotEmptyf(url, "conductor %s has no metrics URL; the health barrier needs real metrics", c.String())
+		_, recorded := b.baselines[url]
+		t.Require().Truef(recorded, "conductor %s has no recorded baseline; build the barrier from a set that includes it", c.String())
+		urls = append(urls, url)
+	}
+	t.Require().NoErrorf(awaitHealthSampleIncrease(ctx, urls, b.baselines, timeout),
+		"conductors must emit a new successful health-check sample within %s", timeout)
+}
+
 // awaitLeader polls the given ConductorSet until one conductor reports it is
 // the Raft leader, then returns that conductor.
 func awaitLeader(t devtest.T, ctx context.Context, conductors dsl.ConductorSet, timeout time.Duration) *dsl.Conductor {
@@ -95,45 +190,5 @@ func awaitLeader(t devtest.T, ctx context.Context, conductors dsl.ConductorSet, 
 // barrier. Returns an error (via t.Require) if any scrape fails or the counter
 // does not advance within timeout.
 func awaitAllHealthy(t devtest.T, ctx context.Context, conductors dsl.ConductorSet, timeout time.Duration) {
-	baselines := make(map[string]float64, len(conductors))
-	for _, c := range conductors {
-		url := metricsURLForConductor(c)
-		t.Require().NotEmptyf(url, "conductor %s has no metrics URL; metrics barrier requires real metrics", c.String())
-		var baselineCount float64
-		var baselineErr error
-		for i := 0; i < 10; i++ {
-			baselineCount, baselineErr = scrapeHealthCheckCount(ctx, url)
-			if baselineErr == nil {
-				break
-			}
-			time.Sleep(300 * time.Millisecond)
-		}
-		t.Require().NoErrorf(baselineErr, "get baseline health-check count from conductor %s", c.String())
-		baselines[c.String()] = baselineCount
-	}
-
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		allAdvanced := true
-		for _, c := range conductors {
-			url := metricsURLForConductor(c)
-			count, scrapeErr := scrapeHealthCheckCount(ctx, url)
-			if scrapeErr != nil {
-				t.Require().NoErrorf(scrapeErr, "scrape health-check count from conductor %s", c.String())
-			}
-			if count <= baselines[c.String()] {
-				allAdvanced = false
-				break
-			}
-		}
-		if allAdvanced {
-			return
-		}
-		select {
-		case <-ctx.Done():
-			t.Require().FailNow("context expired while waiting for all conductors to emit new health-check samples")
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
-	t.Require().FailNow("timed out waiting for all conductors to emit new health-check samples")
+	newHealthBarrier(t, ctx, conductors).awaitNewSample(t, ctx, conductors, timeout)
 }

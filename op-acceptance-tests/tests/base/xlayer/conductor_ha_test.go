@@ -92,6 +92,11 @@ func TestXLayerConductorFailoverOnLeaderStop(gt *testing.T) {
 	// unsafe-interval health check fires immediately.
 	awaitAllHealthy(t, ctx, conductors, 60*time.Second)
 
+	// Record a per-conductor health-sample baseline before the failover trigger so
+	// the survivors' health monitors must be seen to tick afterwards, rather than
+	// trusting a boolean that a stopped conductor can also carry.
+	barrier := newHealthBarrier(t, ctx, conductors)
+
 	require.NoError(t, els[stoppedName].StopControlled(ctx), "stop leader EL %s", stoppedName)
 
 	// Wait for a conductor other than the stopped one to win the election.
@@ -107,6 +112,17 @@ func TestXLayerConductorFailoverOnLeaderStop(gt *testing.T) {
 	}, 60*time.Second, 500*time.Millisecond,
 		"a conductor other than %s must become leader after EL stop", stoppedName)
 	wasLeader[newLeader.String()] = true
+
+	// The surviving conductors must produce a new successful health-check sample
+	// after the trigger. The stopped node is excluded: its EL is down, so its own
+	// success counter is expected to stall.
+	survivors := make(dsl.ConductorSet, 0, len(conductors)-1)
+	for _, c := range conductors {
+		if c.String() != stoppedName {
+			survivors = append(survivors, c)
+		}
+	}
+	barrier.awaitNewSample(t, ctx, survivors, 30*time.Second)
 
 	cls[newLeader.String()].AdvancedUnsafe(3, 60)
 	cls[newLeader.String()].Advanced(safety.CrossSafe, 1, 90)
@@ -175,6 +191,11 @@ func TestXLayerConductorLeadershipTransfer(gt *testing.T) {
 	leader := awaitLeader(t, ctx, conductors, 30*time.Second)
 	require.NotNil(t, leader, "an initial leader must be elected")
 
+	// Let every conductor's health monitor tick once before the first baseline is
+	// taken, so the pre-trigger reading is a real sample rather than a series that
+	// has not been created yet.
+	awaitAllHealthy(t, ctx, conductors, 60*time.Second)
+
 	// Transfer leadership to each non-leader conductor in turn.
 	for _, target := range conductors {
 		if target == leader {
@@ -192,11 +213,17 @@ func TestXLayerConductorLeadershipTransfer(gt *testing.T) {
 		}
 		require.NotNil(t, targetServerInfo, "target conductor %q must appear in cluster membership", target.String())
 
+		// Baseline every conductor before this transfer trigger, then require the
+		// new leader to emit a genuinely new successful health-check sample.
+		barrier := newHealthBarrier(t, ctx, conductors)
+
 		leader.TransferLeadershipTo(*targetServerInfo)
 
 		require.Eventually(t, func() bool {
 			return target.IsLeader()
 		}, 30*time.Second, 500*time.Millisecond, "leadership must transfer to conductor %q", target.String())
+
+		barrier.awaitNewSample(t, ctx, dsl.ConductorSet{target}, 30*time.Second)
 
 		leader = target
 	}

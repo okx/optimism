@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"path/filepath"
 	"strconv"
 	"sync/atomic"
@@ -32,33 +33,149 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 )
 
+// xlayerSequencerNodeNames and xlayerConductorNames name the owners of the three
+// EL ports and three conductor RPC ports so a port conflict can be reported as
+// component + port rather than as a bare bind error.
+var (
+	xlayerSequencerNodeNames = [3]string{"sequencer", "sequencer2", "sequencer3"}
+	xlayerConductorNames     = [3]string{"conductor1", "conductor2", "conductor3"}
+)
+
+// xlayerFixedPortEndpoint pairs a component with the fixed port a plan asks it
+// to own.
+type xlayerFixedPortEndpoint struct {
+	component string
+	port      int
+}
+
+// xlayerFixedPortEndpoints lists every non-zero fixed port in plan together with
+// the component that owns it. A nil plan yields no endpoints.
+func xlayerFixedPortEndpoints(plan *XLayerFixedPortPlan) []xlayerFixedPortEndpoint {
+	if plan == nil {
+		return nil
+	}
+	out := make([]xlayerFixedPortEndpoint, 0, 7)
+	if plan.L1HTTPPort != 0 {
+		out = append(out, xlayerFixedPortEndpoint{component: "L1 EL", port: plan.L1HTTPPort})
+	}
+	for i, port := range plan.ELHTTPPorts {
+		if port == 0 {
+			continue
+		}
+		out = append(out, xlayerFixedPortEndpoint{
+			component: "L2 EL " + xlayerSequencerNodeNames[i],
+			port:      port,
+		})
+	}
+	for i, port := range plan.ConductorRPCPorts {
+		if port == 0 {
+			continue
+		}
+		out = append(out, xlayerFixedPortEndpoint{
+			component: "conductor " + xlayerConductorNames[i],
+			port:      port,
+		})
+	}
+	return out
+}
+
+// checkXLayerFixedPortsAvailable reports the first fixed port in plan that cannot
+// be bound on loopback at this moment, naming the component and the port.
+//
+// This is a fail-fast check that runs before any resource is created: without it
+// a conflict only surfaces much later as an op-reth startup timeout with no
+// indication of which listener was refused. The port is not reserved here — the
+// authoritative claim is still made by the owning process (op-reth's own
+// --http.port bind, op-conductor's own RPC listen), so a conflict that appears
+// between this check and that bind is still reported by the bind itself.
+func checkXLayerFixedPortsAvailable(plan *XLayerFixedPortPlan) error {
+	for _, ep := range xlayerFixedPortEndpoints(plan) {
+		ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(ep.port)))
+		if err != nil {
+			return fmt.Errorf("%s cannot bind fixed port %d: %w", ep.component, ep.port, err)
+		}
+		_ = ln.Close()
+	}
+	return nil
+}
+
+// xlayerClosable is a started resource that can be released again. The rollback
+// path needs only this much, which keeps it independent of the full node
+// interfaces and lets tests supply a lightweight fake.
+type xlayerClosable interface {
+	Stop()
+}
+
+// xlayerSequencerStartFuncs are the two startup steps of one XLayer sequencer
+// node. The indirection exists so the rollback contract can be exercised with
+// fakes as well as with the real devstack starters.
+type xlayerSequencerStartFuncs struct {
+	startEL func(name string, index int, cfg PresetConfig) (L2ELNode, xlayerClosable, error)
+	startCL func(name string, el L2ELNode, cfg PresetConfig) (*OpNode, error)
+}
+
+// startXLayerSequencerNodeWith starts one XLayer sequencer node in two steps and
+// unwinds whatever it already created when a later step fails: if the CL cannot
+// be started, the EL started by the first step is closed before the error is
+// returned, so a partially started node never leaves a running process or a
+// bound listener behind. Nothing is registered unless both steps succeeded.
+func startXLayerSequencerNodeWith(name string, index int, cfg PresetConfig, f xlayerSequencerStartFuncs) (*SingleChainNodeRuntime, *OpNode, error) {
+	el, elCloser, err := f.startEL(name, index, cfg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("start EL for XLayer sequencer %q: %w", name, err)
+	}
+	cl, err := f.startCL(name, el, cfg)
+	if err != nil {
+		if elCloser != nil {
+			elCloser.Stop()
+		}
+		return nil, nil, fmt.Errorf("start CL for XLayer sequencer %q, EL already rolled back: %w", name, err)
+	}
+	return newSingleChainNodeRuntime(name, true, el, cl), cl, nil
+}
+
 // addXLayerSequencerNode starts a secondary or tertiary XLayer sequencer EL+CL
 // pair and registers it in runtime.Nodes[name]. The CL is started with
 // SequencerStopped=true so a conductor can attach before block production begins.
 // index selects the ELHTTPPorts entry when fixed ports are configured (0-based).
-func addXLayerSequencerNode(t devtest.T, runtime *SingleChainRuntime, name string, index int, cfg PresetConfig) (*SingleChainNodeRuntime, *OpNode) {
+// A fixed-port conflict is reported before anything is started, and a failure
+// after the EL is up closes the EL again.
+func addXLayerSequencerNode(t devtest.T, runtime *SingleChainRuntime, name string, index int, cfg PresetConfig) (*SingleChainNodeRuntime, *OpNode, error) {
 	jwtPath := runtime.L2EL.JWTPath()
 	jwtSecret := readJWTSecretFromPath(t, jwtPath)
 
-	elOpts := append([]OpRethOption{}, cfg.OpRethOptions...)
-	if cfg.XLayerFixedPorts != nil && index < len(cfg.XLayerFixedPorts.ELHTTPPorts) {
-		if port := cfg.XLayerFixedPorts.ELHTTPPorts[index]; port != 0 {
-			elOpts = append(elOpts, OpRethWithHTTPPort(port))
-		}
+	starters := xlayerSequencerStartFuncs{
+		startEL: func(name string, index int, cfg PresetConfig) (L2ELNode, xlayerClosable, error) {
+			elOpts := append([]OpRethOption{}, cfg.OpRethOptions...)
+			if cfg.XLayerFixedPorts != nil && index < len(cfg.XLayerFixedPorts.ELHTTPPorts) {
+				if port := cfg.XLayerFixedPorts.ELHTTPPorts[index]; port != 0 {
+					elOpts = append(elOpts, OpRethWithHTTPPort(port))
+				}
+			}
+			el := startL2ELForKey(t, runtime.L2Network, jwtPath, jwtSecret, name, NewELNodeIdentity(0), elOpts...)
+			// The EL process must be releasable if a later step of this node's
+			// startup fails. Every EL backend used here is a stack.Lifecycle.
+			closer, _ := el.(xlayerClosable)
+			return el, closer, nil
+		},
+		startCL: func(name string, el L2ELNode, cfg PresetConfig) (*OpNode, error) {
+			return startL2CLNode(t, runtime.Keys, runtime.L1Network, runtime.L2Network, runtime.L1EL, runtime.L1CL, el, jwtSecret, l2CLNodeStartConfig{
+				Key:              name,
+				IsSequencer:      true,
+				NoDiscovery:      true,
+				EnableReqResp:    true,
+				L2CLOptions:      cfg.GlobalL2CLOptions,
+				SequencerStopped: true,
+			}), nil
+		},
 	}
 
-	l2EL := startL2ELForKey(t, runtime.L2Network, jwtPath, jwtSecret, name, NewELNodeIdentity(0), elOpts...)
-	l2CL := startL2CLNode(t, runtime.Keys, runtime.L1Network, runtime.L2Network, runtime.L1EL, runtime.L1CL, l2EL, jwtSecret, l2CLNodeStartConfig{
-		Key:              name,
-		IsSequencer:      true,
-		NoDiscovery:      true,
-		EnableReqResp:    true,
-		L2CLOptions:      cfg.GlobalL2CLOptions,
-		SequencerStopped: true,
-	})
-	node := newSingleChainNodeRuntime(name, true, l2EL, l2CL)
+	node, cl, err := startXLayerSequencerNodeWith(name, index, cfg, starters)
+	if err != nil {
+		return nil, nil, err
+	}
 	runtime.Nodes[name] = node
-	return node, l2CL
+	return node, cl, nil
 }
 
 // startXLayerConductorNode attaches an in-process op-conductor to opNode.
@@ -127,16 +244,14 @@ func startXLayerConductorNode(
 		Paused:                  paused,
 		HealthCheck: opconductor.HealthCheckConfig{
 			Interval:       2,
-			UnsafeInterval: 60, // devnet startup lag ≈14s; 60s clears the gap safely
+			UnsafeInterval: 12,
 			SafeInterval:   120,
 			SafeEnabled:    false,
-			MinPeerCount:   0, // 0 disables the CL peer count check: devnet dynamic peers drop silently
-			// EL availability check: conductor goes unhealthy when its local EL process
-			// dies (net_peerCount returns error).  MinPeerCount=0 means no peer count
-			// threshold — just the liveness probe.  This breaks the UnsafeInterval
-			// deadlock: when the leader EL stops, only the leader's conductor becomes
-			// unhealthy immediately; the other two conductors' ELs are still alive so
-			// they remain healthy and one can win the Raft re-election.
+			MinPeerCount:   1,
+			// EL liveness probe: the conductor goes unhealthy as soon as its own
+			// EL process dies (the net_peerCount call errors out). That keeps a
+			// stopped leader from being reported healthy by its conductor while
+			// the other two conductors stay healthy and can win the re-election.
 			ExecutionP2pEnabled:      true,
 			ExecutionP2pRPCUrl:       l2EL.UserRPC(),
 			ExecutionP2pCheckApi:     "net",
@@ -163,16 +278,23 @@ func startXLayerConductorNode(
 
 	logger := t.Logger().New("component", "conductor", "name", conductorName, "chain", l2Net.ChainID())
 	svc, err := opconductor.New(t.Ctx(), &conductorCfg, logger, "0.0.1")
-	require.NoError(err)
-	require.NoError(svc.Start(t.Ctx()))
-	t.Cleanup(func() {
+	require.NoErrorf(err, "construct conductor %s", conductorName)
+	stopConductor := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		logger.Info("Closing conductor")
 		if err := svc.Stop(ctx); err != nil {
 			logger.Warn("Failed to close conductor cleanly", "err", err)
 		}
-	})
+	}
+	if err := svc.Start(t.Ctx()); err != nil {
+		// A bind failure here means the conductor's own RPC or metrics listener
+		// could not be claimed. Close whatever listener did come up before
+		// surfacing the error, so a failed attach leaves nothing behind.
+		stopConductor()
+		require.NoErrorf(err, "start conductor %s (RPC port %d, metrics port %d)", conductorName, rpcPort, metricsPort)
+	}
+	t.Cleanup(stopConductor)
 
 	out := &Conductor{
 		name:              conductorName,
@@ -454,6 +576,11 @@ func xlayerConductorPrimary(seqExtraOpts ...OpRethOption) func(devtest.T, devkey
 // P2P mesh. All conductors start paused; after Raft consensus is seeded from the
 // primary EL's current unsafe head, they are resumed and begin sequencing.
 func NewXLayerWithConductorsRuntimeWithConfig(t devtest.T, cfg PresetConfig) *SingleChainRuntime {
+	// Fail fast on a fixed-port conflict before any world, L1, EL or conductor
+	// resource exists, so an unavailable port allocates nothing.
+	t.Require().NoError(checkXLayerFixedPortsAvailable(cfg.XLayerFixedPorts),
+		"a fixed port in XLayerFixedPortPlan is not available")
+
 	cfg.DeployerOptions = append([]DeployerOption{
 		WithXLayerL2GenesisHeight(XLayerDefaultL2GenesisHeight),
 		WithUniformL2BlockTimes(XLayerDefaultL2BlockTime),
@@ -480,8 +607,10 @@ func NewXLayerWithConductorsRuntimeWithConfig(t devtest.T, cfg PresetConfig) *Si
 		StartChallenger: false,
 	})
 
-	seq2Node, seq2CL := addXLayerSequencerNode(t, runtime, "sequencer2", 1, cfg)
-	seq3Node, seq3CL := addXLayerSequencerNode(t, runtime, "sequencer3", 2, cfg)
+	seq2Node, seq2CL, err := addXLayerSequencerNode(t, runtime, "sequencer2", 1, cfg)
+	t.Require().NoError(err, "add secondary XLayer sequencer node")
+	seq3Node, seq3CL, err := addXLayerSequencerNode(t, runtime, "sequencer3", 2, cfg)
+	t.Require().NoError(err, "add tertiary XLayer sequencer node")
 
 	// Wire the full EL P2P mesh (trusted=true for sequencer peers).
 	connectL2ELPeers(t, t.Logger(), runtime.L2EL.UserRPC(), seq2Node.EL.UserRPC(), true)
