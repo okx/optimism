@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -29,6 +31,7 @@ import (
 	opmetrics "github.com/ethereum-optimism/optimism/op-service/metrics"
 	"github.com/ethereum-optimism/optimism/op-service/retry"
 	oprpc "github.com/ethereum-optimism/optimism/op-service/rpc"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -175,6 +178,101 @@ func xlayerExecutionBinaryUsable(path string) bool {
 		return false
 	}
 	return info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0
+}
+
+// xlayerBinaryProbeTimeout bounds every subprocess the binary probe starts.
+// Without a bound, a binary that hangs would stall the whole test process
+// instead of failing one check, and a hang is exactly the failure a probe is
+// there to report.
+const xlayerBinaryProbeTimeout = 5 * time.Second
+
+// xlayerExpectedExecutionFlags are the flags this topology configures on the
+// execution client. The probe asks the chosen binary itself whether it
+// advertises them, so a program that merely exists and prints a version string
+// cannot be mistaken for a client that supports the listeners this topology
+// pins.
+var xlayerExpectedExecutionFlags = []string{"--http.port", "--authrpc.port", "--ws.port"}
+
+// xlayerBinaryProbe records what probing the chosen execution binary found.
+type xlayerBinaryProbe struct {
+	// Path is the binary that was actually selected.
+	Path string
+	// Source says how that path was selected, so a wrong choice is diagnosable
+	// rather than mysterious.
+	Source string
+	// Version is the version string the binary reported about itself.
+	Version string
+	// Flags are the expected flags the binary advertised.
+	Flags []string
+}
+
+// resolveXLayerExecutionBinary identifies the execution binary the preset
+// actually selected and probes that exact file.
+//
+// Existence, versions and flags are three independent checks on purpose. A path
+// can name a real executable that is not an execution client at all; a program
+// can exit zero from --version while printing nothing; and a client can report a
+// version while rejecting the very flags this topology passes it. Each of those
+// would otherwise surface much later as an unexplained startup timeout, with no
+// indication that the wrong program was chosen.
+func resolveXLayerExecutionBinary(ctx context.Context, t devtest.T, cfg PresetConfig) (xlayerBinaryProbe, error) {
+	path := xlayerExecutionBinary(t, cfg)
+	if path == "" {
+		return xlayerBinaryProbe{}, fmt.Errorf("no execution binary was selected by the preset's execution options")
+	}
+	return probeXLayerExecutionBinary(ctx, path, "preset execution options")
+}
+
+// probeXLayerExecutionBinary verifies one binary path and records what it
+// reported. source is carried through unchanged so the caller can say why this
+// path was the one chosen.
+func probeXLayerExecutionBinary(ctx context.Context, path string, source string) (xlayerBinaryProbe, error) {
+	probe := xlayerBinaryProbe{Path: path, Source: source}
+
+	if !xlayerExecutionBinaryUsable(path) {
+		return probe, fmt.Errorf("execution binary %s (%s) is not an executable regular file", path, source)
+	}
+
+	versionOut, err := xlayerRunProbeCommand(ctx, path, "--version")
+	if err != nil {
+		return probe, fmt.Errorf("probe %s --version (%s): %w", path, source, err)
+	}
+	probe.Version = strings.TrimSpace(versionOut)
+	if probe.Version == "" {
+		return probe, fmt.Errorf("cannot determine binary version: %s --version reported no version string", path)
+	}
+
+	helpOut, err := xlayerRunProbeCommand(ctx, path, "--help")
+	if err != nil {
+		return probe, fmt.Errorf("probe %s --help (%s): %w", path, source, err)
+	}
+	missing := make([]string, 0, len(xlayerExpectedExecutionFlags))
+	for _, flag := range xlayerExpectedExecutionFlags {
+		if strings.Contains(helpOut, flag) {
+			probe.Flags = append(probe.Flags, flag)
+			continue
+		}
+		missing = append(missing, flag)
+	}
+	if len(missing) > 0 {
+		return probe, fmt.Errorf("execution binary %s does not advertise %s", path, strings.Join(missing, ", "))
+	}
+	return probe, nil
+}
+
+// xlayerRunProbeCommand runs one probe subprocess under a bounded context, so a
+// hanging binary becomes a reported timeout rather than a stalled test.
+func xlayerRunProbeCommand(ctx context.Context, path string, arg string) (string, error) {
+	probeCtx, cancel := context.WithTimeout(ctx, xlayerBinaryProbeTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(probeCtx, path, arg).CombinedOutput()
+	if probeCtx.Err() != nil {
+		return string(out), fmt.Errorf("binary probe timed out after %s", xlayerBinaryProbeTimeout)
+	}
+	if err != nil {
+		return string(out), fmt.Errorf("%w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
 }
 
 // xlayerCandidateExtraOptions returns the options one sequencer candidate adds
@@ -470,18 +568,108 @@ func startXLayerConductorNode(
 	return out
 }
 
-// startXLayerConductorClusterSeeded bootstraps a 3-node Raft cluster for the
-// non-zero XLayer genesis. It waits for all secondary CLs to reach the primary's
-// unsafe head, commits a seeding payload via the leader, then resumes all conductors
-// so they begin sequencing.
+// xlayerConductorAttachDelay is the deliberate pause between freezing the common
+// head and attaching the conductors.
+//
+// The pause is not decoration: it is what makes the cold-start phase boundary
+// observable. Without it, "the head was frozen before the conductors attached"
+// is an assumption about instruction order; with it, the elapsed time is
+// measurable and can be asserted. The value only has to be long enough to be
+// measured, which one second comfortably is at process granularity.
+const xlayerConductorAttachDelay = 1 * time.Second
+
+// xlayerFrozenSeed is the state the cold start freezes before any conductor is
+// attached: the block every candidate must already sit on, the payload the Raft
+// state machine is seeded with, and the moment the freeze was taken.
+type xlayerFrozenSeed struct {
+	Number   uint64
+	Hash     common.Hash
+	Payload  *eth.ExecutionPayloadEnvelope
+	FrozenAt time.Time
+}
+
+// freezeXLayerSeed waits for the primary to produce a real block, freezes that
+// head as ONE (number, hash) observation, and converges every other candidate
+// onto it.
+//
+// All of this happens while no conductor exists yet. That ordering is the point
+// of the phased cold start: the cluster is seeded with a block that is already
+// common to every candidate, so no conductor can be attached to a head the other
+// candidates do not have, and no candidate is sequencing while the seed is taken.
+func freezeXLayerSeed(t devtest.T, primaryEL L2ELNode, secondaryELs []L2ELNode, l2Net *L2Network) xlayerFrozenSeed {
+	require := t.Require()
+	ctx, cancel := context.WithTimeout(t.Ctx(), 90*time.Second)
+	defer cancel()
+
+	// The primary is started active, so it produces on its own. Wait for a block
+	// strictly above the non-zero genesis rather than sampling once: a sample taken
+	// before the first block would freeze genesis, which is not a produced block and
+	// would leave the cluster with nothing startable to seed.
+	var block *types.Block
+	err := retry.Do0(ctx, 90, retry.Fixed(500*time.Millisecond), func() error {
+		latest, blockErr := xlayerFrozenBlock(ctx, primaryEL)
+		if blockErr != nil {
+			return blockErr
+		}
+		if latest.NumberU64() <= XLayerDefaultL2GenesisHeight {
+			return fmt.Errorf("primary has not produced a block above the XLayer genesis height %d yet (head %d)",
+				XLayerDefaultL2GenesisHeight, latest.NumberU64())
+		}
+		block = latest
+		return nil
+	})
+	require.NoError(err, "the primary must produce a real block before the seed is frozen")
+
+	payload, err := eth.BlockAsPayloadEnv(block, l2Net.ChainConfig())
+	require.NoError(err, "convert the frozen block to an execution payload envelope")
+
+	seed := xlayerFrozenSeed{
+		Number:   block.NumberU64(),
+		Hash:     block.Hash(),
+		Payload:  payload,
+		FrozenAt: time.Now(),
+	}
+	t.Logger().New("component", "xlayer-conductor-seed").Info(
+		"Froze the common head before attaching any conductor",
+		"seedNumber", seed.Number, "seedHash", seed.Hash, "frozenAt", seed.FrozenAt)
+
+	// Converge every other candidate on the frozen block — same number AND same
+	// hash. A height-only comparison would be satisfied by a different block at the
+	// same height, which is the divergence this phase exists to rule out.
+	for i, el := range secondaryELs {
+		convergeErr := retry.Do0(ctx, 60, retry.Fixed(500*time.Millisecond), func() error {
+			candidate, candidateErr := xlayerFrozenBlock(ctx, el)
+			if candidateErr != nil {
+				return candidateErr
+			}
+			if candidate.NumberU64() != seed.Number || candidate.Hash() != seed.Hash {
+				return fmt.Errorf("candidate %d sits on %d/%s, not the frozen %d/%s",
+					i+1, candidate.NumberU64(), candidate.Hash(), seed.Number, seed.Hash)
+			}
+			return nil
+		})
+		require.NoErrorf(convergeErr,
+			"sequencer candidate %d must converge on the frozen head before any conductor attaches", i+1)
+	}
+	return seed
+}
+
+// startXLayerConductorClusterSeeded forms the Raft cluster and mounts the
+// already-frozen seed onto it, then resumes the conductors.
+//
+// The seed is a parameter, not something this function reads for itself. That is
+// deliberate: the head the cluster is seeded with has to be captured before the
+// conductors exist, and a helper that fetched it here would be reading a head
+// that the attach and membership phases may already have moved — which would make
+// "the cluster was seeded with H" true only by coincidence.
 func startXLayerConductorClusterSeeded(
 	t devtest.T,
 	bootstrap *Conductor,
 	members []*Conductor,
-	primaryEL L2ELNode,
 	secondaryCLs []L2CLNode,
+	primaryEL L2ELNode,
 	secondaryELs []L2ELNode,
-	l2Net *L2Network,
+	seed xlayerFrozenSeed,
 ) {
 	require := t.Require()
 	ctx, cancel := context.WithTimeout(t.Ctx(), 90*time.Second)
@@ -523,31 +711,10 @@ func startXLayerConductorClusterSeeded(
 	})
 	require.NoError(err, "conductor cluster did not converge to expected membership")
 
-	// Seed from the primary EL's current unsafe head. When conductors are attached
-	// after the primary sequencer has already produced blocks, seeding from genesis
-	// would cause compareUnsafeHead in op-conductor to fail (Raft consensus behind
-	// the EL's latest unsafe block). The primary sequencer is stopped before this
-	// call, so the primary EL head is stable for the duration of seeding.
-	//
-	// The head is frozen HERE, once, into the immutable pair seedNumber/seedHash,
-	// before anything is resumed. Every later assertion in this function compares
-	// against that pair rather than re-reading a head that the resume is about to
-	// move: a re-read would test whatever the cluster happened to be at, not the
-	// block the cluster was actually seeded with.
-	seedBlock, err := xlayerFrozenBlock(ctx, primaryEL)
-	require.NoError(err, "freeze the primary's unsafe head for the seeded bootstrap")
-	seedNumber := seedBlock.NumberU64()
-	seedHash := seedBlock.Hash()
-	require.Greaterf(seedNumber, XLayerDefaultL2GenesisHeight,
-		"the frozen head must be a block produced above the XLayer genesis height %d, not genesis itself; got %d",
-		XLayerDefaultL2GenesisHeight, seedNumber)
-
-	// Wait for secondary CLs to reach the primary's frozen head exactly. Secondary
-	// ELs sync historical blocks from the primary via EL P2P; once they catch up,
-	// secondary CLs derive their unsafe L2 head from the EL to match. The
-	// comparison is exact on BOTH fields: a height-only test would be satisfied by
-	// a different block at the same height, which is the divergence the seed is
-	// there to prevent.
+	// Wait for secondary CLs to reach the frozen head exactly. Secondary ELs sync
+	// historical blocks from the primary via EL P2P; once they catch up, secondary
+	// CLs derive their unsafe L2 head from the EL to match. The comparison is exact
+	// on BOTH fields, against the seed frozen before the attach.
 	for _, cl := range secondaryCLs {
 		rollupCl, dialErr := dial.DialRollupClientWithTimeout(ctx, t.Logger(), cl.UserRPC())
 		require.NoError(dialErr, "dial secondary CL for sync check")
@@ -556,21 +723,20 @@ func startXLayerConductorClusterSeeded(
 			if statusErr != nil {
 				return statusErr
 			}
-			if status.UnsafeL2.Number != seedNumber || status.UnsafeL2.Hash != seedHash {
+			if status.UnsafeL2.Number != seed.Number || status.UnsafeL2.Hash != seed.Hash {
 				return fmt.Errorf("secondary CL unsafe head %d/%s != frozen %d/%s",
-					status.UnsafeL2.Number, status.UnsafeL2.Hash, seedNumber, seedHash)
+					status.UnsafeL2.Number, status.UnsafeL2.Hash, seed.Number, seed.Hash)
 			}
 			return nil
 		})
 		rollupCl.Close()
-		require.NoError(convErr, "secondary CL did not sync to the primary's frozen head before seeding")
+		require.NoError(convErr, "secondary CL did not sync to the frozen head before seeding")
 	}
 
-	// Seed the Raft FSM with the frozen head's payload so all conductors start
-	// from a consistent state matching the EL.
-	payload, err := eth.BlockAsPayloadEnv(seedBlock, l2Net.ChainConfig())
-	require.NoError(err, "convert block to execution payload envelope")
-	require.NoError(bootstrap.service.CommitUnsafePayload(ctx, payload), "seed Raft FSM with the frozen head payload")
+	// Seed the Raft FSM with the payload frozen before the attach, so every
+	// conductor starts from the block the candidates already share.
+	require.NoError(bootstrap.service.CommitUnsafePayload(ctx, seed.Payload),
+		"seed Raft FSM with the frozen head payload")
 
 	// Verify the seeded payload is readable back from the leader so every conductor
 	// starts from the same unsafe head the cluster was seeded with. Both fields are
@@ -579,8 +745,8 @@ func startXLayerConductorClusterSeeded(
 	latest, readbackErr := bootstrap.service.LatestUnsafePayload(ctx)
 	require.NoError(readbackErr, "read back LatestUnsafePayload after commit")
 	require.NotNil(latest, "LatestUnsafePayload must not be nil after commit")
-	require.Equal(seedHash, latest.ExecutionPayload.BlockHash, "readback hash must equal the frozen head hash")
-	require.Equal(seedNumber, uint64(latest.ExecutionPayload.BlockNumber), "readback number must equal the frozen head number")
+	require.Equal(seed.Hash, latest.ExecutionPayload.BlockHash, "readback hash must equal the frozen head hash")
+	require.Equal(seed.Number, uint64(latest.ExecutionPayload.BlockNumber), "readback number must equal the frozen head number")
 
 	// The frozen head must still be the head everywhere at the moment the control
 	// loops are resumed. Every sequencer is stopped while the conductors are
@@ -595,16 +761,16 @@ func startXLayerConductorClusterSeeded(
 		candidate, sampleErr := xlayerFrozenBlock(sampleCtx, el)
 		sampleCancel()
 		require.NoErrorf(sampleErr, "sample the head of sequencer candidate %d before resume", i)
-		require.Equalf(seedNumber, candidate.NumberU64(),
+		require.Equalf(seed.Number, candidate.NumberU64(),
 			"sequencer candidate %d does not sit on the frozen head: number %d != %d",
-			i, candidate.NumberU64(), seedNumber)
-		require.Equalf(seedHash, candidate.Hash(),
+			i, candidate.NumberU64(), seed.Number)
+		require.Equalf(seed.Hash, candidate.Hash(),
 			"sequencer candidate %d does not sit on the frozen head: hash %s != %s",
-			i, candidate.Hash(), seedHash)
+			i, candidate.Hash(), seed.Hash)
 	}
 	t.Logger().New("component", "xlayer-conductor-seed").Info(
 		"Seeded cold start reached the resume point with an unmoved head",
-		"seededHeight", seedNumber, "seededHash", seedHash)
+		"seededHeight", seed.Number, "seededHash", seed.Hash, "frozenAt", seed.FrozenAt, "resumeAt", time.Now())
 
 	// Resume all conductors so they start sequencing.
 	cluster := append([]*Conductor{bootstrap}, members...)
@@ -794,8 +960,18 @@ func xlayerConductorPrimary(seqExtraOpts ...OpRethOption) func(devtest.T, devkey
 
 // NewXLayerWithConductorsRuntimeWithConfig assembles the XLayer 3-sequencer +
 // 3-conductor + HA-batcher topology. All three ELs and CLs are wired as a full
-// P2P mesh. All conductors start paused; after Raft consensus is seeded from the
-// primary EL's current unsafe head, they are resumed and begin sequencing.
+// P2P mesh.
+//
+// The cold start is phased, and the order of the phases is the contract:
+//
+//  1. the primary is started ACTIVE and produces real blocks;
+//  2. the common head is frozen as one (number, hash) observation and every
+//     candidate is converged onto it — still with no conductor in existence;
+//  3. a deliberate, measured pause, so the freeze/attach boundary is an
+//     observation rather than an assumption about instruction order;
+//  4. the conductors are attached, paused, and formed into a Raft cluster;
+//  5. the frozen payload is committed and read back;
+//  6. only then are the conductors resumed.
 func NewXLayerWithConductorsRuntimeWithConfig(t devtest.T, cfg PresetConfig) *SingleChainRuntime {
 	// Fail fast on a fixed-port conflict before any world, L1, EL or conductor
 	// resource exists, so an unavailable port allocates nothing.
@@ -852,16 +1028,30 @@ func NewXLayerWithConductorsRuntimeWithConfig(t devtest.T, cfg PresetConfig) *Si
 	connectL2ELPeers(t, t.Logger(), runtime.L2EL.UserRPC(), seq3Node.EL.UserRPC(), true)
 	connectL2ELPeers(t, t.Logger(), seq2Node.EL.UserRPC(), seq3Node.EL.UserRPC(), true)
 
+	// Freeze the common head while no conductor exists, then converge every
+	// candidate onto it. Attaching a conductor before this point would leave it
+	// able to observe a head the other candidates do not have yet.
+	seed := freezeXLayerSeed(t, runtime.L2EL, []L2ELNode{seq2Node.EL, seq3Node.EL}, runtime.L2Network)
+
+	// The pause exists so the phase boundary is measurable; see the constant.
+	time.Sleep(xlayerConductorAttachDelay)
+
 	// Resolve fixed conductor RPC ports, defaulting to 0 (OS-assigned).
 	var conductorRPCPorts [3]int
 	if cfg.XLayerFixedPorts != nil {
 		conductorRPCPorts = cfg.XLayerFixedPorts.ConductorRPCPorts
 	}
 
+	attachAt := time.Now()
 	seq1OpNode := runtime.L2CL.(*OpNode)
 	cond1 := startXLayerConductorNode(t, "conductor1", runtime.L2Network, seq1OpNode, runtime.L2EL, true, true, conductorRPCPorts[0])
 	cond2 := startXLayerConductorNode(t, "conductor2", runtime.L2Network, seq2CL, seq2Node.EL, false, true, conductorRPCPorts[1])
 	cond3 := startXLayerConductorNode(t, "conductor3", runtime.L2Network, seq3CL, seq3Node.EL, false, true, conductorRPCPorts[2])
+	t.Require().GreaterOrEqualf(attachAt.Sub(seed.FrozenAt), xlayerConductorAttachDelay,
+		"the conductors must attach at least %s after the head was frozen", xlayerConductorAttachDelay)
+	t.Logger().New("component", "xlayer-conductor-seed").Info(
+		"Attached conductors after the frozen head had settled",
+		"frozenAt", seed.FrozenAt, "attachAt", attachAt, "delay", attachAt.Sub(seed.FrozenAt))
 
 	// Wire the full CL P2P mesh after all conductor node restarts.
 	// Each startXLayerConductorNode restarts its op-node; wiring after all
@@ -874,10 +1064,10 @@ func NewXLayerWithConductorsRuntimeWithConfig(t devtest.T, cfg PresetConfig) *Si
 		t,
 		cond1,
 		[]*Conductor{cond2, cond3},
-		runtime.L2EL,
 		[]L2CLNode{seq2CL, seq3CL},
+		runtime.L2EL,
 		[]L2ELNode{seq2Node.EL, seq3Node.EL},
-		runtime.L2Network,
+		seed,
 	)
 
 	// Wait for the Raft cluster to elect a leader and activate a sequencer before

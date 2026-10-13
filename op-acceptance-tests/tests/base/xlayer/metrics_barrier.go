@@ -254,3 +254,58 @@ func (b *healthBarrier) awaitNewSample(t devtest.T, ctx context.Context, conduct
 func awaitAllHealthy(t devtest.T, ctx context.Context, conductors dsl.ConductorSet, timeout time.Duration) {
 	newHealthBarrier(t, ctx, conductors).awaitNewSample(t, ctx, conductors, timeout)
 }
+
+// baselineHealthMetrics records one successful health-check reading per
+// conductor in the set, taken at the moment of the call.
+//
+// Calling this immediately before a trigger is what makes the later increment a
+// measurement of THAT trigger. A baseline carried over from an earlier phase
+// would already be satisfied by samples the earlier phase produced, so a
+// conductor whose monitor had since died would still pass.
+func baselineHealthMetrics(t devtest.T, ctx context.Context, conductors dsl.ConductorSet, scrapeTimeout time.Duration) map[string]float64 {
+	return newHealthBarrierWithTimeout(t, ctx, conductors, scrapeTimeout).baselines
+}
+
+// waitForHealthIncrement waits until every endpoint in baselines reports a value
+// strictly above the reading recorded for it. A scrape that fails is an
+// immediate error, never a silent zero: a zero would let an unreachable
+// conductor satisfy the increase.
+func waitForHealthIncrement(ctx context.Context, baselines map[string]float64, timeout time.Duration) error {
+	urls := make([]string, 0, len(baselines))
+	for url := range baselines {
+		urls = append(urls, url)
+	}
+	if len(urls) == 0 {
+		return fmt.Errorf("no conductors to wait on: the baseline is empty")
+	}
+	return awaitHealthSampleIncrease(ctx, urls, baselines, timeout)
+}
+
+// memberStopHelper stops the sequencer EL of the named member and returns an
+// error — never a bare boolean. It also hands back a health baseline taken
+// immediately BEFORE the stop, so the caller can require that the surviving
+// conductors emitted a genuinely new sample after the fault rather than
+// satisfying the check with a reading from before it.
+//
+// This helper is the fault-injection surface for the HA lifecycle tests: every
+// one of them needs "a node really went down, and here is the evidence that the
+// rest of the cluster noticed". A helper that answered with a boolean would let
+// a caller that ignored the answer treat a refused stop as a stopped node.
+func memberStopHelper(ctx context.Context, t devtest.T, h *haCluster, name string, survivorTimeout time.Duration) (*healthBarrier, error) {
+	survivors := make(dsl.ConductorSet, 0, len(h.conductors)-1)
+	for _, c := range h.conductors {
+		if c.String() != name {
+			survivors = append(survivors, c)
+		}
+	}
+	if len(survivors) == 0 {
+		return nil, fmt.Errorf("member %q is the only conductor in the set", name)
+	}
+
+	// Baseline first, stop second: the other order would race the fault.
+	barrier := newHealthBarrierWithTimeout(t, ctx, survivors, survivorTimeout)
+	if err := h.stopMember(ctx, name); err != nil {
+		return nil, fmt.Errorf("stop member %q: %w", name, err)
+	}
+	return barrier, nil
+}
