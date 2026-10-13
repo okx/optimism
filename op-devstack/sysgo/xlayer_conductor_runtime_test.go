@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -52,6 +53,133 @@ type stubCloser struct {
 }
 
 func (s *stubCloser) Stop() { s.stopped = true }
+
+// listenerCloser is a started resource whose lifetime is a REAL bound socket
+// rather than a struct field. The rollback contract is about releasing a
+// process and the listener it holds, so the closest stand-in available without
+// the XLayer execution binary is an actual listener on an actual port: a
+// rollback that forgets to close it leaves the port genuinely unbindable, and
+// the test observes that instead of taking a boolean's word for it.
+type listenerCloser struct {
+	name string
+	ln   net.Listener
+	port int
+}
+
+func newListenerCloser(t *testing.T, name string) *listenerCloser {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "the test must be able to claim a real port")
+	return &listenerCloser{name: name, ln: ln, port: ln.Addr().(*net.TCPAddr).Port}
+}
+
+func (l *listenerCloser) Stop() { _ = l.ln.Close() }
+
+// portIsFree reports whether a port can be bound right now.
+func portIsFree(port int) bool {
+	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err != nil {
+		return false
+	}
+	_ = ln.Close()
+	return true
+}
+
+// TestStartXLayerSecondaryCandidatesRollsBackRealListeners verifies the partial
+// start unwind over real sockets: the first candidate claims an actual port, the
+// second fails, and the port the first one claimed must be genuinely free again.
+// A rollback that only flipped a flag on a stub passes a stubbed test and fails
+// this one, which is the point of driving it with a real listener.
+func TestStartXLayerSecondaryCandidatesRollsBackRealListeners(t *testing.T) {
+	first := newListenerCloser(t, "sequencer2")
+
+	var calls []string
+	_, _, _, err := startXLayerSecondaryCandidates(
+		[]string{"sequencer2", "sequencer3"},
+		func(name string, _ int) (*SingleChainNodeRuntime, *OpNode, xlayerClosable, error) {
+			calls = append(calls, name)
+			if name == "sequencer2" {
+				return nil, nil, first, nil
+			}
+			return nil, nil, nil, errors.New("the tertiary candidate refused its HTTP port")
+		})
+
+	require.Error(t, err, "a failing later candidate must surface as an error")
+	require.Equal(t, []string{"sequencer2", "sequencer3"}, calls,
+		"candidates must be started in order, and the failure must not stop the unwind")
+	require.Contains(t, err.Error(), "sequencer3", "the error must name the candidate that failed")
+	require.Truef(t, portIsFree(first.port),
+		"port %d claimed by the first candidate must be free after the later candidate failed", first.port)
+}
+
+// TestStartXLayerSecondaryCandidatesKeepsListenersOnSuccess verifies the other
+// half of the contract: when every candidate starts, none of their listeners is
+// released. Without this, a rollback that closed everything unconditionally
+// would pass the failure test above and destroy a healthy topology.
+func TestStartXLayerSecondaryCandidatesKeepsListenersOnSuccess(t *testing.T) {
+	first := newListenerCloser(t, "sequencer2")
+	second := newListenerCloser(t, "sequencer3")
+
+	nodes, cls, closers, err := startXLayerSecondaryCandidates(
+		[]string{"sequencer2", "sequencer3"},
+		func(name string, _ int) (*SingleChainNodeRuntime, *OpNode, xlayerClosable, error) {
+			if name == "sequencer2" {
+				return nil, nil, first, nil
+			}
+			return nil, nil, second, nil
+		})
+
+	require.NoError(t, err)
+	require.Len(t, nodes, 2)
+	require.Len(t, cls, 2)
+	require.Len(t, closers, 2)
+	require.Falsef(t, portIsFree(first.port),
+		"port %d must still be claimed after a successful bring-up", first.port)
+	require.Falsef(t, portIsFree(second.port),
+		"port %d must still be claimed after a successful bring-up", second.port)
+}
+
+// TestCloseXLayerClosersReleasesInReverseOrder verifies that the unwind releases
+// the resources in reverse acquisition order and tolerates nil handles, so a
+// caller can pass the result of a failed step without a guard.
+func TestCloseXLayerClosersReleasesInReverseOrder(t *testing.T) {
+	var order []string
+	recorder := func(name string) *recordingCloser {
+		return &recordingCloser{name: name, order: &order}
+	}
+
+	closeXLayerClosers(recorder("first"), nil, recorder("third"), recorder("second"))
+
+	require.Equal(t, []string{"second", "third", "first"}, order,
+		"resources must be released in reverse acquisition order")
+}
+
+// recordingCloser appends its name to a shared order slice when released.
+type recordingCloser struct {
+	name  string
+	order *[]string
+}
+
+func (r *recordingCloser) Stop() { *r.order = append(*r.order, r.name) }
+
+// TestXLayerExecutionBinaryUsable verifies that a non-empty path is not by
+// itself accepted as an execution binary. The producer flags may only be
+// attached to something that can actually be launched.
+func TestXLayerExecutionBinaryUsable(t *testing.T) {
+	dir := t.TempDir()
+
+	executable := filepath.Join(dir, "op-reth")
+	require.NoError(t, os.WriteFile(executable, []byte("#!/bin/sh\n"), 0o755))
+	require.True(t, xlayerExecutionBinaryUsable(executable), "an executable regular file is usable")
+
+	notExecutable := filepath.Join(dir, "not-executable")
+	require.NoError(t, os.WriteFile(notExecutable, []byte("#!/bin/sh\n"), 0o644))
+	require.False(t, xlayerExecutionBinaryUsable(notExecutable), "a file without an execute bit is not usable")
+
+	require.False(t, xlayerExecutionBinaryUsable(""), "an empty path is not a binary")
+	require.False(t, xlayerExecutionBinaryUsable(dir), "a directory is not a binary")
+	require.False(t, xlayerExecutionBinaryUsable(filepath.Join(dir, "missing")), "a missing path is not a binary")
+}
 
 // TestCheckXLayerFixedPortsAvailable_OccupiedPort verifies that a fixed port which
 // is already bound is reported before any resource is created, naming both the

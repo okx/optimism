@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"strconv"
 	"sync/atomic"
@@ -28,6 +29,7 @@ import (
 	opmetrics "github.com/ethereum-optimism/optimism/op-service/metrics"
 	"github.com/ethereum-optimism/optimism/op-service/retry"
 	oprpc "github.com/ethereum-optimism/optimism/op-service/rpc"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/log"
@@ -125,8 +127,8 @@ func xlayerSequencerELPort(cfg PresetConfig, index int) (int, bool) {
 	return port, port != 0
 }
 
-// xlayerProducerConfigAvailable reports whether the preset configured an XLayer
-// execution binary for the candidates.
+// xlayerProducerConfigAvailable reports whether the preset configured a usable
+// XLayer execution binary for the candidates.
 //
 // The producer and flashblocks flags are part of the XLayer build of the
 // execution client, supplied through XLAYER_RETH_BIN (OpRethWithBinary). The
@@ -134,7 +136,21 @@ func xlayerSequencerELPort(cfg PresetConfig, index int) (int, bool) {
 // argument '--xlayer.sequencer-mode'" — so they are only attached when such a
 // binary is configured. Applying them to a generic client would not make it an
 // XLayer producer; it would only stop it from starting at all.
+//
+// The configured path is resolved and then checked as a REAL file: a non-empty
+// string is not evidence that a producer was supplied, and a path that does not
+// exist or cannot be executed would otherwise carry the XLayer flags all the
+// way to a process launch that is guaranteed to fail. Callers that need the
+// stronger guarantee — that the named program is this project's XLayer build
+// and not merely some executable — get it from the acceptance gate, which runs
+// the binary's own version check and asserts the producer flags it received.
 func xlayerProducerConfigAvailable(t devtest.T, cfg PresetConfig) bool {
+	return xlayerExecutionBinaryUsable(xlayerExecutionBinary(t, cfg))
+}
+
+// xlayerExecutionBinary resolves the execution binary path selected by the
+// preset's op-reth options, or "" when the preset selects none.
+func xlayerExecutionBinary(t devtest.T, cfg PresetConfig) string {
 	scratch := DefaultOpRethConfig()
 	target := NewComponentTarget(XLayerSequencerNodeName, eth.ChainIDFromUInt64(195))
 	for _, opt := range cfg.OpRethOptions {
@@ -143,7 +159,22 @@ func xlayerProducerConfigAvailable(t devtest.T, cfg PresetConfig) bool {
 		}
 		opt.Apply(t, target, scratch)
 	}
-	return scratch.Binary != ""
+	return scratch.Binary
+}
+
+// xlayerExecutionBinaryUsable reports whether path names a regular file that
+// carries an executable bit. An empty path, a directory, a device node and a
+// file without any execute permission for anyone all mean "no producer binary
+// was configured", because none of them can be launched.
+func xlayerExecutionBinaryUsable(path string) bool {
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0
 }
 
 // xlayerCandidateExtraOptions returns the options one sequencer candidate adds
@@ -168,9 +199,24 @@ func xlayerCandidateExtraOptions(t devtest.T, cfg PresetConfig, name string, ind
 
 // xlayerClosable is a started resource that can be released again. The rollback
 // path needs only this much, which keeps it independent of the full node
-// interfaces and lets tests supply a lightweight fake.
+// interfaces and lets a test drive it with a real bound listener as well as
+// with the devstack's own execution clients.
 type xlayerClosable interface {
 	Stop()
+}
+
+// closeXLayerClosers releases the given started resources in reverse start
+// order. It is the unwind path of a partially built topology: each resource
+// that started holds a live process and a bound listener, so a failure part-way
+// through bring-up has to release every earlier one or the ports — fixed or
+// not — stay claimed for the rest of the process. Nil entries are skipped so a
+// caller can pass the result of a failed step without a guard.
+func closeXLayerClosers(closers ...xlayerClosable) {
+	for i := len(closers) - 1; i >= 0; i-- {
+		if closers[i] != nil {
+			closers[i].Stop()
+		}
+	}
 }
 
 // xlayerSequencerStartFuncs are the two startup steps of one XLayer sequencer
@@ -201,13 +247,50 @@ func startXLayerSequencerNodeWith(name string, index int, cfg PresetConfig, f xl
 	return newSingleChainNodeRuntime(name, true, el, cl), cl, nil
 }
 
+// xlayerSecondaryStarter starts one secondary sequencer candidate and returns
+// the handle that releases its execution client again.
+type xlayerSecondaryStarter func(name string, index int) (*SingleChainNodeRuntime, *OpNode, xlayerClosable, error)
+
+// startXLayerSecondaryCandidates starts the secondary sequencer candidates in
+// order and unwinds the ones that already started when a later candidate fails.
+//
+// A candidate that started has a live process and a claimed listener and nothing
+// else holds a reference to it, so returning the error without closing the
+// earlier candidates would strand both — including, on a fixed-port run, a port
+// the next attempt needs. The unwind runs in reverse start order, which is the
+// order the resources were acquired in.
+func startXLayerSecondaryCandidates(
+	names []string,
+	start xlayerSecondaryStarter,
+) (nodes []*SingleChainNodeRuntime, cls []*OpNode, closers []xlayerClosable, err error) {
+	nodes = make([]*SingleChainNodeRuntime, 0, len(names))
+	cls = make([]*OpNode, 0, len(names))
+	closers = make([]xlayerClosable, 0, len(names))
+	for i, name := range names {
+		node, cl, closer, startErr := start(name, i+1)
+		if startErr != nil {
+			closeXLayerClosers(closers...)
+			return nil, nil, nil, fmt.Errorf("start XLayer sequencer candidate %q: %w", name, startErr)
+		}
+		nodes = append(nodes, node)
+		cls = append(cls, cl)
+		closers = append(closers, closer)
+	}
+	return nodes, cls, closers, nil
+}
+
 // addXLayerSequencerNode starts a secondary or tertiary XLayer sequencer EL+CL
 // pair and registers it in runtime.Nodes[name]. The CL is started with
 // SequencerStopped=true so a conductor can attach before block production begins.
 // index selects the ELHTTPPorts entry when fixed ports are configured (0-based).
 // A fixed-port conflict is reported before anything is started, and a failure
 // after the EL is up closes the EL again.
-func addXLayerSequencerNode(t devtest.T, runtime *SingleChainRuntime, name string, index int, cfg PresetConfig) (*SingleChainNodeRuntime, *OpNode, error) {
+//
+// The returned closer releases this node's execution client. The caller needs
+// it because starting one node can fail after an earlier one already succeeded:
+// without the handle, the earlier candidate's process and listener would survive
+// the failed bring-up with no one holding a reference to release them.
+func addXLayerSequencerNode(t devtest.T, runtime *SingleChainRuntime, name string, index int, cfg PresetConfig) (*SingleChainNodeRuntime, *OpNode, xlayerClosable, error) {
 	jwtPath := runtime.L2EL.JWTPath()
 	jwtSecret := readJWTSecretFromPath(t, jwtPath)
 
@@ -252,10 +335,11 @@ func addXLayerSequencerNode(t devtest.T, runtime *SingleChainRuntime, name strin
 
 	node, cl, err := startXLayerSequencerNodeWith(name, index, cfg, starters)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	runtime.Nodes[name] = node
-	return node, cl, nil
+	closer, _ := node.EL.(xlayerClosable)
+	return node, cl, closer, nil
 }
 
 // startXLayerConductorNode attaches an in-process op-conductor to opNode.
@@ -444,18 +528,26 @@ func startXLayerConductorClusterSeeded(
 	// would cause compareUnsafeHead in op-conductor to fail (Raft consensus behind
 	// the EL's latest unsafe block). The primary sequencer is stopped before this
 	// call, so the primary EL head is stable for the duration of seeding.
-	elClient, err := ethclient.DialContext(ctx, primaryEL.UserRPC())
-	require.NoError(err, "dial primary EL for seeded bootstrap")
-	t.Cleanup(elClient.Close)
+	//
+	// The head is frozen HERE, once, into the immutable pair seedNumber/seedHash,
+	// before anything is resumed. Every later assertion in this function compares
+	// against that pair rather than re-reading a head that the resume is about to
+	// move: a re-read would test whatever the cluster happened to be at, not the
+	// block the cluster was actually seeded with.
+	seedBlock, err := xlayerFrozenBlock(ctx, primaryEL)
+	require.NoError(err, "freeze the primary's unsafe head for the seeded bootstrap")
+	seedNumber := seedBlock.NumberU64()
+	seedHash := seedBlock.Hash()
+	require.Greaterf(seedNumber, XLayerDefaultL2GenesisHeight,
+		"the frozen head must be a block produced above the XLayer genesis height %d, not genesis itself; got %d",
+		XLayerDefaultL2GenesisHeight, seedNumber)
 
-	block, err := elClient.BlockByNumber(ctx, nil) // nil = latest
-	require.NoError(err, "get latest block from primary EL for seed target")
-	targetHeight := block.NumberU64()
-	targetHash := block.Hash()
-
-	// Wait for secondary CLs to reach the primary's current unsafe head. Secondary
+	// Wait for secondary CLs to reach the primary's frozen head exactly. Secondary
 	// ELs sync historical blocks from the primary via EL P2P; once they catch up,
-	// secondary CLs derive their unsafe L2 head from the EL to match.
+	// secondary CLs derive their unsafe L2 head from the EL to match. The
+	// comparison is exact on BOTH fields: a height-only test would be satisfied by
+	// a different block at the same height, which is the divergence the seed is
+	// there to prevent.
 	for _, cl := range secondaryCLs {
 		rollupCl, dialErr := dial.DialRollupClientWithTimeout(ctx, t.Logger(), cl.UserRPC())
 		require.NoError(dialErr, "dial secondary CL for sync check")
@@ -464,31 +556,31 @@ func startXLayerConductorClusterSeeded(
 			if statusErr != nil {
 				return statusErr
 			}
-			if status.UnsafeL2.Number < targetHeight {
-				return fmt.Errorf("secondary CL unsafe head %d < target %d", status.UnsafeL2.Number, targetHeight)
-			}
-			if status.UnsafeL2.Hash != targetHash {
-				return fmt.Errorf("secondary CL unsafe hash %s != target %s", status.UnsafeL2.Hash, targetHash)
+			if status.UnsafeL2.Number != seedNumber || status.UnsafeL2.Hash != seedHash {
+				return fmt.Errorf("secondary CL unsafe head %d/%s != frozen %d/%s",
+					status.UnsafeL2.Number, status.UnsafeL2.Hash, seedNumber, seedHash)
 			}
 			return nil
 		})
 		rollupCl.Close()
-		require.NoError(convErr, "secondary CL did not sync to primary's unsafe head before seeding")
+		require.NoError(convErr, "secondary CL did not sync to the primary's frozen head before seeding")
 	}
 
-	// Seed the Raft FSM with the primary's current head payload so all conductors
-	// start from a consistent state matching the EL.
-	payload, err := eth.BlockAsPayloadEnv(block, l2Net.ChainConfig())
+	// Seed the Raft FSM with the frozen head's payload so all conductors start
+	// from a consistent state matching the EL.
+	payload, err := eth.BlockAsPayloadEnv(seedBlock, l2Net.ChainConfig())
 	require.NoError(err, "convert block to execution payload envelope")
-	require.NoError(bootstrap.service.CommitUnsafePayload(ctx, payload), "seed Raft FSM with current head payload")
+	require.NoError(bootstrap.service.CommitUnsafePayload(ctx, payload), "seed Raft FSM with the frozen head payload")
 
 	// Verify the seeded payload is readable back from the leader so every conductor
-	// starts from the same unsafe head the cluster was seeded with.
+	// starts from the same unsafe head the cluster was seeded with. Both fields are
+	// compared against the frozen pair, so a readback that returned a different
+	// block at the seeded height fails here rather than silently passing.
 	latest, readbackErr := bootstrap.service.LatestUnsafePayload(ctx)
 	require.NoError(readbackErr, "read back LatestUnsafePayload after commit")
 	require.NotNil(latest, "LatestUnsafePayload must not be nil after commit")
-	require.Equal(targetHash, latest.ExecutionPayload.BlockHash, "readback hash must equal seeded H")
-	require.Equal(targetHeight, uint64(latest.ExecutionPayload.BlockNumber), "readback number must equal seeded H")
+	require.Equal(seedHash, latest.ExecutionPayload.BlockHash, "readback hash must equal the frozen head hash")
+	require.Equal(seedNumber, uint64(latest.ExecutionPayload.BlockNumber), "readback number must equal the frozen head number")
 
 	// The frozen head must still be the head everywhere at the moment the control
 	// loops are resumed. Every sequencer is stopped while the conductors are
@@ -500,15 +592,19 @@ func startXLayerConductorClusterSeeded(
 	allELs := append([]L2ELNode{primaryEL}, secondaryELs...)
 	for i, el := range allELs {
 		sampleCtx, sampleCancel := context.WithTimeout(ctx, 10*time.Second)
-		head, headErr := xlayerELHead(sampleCtx, el)
+		candidate, sampleErr := xlayerFrozenBlock(sampleCtx, el)
 		sampleCancel()
-		require.NoErrorf(headErr, "sample the head of sequencer candidate %d before resume", i)
-		require.Equalf(targetHeight, head,
-			"sequencer candidate %d produced a block between freeze and resume", i)
+		require.NoErrorf(sampleErr, "sample the head of sequencer candidate %d before resume", i)
+		require.Equalf(seedNumber, candidate.NumberU64(),
+			"sequencer candidate %d does not sit on the frozen head: number %d != %d",
+			i, candidate.NumberU64(), seedNumber)
+		require.Equalf(seedHash, candidate.Hash(),
+			"sequencer candidate %d does not sit on the frozen head: hash %s != %s",
+			i, candidate.Hash(), seedHash)
 	}
 	t.Logger().New("component", "xlayer-conductor-seed").Info(
 		"Seeded cold start reached the resume point with an unmoved head",
-		"seededHeight", targetHeight, "seededHash", targetHash)
+		"seededHeight", seedNumber, "seededHash", seedHash)
 
 	// Resume all conductors so they start sequencing.
 	cluster := append([]*Conductor{bootstrap}, members...)
@@ -520,16 +616,21 @@ func startXLayerConductorClusterSeeded(
 	}
 }
 
-// xlayerELHead returns the latest block number served by an EL over its user
-// RPC endpoint. It is used to sample the frozen head without holding a client
-// open across the resume boundary.
-func xlayerELHead(ctx context.Context, el L2ELNode) (uint64, error) {
+// xlayerFrozenBlock reads an EL's latest block. It is what the seeded cold
+// start freezes before it resumes anything: the returned block carries both the
+// number and the hash of the head as one consistent observation, so the caller
+// can compare BOTH fields exactly. Reading a number here and a hash there would
+// let a block that moved between the two reads pass as the frozen head.
+//
+// The client is opened and closed per call rather than held, so the sample does
+// not keep a connection open across the resume boundary.
+func xlayerFrozenBlock(ctx context.Context, el L2ELNode) (*types.Block, error) {
 	client, err := ethclient.DialContext(ctx, el.UserRPC())
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	defer client.Close()
-	return client.BlockNumber(ctx)
+	return client.BlockByNumber(ctx, nil) // nil = latest
 }
 
 // awaitAnySequencerActive polls all given CL nodes until at least one reports
@@ -724,10 +825,27 @@ func NewXLayerWithConductorsRuntimeWithConfig(t devtest.T, cfg PresetConfig) *Si
 		StartChallenger: false,
 	})
 
-	seq2Node, seq2CL, err := addXLayerSequencerNode(t, runtime, "sequencer2", 1, cfg)
-	t.Require().NoError(err, "add secondary XLayer sequencer node")
-	seq3Node, seq3CL, err := addXLayerSequencerNode(t, runtime, "sequencer3", 2, cfg)
-	t.Require().NoError(err, "add tertiary XLayer sequencer node")
+	secondaryNodes, secondaryCLs, secondaryClosers, err := startXLayerSecondaryCandidates(
+		[]string{"sequencer2", "sequencer3"},
+		func(name string, index int) (*SingleChainNodeRuntime, *OpNode, xlayerClosable, error) {
+			return addXLayerSequencerNode(t, runtime, name, index, cfg)
+		},
+	)
+	t.Require().NoError(err, "add the secondary XLayer sequencer nodes")
+	seq2Node, seq3Node := secondaryNodes[0], secondaryNodes[1]
+	seq2CL, seq3CL := secondaryCLs[0], secondaryCLs[1]
+
+	// Any later failure — a conductor that cannot claim its RPC or metrics
+	// listener, a cluster that never converges, a batcher that will not start —
+	// aborts through a fatal assertion, so the unwind for the candidates that are
+	// already running has to happen here. On success the topology owns its own
+	// teardown and this is inert.
+	built := false
+	defer func() {
+		if !built {
+			closeXLayerClosers(secondaryClosers...)
+		}
+	}()
 
 	// Wire the full EL P2P mesh (trusted=true for sequencer peers).
 	connectL2ELPeers(t, t.Logger(), runtime.L2EL.UserRPC(), seq2Node.EL.UserRPC(), true)
@@ -781,5 +899,6 @@ func NewXLayerWithConductorsRuntimeWithConfig(t devtest.T, cfg PresetConfig) *Si
 		"conductor2": cond2,
 		"conductor3": cond3,
 	}
+	built = true
 	return runtime
 }

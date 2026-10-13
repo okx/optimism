@@ -83,13 +83,13 @@ func TestXLayerFixedPortsCrossProcess(gt *testing.T) {
 	// external listener.
 
 	raw := dialFixedPortsFromSeparateProcess(t)
-	// The L1 validates its own chain ID, which is not the L2 chain ID: the
-	// assertion is that it answers on the fixed port and reports a chain of its
-	// own, while all three L2 ELs report the XLayer chain ID below.
-	require.NotEmpty(t, raw.L1ChainID,
-		"the L1 EL must answer eth_chainId on the fixed port %d", xlayerL1HTTPPort)
-	require.NotEqualf(t, "0xc3", strings.ToLower(raw.L1ChainID),
-		"the L1 EL must run its own chain, not the L2 chain ID; got %s", raw.L1ChainID)
+	// The L1 runs its own chain, which is not the L2 chain. The expectation is
+	// the exact devstack L1 chain ID compared by equality, not a "not 195" test:
+	// a negative comparison also passes for an L1 that answered 0, for an empty
+	// response, or for whatever else happened to be listening on the port.
+	wantL1ChainID := "0x" + sysgo.DefaultL1ID.ToBig().Text(16)
+	require.Equalf(t, wantL1ChainID, strings.ToLower(raw.L1ChainID),
+		"the L1 EL on fixed port %d must report the devstack L1 chain ID", xlayerL1HTTPPort)
 	t.Logf("L1 chain ID observed through the separate process: %s", raw.L1ChainID)
 	for i, chainID := range raw.ELChainIDs {
 		require.Equal(t, "0xc3", strings.ToLower(chainID),
@@ -102,10 +102,36 @@ func TestXLayerFixedPortsCrossProcess(gt *testing.T) {
 			"all three L2 ELs must share one genesis block at the XLayer genesis height")
 	}
 	require.Len(t, raw.ConductorResponses, 3, "each conductor RPC must answer over its fixed port")
-	for i, resp := range raw.ConductorResponses {
-		require.Contains(t, resp, "result",
-			"conductor %d must answer a real RPC request on its fixed port", i+1)
+	for i, body := range raw.ConductorResponses {
+		var resp conductorRPCResponse
+		require.NoErrorf(t, json.Unmarshal([]byte(body), &resp),
+			"conductor %d must answer a JSON-RPC document on its fixed port, got %s", i+1, body)
+		require.Equalf(t, "2.0", resp.JSONRPC,
+			"conductor %d must answer JSON-RPC 2.0, got %q", i+1, resp.JSONRPC)
+		require.Nilf(t, resp.Error,
+			"conductor %d must not answer with an RPC error: %+v", i+1, resp.Error)
+		require.NotNilf(t, resp.Result,
+			"conductor %d must answer a boolean result, got %s", i+1, body)
+		require.NotEmptyf(t, resp.ID,
+			"conductor %d must echo a request id, got %s", i+1, body)
 	}
+}
+
+// conductorRPCResponse is the JSON-RPC envelope a conductor's HTTP endpoint
+// answers with. The body is parsed into typed fields and type-checked instead of
+// being searched for a substring: "the body mentions result" is also true of an
+// error document that quotes the word, and of a body that carries neither field.
+type conductorRPCResponse struct {
+	JSONRPC string             `json:"jsonrpc"`
+	ID      json.RawMessage    `json:"id"`
+	Result  *bool              `json:"result"`
+	Error   *conductorRPCError `json:"error"`
+}
+
+// conductorRPCError is the error member of the same envelope.
+type conductorRPCError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
 }
 
 // rawFixedPortReport is what the separate dialer process reports back.
@@ -202,43 +228,98 @@ func TestXLayerRandomDefaultRegression(gt *testing.T) {
 	assertPortsFree(t, fixedPorts...)
 }
 
-// TestXLayerFixedPortCollisionCleanup verifies the occupied-port contract: a
-// plan whose port is already held fails the public constructor before any
-// resource is created, and the port is fully reusable once the holder releases
-// it.
+// TestXLayerFixedPortCollisionCleanup verifies the occupied-port contract over
+// the REAL listener lifecycle: a live socket holds one planned port, the
+// availability check the constructor runs on its way in reports that port
+// against the component that owns it, no other planned port was consumed while
+// it looked, and once the holder is closed every planned port binds for real
+// again — which is the proof that the refused attempt leaked nothing.
+//
+// It does not need the XLayer execution binary: everything it asserts is about
+// port ownership, which the operating system answers on its own.
 func TestXLayerFixedPortCollisionCleanup(gt *testing.T) {
 	t := devtest.SerialT(gt)
 	sysgo.SkipOnKonaNode(t, "not supported")
 
-	// Pre-occupy one of the planned EL ports.
+	// Pre-occupy one of the planned EL ports with a real listener.
 	holder, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(xlayerELSeq0Port)))
 	require.NoError(t, err, "the test must be able to occupy the planned port")
 	defer func() { _ = holder.Close() }()
 
-	// The plan is rejected by the same validation the public constructor runs on
-	// its way in, exercised here in its non-fatal form so the test can assert the
-	// error itself rather than being aborted by it.
-	err = presets.ValidateXLayerFixedPortPlan(&fixedPlan)
-	require.Error(t, err, "an occupied fixed port must be rejected")
+	err = sysgo.CheckXLayerFixedPortsAvailable(&fixedPlan)
+	require.Error(t, err, "an occupied fixed port must be reported")
 	require.Containsf(t, err.Error(), strconv.Itoa(xlayerELSeq0Port),
 		"the error must name the occupied port, got: %v", err)
 	require.Containsf(t, err.Error(), "L2 EL",
 		"the error must name the owning component, got: %v", err)
 
-	// Nothing may have been started on the other planned ports either.
+	// Nothing may have been left behind on the other planned ports.
 	assertPortsFree(t,
 		xlayerL1HTTPPort,
 		xlayerELSeq1Port, xlayerELSeq2Port,
 		xlayerConductor1RPCPort, xlayerConductor2RPCPort, xlayerConductor3RPCPort,
 	)
 
-	// Release the port and prove the very same plan is now accepted: the failed
-	// attempt leaked nothing.
+	// Release the port and prove the very same plan is accepted again, then take
+	// every planned port for real and give it back. A second validation pass after
+	// that bind/release cycle is what shows the checks themselves hold nothing.
 	require.NoError(t, holder.Close(), "releasing the occupied port must succeed")
+	require.NoError(t, sysgo.CheckXLayerFixedPortsAvailable(&fixedPlan),
+		"the same plan must be accepted once the holder releases the port")
+	for _, port := range fixedPorts {
+		ln, listenErr := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		require.NoErrorf(t, listenErr, "port %d must be bindable after the refused attempt", port)
+		require.NoError(t, ln.Close())
+	}
+	require.NoError(t, sysgo.CheckXLayerFixedPortsAvailable(&fixedPlan),
+		"the plan must still be usable after a full bind and release cycle")
+}
+
+// TestXLayerFixedPortTeardownThenReuse verifies the teardown-then-reuse contract
+// on real sockets: the whole planned port set is claimed the way the topology
+// would claim it, released in reverse order, and then claimed again from
+// scratch. A port that was left bound by the teardown — or a check that closes
+// only the listener it happened to look at last — fails on the second pass.
+//
+// It does not need the XLayer execution binary: it is entirely about listener
+// ownership and release.
+func TestXLayerFixedPortTeardownThenReuse(gt *testing.T) {
+	t := devtest.SerialT(gt)
+	sysgo.SkipOnKonaNode(t, "not supported")
+
+	// Claim every planned port, in the order the topology claims them.
+	held := make([]net.Listener, 0, len(fixedPorts))
 	for _, port := range fixedPorts {
 		ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
-		require.NoErrorf(t, err, "port %d must be reusable after the failed construction", port)
-		_ = ln.Close()
+		require.NoErrorf(t, err, "the test must be able to claim planned port %d", port)
+		held = append(held, ln)
+	}
+
+	// With every port held the plan must be refused, and by the L1, which is the
+	// first endpoint the check walks.
+	err := sysgo.CheckXLayerFixedPortsAvailable(&fixedPlan)
+	require.Error(t, err, "a fully occupied plan must be reported")
+	require.Containsf(t, err.Error(), strconv.Itoa(xlayerL1HTTPPort),
+		"the first reported conflict must name the L1 port, got: %v", err)
+
+	// Full teardown, in reverse claim order.
+	for i := len(held) - 1; i >= 0; i-- {
+		require.NoErrorf(t, held[i].Close(), "releasing planned port %d must succeed", fixedPorts[i])
+	}
+
+	// Every port is genuinely free and the plan validates — twice, so the second
+	// pass also proves the first validation left nothing bound.
+	require.NoError(t, sysgo.CheckXLayerFixedPortsAvailable(&fixedPlan),
+		"every planned port must be reusable after a full teardown")
+	assertPortsFree(t, fixedPorts...)
+	require.NoError(t, sysgo.CheckXLayerFixedPortsAvailable(&fixedPlan),
+		"the plan must still validate after the ports were probed")
+
+	// And the whole set can be claimed again from scratch.
+	for _, port := range fixedPorts {
+		ln, listenErr := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		require.NoErrorf(t, listenErr, "planned port %d must be claimable again after teardown", port)
+		require.NoError(t, ln.Close())
 	}
 }
 
