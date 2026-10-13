@@ -4,7 +4,7 @@
 //      Bound to the fixed devnet address 0xb1ac000000000000000000000000000000000001. Installed as
 //      runtime bytecode in the L2 genesis alloc, so no constructor runs and storage starts zeroed.
 //      Do not add a constructor, initializer, owner, or proxy.
-pragma solidity ^0.8.28;
+pragma solidity 0.8.28;
 
 /// @title TxBlacklistTestable
 /// @notice Test-only Force Tx (deposit) blacklist for the X Layer devnet. The execution layer performs
