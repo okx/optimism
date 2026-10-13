@@ -82,8 +82,14 @@ func TestXLayerFixedPortsCrossProcess(gt *testing.T) {
 	// external listener.
 
 	raw := dialFixedPortsFromSeparateProcess(t)
-	require.Equal(t, "0xc3", strings.ToLower(raw.L1ChainID),
+	// The L1 validates its own chain ID, which is not the L2 chain ID: the
+	// assertion is that it answers on the fixed port and reports a chain of its
+	// own, while all three L2 ELs report the XLayer chain ID below.
+	require.NotEmpty(t, raw.L1ChainID,
 		"the L1 EL must answer eth_chainId on the fixed port %d", xlayerL1HTTPPort)
+	require.NotEqualf(t, "0xc3", strings.ToLower(raw.L1ChainID),
+		"the L1 EL must run its own chain, not the L2 chain ID; got %s", raw.L1ChainID)
+	t.Logf("L1 chain ID observed through the separate process: %s", raw.L1ChainID)
 	for i, chainID := range raw.ELChainIDs {
 		require.Equal(t, "0xc3", strings.ToLower(chainID),
 			"the L2 EL for sequencer index %d must report chainID 195 on its fixed port", i)
@@ -118,34 +124,43 @@ func xlayerGenesisHeight() uint64 { return sysgo.XLayerDefaultL2GenesisHeight }
 // process: it shares no memory, no sockets and no Go runtime with the test, so a
 // success here is real evidence that a foreign process can reach the listeners.
 func dialFixedPortsFromSeparateProcess(t devtest.T) rawFixedPortReport {
+	// The script is assembled with named tokens, not with a printf format: the
+	// Python source itself contains "%" operators, and a format pass would
+	// consume them.
 	script := `
 import json, sys, urllib.request
 
 def call(port, method, params):
     body = json.dumps({"jsonrpc":"2.0","id":1,"method":method,"params":params}).encode()
-    req = urllib.request.Request("http://127.0.0.1:%%d" % port, data=body,
+    req = urllib.request.Request("http://127.0.0.1:" + str(port), data=body,
                                  headers={"Content-Type":"application/json"})
     with urllib.request.urlopen(req, timeout=10) as resp:
         return resp.read().decode()
 
+el_ports = [__EL0__, __EL1__, __EL2__]
+conductor_ports = [__C1__, __C2__, __C3__]
+
 out = {}
-out["l1_chain_id"] = json.loads(call(%d, "eth_chainId", []))["result"]
-out["el_chain_ids"] = [json.loads(call(p, "eth_chainId", []))["result"] for p in (%d, %d, %d)]
-height = hex(%d)
+out["l1_chain_id"] = json.loads(call(__L1__, "eth_chainId", []))["result"]
+out["el_chain_ids"] = [json.loads(call(p, "eth_chainId", []))["result"] for p in el_ports]
+height = hex(__HEIGHT__)
 out["el_genesis_hashes"] = [
     (json.loads(call(p, "eth_getBlockByNumber", [height, False])).get("result") or {}).get("hash", "")
-    for p in (%d, %d, %d)
+    for p in el_ports
 ]
-out["conductor_responses"] = [call(p, "conductor_leader", []) for p in (%d, %d, %d)]
+out["conductor_responses"] = [call(p, "conductor_leader", []) for p in conductor_ports]
 sys.stdout.write(json.dumps(out))
-` //nolint:govet // a raw script literal is clearer than a dozen Sprintf placeholders
-	script = fmt.Sprintf(script,
-		xlayerL1HTTPPort,
-		xlayerELSeq0Port, xlayerELSeq1Port, xlayerELSeq2Port,
-		xlayerGenesisHeight(),
-		xlayerELSeq0Port, xlayerELSeq1Port, xlayerELSeq2Port,
-		xlayerConductor1RPCPort, xlayerConductor2RPCPort, xlayerConductor3RPCPort,
-	)
+`
+	script = strings.NewReplacer(
+		"__L1__", strconv.Itoa(xlayerL1HTTPPort),
+		"__EL0__", strconv.Itoa(xlayerELSeq0Port),
+		"__EL1__", strconv.Itoa(xlayerELSeq1Port),
+		"__EL2__", strconv.Itoa(xlayerELSeq2Port),
+		"__C1__", strconv.Itoa(xlayerConductor1RPCPort),
+		"__C2__", strconv.Itoa(xlayerConductor2RPCPort),
+		"__C3__", strconv.Itoa(xlayerConductor3RPCPort),
+		"__HEIGHT__", strconv.FormatUint(xlayerGenesisHeight(), 10),
+	).Replace(script)
 
 	ctx, cancel := context.WithTimeout(t.Ctx(), 60*time.Second)
 	defer cancel()
