@@ -17,10 +17,10 @@ import (
 func TestCheckNodePeerCount_ZeroMinDisabled(t *testing.T) {
 	logger := testlog.Logger(t, log.LevelDebug)
 	hm := &SequencerHealthMonitor{
-		log:        logger,
-		metrics:    &metrics.NoopMetricsImpl{},
+		log:          logger,
+		metrics:      &metrics.NoopMetricsImpl{},
 		minPeerCount: 0,
-		rollupCfg:  &rollup.Config{BlockTime: 2},
+		rollupCfg:    &rollup.Config{BlockTime: 2},
 		// p2p intentionally nil — a nil dereference would fail the test
 	}
 	err := hm.checkNodePeerCount(context.Background())

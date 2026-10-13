@@ -11,8 +11,8 @@ import (
 
 // TestScrapeHealthCheckCount_MetricAbsent verifies that scrapeHealthCheckCount returns an
 // error (never silently 0) when op_conductor_healthchecks_count{success="true"} is not
-// present in the metrics response.  This satisfies §11-P1: a scrape/parse failure must
-// surface as an error, not as a zero baseline that would allow a false "no change" result.
+// present in the metrics response.  A scrape or parse failure must surface as an error,
+// not as a zero baseline that would allow a false "no change" result.
 func TestScrapeHealthCheckCount_MetricAbsent(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Return a valid Prometheus page that has NO op_conductor_healthchecks_count line.
@@ -64,7 +64,7 @@ func TestScrapeHealthCheckCount_TwoLabelForm(t *testing.T) {
 	require.InDelta(t, 12.0, count, 0.001, "two-label form must be matched correctly")
 }
 
-// TestScrapeHealthCheckCount_HTTPError verifies that a non-200 response surfaces as an
+// TestScrapeHealthCheckCount_HTTPError verifies that a non-OK HTTP response surfaces as an
 // error rather than returning 0 silently.
 func TestScrapeHealthCheckCount_HTTPError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +73,7 @@ func TestScrapeHealthCheckCount_HTTPError(t *testing.T) {
 	defer srv.Close()
 
 	_, err := scrapeHealthCheckCount(context.Background(), srv.URL)
-	require.Error(t, err, "a non-200 response must surface as an error")
+	require.Error(t, err, "a non-OK HTTP response must surface as an error")
 }
 
 // TestScrapeHealthCheckCount_MalformedValue verifies that a malformed metric value

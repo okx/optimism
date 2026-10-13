@@ -282,7 +282,8 @@ func startXLayerConductorClusterSeeded(
 	require.NoError(err, "convert block to execution payload envelope")
 	require.NoError(bootstrap.service.CommitUnsafePayload(ctx, payload), "seed Raft FSM with current head payload")
 
-	// Verify the seeded payload is readable back from the leader (P2 criterion).
+	// Verify the seeded payload is readable back from the leader so every conductor
+	// starts from the same unsafe head the cluster was seeded with.
 	latest, readbackErr := bootstrap.service.LatestUnsafePayload(ctx)
 	require.NoError(readbackErr, "read back LatestUnsafePayload after commit")
 	require.NotNil(latest, "LatestUnsafePayload must not be nil after commit")
