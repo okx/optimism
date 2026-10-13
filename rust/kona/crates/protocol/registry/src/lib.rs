@@ -214,36 +214,22 @@ mod tests {
     /// `superchain-registry` submodule via
     /// `KONA_SYNC_SUPERCHAIN=true cargo build -p kona-registry`.
     ///
-    /// Today the registry defines a single `[interop]` cluster — `rehearsal-0-bn`
-    /// (chain ids 420120009, 420120010). If the rehearsal TOMLs change upstream,
+    /// The pinned registry defines a self-only `sepolia-devnet-2` interop cluster
+    /// (chain id 420130015). If the registry TOMLs change upstream,
     /// regenerate the snapshot and update the expected set below.
     #[test]
-    fn embedded_depset_for_rehearsal_0_bn_cluster() {
-        const REHEARSAL_0: u64 = 420120009;
-        const REHEARSAL_1: u64 = 420120010;
+    fn embedded_depset_for_sepolia_devnet_2() {
+        const SEPOLIA_DEVNET_2: u64 = 420130015;
 
-        let depset = DEPENDENCY_SETS.get(&REHEARSAL_0).unwrap_or_else(|| {
-            panic!(
-                "rehearsal-0-bn-0 (chain id {REHEARSAL_0}) missing from embedded DEPENDENCY_SETS",
-            )
-        });
-
-        // Both peers must resolve to the SAME cluster value (cluster identity).
-        assert_eq!(
-            DEPENDENCY_SETS.get(&REHEARSAL_0),
-            DEPENDENCY_SETS.get(&REHEARSAL_1),
-            "rehearsal-0-bn peers must map to the same DependencySet",
-        );
-
-        // The cluster's dependency map must contain exactly the two rehearsal chain ids.
+        let depset = DEPENDENCY_SETS
+            .get(&SEPOLIA_DEVNET_2)
+            .expect("sepolia-devnet-2 missing from embedded DEPENDENCY_SETS");
+        assert!(OPCHAINS.contains_key(&SEPOLIA_DEVNET_2));
         let expected: alloc::collections::BTreeSet<u64> =
-            [REHEARSAL_0, REHEARSAL_1].into_iter().collect();
+            [SEPOLIA_DEVNET_2].into_iter().collect();
         let actual: alloc::collections::BTreeSet<u64> =
             depset.dependencies.keys().copied().collect();
-        assert_eq!(
-            actual, expected,
-            "rehearsal-0-bn cluster membership mismatch (got {actual:?}, want {expected:?})",
-        );
+        assert_eq!(actual, expected, "sepolia-devnet-2 cluster membership mismatch");
 
         // Registry-derived clusters never carry an expiry-window override (the chain
         // TOML schema has no field for it; see `aggregate_clusters`).
