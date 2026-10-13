@@ -85,6 +85,13 @@ func TestXLayerConductorFailoverOnLeaderStop(gt *testing.T) {
 	wasLeader[leader.String()] = true
 	stoppedName := leader.String()
 
+	// Ensure all followers have received at least one fresh unsafe block from the
+	// leader and their health monitors are passing before we pull the leader's EL
+	// out from under them.  Without this, followers whose latest unsafe head is
+	// genesis (~60 s old at startup) cannot win the Raft election because the
+	// unsafe-interval health check fires immediately.
+	awaitAllHealthy(t, ctx, conductors, 60*time.Second)
+
 	require.NoError(t, els[stoppedName].StopControlled(ctx), "stop leader EL %s", stoppedName)
 
 	// Wait for a conductor other than the stopped one to win the election.

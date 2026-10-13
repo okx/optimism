@@ -131,6 +131,16 @@ func startXLayerConductorNode(
 			SafeInterval:   120,
 			SafeEnabled:    false,
 			MinPeerCount:   0, // 0 disables the CL peer count check: devnet dynamic peers drop silently
+			// EL availability check: conductor goes unhealthy when its local EL process
+			// dies (net_peerCount returns error).  MinPeerCount=0 means no peer count
+			// threshold — just the liveness probe.  This breaks the UnsafeInterval
+			// deadlock: when the leader EL stops, only the leader's conductor becomes
+			// unhealthy immediately; the other two conductors' ELs are still alive so
+			// they remain healthy and one can win the Raft re-election.
+			ExecutionP2pEnabled:      true,
+			ExecutionP2pRPCUrl:       l2EL.UserRPC(),
+			ExecutionP2pCheckApi:     "net",
+			ExecutionP2pMinPeerCount: 0,
 		},
 		RollupCfg:      *l2Net.rollupCfg,
 		RPCEnableProxy: false,

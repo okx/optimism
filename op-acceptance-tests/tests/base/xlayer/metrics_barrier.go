@@ -48,7 +48,10 @@ func scrapeHealthCheckCount(ctx context.Context, metricsURL string) (float64, er
 		if strings.HasPrefix(line, "#") {
 			continue
 		}
-		if strings.HasPrefix(line, `op_conductor_healthchecks_count{success="true"}`) {
+		// The metric may have additional labels (e.g. {success="true",error=""}) so
+		// we match by metric name prefix AND the success="true" label rather than an
+		// exact label-set prefix.
+		if strings.HasPrefix(line, "op_conductor_healthchecks_count") && strings.Contains(line, `success="true"`) {
 			parts := strings.Fields(line)
 			if len(parts) < 2 {
 				return 0, fmt.Errorf("unexpected metrics line format: %q", line)
@@ -63,7 +66,7 @@ func scrapeHealthCheckCount(ctx context.Context, metricsURL string) (float64, er
 	if scanErr := scanner.Err(); scanErr != nil {
 		return 0, fmt.Errorf("scan metrics response: %w", scanErr)
 	}
-	return 0, fmt.Errorf(`op_conductor_healthchecks_count{success="true"} not found at %s`, metricsURL)
+	return 0, fmt.Errorf("op_conductor_healthchecks_count with success=true not found at %s", metricsURL)
 }
 
 // awaitLeader polls the given ConductorSet until one conductor reports it is
