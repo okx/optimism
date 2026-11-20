@@ -31,6 +31,7 @@ use op_revm::{
     constants::{BASE_FEE_RECIPIENT, L1_FEE_RECIPIENT, OPERATOR_FEE_RECIPIENT},
     handler::OpHandler,
     precompiles::OpPrecompiles,
+    transaction::OpTxTr,
 };
 use revm::{
     Context, ExecuteEvm, InspectEvm, Inspector, Journal, MainContext, SystemCallEvm,
@@ -304,6 +305,29 @@ where
         if !is_blacklisted? {
             return Ok(None);
         }
+
+        tracing::warn!(
+            target: "alloy_op_evm::xlayer_blacklist",
+            alert = "XL_RCS_ALERT",
+            stage = "force_tx_blacklist",
+            reason = "tx_blacklist_hit",
+            outcome = "failed_deposit_payload_skipped",
+            tx_hash = op_tx
+                .enveloped_tx()
+                .map(|tx| tracing::field::display(alloy_primitives::keccak256(tx))),
+            source_hash = %source_hash,
+            from = %op_tx.caller(),
+            to = ?op_tx.kind(),
+            value = %op_tx.value(),
+            mint = op_tx.mint(),
+            gas_limit = op_tx.gas_limit(),
+            input_len = op_tx.input().len(),
+            input_hash = %alloy_primitives::keccak256(op_tx.input()),
+            blacklist_contract = %contract.contract(),
+            chain_id = self.ctx().cfg.chain_id,
+            block_height = %self.ctx().block.number,
+            "XL_RCS_ALERT force transaction blocked by TxBlacklist"
+        );
 
         let handler = OpHandler::<_, _, EthFrame<EthInterpreter>>::new();
         let error = EVMError::Transaction(OpTransactionError::Base(InvalidTransaction::Str(

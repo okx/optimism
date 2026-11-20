@@ -54,14 +54,81 @@ fn blacklist_deposit_tx_from(
             kind: TxKind::Call(BLACKLIST_TEST_TARGET),
             ..Default::default()
         },
+        // A deposit carried over RPC normally has enveloped bytes; these unit tests use the
+        // accessor-free shape so the alert's `tx_hash` field is exercised in both states.
+        enveloped_tx: None,
         deposit: DepositTransactionParts { source_hash, mint: Some(mint), is_system_transaction },
         ..Default::default()
     })
 }
 
+/// Wraps `f` in a minimal capturing subscriber and returns its result plus every emitted event
+/// line, so a test can assert the exact alert fields without a formatting dependency.
+fn capture_alerts<R>(f: impl FnOnce() -> R) -> (R, Vec<String>) {
+    use std::sync::{Arc, Mutex};
+
+    struct CaptureVisitor<'a> {
+        out: &'a mut String,
+    }
+
+    impl tracing::field::Visit for CaptureVisitor<'_> {
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn core::fmt::Debug) {
+            use core::fmt::Write;
+            let _ = write!(self.out, " {}={:?}", field.name(), value);
+        }
+    }
+
+    struct CaptureSubscriber {
+        lines: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl tracing::Subscriber for CaptureSubscriber {
+        fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+
+        fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+
+        fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
+
+        fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
+
+        fn event(&self, event: &tracing::Event<'_>) {
+            let mut line = format!("{} ", event.metadata().level());
+            event.record(&mut CaptureVisitor { out: &mut line });
+            self.lines.lock().unwrap().push(line);
+        }
+
+        fn enter(&self, _span: &tracing::span::Id) {}
+
+        fn exit(&self, _span: &tracing::span::Id) {}
+    }
+
+    let lines = Arc::new(Mutex::new(Vec::new()));
+    let subscriber = CaptureSubscriber { lines: Arc::clone(&lines) };
+    let out = tracing::subscriber::with_default(subscriber, f);
+    let captured = lines.lock().unwrap().clone();
+    (out, captured)
+}
+
+fn alerts(lines: &[String]) -> Vec<&String> {
+    lines.iter().filter(|line| line.contains("XL_RCS_ALERT")).collect()
+}
+
 fn run_deposit(
     query_code: &'static [u8],
     mint: u128,
+    spec: OpSpecId,
+    track_post_exec: bool,
+) -> DepositRun {
+    run_deposit_with(query_code, blacklist_deposit_tx(mint), spec, track_post_exec)
+}
+
+fn run_deposit_with(
+    query_code: &'static [u8],
+    tx: OpTx,
     spec: OpSpecId,
     track_post_exec: bool,
 ) -> DepositRun {
@@ -91,7 +158,6 @@ fn run_deposit(
         });
     }
 
-    let tx = blacklist_deposit_tx(mint);
     let result = evm.transact_raw(tx).expect("deposit execution must not abort");
     let context_tx = evm.ctx().tx.clone();
     let tracking_active = evm.post_exec_tracking_active;
@@ -115,7 +181,7 @@ fn hit_restores_original_tx_before_catch_error() {
 
 #[test]
 fn hit_with_mint_uses_existing_failed_deposit_path() {
-    let run = run_deposit(RETURN_TRUE, 10, OpSpecId::REGOLITH, false);
+    let (run, logs) = capture_alerts(|| run_deposit(RETURN_TRUE, 10, OpSpecId::REGOLITH, false));
     assert!(matches!(
         run.result.result,
         revm::context::result::ExecutionResult::Halt { reason: OpHaltReason::FailedDeposit, .. }
@@ -124,6 +190,90 @@ fn hit_with_mint_uses_existing_failed_deposit_path() {
     assert_eq!(caller.info.balance, U256::from(10));
     assert_eq!(caller.info.nonce, 1);
     assert!(!run.result.state.contains_key(&BLACKLIST_TEST_TARGET));
+
+    let alerts = alerts(&logs);
+    assert_eq!(alerts.len(), 1, "exactly one blacklist alert: {logs:?}");
+    let alert = alerts[0];
+    assert!(alert.starts_with("WARN "), "expected warn level: {alert}");
+    assert!(
+        alert.contains("XL_RCS_ALERT force transaction blocked by TxBlacklist"),
+        "expected the alert message: {alert}"
+    );
+    assert!(alert.contains("stage=\"force_tx_blacklist\""), "expected stage: {alert}");
+    assert!(alert.contains("reason=\"tx_blacklist_hit\""), "expected reason: {alert}");
+    assert!(
+        alert.contains("outcome=\"failed_deposit_payload_skipped\""),
+        "expected outcome: {alert}"
+    );
+    assert!(
+        alert.contains(&format!("source_hash={:#x}", BLACKLIST_TEST_SOURCE)),
+        "expected the queried source hash: {alert}"
+    );
+    assert!(
+        alert.contains(&format!("from={:#x}", BLACKLIST_TEST_CALLER)),
+        "expected the caller: {alert}"
+    );
+    assert!(alert.contains("to=Call("), "expected the target: {alert}");
+    assert!(alert.contains("value=0"), "expected the value: {alert}");
+    assert!(alert.contains("mint=10"), "expected the mint: {alert}");
+    assert!(alert.contains("gas_limit=100000"), "expected the gas limit: {alert}");
+    assert!(alert.contains("input_len=0"), "expected the input length: {alert}");
+    assert!(
+        alert.contains(&format!("input_hash={:#x}", alloy_primitives::keccak256(&[] as &[u8]))),
+        "expected the input hash: {alert}"
+    );
+    assert!(
+        alert.contains(&format!("blacklist_contract={:#x}", BLACKLIST_TEST_CONTRACT)),
+        "expected the blacklist contract: {alert}"
+    );
+    assert!(alert.contains("chain_id="), "expected the chain id: {alert}");
+    assert!(alert.contains("block_height=0"), "expected the block height: {alert}");
+    assert!(!alert.contains("tx_hash="), "no enveloped bytes means no tx_hash: {alert}");
+}
+
+#[test]
+fn hit_with_enveloped_tx_logs_the_deposit_hash() {
+    let enveloped = Bytes::from_static(&[0x02, 0x03, 0x04]);
+    let expected = alloy_primitives::keccak256(&enveloped);
+    let mut tx = blacklist_deposit_tx(10);
+    tx.0.enveloped_tx = Some(enveloped);
+
+    let (run, logs) =
+        capture_alerts(|| run_deposit_with(RETURN_TRUE, tx, OpSpecId::REGOLITH, false));
+    assert!(matches!(
+        run.result.result,
+        revm::context::result::ExecutionResult::Halt { reason: OpHaltReason::FailedDeposit, .. }
+    ));
+    let alerts = alerts(&logs);
+    assert_eq!(alerts.len(), 1, "exactly one blacklist alert: {logs:?}");
+    assert!(
+        alerts[0].contains(&format!("tx_hash={expected:#x}")),
+        "expected the enveloped-bytes hash: {}",
+        alerts[0]
+    );
+}
+
+#[test]
+fn non_blacklist_failed_deposit_emits_no_alert() {
+    // A deposit whose gas limit is below the intrinsic floor fails transaction validation and
+    // halts with `FailedDeposit` even though the blacklist query returned `false`.
+    let mut tx = blacklist_deposit_tx(10);
+    tx.0.base.gas_limit = 1;
+
+    let (run, logs) =
+        capture_alerts(|| run_deposit_with(RETURN_FALSE, tx, OpSpecId::REGOLITH, false));
+    assert!(
+        matches!(
+            &run.result.result,
+            revm::context::result::ExecutionResult::Halt {
+                reason: OpHaltReason::FailedDeposit,
+                ..
+            }
+        ),
+        "expected a non-blacklist FailedDeposit, got {:?}",
+        run.result.result
+    );
+    assert!(alerts(&logs).is_empty(), "a non-blacklist FailedDeposit must not alert: {logs:?}");
 }
 
 #[test]
@@ -148,19 +298,21 @@ fn hit_pre_regolith_user_gas_matches_existing_rule() {
 
 #[test]
 fn miss_executes_original_tx() {
-    let run = run_deposit(RETURN_FALSE, 10, OpSpecId::REGOLITH, false);
+    let (run, logs) = capture_alerts(|| run_deposit(RETURN_FALSE, 10, OpSpecId::REGOLITH, false));
     assert!(run.result.result.is_success());
     assert!(run.result.state.contains_key(&BLACKLIST_TEST_TARGET));
     let caller = caller_state(&run.result.state);
     assert_eq!(caller.info.balance, U256::from(10));
     assert_eq!(caller.info.nonce, 1);
+    assert!(alerts(&logs).is_empty(), "a miss must not alert: {logs:?}");
 }
 
 #[test]
 fn query_failure_executes_original_tx() {
-    let run = run_deposit(REVERT, 10, OpSpecId::REGOLITH, false);
+    let (run, logs) = capture_alerts(|| run_deposit(REVERT, 10, OpSpecId::REGOLITH, false));
     assert!(run.result.result.is_success());
     assert!(run.result.state.contains_key(&BLACKLIST_TEST_TARGET));
+    assert!(alerts(&logs).is_empty(), "a fail-open query must not alert: {logs:?}");
 }
 
 #[test]
@@ -172,8 +324,9 @@ fn hit_runs_common_post_exec_cleanup() {
 
 #[test]
 fn normal_and_gasless_paths_unchanged() {
-    let miss = run_deposit(RETURN_FALSE, 10, OpSpecId::REGOLITH, false);
+    let (miss, logs) = capture_alerts(|| run_deposit(RETURN_FALSE, 10, OpSpecId::REGOLITH, false));
     assert!(miss.result.result.is_success());
+    assert!(alerts(&logs).is_empty(), "a non-deposit path must not alert: {logs:?}");
     // Dedicated existing tests below cover basefee bypass/restoration for gasless txs; this
     // assertion locks the blacklist-specific invariant that non-deposits are never candidates.
     assert_eq!(
@@ -276,10 +429,11 @@ fn attributes_deposit_does_not_query_blacklist() {
         false,
         0,
     );
-    let result = evm.transact_raw(tx).unwrap();
+    let (result, logs) = capture_alerts(|| evm.transact_raw(tx).unwrap());
 
     assert!(result.result.is_success());
     assert_eq!(reads.load(std::sync::atomic::Ordering::Relaxed), 0);
+    assert!(alerts(&logs).is_empty(), "an attributes deposit must not alert: {logs:?}");
 }
 
 #[derive(Debug)]
@@ -351,9 +505,10 @@ fn query_database_error_aborts_execution() {
         kind: post_exec::PostExecTxKind::Deposit,
     });
 
-    let error = evm.transact_raw(blacklist_deposit_tx(10)).unwrap_err();
+    let (error, logs) = capture_alerts(|| evm.transact_raw(blacklist_deposit_tx(10)).unwrap_err());
 
     assert!(matches!(error, EVMError::Database(InjectedDbError)));
+    assert!(alerts(&logs).is_empty(), "a query error must not alert: {logs:?}");
     assert!(!evm.ctx().journaled_state.state.contains_key(&BLACKLIST_TEST_TARGET));
     assert!(!evm.post_exec_tracking_active);
     assert_eq!(evm.ctx().tx.caller(), BLACKLIST_TEST_CALLER);
